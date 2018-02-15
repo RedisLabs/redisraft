@@ -122,6 +122,7 @@ void __redis_requestvote_callback(redisAsyncContext *c, void *r, void *privdata)
             &response)) != 0) {
         LOG("raft_recv_requestvote_response failed => %d\n", ret);
     }
+    LOG_NODE(node, "received requestvote response\n");
 }
 
 
@@ -175,6 +176,7 @@ void __redis_appendentries_callback(redisAsyncContext *c, void *r, void *privdat
             &response)) != 0) {
         LOG_NODE(node, "raft_recv_appendentries_response failed => %d\n", ret);
     }
+    LOG_NODE(node, "received appendentries response\n");
 
 }
 
@@ -219,13 +221,13 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
 
 static int __raft_persist_vote(raft_server_t *raft, void *user_data, int vote)
 {
-    fprintf(stderr, "__raft_persist_vote\n");
+    fprintf(stderr, "__raft_persist_vote %d\n", vote);
     return 0;
 }
 
 static int __raft_persist_term(raft_server_t *raft, void *user_data, int term, int vote)
 {
-    fprintf(stderr, "__raft_persist_term\n");
+    fprintf(stderr, "__raft_persist_term term=%d vote=%d\n", term, vote);
     return 0;
 }
 
@@ -236,11 +238,13 @@ static void __raft_log(raft_server_t *raft, raft_node_t *node, void *user_data, 
 
 static int __raft_log_offer(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
+    fprintf(stderr, "[%d] log offer idx=%d\n", raft_get_nodeid(raft), entry_idx);
     return 0;
 }
 
 static int __raft_log_pop(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
+    fprintf(stderr, "[%d] log pop idx=%d\n", raft_get_nodeid(raft), entry_idx);
     return 0;
 }
 
@@ -475,7 +479,7 @@ static void __raft_timer(uv_timer_t *handle)
 {
     redis_raft_t *rr = (redis_raft_t *) uv_handle_get_data((uv_handle_t *) handle);
 
-    raft_periodic(rr->raft, 1000);
+    raft_periodic(rr->raft, 500);
 }
 
 static void redis_raft_thread(void *arg)
@@ -489,7 +493,7 @@ static void redis_raft_thread(void *arg)
 
     uv_timer_init(rr->loop, &rr->ptimer);
     uv_handle_set_data((uv_handle_t *) &rr->ptimer, rr);
-    uv_timer_start(&rr->ptimer, __raft_timer, 5000, 1000);
+    uv_timer_start(&rr->ptimer, __raft_timer, 5000, 500);
 
     uv_run(rr->loop, UV_RUN_DEFAULT);
 }
