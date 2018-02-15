@@ -279,8 +279,10 @@ static void free_request(redis_raft_req_t *req)
 static redis_raft_req_t *create_request(RedisModuleCtx *ctx, redis_raft_req_callback_t callback)
 {
     redis_raft_req_t *req = RedisModule_Alloc(sizeof(redis_raft_req_t));
-    req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-    req->ctx = RedisModule_GetThreadSafeContext(req->client);
+    if (ctx != NULL) {
+        req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        req->ctx = RedisModule_GetThreadSafeContext(req->client);
+    }
     req->callback = callback;
     
     return req;
@@ -438,14 +440,17 @@ static int _cmd_raft_addnode(redis_raft_req_t *req)
     node->port = req->r.addnode.addr.port;
 
     /* Before attempting to connect, try to add the node */
-    if (!raft_add_node(redis_raft.raft, node, node->id, 0)) {
-        RedisModule_ReplyWithError(req->ctx, "node id exists");
+    raft_node_t *raft_node;
+    if (!(raft_node = raft_add_node(redis_raft.raft, node, node->id, 0))) {
+        if (req->ctx) RedisModule_ReplyWithError(req->ctx, "node id exists");
         node_free(node);
         goto exit;
     }
 
     /* Connect */
     node_connect(node);
+    if (!req->ctx) return REDISMODULE_OK;
+
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
 
 exit:
@@ -720,6 +725,34 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
+    if (redis_raft_init(ctx, &redis_raft, id) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
 
-    return redis_raft_init(ctx, &redis_raft, id);
+    /* Configure additional nodes -- TODO: replace with better syntax, error handling */
+    sleep(1);
+    int i;
+    for (i = 1; i < argc; i++) {
+        size_t tmplen;
+        const char *tmpstr = RedisModule_StringPtrLen(argv[i], &tmplen);
+
+        const char *colon = memchr(tmpstr, ':', tmplen);
+        int node_id_len = colon - tmpstr;
+        char node_id_str[node_id_len + 1];
+        memcpy(node_id_str, tmpstr, node_id_len);
+        node_id_str[node_id_len] = '\0';
+        int node_id = strtoul(node_id_str, NULL, 10);
+
+        node_addr_t node_addr;
+        if (!parse_node_addr(colon + 1, tmplen - node_id_len - 1, &node_addr)) {
+            return REDISMODULE_ERR;
+        }
+
+        redis_raft_req_t *req = create_request(NULL, _cmd_raft_addnode);
+        req->r.addnode.id = node_id;
+        req->r.addnode.addr = node_addr;
+        enqueue_request(req);
+    }
+
+    return REDISMODULE_OK;
 }
