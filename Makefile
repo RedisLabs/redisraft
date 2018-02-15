@@ -22,3 +22,4 @@ deps: $(BUILDDIR)/.deps_installed
 $(BUILDDIR)/.deps_installed:
 	mkdir -p $(BUILDDIR)
 	$(MAKE) -C deps PREFIX=$(BUILDDIR)
+	touch $(BUILDDIR)/.deps_installed

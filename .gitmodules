@@ -7,3 +7,6 @@
 [submodule "deps/raft"]
 	path = deps/raft
 	url = https://github.com/willemt/raft
+[submodule "deps/tpl"]
+	path = deps/tpl
+	url = https://github.com/troydhanson/tpl

@@ -2,7 +2,7 @@ ifeq ($(PREFIX),)
     $(error PREFIX was not specified)
 endif
 
-all:	libuv hiredis raft
+all:	libuv hiredis raft tpl
 
 clean:
 	$(MAKE) -C hiredis clean
@@ -35,3 +35,16 @@ raft: raft/Makefile
 	    make static GCOV_CCFLAGS= && \
 	    cp libraft.a $(PREFIX)/lib && \
 	    cp include/raft.h $(PREFIX)/include
+
+##
+
+.PHONY: tpl
+tpl: tpl/Makefile
+	$(MAKE) -C tpl && $(MAKE) -C tpl install
+
+tpl/Makefile: tpl/configure
+	cd tpl && ./configure --with-pic --prefix=$(PREFIX)
+
+tpl/configure: tpl/bootstrap
+	cd tpl && ./bootstrap
+
