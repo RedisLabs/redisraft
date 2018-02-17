@@ -4,13 +4,13 @@ CFLAGS = -g -std=c99 -I$(BUILDDIR)/include -fPIC
 LDFLAGS = -shared
 LIBS = $(BUILDDIR)/lib/libraft.a $(BUILDDIR)/lib/libuv.a -lpthread
 
-OBJECTS = rafter.o
+OBJECTS = redisraft.o
 
-rafter.so: deps $(OBJECTS)
+redisraft.so: deps $(OBJECTS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 
 clean:
-	rm -f rafter.so rafter.o
+	rm -f redisraft.so redisraft.o
 
 cleanall: clean
 	rm -rf $(BUILDDIR)

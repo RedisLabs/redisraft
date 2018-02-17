@@ -79,9 +79,12 @@ typedef struct redis_raft_req {
             int src_node_id;
             msg_requestvote_t msg;
         } requestvote;
+        struct {
+            int argc;
+            RedisModuleString **argv;
+            msg_entry_response_t response;
+        } raft;
     } r;
-    int argc;
-    RedisModuleString **argv;
 } redis_raft_req_t;
 
 typedef struct {
@@ -91,10 +94,113 @@ typedef struct {
     uv_async_t async;
     uv_timer_t ptimer;
     STAILQ_HEAD(rqueue, redis_raft_req) rqueue;
+    STAILQ_HEAD(cqueue, redis_raft_req) cqueue;
     RedisModuleCtx *ctx;
 } redis_raft_t;
 
 redis_raft_t redis_raft = { 0 };
+
+static void serialize_argv(raft_entry_data_t *target, RedisModuleString **argv, int argc)
+{
+    size_t sz = sizeof(size_t) * (argc + 1);
+    size_t len;
+    int i;
+    char *p;
+
+    /* Compute sizes */
+    for (i = 0; i < argc; i++) {
+        RedisModule_StringPtrLen(argv[i], &len);
+        sz += len;
+    }
+
+    /* Serialize argc */
+    p = target->buf = RedisModule_Alloc(sz);
+    target->len = sz;
+
+    *(size_t *)p = argc;
+    p += sizeof(size_t);
+
+    /* Serialize argumnets */
+    for (i = 0; i < argc; i++) {
+        const char *d = RedisModule_StringPtrLen(argv[i], &len);
+        *(size_t *)p = len;
+        p += sizeof(size_t);
+        memcpy(p, d, len);
+        p += len;
+    }
+}
+
+static int deserialize_argv(RedisModuleCtx *ctx, 
+        RedisModuleString ***argv, raft_entry_data_t *source)
+{
+    char *p = source->buf;
+    size_t argc = *(size_t *)p;
+    p += sizeof(size_t);
+
+    *argv = RedisModule_Calloc(argc, sizeof(RedisModuleString *));
+
+    int i;
+    for (i = 0; i < argc; i++) {
+        size_t len = *(size_t *)p;
+        p += sizeof(size_t);
+
+        (*argv)[i] = RedisModule_CreateString(ctx, p, len);
+        p += len;
+    }
+
+    return argc;
+}
+
+void execute_log_entry(raft_entry_t *entry)
+{
+    RedisModuleString **argv;
+    int argc = deserialize_argv(redis_raft.ctx, &argv, &entry->data);
+
+    size_t cmdlen;
+    const char *cmd = RedisModule_StringPtrLen(argv[0], &cmdlen);
+
+    RedisModule_ThreadSafeContextLock(redis_raft.ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(
+            redis_raft.ctx, cmd, "v",
+            &argv[1],
+            argc - 1);
+    RedisModule_ThreadSafeContextUnlock(redis_raft.ctx);
+}
+
+void execute_committed_req(redis_raft_req_t *req)
+{
+    RedisModuleString *argv;
+    int argc;
+
+    size_t cmdlen;
+    const char *cmd = RedisModule_StringPtrLen(req->r.raft.argv[0], &cmdlen);
+
+    RedisModule_ThreadSafeContextLock(req->ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(
+            req->ctx, cmd, "v",
+            &req->r.raft.argv[1],
+            req->r.raft.argc - 1);
+    RedisModule_ThreadSafeContextUnlock(req->ctx);
+
+    RedisModule_ReplyWithCallReply(req->ctx, reply);
+    RedisModule_FreeThreadSafeContext(req->ctx);
+    RedisModule_UnblockClient(req->client, NULL);
+    req->ctx = NULL;
+}
+
+void iterate_cqueue(void)
+{
+    while (!STAILQ_EMPTY(&redis_raft.cqueue)) {
+        redis_raft_req_t *req = STAILQ_FIRST(&redis_raft.cqueue);
+        if (!raft_msg_entry_response_committed(redis_raft.raft, &req->r.raft.response)) {
+            return;
+        }
+
+        /* Execute and reply */
+        execute_committed_req(req);
+        STAILQ_REMOVE_HEAD(&redis_raft.cqueue, entries);
+    }
+}
 
 void __redis_requestvote_callback(redisAsyncContext *c, void *r, void *privdata)
 {
@@ -134,7 +240,7 @@ static int __raft_send_requestvote(raft_server_t *raft, void *user_data,
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
 
     if (redisAsyncCommand(node->rc, __redis_requestvote_callback,
-                node, "RAFT.REQUESTVOTE %d %d:%d:%d:%d", 
+                node, "RAFT.REQUESTVOTE %d %d:%d:%d:%d",
                 raft_get_nodeid(raft),
                 msg->term,
                 msg->candidate_id,
@@ -178,6 +284,8 @@ void __redis_appendentries_callback(redisAsyncContext *c, void *r, void *privdat
     }
     LOG_NODE(node, "received appendentries response\n");
 
+    /* Maybe we have pending stuff to apply now */
+    iterate_cqueue(); 
 }
 
 static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
@@ -187,7 +295,7 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
     int argc = 4 + msg->n_entries * 2;
     char *argv[argc];
     size_t argvlen[argc];
-    
+
     if (node->state != NODE_CONNECTED) {
         // TODO try to buffer
         LOG_NODE(node, "not connected");
@@ -207,7 +315,7 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
     int i;
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = &msg->entries[i];
-        argvlen[4 + i*2] = asprintf(&argv[6], "%d:%d:%d", e->term, e->id, e->type);
+        argvlen[4 + i*2] = asprintf(&argv[4 + i*2], "%d:%d:%d", e->term, e->id, e->type);
         argvlen[5 + i*2] = e->data.len;
         argv[5 + i*2] = e->data.buf;
     }
@@ -248,6 +356,11 @@ static int __raft_log_pop(raft_server_t *raft, void *user_data, raft_entry_t *en
     return 0;
 }
 
+static int __raft_applylog(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+{
+    execute_log_entry(entry);
+    return 0;
+}
 
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = __raft_send_requestvote,
@@ -256,7 +369,8 @@ raft_cbs_t redis_raft_callbacks = {
     .persist_term = __raft_persist_term,
     .log_offer = __raft_log_offer,
     .log_pop = __raft_log_pop,
-    .log = __raft_log
+    .log = __raft_log,
+    .applylog = __raft_applylog,
 };
 
 
@@ -305,8 +419,6 @@ static int enqueue_raft_command(RedisModuleCtx *ctx, redis_raft_req_callback_t c
     req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
     req->ctx = RedisModule_GetThreadSafeContext(req->client);
     req->callback = callback;
-    req->argv = argv;
-    req->argc = argc;
 
     STAILQ_INSERT_TAIL(&redis_raft.rqueue, req, entries);
     uv_async_send(&redis_raft.async);
@@ -464,6 +576,50 @@ exit:
     return REDISMODULE_OK;
 }
 
+static int _cmd_raft(redis_raft_req_t *req)
+{
+    raft_node_t *leader = raft_get_current_leader_node(redis_raft.raft);
+    if (!leader) {
+        RedisModule_ReplyWithError(req->ctx, "-NOLEADER");
+        goto exit;
+    }
+    if (raft_node_get_id(leader) != raft_get_nodeid(redis_raft.raft)) {
+        node_t *l = raft_node_get_udata(leader);
+        char *reply;
+       
+        asprintf(&reply, "LEADERIS %s:%u", l->addr, l->port);
+
+        RedisModule_ReplyWithError(req->ctx, reply);
+        goto exit;
+    }
+
+    raft_entry_t entry = {
+        .id = rand(),
+        .type = RAFT_LOGTYPE_NORMAL,
+    };
+
+    serialize_argv(&entry.data, req->r.raft.argv, req->r.raft.argc);
+    int e = raft_recv_entry(redis_raft.raft, &entry, &req->r.raft.response);
+    if (e) {
+        // todo handle errors
+        RedisModule_Free(entry.data.buf);
+        RedisModule_ReplyWithSimpleString(req->ctx, "ERROR");
+        goto exit;
+    }
+
+    // We're now waiting 
+    STAILQ_INSERT_TAIL(&redis_raft.cqueue, req, entries);
+
+    return REDISMODULE_OK;
+
+exit:
+    RedisModule_FreeThreadSafeContext(req->ctx);
+    RedisModule_UnblockClient(req->client, NULL);
+    req->ctx = NULL;
+    return REDISMODULE_OK;
+
+}
+
 
 static void handle_cmd(uv_async_t *handle)
 {
@@ -503,6 +659,7 @@ int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, int node_id)
 {
     memset(rr, 0, sizeof(redis_raft_t));
     STAILQ_INIT(&rr->rqueue);
+    STAILQ_INIT(&rr->cqueue);
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
 
     /* Initialize raft library */
@@ -628,6 +785,21 @@ error_cleanup:
     return REDISMODULE_OK;
 }
 
+int cmd_raft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    redis_raft_req_t *req = create_request(ctx, _cmd_raft);
+    req->r.raft.argc = argc - 1;
+    req->r.raft.argv = &argv[1];
+    enqueue_request(req);
+
+    return REDISMODULE_OK;
+}
+
 int cmd_raft_appendentries(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     redis_raft_t *rr = &redis_raft;
@@ -711,6 +883,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     long long id;
     if (RedisModule_StringToLongLong(argv[0], &id) != REDISMODULE_OK || id <= 0) {
         RedisModule_Log(ctx, LOGLEVEL_WARNING, "Invalid node ID");
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft",
+                cmd_raft, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

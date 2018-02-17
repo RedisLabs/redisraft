@@ -16,7 +16,7 @@ colorize() {
     done
 }
 
-../redis/src/redis-server --port 5001 --loadmodule `pwd`/rafter.so 1 2:localhost:5002 3:localhost:5003 2>&1 | colorize yellow&
-../redis/src/redis-server --port 5002 --loadmodule `pwd`/rafter.so 2 1:localhost:5001 3:localhost:5003 2>&1 | colorize magenta&
-../redis/src/redis-server --port 5003 --loadmodule `pwd`/rafter.so 3 1:localhost:5001 2:localhost:5002 2>&1 | colorize cyan&
+../redis/src/redis-server --port 5001 --loadmodule `pwd`/redisraft.so 1 2:localhost:5002 3:localhost:5003 2>&1 | colorize yellow&
+../redis/src/redis-server --port 5002 --loadmodule `pwd`/redisraft.so 2 1:localhost:5001 3:localhost:5003 2>&1 | colorize magenta&
+../redis/src/redis-server --port 5003 --loadmodule `pwd`/redisraft.so 3 1:localhost:5001 2:localhost:5002 2>&1 | colorize cyan&
 read
