@@ -1,0 +1,9 @@
+* Code cleanup / reorg / memory free
+* Networking, handle conn state and reconnects
+* Cluster key
+* Persistence
+* Snapshotting/compaction
+* INFO commands
+* Command hooking for transparency
+* Membership management, add/remove node
+* Binary / datagram messaging
