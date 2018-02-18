@@ -40,6 +40,7 @@ static void node_on_connect(const redisAsyncContext *c, int status)
         LOG_NODE(node, "failed to connect, status = %d\n", status);
         return;
     }
+    node->state &= ~NODE_CONNECTING;
     node->state |= NODE_CONNECTED;
     LOG_NODE(node, "connection established.\n");
 }
@@ -48,7 +49,9 @@ static void node_on_disconnect(const redisAsyncContext *c, int status)
 {
     node_t *node = (node_t *) c->data;
     node->state &= ~NODE_CONNECTED;
-    LOG_NODE(node, "connection dropped.\n");
+    LOG_NODE(node, "connection dropped, reconnecting\n");
+
+    node_connect(node, node->rr);
 }
 
 static void node_on_resolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
@@ -69,6 +72,10 @@ static void node_on_resolved(uv_getaddrinfo_t *resolver, int status, struct addr
     node->rc = redisAsyncConnect(addr, node->addr.port);
     if (node->rc->err) {
         LOG_NODE(node, "failed to initiate connection\n");
+
+        /* We try again */
+        uv_freeaddrinfo(res);
+        node_connect(node, node->rr);
         return;
     }
 
@@ -90,6 +97,7 @@ void node_connect(node_t *node, redis_raft_t *rr)
         .ai_flags = 0
     };
 
+    node->state = NODE_CONNECTING;
     node->rr = rr;
     uv_req_set_data((uv_req_t *)&node->uv_resolver, node);
     int r = uv_getaddrinfo(rr->loop, &node->uv_resolver, node_on_resolved,

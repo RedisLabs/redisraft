@@ -5,14 +5,20 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 
+#define REDISMODULE_EXPERIMENTAL_API
+#define LOGLEVEL_DEBUG      "debug"
+#define LOGLEVEL_VERBOSE    "verbose"
+#define LOGLEVEL_NOTICE     "notice"
+#define LOGLEVEL_WARNING    "warning"
+
 #include "uv.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "redismodule.h"
 #include "raft.h"
 
-#define NODE_CONNECTING     0
 #define NODE_CONNECTED      1
+#define NODE_CONNECTING     2
 
 #define LOG(fmt, ...) \
     fprintf(stderr, "<<redis-raft>> " fmt, ##__VA_ARGS__)
@@ -24,6 +30,7 @@ typedef struct {
     void *raft;                 /* Raft library context */
     RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
                                    we get from the leader. */
+    bool running;               /* Thread is running */
     uv_thread_t thread;         /* Raft I/O thread */
     uv_loop_t *loop;            /* Raft I/O loop */
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
@@ -51,7 +58,7 @@ typedef struct {
 } node_t;
 
 struct raft_req;
-typedef int (*raft_req_callback_t)(struct raft_req *);
+typedef int (*raft_req_callback_t)(redis_raft_t *, struct raft_req *);
 
 enum raft_req_type {
     RAFT_REQ_ADDNODE = 1,
@@ -94,6 +101,18 @@ extern void node_free(node_t *node);
 extern node_t *node_init(int id, const node_addr_t *addr);
 extern void node_connect(node_t *node, redis_raft_t *rr);
 extern bool parse_node_addr(const char *node_addr, size_t node_addr_len, node_addr_t *result);
+void node_addr_free(node_addr_t *node_addr);
+
+/* raft.c */
+void redis_raft_serialize(raft_entry_data_t *target, RedisModuleString **argv, int argc);
+int redis_raft_deserialize(RedisModuleCtx *ctx, RedisModuleString ***argv, raft_entry_data_t *source);
+int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, int node_id);
+int redis_raft_start(RedisModuleCtx *ctx, redis_raft_t *rr);
+
+void raft_req_free(raft_req_t *req);
+raft_req_t *raft_req_init(RedisModuleCtx *ctx, enum raft_req_type type);
+void raft_req_submit(redis_raft_t *rr, raft_req_t *req);
+void raft_req_handle_rqueue(uv_async_t *handle);
 
 /* util.c */
 extern int rmstring_to_int(RedisModuleString *str, int *value);

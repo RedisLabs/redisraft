@@ -5,7 +5,7 @@ CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
 LDFLAGS = -shared
 LIBS = $(BUILDDIR)/lib/libraft.a $(BUILDDIR)/lib/libuv.a -lpthread
 
-OBJECTS = redisraft.o node.o util.o
+OBJECTS = redisraft.o node.o util.o raft.o
 
 redisraft.so: deps $(OBJECTS)
 	$(LD) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
