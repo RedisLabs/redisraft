@@ -69,8 +69,11 @@ enum raft_req_type {
 
 extern raft_req_callback_t raft_req_callbacks[];
 
+#define RAFT_REQ_PENDING_COMMIT 1
+
 typedef struct raft_req {
     int type;
+    int flags;
     STAILQ_ENTRY(raft_req) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;

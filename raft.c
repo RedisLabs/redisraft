@@ -79,6 +79,7 @@ static void execute_log_entry(redis_raft_t *rr, raft_entry_t *entry)
             rr->ctx, cmd, "v",
             &argv[1],
             argc - 1);
+    RedisModule_FreeCallReply(reply);
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
 }
 
@@ -98,6 +99,7 @@ static void execute_committed_req(raft_req_t *req)
     RedisModule_ThreadSafeContextUnlock(req->ctx);
 
     RedisModule_ReplyWithCallReply(req->ctx, reply);
+    RedisModule_FreeCallReply(reply);
     RedisModule_FreeThreadSafeContext(req->ctx);
     RedisModule_UnblockClient(req->client, NULL);
     req->ctx = NULL;
@@ -253,6 +255,13 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
                 node, argc, (const char **)argv, argvlen) != REDIS_OK) {
         LOG_NODE(node, "failed appendentries");
     }
+
+    free(argv[1]);
+    free(argv[2]);
+    free(argv[3]);
+    for (i = 0; i < msg->n_entries; i++) {
+        free(argv[4 + i*2]);
+    }
     return 0;
 }
 
@@ -377,7 +386,7 @@ void raft_req_free(raft_req_t *req)
 
 raft_req_t *raft_req_init(RedisModuleCtx *ctx, enum raft_req_type type)
 {
-    raft_req_t *req = RedisModule_Alloc(sizeof(raft_req_t));
+    raft_req_t *req = RedisModule_Calloc(1, sizeof(raft_req_t));
     if (ctx != NULL) {
         req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
@@ -403,7 +412,9 @@ void raft_req_handle_rqueue(uv_async_t *handle)
         raft_req_t *req = STAILQ_FIRST(&rr->rqueue);
         raft_req_callbacks[req->type](rr, req);
         STAILQ_REMOVE_HEAD(&rr->rqueue, entries);
-        raft_req_free(req);
+        if (!(req->flags & RAFT_REQ_PENDING_COMMIT)) {
+            raft_req_free(req);
+        }
     }
 }
 
@@ -502,6 +513,7 @@ static int __raft_rediscommand(redis_raft_t *rr,raft_req_t *req)
         asprintf(&reply, "LEADERIS %s:%u", l->addr.host, l->addr.port);
 
         RedisModule_ReplyWithError(req->ctx, reply);
+        free(reply);
         goto exit;
     }
 
@@ -520,6 +532,7 @@ static int __raft_rediscommand(redis_raft_t *rr,raft_req_t *req)
     }
 
     // We're now waiting 
+    req->flags |= RAFT_REQ_PENDING_COMMIT;
     STAILQ_INSERT_TAIL(&rr->cqueue, req, entries);
 
     return REDISMODULE_OK;
