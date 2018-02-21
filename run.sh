@@ -16,7 +16,7 @@ colorize() {
     done
 }
 
-../redis/src/redis-server --port 5001 --loadmodule `pwd`/redisraft.so 1 2:localhost:5002 3:localhost:5003 2>&1 | colorize yellow&
-../redis/src/redis-server --port 5002 --loadmodule `pwd`/redisraft.so 2 1:localhost:5001 3:localhost:5003 2>&1 | colorize magenta&
-../redis/src/redis-server --port 5003 --loadmodule `pwd`/redisraft.so 3 1:localhost:5001 2:localhost:5002 2>&1 | colorize cyan&
+valgrind --suppressions=valgrind.sup --leak-check=full --show-reachable=yes --log-file=vg1.log ../redis/src/redis-server --port 5001 --loadmodule `pwd`/redisraft.so id=1 node=2,localhost:5002 node=3,localhost:5003 2>&1 | colorize yellow&
+valgrind --suppressions=valgrind.sup --leak-check=full --show-reachable=yes --log-file=vg2.log ../redis/src/redis-server --port 5002 --loadmodule `pwd`/redisraft.so id=2 node=1,localhost:5001 node=3,localhost:5003 2>&1 | colorize magenta&
+valgrind --suppressions=valgrind.sup --leak-check=full --show-reachable=yes --log-file=vg3.log ../redis/src/redis-server --port 5003 --loadmodule `pwd`/redisraft.so id=3 node=1,localhost:5001 node=2,localhost:5002 2>&1 | colorize cyan&
 read

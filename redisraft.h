@@ -25,7 +25,6 @@
 #define LOG_NODE(node, fmt, ...) \
     LOG("node:%u: " fmt, (node)->id, ##__VA_ARGS__)
 
-
 typedef struct {
     void *raft;                 /* Raft library context */
     RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
@@ -39,11 +38,21 @@ typedef struct {
     STAILQ_HEAD(cqueue, raft_req) cqueue;     /* Pending commit queue */
 } redis_raft_t;
 
-
 typedef struct node_addr {
     uint16_t port;
     char *host;
 } node_addr_t;
+
+typedef struct node_config {
+    int id;
+    node_addr_t addr;
+    struct node_config *next;
+} node_config_t;
+
+typedef struct {
+    int id;                     /* Local node id */
+    node_config_t *nodes;       /* Linked list of nodes */
+} redis_raft_config_t;
 
 
 typedef struct {
@@ -98,18 +107,24 @@ typedef struct raft_req {
     } r;
 } raft_req_t;
 
+typedef struct raft_rediscommand {
+    int argc;
+    RedisModuleString **argv;
+} raft_rediscommand_t;
 
 /* node.c */
 extern void node_free(node_t *node);
 extern node_t *node_init(int id, const node_addr_t *addr);
 extern void node_connect(node_t *node, redis_raft_t *rr);
-extern bool parse_node_addr(const char *node_addr, size_t node_addr_len, node_addr_t *result);
+extern bool node_addr_parse(const char *node_addr, size_t node_addr_len, node_addr_t *result);
 void node_addr_free(node_addr_t *node_addr);
+node_config_t *node_config_parse(RedisModuleCtx *ctx, const char *str);
 
 /* raft.c */
 void redis_raft_serialize(raft_entry_data_t *target, RedisModuleString **argv, int argc);
-int redis_raft_deserialize(RedisModuleCtx *ctx, RedisModuleString ***argv, raft_entry_data_t *source);
-int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, int node_id);
+bool redis_raft_deserialize(RedisModuleCtx *ctx, raft_rediscommand_t *target, raft_entry_data_t *source);
+void raft_rediscommand_free(RedisModuleCtx *ctx, raft_rediscommand_t *r);
+int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *config);
 int redis_raft_start(RedisModuleCtx *ctx, redis_raft_t *rr);
 
 void raft_req_free(raft_req_t *req);

@@ -48,7 +48,7 @@ static void node_on_connect(const redisAsyncContext *c, int status)
 static void node_on_disconnect(const redisAsyncContext *c, int status)
 {
     node_t *node = (node_t *) c->data;
-    node->state &= ~NODE_CONNECTED;
+    node->state &= ~(NODE_CONNECTED|NODE_CONNECTING);
     LOG_NODE(node, "connection dropped, reconnecting\n");
 
     node_connect(node, node->rr);
@@ -88,14 +88,17 @@ static void node_on_resolved(uv_getaddrinfo_t *resolver, int status, struct addr
 
 void node_connect(node_t *node, redis_raft_t *rr)
 {
-
-    /* Always begin by resolving */
     struct addrinfo hints = {
         .ai_family = PF_INET,
         .ai_socktype = SOCK_STREAM,
         .ai_protocol = IPPROTO_TCP,
         .ai_flags = 0
     };
+
+    /* Don't try to connect if we're already connecting */
+    if (node->state & NODE_CONNECTING) {
+        return;
+    }
 
     node->state = NODE_CONNECTING;
     node->rr = rr;
@@ -108,7 +111,7 @@ void node_connect(node_t *node, redis_raft_t *rr)
     }
 }
 
-bool parse_node_addr(const char *node_addr, size_t node_addr_len, node_addr_t *result)
+bool node_addr_parse(const char *node_addr, size_t node_addr_len, node_addr_t *result)
 {
     char buf[32] = { 0 };
     char *endptr;
@@ -142,4 +145,26 @@ bool parse_node_addr(const char *node_addr, size_t node_addr_len, node_addr_t *r
     return true;
 }
 
+node_config_t *node_config_parse(RedisModuleCtx *ctx, const char *str)
+{
+    node_config_t *c = RedisModule_Calloc(1, sizeof(node_config_t));
+    char *errptr;
 
+    c->id = strtol(str, &errptr, 10);
+    if (*errptr != ',') {
+        RedisModule_Log(ctx, LOGLEVEL_WARNING, "Invalid node configuration format");
+        goto parse_error;
+    }
+
+    if (!node_addr_parse(errptr + 1, strlen(errptr + 1), &c->addr)) {
+        RedisModule_Log(ctx, LOGLEVEL_WARNING, "Invalid node 'addr' field");
+        goto parse_error;
+    }
+
+    return c;
+
+parse_error:
+    node_addr_free(&c->addr);
+    RedisModule_Free(c);
+    return NULL;
+}

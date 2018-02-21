@@ -5,10 +5,9 @@
 #include "redisraft.h"
 
 static redis_raft_t redis_raft = { 0 };
+static redis_raft_config_t config;
 
 #define VALID_NODE_ID(x)    ((x) > 0)
-
-/**********************************************************************/
 
 int cmd_raft_addnode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -31,7 +30,7 @@ int cmd_raft_addnode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     node_addr_t node_addr;
     size_t node_addr_len;
     const char *node_addr_str = RedisModule_StringPtrLen(argv[2], &node_addr_len);
-    if (!parse_node_addr(node_addr_str, node_addr_len, &node_addr)) {
+    if (!node_addr_parse(node_addr_str, node_addr_len, &node_addr)) {
         RedisModule_ReplyWithError(ctx, "invalid node address");
         return REDISMODULE_OK;
     }
@@ -136,7 +135,9 @@ int cmd_raft_appendentries(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     }
 
     req->r.appendentries.msg.n_entries = n_entries;
-    req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(req->r.appendentries.msg.entries[0]));
+    if (n_entries > 0) {
+        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(req->r.appendentries.msg.entries[0]));
+    }
     for (i = 0; i < n_entries; i++) {
         msg_entry_t *e = &req->r.appendentries.msg.entries[i];
 
@@ -163,23 +164,86 @@ error_cleanup:
     return REDISMODULE_OK;
 }
 
+
+static int parse_config_args(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, redis_raft_config_t *target)
+{
+    int i;
+
+    memset(target, 0, sizeof(*target));
+    for (i = 0; i < argc; i++) {
+        size_t arglen;
+        const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
+        const char *eq = memchr(arg, '=', arglen);
+
+        if (!eq) {
+            RedisModule_Log(ctx, LOGLEVEL_WARNING, "invalid argument: '%.*s'", arglen, arg);
+            return REDISMODULE_ERR;
+        }
+
+        size_t kwlen = eq - arg;
+        size_t vlen = arglen - kwlen - 1;
+
+        char valbuf[vlen + 1];
+        memcpy(valbuf, eq + 1, vlen);
+        valbuf[vlen] = '\0';
+
+        if (kwlen == 2 && !memcmp(arg, "id", kwlen)) {
+            char *errptr;
+            target->id = strtoul(valbuf, &errptr, 10);
+            if (*errptr != '\0') {
+                RedisModule_Log(ctx, LOGLEVEL_WARNING, "invalid 'id' value");
+                return REDISMODULE_ERR;
+            }
+        } else if (kwlen == 4 && !memcmp(arg, "node", kwlen)) {
+            node_config_t *n = node_config_parse(ctx, valbuf);
+            if (!n) {
+                RedisModule_Log(ctx, LOGLEVEL_WARNING, "invalid node configuration: '%s'", valbuf);
+                return REDISMODULE_ERR;
+            }
+            n->next = target->nodes;
+            target->nodes = n;
+        } else {
+            RedisModule_Log(ctx, LOGLEVEL_WARNING, "invalid config keyword: '%.*s'", kwlen, arg);
+            return REDISMODULE_ERR;
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+static void dump_config(RedisModuleCtx *ctx, redis_raft_config_t *config)
+{
+    node_config_t *nc;
+
+    RedisModule_Log(ctx, LOGLEVEL_VERBOSE, "Load time configuration:");
+    RedisModule_Log(ctx, LOGLEVEL_VERBOSE, "Id: %d", config->id);
+    
+    nc = config->nodes;
+    while (nc != NULL) {
+        RedisModule_Log(ctx, LOGLEVEL_VERBOSE, "Node: Id=%d, Addr=%s:%d", 
+                nc->id, nc->addr.host, nc->addr.port);
+        nc = nc->next;
+    }
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (RedisModule_Init(ctx, "redisraft", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }
 
-    if (argc < 1) {
-        RedisModule_Log(ctx, LOGLEVEL_WARNING, "Missing node ID");
+    /* Initialize and validate configuration */
+    if (parse_config_args(ctx, argv, argc, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    
-    long long id;
-    if (RedisModule_StringToLongLong(argv[0], &id) != REDISMODULE_OK || id <= 0) {
-        RedisModule_Log(ctx, LOGLEVEL_WARNING, "Invalid node ID");
+    if (!VALID_NODE_ID(config.id)) {
+        RedisModule_Log(ctx, LOGLEVEL_WARNING, "Invalid or missing node id (id= param)");
         return REDISMODULE_ERR;
     }
 
+    dump_config(ctx, &config);
+
+    /* Register commands */ 
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmd_raft, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
@@ -200,32 +264,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
-    if (redis_raft_init(ctx, &redis_raft, id) == REDISMODULE_ERR) {
+    if (redis_raft_init(ctx, &redis_raft, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
-    }
-
-    /* Configure nodes -- TODO: replace with better syntax */
-    int i;
-    for (i = 1; i < argc; i++) {
-        size_t tmplen;
-        const char *tmpstr = RedisModule_StringPtrLen(argv[i], &tmplen);
-
-        const char *colon = memchr(tmpstr, ':', tmplen);
-        int node_id_len = colon - tmpstr;
-        char node_id_str[node_id_len + 1];
-        memcpy(node_id_str, tmpstr, node_id_len);
-        node_id_str[node_id_len] = '\0';
-        int node_id = strtoul(node_id_str, NULL, 10);
-
-        node_addr_t node_addr;
-        if (!parse_node_addr(colon + 1, tmplen - node_id_len - 1, &node_addr)) {
-            return REDISMODULE_ERR;
-        }
-
-        raft_req_t *req = raft_req_init(NULL, RAFT_REQ_ADDNODE);
-        req->r.addnode.id = node_id;
-        req->r.addnode.addr = node_addr;
-        raft_req_submit(&redis_raft, req);
     }
 
     /* Start Raft thread */
