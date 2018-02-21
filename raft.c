@@ -385,6 +385,7 @@ int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *
             RedisModule_Log(ctx, LOGLEVEL_WARNING, "Failed to add node, id %d exists", node->id);
             return REDISMODULE_ERR;
         }
+        raft_node_set_udata(raft_node, node);
 
         nc = nc->next;
     }
@@ -587,12 +588,78 @@ exit:
 
 }
 
+static int __raft_info(redis_raft_t *rr, raft_req_t *req)
+{
+    size_t slen = 1024;
+    char *s = RedisModule_Calloc(1, slen);
+
+    char role[10];
+    switch (raft_get_state(rr->raft)) {
+        case RAFT_STATE_FOLLOWER:
+            strcpy(role, "follower");
+            break;
+        case RAFT_STATE_LEADER:
+            strcpy(role, "leader");
+            break;
+        case RAFT_STATE_CANDIDATE:
+            strcpy(role, "candidate");
+            break;
+        default:
+            strcpy(role, "(none)");
+            break;
+    }
+
+    s = catsnprintf(s, &slen,
+            "# Nodes\n"
+            "node_id:%d\n"
+            "role:%s\n"
+            "leader_id:%d\n"
+            "current_term:%d\n",
+            raft_get_nodeid(rr->raft),
+            role,
+            raft_get_current_leader(rr->raft),
+            raft_get_current_term(rr->raft));
+    
+    int i;
+    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+        raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
+        node_t *node = raft_node_get_udata(rnode);
+        if (!node) {
+            continue;
+        }
+
+        s = catsnprintf(s, &slen,
+                "node%d: id=%d,addr=%s,port=%d\n",
+                i, node->id, node->addr.host, node->addr.port);
+    }
+
+    s = catsnprintf(s, &slen,
+            "\n# Log\n"
+            "log_entries:%d\n"
+            "current_index:%d\n"
+            "commit_index:%d\n"
+            "last_applied_index:%d\n",
+            raft_get_log_count(rr->raft),
+            raft_get_current_idx(rr->raft),
+            raft_get_commit_idx(rr->raft),
+            raft_get_last_applied_idx(rr->raft));
+
+    RedisModule_ReplyWithSimpleString(req->ctx, s);
+    RedisModule_FreeThreadSafeContext(req->ctx);
+    RedisModule_UnblockClient(req->client, NULL);
+    req->ctx = NULL;
+
+    return REDISMODULE_OK;
+}
+
+
 raft_req_callback_t raft_req_callbacks[] = {
     NULL,
     __raft_addnode,
     __raft_appendentries,
     __raft_requestvote,
     __raft_rediscommand,
+    __raft_info,
     NULL
 };
 

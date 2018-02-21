@@ -73,7 +73,8 @@ enum raft_req_type {
     RAFT_REQ_ADDNODE = 1,
     RAFT_REQ_APPENDENTRIES,
     RAFT_REQ_REQUESTVOTE,
-    RAFT_REQ_REDISCOMMAND
+    RAFT_REQ_REDISCOMMAND,
+    RAFT_REQ_INFO
 };
 
 extern raft_req_callback_t raft_req_callbacks[];
@@ -134,4 +135,6 @@ void raft_req_handle_rqueue(uv_async_t *handle);
 
 /* util.c */
 extern int rmstring_to_int(RedisModuleString *str, int *value);
+char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
+
 #endif  /* _REDISRAFT_H */

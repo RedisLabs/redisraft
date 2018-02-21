@@ -93,6 +93,13 @@ int cmd_raft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int cmd_raft_info(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    raft_req_t *req = raft_req_init(ctx, RAFT_REQ_INFO);
+    raft_req_submit(&redis_raft, req);
+}
+
+
 int cmd_raft_appendentries(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     redis_raft_t *rr = &redis_raft;
@@ -246,6 +253,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     /* Register commands */ 
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmd_raft, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.info",
+                cmd_raft_info, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
