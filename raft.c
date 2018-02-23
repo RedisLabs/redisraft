@@ -109,12 +109,14 @@ static void execute_committed_req(raft_req_t *req)
             &req->r.raft.argv[1],
             req->r.raft.argc - 1);
     RedisModule_ThreadSafeContextUnlock(req->ctx);
-
-    RedisModule_ReplyWithCallReply(req->ctx, reply);
-    RedisModule_FreeCallReply(reply);
+    if (reply) {
+        RedisModule_ReplyWithCallReply(req->ctx, reply);
+        RedisModule_FreeCallReply(reply);
+    } else {
+        RedisModule_ReplyWithError(req->ctx, "Unknown command/arguments");
+    }
     RedisModule_FreeThreadSafeContext(req->ctx);
     RedisModule_UnblockClient(req->client, NULL);
-    req->ctx = NULL;
 }
 
 /* Iterate commit queue and execute commands whose entries were committed */
@@ -201,7 +203,6 @@ static void appendentries_response_handler(redisAsyncContext *c, void *r, void *
             &response)) != 0) {
         LOG_NODE(node, "raft_recv_appendentries_response failed => %d\n", ret);
     }
-    LOG_NODE(node, "received appendentries response\n");
 
     /* Maybe we have pending stuff to apply now */
     iterate_cqueue(rr); 
@@ -361,6 +362,7 @@ static void redis_raft_thread(void *arg)
 int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *config)
 {
     memset(rr, 0, sizeof(redis_raft_t));
+    uv_mutex_init(&rr->rqueue_mutex);
     STAILQ_INIT(&rr->rqueue);
     STAILQ_INIT(&rr->cqueue);
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -412,6 +414,8 @@ int redis_raft_start(RedisModuleCtx *ctx, redis_raft_t *rr)
 
 void raft_req_free(raft_req_t *req)
 {
+    int i;
+
     switch (req->type) {
         case RAFT_REQ_ADDNODE:
             node_addr_free(&req->r.addnode.addr);
@@ -422,7 +426,14 @@ void raft_req_free(raft_req_t *req)
                 req->r.appendentries.msg.entries = NULL;
             }
             break;
-        break;
+        case RAFT_REQ_REDISCOMMAND:
+            if (req->ctx) {
+                for (i = 0; i < req->r.raft.argc; i++) {
+                    RedisModule_FreeString(req->ctx, req->r.raft.argv[i]);
+                }
+                RedisModule_Free(req->r.raft.argv);
+            }
+            break;
     }
     RedisModule_Free(req);
 }
@@ -441,20 +452,35 @@ raft_req_t *raft_req_init(RedisModuleCtx *ctx, enum raft_req_type type)
 
 void raft_req_submit(redis_raft_t *rr, raft_req_t *req)
 {
+    uv_mutex_lock(&rr->rqueue_mutex);
     STAILQ_INSERT_TAIL(&rr->rqueue, req, entries);
+    uv_mutex_unlock(&rr->rqueue_mutex);
     if (rr->running) {
         uv_async_send(&rr->rqueue_sig);
     }
 }
 
+static raft_req_t *raft_req_fetch(redis_raft_t *rr)
+{
+    raft_req_t *r = NULL;
+
+    uv_mutex_lock(&rr->rqueue_mutex);
+    if (!STAILQ_EMPTY(&rr->rqueue)) {
+        r = STAILQ_FIRST(&rr->rqueue);
+        STAILQ_REMOVE_HEAD(&rr->rqueue, entries);
+    }
+    uv_mutex_unlock(&rr->rqueue_mutex);
+
+    return r;
+}
+
 void raft_req_handle_rqueue(uv_async_t *handle)
 {
     redis_raft_t *rr = (redis_raft_t *) uv_handle_get_data((uv_handle_t *) handle);
+    raft_req_t *req;
 
-    while (!STAILQ_EMPTY(&rr->rqueue)) {
-        raft_req_t *req = STAILQ_FIRST(&rr->rqueue);
+    while ((req = raft_req_fetch(rr))) {
         raft_req_callbacks[req->type](rr, req);
-        STAILQ_REMOVE_HEAD(&rr->rqueue, entries);
         if (!(req->flags & RAFT_REQ_PENDING_COMMIT)) {
             raft_req_free(req);
         }

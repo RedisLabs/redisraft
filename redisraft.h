@@ -34,6 +34,7 @@ typedef struct {
     uv_loop_t *loop;            /* Raft I/O loop */
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
     uv_timer_t ptimer;          /* Periodic timer to invoke Raft periodic function */
+    uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, raft_req) rqueue;     /* Requests queue (from Redis) */
     STAILQ_HEAD(cqueue, raft_req) cqueue;     /* Pending commit queue */
 } redis_raft_t;

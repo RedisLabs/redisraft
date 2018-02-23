@@ -87,7 +87,13 @@ int cmd_raft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     raft_req_t *req = raft_req_init(ctx, RAFT_REQ_REDISCOMMAND);
     req->r.raft.argc = argc - 1;
-    req->r.raft.argv = &argv[1];
+    req->r.raft.argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
+    
+    int i;
+    for (i = 0; i < argc - 1; i++) {
+        req->r.raft.argv[i] =  argv[i + 1];
+        RedisModule_RetainString(ctx, req->r.raft.argv[i]);
+    }
     raft_req_submit(&redis_raft, req);
 
     return REDISMODULE_OK;
@@ -218,6 +224,43 @@ static int parse_config_args(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+#ifdef USE_COMMAND_FILTER
+void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
+{
+    size_t cmdname_len;
+    const char *cmdname = RedisModule_StringPtrLen(cmd->argv[0], &cmdname_len);
+
+    /* Don't process RAFT commands */
+    if (cmdname_len >= 4 && (
+                !strncasecmp(cmdname, "raft", 4) ||
+                !strncasecmp(cmdname, "info", 4))) {
+        return;
+    }
+    if (cmdname_len >= 5 && (
+                !strncasecmp(cmdname, "client", 5) ||
+                !strncasecmp(cmdname, "config", 5))) {
+        return;
+    }
+    if (cmdname_len == 7 && (
+                !strncasecmp(cmdname, "monitor", 7) ||
+                !strcasecmp(cmdname, "command"))) {
+        return;
+    }
+    if (cmdname_len == 8 && !strncasecmp(cmdname, "shutdown", 8)) {
+        return;
+    }
+
+    /* Prepend RAFT to the original command */
+    cmd->argv = RedisModule_Realloc(cmd->argv, (cmd->argc+1)*sizeof(RedisModuleString *));
+    int i;
+    for (i = cmd->argc; i > 0; i--) {
+        cmd->argv[i] = cmd->argv[i-1];
+    }
+    cmd->argv[0] = RedisModule_CreateString(ctx, "RAFT", 4);
+    cmd->argc++;
+}
+#endif
+
 static void dump_config(RedisModuleCtx *ctx, redis_raft_config_t *config)
 {
     node_config_t *nc;
@@ -275,6 +318,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 cmd_raft_requestvote, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+
+#ifdef USE_COMMAND_FILTER
+    if (RedisModule_RegisterCommandFilter(ctx, raftize_commands) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+#endif
 
     if (redis_raft_init(ctx, &redis_raft, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
