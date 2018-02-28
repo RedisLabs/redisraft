@@ -1,9 +1,18 @@
 * Code cleanup / reorg / memory free
+    -> valgrind
 * Networking, handle conn state and reconnects
-* Cluster key
-* Persistence
-* Snapshotting/compaction
+    -> reconnect intervals
+    -> hiredis related fixes
 * INFO commands
-* Command hooking for transparency
+    -> add stats about network connections, etc.
 * Membership management, add/remove node
-* Binary / datagram messaging
+    -> add 'join' command to automate joining
+    -> option to pre-configure nodes statically
+* Cluster key
+* Snapshotting/compaction
+* Command hooking for transparency
+    -> currently a non-standard api extension
+* Binary / side-band / datagram messaging
+    -> datagram may not work well due to size
+    -> consider different channel for performance
+* Persistence
