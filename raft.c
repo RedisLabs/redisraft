@@ -137,23 +137,6 @@ static void execute_committed_req(raft_req_t *req)
     RedisModule_UnblockClient(req->client, NULL);
 }
 
-/* Iterate commit queue and execute commands whose entries were committed */
-static void iterate_cqueue(redis_raft_t *rr)
-{
-    return;
-    while (!STAILQ_EMPTY(&rr->cqueue)) {
-        raft_req_t *req = STAILQ_FIRST(&rr->cqueue);
-        if (!raft_msg_entry_response_committed(rr->raft, &req->r.raft.response)) {
-            return;
-        }
-
-        /* Execute and reply */
-        execute_committed_req(req);
-        STAILQ_REMOVE_HEAD(&rr->cqueue, entries);
-        raft_req_free(req);
-    }
-}
-
 /*
  * Callbacks to handle async Redis commands we send to remote peers.
  */
@@ -235,7 +218,7 @@ static void appendentries_response_handler(redisAsyncContext *c, void *r, void *
     }
 
     /* Maybe we have pending stuff to apply now */
-    iterate_cqueue(rr);
+    raft_apply_all(rr->raft);
 }
 
 /*
@@ -284,20 +267,27 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
         return 0;
     }
 
+    char argv1_buf[12];
+    char argv2_buf[50];
+    char argv3_buf[12];
     argv[0] = "RAFT.APPENDENTRIES";
     argvlen[0] = strlen(argv[0]);
-    argvlen[1] = asprintf(&argv[1], "%d", raft_get_nodeid(raft));
-    argvlen[2] = asprintf(&argv[2], "%d:%d:%d:%d",
+    argv[1] = argv1_buf;
+    argvlen[1] = snprintf(argv1_buf, sizeof(argv1_buf)-1, "%d", raft_get_nodeid(raft));
+    argv[2] = argv2_buf;
+    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%d:%d:%d:%d",
             msg->term,
             msg->prev_log_idx,
             msg->prev_log_term,
             msg->leader_commit);
-    argvlen[3] = asprintf(&argv[3], "%d", msg->n_entries);
+    argv[3] = argv3_buf;
+    argvlen[3] = snprintf(argv3_buf, sizeof(argv3_buf)-1, "%d", msg->n_entries);
 
     int i;
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = &msg->entries[i];
-        argvlen[4 + i*2] = asprintf(&argv[4 + i*2], "%d:%d:%d", e->term, e->id, e->type);
+        argv[4 + i*2] = RedisModule_Alloc(64);
+        argvlen[4 + i*2] = snprintf(argv[4 + i*2], 63, "%d:%d:%d", e->term, e->id, e->type);
         argvlen[5 + i*2] = e->data.len;
         argv[5 + i*2] = e->data.buf;
     }
@@ -307,11 +297,8 @@ static int __raft_send_appendentries(raft_server_t *raft, void *user_data,
         NODE_LOG_ERROR(node, "failed appendentries");
     }
 
-    free(argv[1]);
-    free(argv[2]);
-    free(argv[3]);
     for (i = 0; i < msg->n_entries; i++) {
-        free(argv[4 + i*2]);
+        RedisModule_Free(argv[4 + i*2]);
     }
     return 0;
 }
@@ -331,19 +318,17 @@ static void __raft_log(raft_server_t *raft, raft_node_t *node, void *user_data, 
     if (node) {
         node_t *n = raft_node_get_udata(node);
         if (n) {
-            NODE_LOG_VERBOSE(n, "[raft] %s\n", buf);
+            NODE_LOG_DEBUG(n, "[raft] %s\n", buf);
             return;
         }
     }
-    LOG_VERBOSE("[raft] %s\n", buf);
+    LOG_DEBUG("[raft] %s\n", buf);
 }
 
 static int __raft_log_offer(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
     raft_addnode_req_t *req;
     raft_node_t *raft_node;
-
-    TRACE("Log offer, type=%d, id=%d\n", entry->type, entry->id);
 
     switch (entry->type) {
         case RAFT_LOGTYPE_ADD_NODE:
@@ -441,6 +426,7 @@ static void redis_raft_timer(uv_timer_t *handle)
     redis_raft_t *rr = (redis_raft_t *) uv_handle_get_data((uv_handle_t *) handle);
 
     raft_periodic(rr->raft, 500);
+    raft_apply_all(rr->raft);
 }
 
 static void redis_raft_thread(void *arg)
@@ -466,7 +452,6 @@ int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *
     memset(rr, 0, sizeof(redis_raft_t));
     uv_mutex_init(&rr->rqueue_mutex);
     STAILQ_INIT(&rr->rqueue);
-    STAILQ_INIT(&rr->cqueue);
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
 
     /* Initialize raft library */
@@ -737,7 +722,6 @@ static int __raft_rediscommand(redis_raft_t *rr,raft_req_t *req)
 
     // We're now waiting
     req->flags |= RAFT_REQ_PENDING_COMMIT;
-    STAILQ_INSERT_TAIL(&rr->cqueue, req, entries);
 
     return REDISMODULE_OK;
 

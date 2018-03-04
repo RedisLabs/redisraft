@@ -53,9 +53,9 @@ extern FILE *redis_raft_logfile;
     LOG(level, "node:%u: " fmt, (node)->id, ##__VA_ARGS__)
 
 #define NODE_LOG_ERROR(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
-#define NODE_LOG_INFO(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
-#define NODE_LOG_VERBOSE(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
-#define NODE_LOG_DEBUG(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
+#define NODE_LOG_INFO(node, fmt, ...) NODE_LOG(LOGLEVEL_INFO, node, fmt, ##__VA_ARGS__)
+#define NODE_LOG_VERBOSE(node, fmt, ...) NODE_LOG(LOGLEVEL_VERBOSE, node, fmt, ##__VA_ARGS__)
+#define NODE_LOG_DEBUG(node, fmt, ...) NODE_LOG(LOGLEVEL_DEBUG, node, fmt, ##__VA_ARGS__)
 
 typedef struct {
     void *raft;                 /* Raft library context */
@@ -68,7 +68,6 @@ typedef struct {
     uv_timer_t ptimer;          /* Periodic timer to invoke Raft periodic function */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, raft_req) rqueue;     /* Requests queue (from Redis) */
-    STAILQ_HEAD(cqueue, raft_req) cqueue;     /* Pending commit queue */
 } redis_raft_t;
 
 typedef struct node_addr {

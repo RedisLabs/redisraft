@@ -16,7 +16,12 @@ colorize() {
     done
 }
 
-../redis/src/redis-server --port 5001 --logfile redis1.log --loadmodule `pwd`/redisraft.so id=1 node=2,localhost:5002 node=3,localhost:5003  &
-../redis/src/redis-server --port 5002 --logfile redis2.log --loadmodule `pwd`/redisraft.so id=2 node=1,localhost:5001 node=3,localhost:5003 &
-../redis/src/redis-server --port 5003 --logfile redis3.log --loadmodule `pwd`/redisraft.so id=3 node=1,localhost:5001 node=2,localhost:5002 &
+LOGLEVEL=notice
+#valgrind --tool=callgrind \
+../redis/src/redis-server --port 5001 --loglevel $LOGLEVEL --logfile redis1.log --loadmodule `pwd`/redisraft.so init id=1 addr=localhost:5001 &
+../redis/src/redis-server --port 5002 --loglevel $LOGLEVEL --logfile redis2.log --loadmodule `pwd`/redisraft.so id=2 & 
+../redis/src/redis-server --port 5003 --loglevel $LOGLEVEL --logfile redis3.log --loadmodule `pwd`/redisraft.so id=3 &
+sleep 1
+redis-cli -p 5001 raft.addnode 2 localhost:5002
+redis-cli -p 5001 raft.addnode 3 localhost:5003
 read

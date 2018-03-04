@@ -4,7 +4,7 @@
 
 #include "redisraft.h"
 
-int redis_raft_loglevel = LOGLEVEL_DEBUG;
+int redis_raft_loglevel = LOGLEVEL_INFO;
 FILE *redis_raft_logfile;
 
 static redis_raft_t redis_raft = { 0 };
@@ -347,6 +347,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 #endif
+
+    raft_set_heap_functions(RedisModule_Alloc,
+                            RedisModule_Calloc,
+                            RedisModule_Realloc,
+                            RedisModule_Free);
+    uv_replace_allocator(RedisModule_Alloc,
+                         RedisModule_Realloc,
+                         RedisModule_Calloc,
+                         RedisModule_Free);
 
     if (redis_raft_init(ctx, &redis_raft, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
