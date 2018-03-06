@@ -128,7 +128,7 @@ typedef struct raft_req {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
-        raft_cfgchange_req_t configchange;
+        raft_cfgchange_req_t cfgchange;
         struct {
             int src_node_id;
             msg_appendentries_t msg;

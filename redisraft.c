@@ -39,8 +39,8 @@ int cmd_raft_addnode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     raft_req_t *req = raft_req_init(ctx, RAFT_REQ_CFGCHANGE_ADDNODE);
-    req->r.configchange.id = node_id;
-    req->r.configchange.addr = node_addr;
+    req->r.cfgchange.id = node_id;
+    req->r.cfgchange.addr = node_addr;
     raft_req_submit(rr, req);
 
     return REDISMODULE_OK;
@@ -70,7 +70,7 @@ int cmd_raft_removenode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     raft_req_t *req = raft_req_init(ctx, RAFT_REQ_CFGCHANGE_REMOVENODE);
-    req->r.configchange.id = node_id;
+    req->r.cfgchange.id = node_id;
     raft_req_submit(rr, req);
 
     return REDISMODULE_OK;

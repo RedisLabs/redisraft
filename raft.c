@@ -338,6 +338,7 @@ static int __raft_log_offer(raft_server_t *raft, void *user_data, raft_entry_t *
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
+            fprintf(stderr, "me=%d **** REMOVE_NODE on log_offer\n", raft_get_nodeid(raft));
             raft_node = raft_get_node(raft, req->id);
             assert(raft_node != NULL);
             raft_remove_node(raft, raft_node);
@@ -686,7 +687,7 @@ exit:
     return REDISMODULE_OK;
 }
 
-static int __raft_configchange(redis_raft_t *rr, raft_req_t *req)
+static int __raft_cfgchange(redis_raft_t *rr, raft_req_t *req)
 {
     raft_entry_t entry;
 
@@ -704,9 +705,9 @@ static int __raft_configchange(redis_raft_t *rr, raft_req_t *req)
             assert(0);
     }
 
-    entry.data.len = sizeof(req->r.configchange);
-    entry.data.buf = RedisModule_Alloc(sizeof(req->r.configchange));
-    memcpy(entry.data.buf, &req->r.configchange, sizeof(req->r.configchange));
+    entry.data.len = sizeof(req->r.cfgchange);
+    entry.data.buf = RedisModule_Alloc(sizeof(req->r.cfgchange));
+    memcpy(entry.data.buf, &req->r.cfgchange, sizeof(req->r.cfgchange));
 
     int e = raft_recv_entry(rr->raft, &entry, &req->r.raft.response);
     if (e) {
@@ -846,8 +847,8 @@ static int __raft_info(redis_raft_t *rr, raft_req_t *req)
 
 raft_req_callback_t raft_req_callbacks[] = {
     NULL,
-    __raft_configchange,        /* RAFT_REQ_CFGCHANGE_ADDNODE */
-    __raft_configchange,        /* RAFT_REQ_CFGCHANGE_REMOVENODE */
+    __raft_cfgchange,           /* RAFT_REQ_CFGCHANGE_ADDNODE */
+    __raft_cfgchange,           /* RAFT_REQ_CFGCHANGE_REMOVENODE */
     __raft_appendentries,       /* RAFT_REQ_APPENDENTRIES */
     __raft_requestvote,         /* RAFT_REQ_REQUESTVOTE */
     __raft_rediscommand,        /* RAFT_REQ_REDISOCMMAND */
