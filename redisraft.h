@@ -104,7 +104,8 @@ struct raft_req;
 typedef int (*raft_req_callback_t)(redis_raft_t *, struct raft_req *);
 
 enum raft_req_type {
-    RAFT_REQ_ADDNODE = 1,
+    RAFT_REQ_CFGCHANGE_ADDNODE = 1,
+    RAFT_REQ_CFGCHANGE_REMOVENODE,
     RAFT_REQ_APPENDENTRIES,
     RAFT_REQ_REQUESTVOTE,
     RAFT_REQ_REDISCOMMAND,
@@ -115,10 +116,10 @@ extern raft_req_callback_t raft_req_callbacks[];
 
 #define RAFT_REQ_PENDING_COMMIT 1
 
-typedef struct raft_addnode_req {
+typedef struct raft_cfgchange_req {
     int id;
     node_addr_t addr;
-} raft_addnode_req_t;
+} raft_cfgchange_req_t;
 
 typedef struct raft_req {
     int type;
@@ -127,7 +128,7 @@ typedef struct raft_req {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
-        raft_addnode_req_t addnode;
+        raft_cfgchange_req_t configchange;
         struct {
             int src_node_id;
             msg_appendentries_t msg;

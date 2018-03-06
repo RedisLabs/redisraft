@@ -16,8 +16,9 @@ colorize() {
     done
 }
 
-LOGLEVEL=notice
+LOGLEVEL=debug
 #valgrind --tool=callgrind \
+#valgrind --leak-check=full --log-file=vg.log \
 ../redis/src/redis-server --port 5001 --loglevel $LOGLEVEL --logfile redis1.log --loadmodule `pwd`/redisraft.so init id=1 addr=localhost:5001 &
 ../redis/src/redis-server --port 5002 --loglevel $LOGLEVEL --logfile redis2.log --loadmodule `pwd`/redisraft.so id=2 & 
 ../redis/src/redis-server --port 5003 --loglevel $LOGLEVEL --logfile redis3.log --loadmodule `pwd`/redisraft.so id=3 &

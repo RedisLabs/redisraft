@@ -327,14 +327,25 @@ static void __raft_log(raft_server_t *raft, raft_node_t *node, void *user_data, 
 
 static int __raft_log_offer(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
-    raft_addnode_req_t *req;
     raft_node_t *raft_node;
+    node_t *node;
+
+    if (!raft_entry_is_cfg_change(entry)) {
+        return 0;
+    }
+
+    raft_cfgchange_req_t *req = (raft_cfgchange_req_t *) entry->data.buf;
 
     switch (entry->type) {
+        case RAFT_LOGTYPE_REMOVE_NODE:
+            raft_node = raft_get_node(raft, req->id);
+            assert(raft_node != NULL);
+            raft_remove_node(raft, raft_node);
+            break;
+
         case RAFT_LOGTYPE_ADD_NODE:
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            req = (raft_addnode_req_t *) entry->data.buf;
-            node_t *node = node_init(req->id, &req->addr);
+            node = node_init(req->id, &req->addr);
 
             int is_self = req->id == raft_get_nodeid(raft);
             if (entry->type == RAFT_LOGTYPE_ADD_NODE) {
@@ -361,7 +372,19 @@ static int __raft_log_pop(raft_server_t *raft, void *user_data, raft_entry_t *en
 static int __raft_applylog(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
     redis_raft_t *rr = user_data;
+    raft_cfgchange_req_t *req;
+
     switch (entry->type) {
+        case RAFT_LOGTYPE_REMOVE_NODE:
+
+            req = (raft_cfgchange_req_t *) entry->data.buf;
+            fprintf(stderr, "me=%d *** APPLYLOG Received remove node! id=%d\n", raft_get_nodeid(raft), req->id);
+            if (req->id == raft_get_nodeid(raft)) {
+                fprintf(stderr, "**** We need to shutdown\n");
+                return RAFT_ERR_SHUTDOWN;
+            }
+            break;
+
         case RAFT_LOGTYPE_NORMAL:
             execute_log_entry(rr, entry);
             break;
@@ -373,7 +396,7 @@ static int __raft_applylog(raft_server_t *raft, void *user_data, raft_entry_t *e
 
 static int __raft_log_get_node_id(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
-    raft_addnode_req_t *req = (raft_addnode_req_t *) entry->data.buf;
+    raft_cfgchange_req_t *req = (raft_cfgchange_req_t *) entry->data.buf;
     return req->id;
 }
 
@@ -390,10 +413,10 @@ static int __raft_node_has_sufficient_logs(raft_server_t *raft, void *user_data,
     };
     msg_entry_response_t response;
 
-    raft_addnode_req_t *req;
-    entry.data.len = sizeof(raft_addnode_req_t);
+    raft_cfgchange_req_t *req;
+    entry.data.len = sizeof(raft_cfgchange_req_t);
     entry.data.buf = RedisModule_Alloc(entry.data.len);
-    req = (raft_addnode_req_t *) entry.data.buf;
+    req = (raft_cfgchange_req_t *) entry.data.buf;
     req->id = node->id;
     req->addr = node->addr;
 
@@ -425,7 +448,10 @@ static void redis_raft_timer(uv_timer_t *handle)
 {
     redis_raft_t *rr = (redis_raft_t *) uv_handle_get_data((uv_handle_t *) handle);
 
-    raft_periodic(rr->raft, 500);
+    int ret = raft_periodic(rr->raft, 500);
+    if (ret != 0) {
+        fprintf(stderr, "*** periodic returns %d ***\n", ret);
+    }
     raft_apply_all(rr->raft);
 }
 
@@ -476,10 +502,10 @@ int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *
             .id = rand(),
             .type = RAFT_LOGTYPE_ADD_NODE
         };
-        msg.data.len = sizeof(raft_addnode_req_t);
+        msg.data.len = sizeof(raft_cfgchange_req_t);
         msg.data.buf = RedisModule_Alloc(msg.data.len);
 
-        raft_addnode_req_t *req = (raft_addnode_req_t *) msg.data.buf;
+        raft_cfgchange_req_t *req = (raft_cfgchange_req_t *) msg.data.buf;
         req->id = config->id;
         req->addr = config->addr;
 
@@ -660,16 +686,27 @@ exit:
     return REDISMODULE_OK;
 }
 
-static int __raft_addnode(redis_raft_t *rr, raft_req_t *req)
+static int __raft_configchange(redis_raft_t *rr, raft_req_t *req)
 {
-    raft_entry_t entry = {
-        .id = rand(),
-        .type = RAFT_LOGTYPE_ADD_NONVOTING_NODE
-    };
+    raft_entry_t entry;
 
-    entry.data.len = sizeof(req->r.addnode);
-    entry.data.buf = RedisModule_Alloc(sizeof(req->r.addnode));
-    memcpy(entry.data.buf, &req->r.addnode, sizeof(req->r.addnode));
+    memset(&entry, 0, sizeof(entry));
+    entry.id = rand();
+
+    switch (req->type) {
+        case RAFT_REQ_CFGCHANGE_ADDNODE:
+            entry.type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+            break;
+        case RAFT_REQ_CFGCHANGE_REMOVENODE:
+            entry.type = RAFT_LOGTYPE_REMOVE_NODE;
+            break;
+        default:
+            assert(0);
+    }
+
+    entry.data.len = sizeof(req->r.configchange);
+    entry.data.buf = RedisModule_Alloc(sizeof(req->r.configchange));
+    memcpy(entry.data.buf, &req->r.configchange, sizeof(req->r.configchange));
 
     int e = raft_recv_entry(rr->raft, &entry, &req->r.raft.response);
     if (e) {
@@ -809,11 +846,12 @@ static int __raft_info(redis_raft_t *rr, raft_req_t *req)
 
 raft_req_callback_t raft_req_callbacks[] = {
     NULL,
-    __raft_addnode,
-    __raft_appendentries,
-    __raft_requestvote,
-    __raft_rediscommand,
-    __raft_info,
+    __raft_configchange,        /* RAFT_REQ_CFGCHANGE_ADDNODE */
+    __raft_configchange,        /* RAFT_REQ_CFGCHANGE_REMOVENODE */
+    __raft_appendentries,       /* RAFT_REQ_APPENDENTRIES */
+    __raft_requestvote,         /* RAFT_REQ_REQUESTVOTE */
+    __raft_rediscommand,        /* RAFT_REQ_REDISOCMMAND */
+    __raft_info,                /* RAFT_REQ_INFO */
     NULL
 };
 

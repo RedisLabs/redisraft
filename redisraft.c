@@ -4,7 +4,7 @@
 
 #include "redisraft.h"
 
-int redis_raft_loglevel = LOGLEVEL_INFO;
+int redis_raft_loglevel = LOGLEVEL_DEBUG;
 FILE *redis_raft_logfile;
 
 static redis_raft_t redis_raft = { 0 };
@@ -38,13 +38,44 @@ int cmd_raft_addnode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    raft_req_t *req = raft_req_init(ctx, RAFT_REQ_ADDNODE);
-    req->r.addnode.id = node_id;
-    req->r.addnode.addr = node_addr;
+    raft_req_t *req = raft_req_init(ctx, RAFT_REQ_CFGCHANGE_ADDNODE);
+    req->r.configchange.id = node_id;
+    req->r.configchange.addr = node_addr;
     raft_req_submit(rr, req);
 
     return REDISMODULE_OK;
 }
+
+int cmd_raft_removenode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    redis_raft_t *rr = &redis_raft;
+
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    /* Validate node id */
+    long long node_id;
+    if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
+        !VALID_NODE_ID(node_id)) {
+            RedisModule_ReplyWithError(ctx, "invalid node id");
+            return REDISMODULE_OK;
+    }
+
+    /* Also validate it exists */
+    if (!raft_get_node(rr->raft, node_id)) {
+        RedisModule_ReplyWithError(ctx, "node id does not exist");
+        return REDISMODULE_OK;
+    }
+
+    raft_req_t *req = raft_req_init(ctx, RAFT_REQ_CFGCHANGE_REMOVENODE);
+    req->r.configchange.id = node_id;
+    raft_req_submit(rr, req);
+
+    return REDISMODULE_OK;
+}
+
 
 int cmd_raft_requestvote(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -266,6 +297,11 @@ void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
     if (cmdname_len == 8 && !strncasecmp(cmdname, "shutdown", 8)) {
         return;
     }
+#ifdef USE_UNSAFE_READS
+    if (cmdname_len == 3 && !strncasecmp(cmdname, "get", 3)) {
+        return;
+    }
+#endif
 
     /* Prepend RAFT to the original command */
     cmd->argv = RedisModule_Realloc(cmd->argv, (cmd->argc+1)*sizeof(RedisModuleString *));
@@ -329,6 +365,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     if (RedisModule_CreateCommand(ctx, "raft.addnode",
                 cmd_raft_addnode, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.removenode",
+                cmd_raft_removenode, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
