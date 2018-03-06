@@ -338,7 +338,6 @@ static int __raft_log_offer(raft_server_t *raft, void *user_data, raft_entry_t *
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
-            fprintf(stderr, "me=%d **** REMOVE_NODE on log_offer\n", raft_get_nodeid(raft));
             raft_node = raft_get_node(raft, req->id);
             assert(raft_node != NULL);
             raft_remove_node(raft, raft_node);
@@ -379,9 +378,7 @@ static int __raft_applylog(raft_server_t *raft, void *user_data, raft_entry_t *e
         case RAFT_LOGTYPE_REMOVE_NODE:
 
             req = (raft_cfgchange_req_t *) entry->data.buf;
-            fprintf(stderr, "me=%d *** APPLYLOG Received remove node! id=%d\n", raft_get_nodeid(raft), req->id);
             if (req->id == raft_get_nodeid(raft)) {
-                fprintf(stderr, "**** We need to shutdown\n");
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
@@ -450,9 +447,7 @@ static void redis_raft_timer(uv_timer_t *handle)
     redis_raft_t *rr = (redis_raft_t *) uv_handle_get_data((uv_handle_t *) handle);
 
     int ret = raft_periodic(rr->raft, 500);
-    if (ret != 0) {
-        fprintf(stderr, "*** periodic returns %d ***\n", ret);
-    }
+    assert(ret == 0);
     raft_apply_all(rr->raft);
 }
 
@@ -510,7 +505,6 @@ int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *
         req->id = config->id;
         req->addr = config->addr;
 
-        fprintf(stderr, "initial config entry id=%d\n", msg.id);
         raft_become_leader(rr->raft);
         int e = raft_recv_entry(rr->raft, &msg, &response);
         assert (e == 0);
