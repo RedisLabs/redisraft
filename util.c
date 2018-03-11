@@ -1,7 +1,7 @@
 #include <string.h>
 #include "redisraft.h"
 
-int rmstring_to_int(RedisModuleString *str, int *value)
+int RedisModuleStringToInt(RedisModuleString *str, int *value)
 {
     long long tmpll;
     if (RedisModule_StringToLongLong(str, &tmpll) != REDISMODULE_OK) {

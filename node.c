@@ -2,9 +2,9 @@
 #include "hiredis/adapters/libuv.h"
 
 
-node_t *node_init(int id, const node_addr_t *addr)
+Node *NodeInit(int id, const NodeAddr *addr)
 {
-    node_t *node = RedisModule_Calloc(1, sizeof(node_t));
+    Node *node = RedisModule_Calloc(1, sizeof(Node));
 
     node->id = id;
     strcpy(node->addr.host, addr->host);
@@ -14,7 +14,7 @@ node_t *node_init(int id, const node_addr_t *addr)
 }
 
 
-void node_free(node_t *node)
+void NodeFree(Node *node)
 {
     if (!node) {
         return;
@@ -22,9 +22,9 @@ void node_free(node_t *node)
     RedisModule_Free(node);
 }
 
-static void node_on_connect(const redisAsyncContext *c, int status)
+static void handleNodeConnect(const redisAsyncContext *c, int status)
 {
-    node_t *node = (node_t *) c->data;
+    Node *node = (Node *) c->data;
     if (status != REDIS_OK) {
         /* TODO: Add reconnection here */
         NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
@@ -35,20 +35,20 @@ static void node_on_connect(const redisAsyncContext *c, int status)
     NODE_LOG_INFO(node, "Connection established.\n");
 }
 
-static void node_on_disconnect(const redisAsyncContext *c, int status)
+static void handleNodeDisconnect(const redisAsyncContext *c, int status)
 {
-    node_t *node = (node_t *) c->data;
+    Node *node = (Node *) c->data;
     node->state &= ~(NODE_CONNECTED|NODE_CONNECTING);
     NODE_LOG_INFO(node, "Connection dropped, reconnecting\n");
 
-    node_connect(node, node->rr);
+    NodeConnect(node, node->rr);
 }
 
-static void node_on_resolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
+static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
     int r;
 
-    node_t *node = uv_req_get_data((uv_req_t *)resolver);
+    Node *node = uv_req_get_data((uv_req_t *)resolver);
     if (status < 0) {
         NODE_LOG_ERROR(node, "Failed to resolve '%s': %s\n", node->addr.host, uv_strerror(status));
         return;
@@ -65,18 +65,18 @@ static void node_on_resolved(uv_getaddrinfo_t *resolver, int status, struct addr
 
         /* We try again */
         uv_freeaddrinfo(res);
-        node_connect(node, node->rr);
+        NodeConnect(node, node->rr);
         return;
     }
 
     node->rc->data = node;
     redisLibuvAttach(node->rc, node->rr->loop);
-    redisAsyncSetConnectCallback(node->rc, node_on_connect);
-    redisAsyncSetDisconnectCallback(node->rc, node_on_disconnect);
+    redisAsyncSetConnectCallback(node->rc, handleNodeConnect);
+    redisAsyncSetDisconnectCallback(node->rc, handleNodeDisconnect);
     uv_freeaddrinfo(res);
 }
 
-void node_connect(node_t *node, redis_raft_t *rr)
+void NodeConnect(Node *node, RedisRaftCtx *rr)
 {
     struct addrinfo hints = {
         .ai_family = PF_INET,
@@ -95,7 +95,7 @@ void node_connect(node_t *node, redis_raft_t *rr)
     node->state = NODE_CONNECTING;
     node->rr = rr;
     uv_req_set_data((uv_req_t *)&node->uv_resolver, node);
-    int r = uv_getaddrinfo(rr->loop, &node->uv_resolver, node_on_resolved,
+    int r = uv_getaddrinfo(rr->loop, &node->uv_resolver, handleNodeResolved,
             node->addr.host, NULL, &hints);
     if (r) {
         NODE_LOG_INFO(node, "Resolver error: %s: %s\n", node->addr.host, uv_strerror(r));
@@ -103,7 +103,7 @@ void node_connect(node_t *node, redis_raft_t *rr)
     }
 }
 
-bool node_addr_parse(const char *node_addr, size_t node_addr_len, node_addr_t *result)
+bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result)
 {
     char buf[32] = { 0 };
     char *endptr;
@@ -139,9 +139,9 @@ bool node_addr_parse(const char *node_addr, size_t node_addr_len, node_addr_t *r
     return true;
 }
 
-bool node_config_parse(RedisModuleCtx *ctx, const char *str, node_config_t *c)
+bool NodeConfigParse(RedisModuleCtx *ctx, const char *str, NodeConfig *c)
 {
-    memset(c, 0, sizeof(node_config_t));
+    memset(c, 0, sizeof(NodeConfig));
     char *errptr;
 
     c->id = strtol(str, &errptr, 10);
@@ -150,7 +150,7 @@ bool node_config_parse(RedisModuleCtx *ctx, const char *str, node_config_t *c)
         return false;
     }
 
-    if (!node_addr_parse(errptr + 1, strlen(errptr + 1), &c->addr)) {
+    if (!NodeAddrParse(errptr + 1, strlen(errptr + 1), &c->addr)) {
         RedisModule_Log(ctx, REDIS_WARNING, "Invalid node 'addr' field");
         return false;
     }

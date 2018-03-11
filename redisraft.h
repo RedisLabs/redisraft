@@ -67,68 +67,74 @@ typedef struct {
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
     uv_timer_t ptimer;          /* Periodic timer to invoke Raft periodic function */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
-    STAILQ_HEAD(rqueue, raft_req) rqueue;     /* Requests queue (from Redis) */
-} redis_raft_t;
+    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
+} RedisRaftCtx;
 
+/* Node address specifier. */
 typedef struct node_addr {
     uint16_t port;
-    char host[256];
-} node_addr_t;
+    char host[256];             /* Hostname or IP address */
+} NodeAddr;
 
-typedef struct node_config {
+typedef struct NodeConfig {
     int id;
-    node_addr_t addr;
-    struct node_config *next;
-} node_config_t;
+    NodeAddr addr;
+    struct NodeConfig *next;
+} NodeConfig;
 
 typedef struct {
-    int id;
-    node_addr_t addr;
-    node_config_t *nodes;       /* Linked list of nodes */
+    int id;                 /* Local node Id */
+    NodeAddr addr;          /* Address of local node, if specified */
+    NodeConfig *nodes;      /* Nodes to talk to */
     /* Flags */
     bool init;
-} redis_raft_config_t;
+} RedisRaftConfig;
 
 typedef struct {
     int id;
     int state;
-    node_addr_t addr;
+    NodeAddr addr;
     redisAsyncContext *rc;
     uv_getaddrinfo_t uv_resolver;
     uv_tcp_t uv_tcp;
     uv_connect_t uv_connect;
-    redis_raft_t *rr;
-} node_t;
+    RedisRaftCtx *rr;
+} Node;
 
-struct raft_req;
-typedef int (*raft_req_callback_t)(redis_raft_t *, struct raft_req *);
+struct RaftReq;
+typedef int (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
-enum raft_req_type {
-    RAFT_REQ_CFGCHANGE_ADDNODE = 1,
-    RAFT_REQ_CFGCHANGE_REMOVENODE,
-    RAFT_REQ_APPENDENTRIES,
-    RAFT_REQ_REQUESTVOTE,
-    RAFT_REQ_REDISCOMMAND,
-    RAFT_REQ_INFO
+enum RaftReqType {
+    RR_CFGCHANGE_ADDNODE = 1,
+    RR_CFGCHANGE_REMOVENODE,
+    RR_APPENDENTRIES,
+    RR_REQUESTVOTE,
+    RR_REDISCOMMAND,
+    RR_INFO
 };
 
-extern raft_req_callback_t raft_req_callbacks[];
+extern RaftReqHandler g_RaftReqHandlers[];
 
-#define RAFT_REQ_PENDING_COMMIT 1
+#define RR_PENDING_COMMIT 1
 
-typedef struct raft_cfgchange_req {
+typedef struct {
     int id;
-    node_addr_t addr;
-} raft_cfgchange_req_t;
+    NodeAddr addr;
+} RaftCfgChange;
 
-typedef struct raft_req {
+typedef struct {
+    int argc;
+    RedisModuleString **argv;
+} RaftRedisCommand;
+
+typedef struct RaftReq {
     int type;
     int flags;
-    STAILQ_ENTRY(raft_req) entries;
+    STAILQ_ENTRY(RaftReq) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
-        raft_cfgchange_req_t cfgchange;
+        RaftCfgChange cfgchange;
         struct {
             int src_node_id;
             msg_appendentries_t msg;
@@ -138,39 +144,33 @@ typedef struct raft_req {
             msg_requestvote_t msg;
         } requestvote;
         struct {
-            int argc;
-            RedisModuleString **argv;
+            RaftRedisCommand cmd;
             msg_entry_response_t response;
-        } raft;
+        } redis;
     } r;
-} raft_req_t;
-
-typedef struct raft_rediscommand {
-    int argc;
-    RedisModuleString **argv;
-} raft_rediscommand_t;
+} RaftReq;
 
 /* node.c */
-extern void node_free(node_t *node);
-extern node_t *node_init(int id, const node_addr_t *addr);
-extern void node_connect(node_t *node, redis_raft_t *rr);
-extern bool node_addr_parse(const char *node_addr, size_t node_addr_len, node_addr_t *result);
-bool node_config_parse(RedisModuleCtx *ctx, const char *str, node_config_t *c);
+void NodeFree(Node *node);
+Node *NodeInit(int id, const NodeAddr *addr);
+void NodeConnect(Node *node, RedisRaftCtx *rr);
+bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
+bool NodeConfigParse(RedisModuleCtx *ctx, const char *str, NodeConfig *c);
 
 /* raft.c */
-void redis_raft_serialize(raft_entry_data_t *target, RedisModuleString **argv, int argc);
-bool redis_raft_deserialize(RedisModuleCtx *ctx, raft_rediscommand_t *target, raft_entry_data_t *source);
-void raft_rediscommand_free(RedisModuleCtx *ctx, raft_rediscommand_t *r);
-int redis_raft_init(RedisModuleCtx *ctx, redis_raft_t *rr, redis_raft_config_t *config);
-int redis_raft_start(RedisModuleCtx *ctx, redis_raft_t *rr);
+void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);
+bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, raft_entry_data_t *source);
+void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
+int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
+int RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 
-void raft_req_free(raft_req_t *req);
-raft_req_t *raft_req_init(RedisModuleCtx *ctx, enum raft_req_type type);
-void raft_req_submit(redis_raft_t *rr, raft_req_t *req);
-void raft_req_handle_rqueue(uv_async_t *handle);
+void RaftReqFree(RaftReq *req);
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
+void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
+void RaftReqHandleQueue(uv_async_t *handle);
 
 /* util.c */
-extern int rmstring_to_int(RedisModuleString *str, int *value);
+int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
 
 #endif  /* _REDISRAFT_H */
