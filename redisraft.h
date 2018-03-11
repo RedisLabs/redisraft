@@ -68,6 +68,7 @@ typedef struct {
     uv_timer_t ptimer;          /* Periodic timer to invoke Raft periodic function */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
+    struct RaftLog *log;
 } RedisRaftCtx;
 
 /* Node address specifier. */
@@ -82,12 +83,16 @@ typedef struct NodeConfig {
     struct NodeConfig *next;
 } NodeConfig;
 
+#define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
+
 typedef struct {
-    int id;                 /* Local node Id */
-    NodeAddr addr;          /* Address of local node, if specified */
-    NodeConfig *nodes;      /* Nodes to talk to */
+    int id;                     /* Local node Id */
+    NodeAddr addr;              /* Address of local node, if specified */
+    NodeConfig *nodes;          /* Nodes to talk to */
+    char *raftlog;              /* Raft log file name */
     /* Flags */
     bool init;
+    bool join;
 } RedisRaftConfig;
 
 typedef struct {
@@ -150,6 +155,29 @@ typedef struct RaftReq {
     } r;
 } RaftReq;
 
+typedef struct RaftLog {
+    struct RaftLogHeader *header;
+    int fd;
+} RaftLog;
+
+#define RAFTLOG_VERSION     1
+
+typedef struct RaftLogHeader {
+    uint32_t    version;
+    uint32_t    node_id;        /* Node id writing this file */
+    uint32_t    vote;           /* Last node voted */
+    uint32_t    term;           /* Current term */
+    uint32_t    commit_idx;     /* Commit index */
+    size_t      entry_offset;   /* File offset for first entry */
+} RaftLogHeader;
+
+typedef struct RaftLogEntry {
+    uint32_t    term;
+    uint32_t    id;
+    uint32_t    type;
+    uint32_t    len;
+} RaftLogEntry;
+
 /* node.c */
 void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
@@ -172,5 +200,12 @@ void RaftReqHandleQueue(uv_async_t *handle);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
+
+/* log.c */
+RaftLog *RaftLogCreate(RedisRaftCtx *rr, const char *filename);
+RaftLog *RaftLogOpen(RedisRaftCtx *rr, const char *filename);
+bool RaftLogUpdate(RedisRaftCtx *rr, RaftLog *log);
+bool RaftLogAppend(RedisRaftCtx *rr, RaftLog *log, raft_entry_t *entry);
+int RaftLogLoadEntries(RedisRaftCtx *rr, RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
 
 #endif  /* _REDISRAFT_H */

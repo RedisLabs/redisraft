@@ -224,6 +224,10 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             target->init = true;
             continue;
         }
+        if (arglen == 4 && !memcmp(arg, "join", 4)) {
+            target->join = true;
+            continue;
+        }
 
         /* Handle arguments */
         const char *eq = memchr(arg, '=', arglen);
@@ -262,6 +266,11 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
                 RedisModule_Log(ctx, REDIS_WARNING, "invalid 'addr' value");
                 return REDISMODULE_ERR;
             }
+        } else if (kwlen == 7 && !memcmp(arg, "raftlog", kwlen)) {
+            if (target->raftlog) {
+                RedisModule_Free(target->raftlog);
+            }
+            target->raftlog = RedisModule_Strdup(arg);
         } else {
             RedisModule_Log(ctx, REDIS_WARNING, "invalid config keyword: '%.*s'", kwlen, arg);
             return REDISMODULE_ERR;

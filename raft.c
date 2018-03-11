@@ -285,11 +285,25 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 
 static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
 {
+    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+
+    rr->log->header->vote = vote;
+    if (!RaftLogUpdate(rr, rr->log)) {
+        return RAFT_ERR_SHUTDOWN;
+    }
+
     return 0;
 }
 
 static int raftPersistTerm(raft_server_t *raft, void *user_data, int term, int vote)
 {
+    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+
+    rr->log->header->term = term;
+    if (!RaftLogUpdate(rr, rr->log)) {
+        return RAFT_ERR_SHUTDOWN;
+    }
+
     return 0;
 }
 
@@ -307,8 +321,13 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
 
 static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
+    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     raft_node_t *raft_node;
     Node *node;
+
+    if (!RaftLogAppend(rr, rr->log, entry)) {
+        return RAFT_ERR_SHUTDOWN;
+    }
 
     if (!raft_entry_is_cfg_change(entry)) {
         return 0;
@@ -353,6 +372,13 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 {
     RedisRaftCtx *rr = user_data;
     RaftCfgChange *req;
+
+    /* Update commit index.
+     * TODO: Do we want to write it now? Probably not sync though.
+     */
+    if (entry_idx > rr->log->header->commit_idx) {
+        rr->log->header->commit_idx = entry_idx;
+    }
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
@@ -471,8 +497,11 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
         return REDISMODULE_ERR;
     }
 
+    char default_raftlog[256];
+    snprintf(default_raftlog, sizeof(default_raftlog)-1, "redisraft-log-%u.db", config->id);
+
     /* Initialize a new cluster? */
-    if (config->init) {
+    if (config->init || config->join) {
         msg_entry_response_t response;
         msg_entry_t msg = {
             .id = rand(),
@@ -488,6 +517,33 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
         raft_become_leader(rr->raft);
         int e = raft_recv_entry(rr->raft, &msg, &response);
         assert (e == 0);
+
+        /* Initialize log */
+        rr->log = RaftLogCreate(rr, config->raftlog ? config->raftlog : default_raftlog);
+        if (!rr->log) {
+            RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
+            return REDISMODULE_ERR;
+        }
+    } else {
+        rr->log = RaftLogOpen(rr, config->raftlog ? config->raftlog : default_raftlog);
+        if (!rr->log)  {
+            RedisModule_Log(ctx, REDIS_WARNING, "Failed to open Raft log");
+            return REDISMODULE_ERR;
+        }
+
+        int entries = RaftLogLoadEntries(rr, rr->log, raft_append_entry, rr->raft);
+        if (entries < 0) {
+            RedisModule_Log(ctx, REDIS_WARNING, "Failed to read Raft log");
+            return REDISMODULE_ERR;
+        } else {
+            RedisModule_Log(ctx, REDIS_NOTICE, "%d entries loaded from Raft log", entries);
+        }
+
+        raft_set_commit_idx(rr->raft, rr->log->header->commit_idx);
+        raft_apply_all(rr->raft);
+
+        raft_vote_for_nodeid(rr->raft, rr->log->header->vote);
+        raft_set_current_term(rr->raft, rr->log->header->term);
     }
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
