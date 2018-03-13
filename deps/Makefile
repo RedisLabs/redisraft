@@ -2,12 +2,13 @@ ifeq ($(PREFIX),)
     $(error PREFIX was not specified)
 endif
 
-all:	libuv hiredis raft
+all:	libuv hiredis raft cmocka
 
 clean:
 	$(MAKE) -C hiredis clean
 	$(MAKE) -C libuv distclean
 	$(MAKE) -C raft clean
+	-rm -rf cmocka/build
 
 ##
 
@@ -36,3 +37,15 @@ raft: raft/Makefile
 	    cp libraft.a $(PREFIX)/lib && \
 	    cp include/raft.h $(PREFIX)/include
 
+##
+
+.PHONY: cmocka
+cmocka: cmocka/build/Makefile
+	cd cmocka/build && \
+	    make && \
+	    make install
+
+cmocka/build/Makefile:
+	mkdir -p cmocka/build
+	cd cmocka/build && \
+	    cmake -DWITH_STATIC_LIB=true -DCMAKE_INSTALL_PREFIX=$(PREFIX) ..

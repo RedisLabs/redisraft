@@ -3,7 +3,15 @@
 
 #include "redisraft.h"
 
-RaftLog *RaftLogCreate(RedisRaftCtx *rr, const char *filename)
+void RaftLogClose(RaftLog *log)
+{
+    close(log->fd);
+    RedisModule_Free(log->header);
+    RedisModule_Free(log);
+}
+
+
+RaftLog *RaftLogCreate(const char *filename, uint32_t node_id)
 {
     int fd = open(filename, O_CREAT|O_RDWR|O_TRUNC, S_IRWXU|S_IRWXG);
     if (fd < 0) {
@@ -16,8 +24,8 @@ RaftLog *RaftLogCreate(RedisRaftCtx *rr, const char *filename)
     log->fd = fd;
 
     log->header->version = RAFTLOG_VERSION;
-    log->header->node_id = raft_get_nodeid(rr->raft);
-    log->header->term = raft_get_current_term(rr->raft);
+    log->header->node_id = node_id;
+    log->header->term = 0;
     log->header->entry_offset = sizeof(RaftLogHeader);
 
     if (write(log->fd, log->header, sizeof(RaftLogHeader)) < 0 ||
@@ -34,7 +42,7 @@ RaftLog *RaftLogCreate(RedisRaftCtx *rr, const char *filename)
     return log;
 }
 
-RaftLog *RaftLogOpen(RedisRaftCtx *rr, const char *filename)
+RaftLog *RaftLogOpen(const char *filename)
 {
     int fd = open(filename, O_RDWR);
     if (fd < 0) {
@@ -65,7 +73,7 @@ error:
     return NULL;
 }
 
-int RaftLogLoadEntries(RedisRaftCtx *rr, RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg)
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg)
 {
     int ret = 0;
 
@@ -105,7 +113,7 @@ int RaftLogLoadEntries(RedisRaftCtx *rr, RaftLog *log, int (*callback)(void **, 
             { .iov_base = &entry_len, .iov_len = sizeof(entry_len) }
         };
 
-        nread = readv(log->fd, iov, 2) != e.len + sizeof(entry_len);
+        nread = readv(log->fd, iov, 2);
         if (nread < e.len + sizeof(entry_len)) {
             LOG_ERROR("Failed to read Raft log entry: %s\n",
                     nread == -1 ? strerror(errno) : "truncated file");
@@ -134,22 +142,7 @@ int RaftLogLoadEntries(RedisRaftCtx *rr, RaftLog *log, int (*callback)(void **, 
     return ret;
 }
 
-void RaftLogSetCommitIdx(RaftLog *log, uint32_t commit_idx)
-{
-    log->header->commit_idx = commit_idx;
-}
-
-void RaftLogSetVote(RaftLog *log, int vote)
-{
-    log->header->vote = vote;
-}
-
-void RaftLogSetTerm(RaftLog *log, int term)
-{
-    log->header->term = term;
-}
-
-bool RaftLogUpdate(RedisRaftCtx *rr, RaftLog *log)
+bool RaftLogUpdate(RaftLog *log)
 {
     if (lseek(log->fd, 0, SEEK_SET) < 0) {
         return false;
@@ -164,7 +157,7 @@ bool RaftLogUpdate(RedisRaftCtx *rr, RaftLog *log)
     return true;
 }
 
-bool RaftLogAppend(RedisRaftCtx *rr, RaftLog *log, raft_entry_t *entry)
+bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
     RaftLogEntry ent = {
         .term = entry->term,

@@ -202,10 +202,11 @@ int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
 
 /* log.c */
-RaftLog *RaftLogCreate(RedisRaftCtx *rr, const char *filename);
-RaftLog *RaftLogOpen(RedisRaftCtx *rr, const char *filename);
-bool RaftLogUpdate(RedisRaftCtx *rr, RaftLog *log);
-bool RaftLogAppend(RedisRaftCtx *rr, RaftLog *log, raft_entry_t *entry);
-int RaftLogLoadEntries(RedisRaftCtx *rr, RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
+RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);
+RaftLog *RaftLogOpen(const char *filename);
+void RaftLogClose(RaftLog *log);
+bool RaftLogUpdate(RaftLog *log);
+bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
 
 #endif  /* _REDISRAFT_H */

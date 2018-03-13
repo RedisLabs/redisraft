@@ -288,7 +288,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
 
     rr->log->header->vote = vote;
-    if (!RaftLogUpdate(rr, rr->log)) {
+    if (!RaftLogUpdate(rr->log)) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -300,7 +300,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, int term, int v
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
 
     rr->log->header->term = term;
-    if (!RaftLogUpdate(rr, rr->log)) {
+    if (!RaftLogUpdate(rr->log)) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -325,7 +325,7 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
     raft_node_t *raft_node;
     Node *node;
 
-    if (!RaftLogAppend(rr, rr->log, entry)) {
+    if (!RaftLogAppend(rr->log, entry)) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -519,19 +519,19 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
         assert (e == 0);
 
         /* Initialize log */
-        rr->log = RaftLogCreate(rr, config->raftlog ? config->raftlog : default_raftlog);
+        rr->log = RaftLogCreate(config->raftlog ? config->raftlog : default_raftlog, config->id);
         if (!rr->log) {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
             return REDISMODULE_ERR;
         }
     } else {
-        rr->log = RaftLogOpen(rr, config->raftlog ? config->raftlog : default_raftlog);
+        rr->log = RaftLogOpen(config->raftlog ? config->raftlog : default_raftlog);
         if (!rr->log)  {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to open Raft log");
             return REDISMODULE_ERR;
         }
 
-        int entries = RaftLogLoadEntries(rr, rr->log, raft_append_entry, rr->raft);
+        int entries = RaftLogLoadEntries(rr->log, raft_append_entry, rr->raft);
         if (entries < 0) {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to read Raft log");
             return REDISMODULE_ERR;
