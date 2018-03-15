@@ -121,7 +121,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     req->r.redis.cmd.argc = argc - 1;
     req->r.redis.cmd.argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
-    
+
     int i;
     for (i = 0; i < argc - 1; i++) {
         req->r.redis.cmd.argv[i] =  argv[i + 1];
@@ -224,10 +224,6 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             target->init = true;
             continue;
         }
-        if (arglen == 4 && !memcmp(arg, "join", 4)) {
-            target->join = true;
-            continue;
-        }
 
         /* Handle arguments */
         const char *eq = memchr(arg, '=', arglen);
@@ -252,15 +248,15 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
                 return REDISMODULE_ERR;
             }
             target->id = idval;
-        } else if (kwlen == 4 && !memcmp(arg, "node", kwlen)) {
-            NodeConfig *n = RedisModule_Alloc(sizeof(NodeConfig));
-            if (!NodeConfigParse(ctx, valbuf, n)) {
+        } else if (kwlen == 4 && !memcmp(arg, "join", kwlen)) {
+            NodeAddrListElement *n = RedisModule_Alloc(sizeof(NodeAddrListElement));
+            if (!NodeAddrParse(valbuf, vlen, &n->addr)) {
                 RedisModule_Free(n);
-                RedisModule_Log(ctx, REDIS_WARNING, "invalid node configuration: '%s'", valbuf);
+                RedisModule_Log(ctx, REDIS_WARNING, "invalid join address: '%s'", valbuf);
                 return REDISMODULE_ERR;
             }
-            n->next = target->nodes;
-            target->nodes = n;
+            n->next = target->join;
+            target->join = n;
         } else if (kwlen == 4 && !memcmp(arg, "addr", kwlen)) {
             if (!NodeAddrParse(valbuf, vlen, &target->addr)) {
                 RedisModule_Log(ctx, REDIS_WARNING, "invalid 'addr' value");
@@ -322,18 +318,28 @@ void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
 }
 #endif
 
-static void logConfiguration(RedisModuleCtx *ctx, RedisRaftConfig *config)
-{
-    NodeConfig *nc;
 
-    RedisModule_Log(ctx, REDIS_NOTICE, "Load time configuration:");
-    RedisModule_Log(ctx, REDIS_NOTICE, "Id: %d", config->id);
-    
-    nc = config->nodes;
-    while (nc != NULL) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "Node: Id=%d, Addr=%s:%d", 
-                nc->id, nc->addr.host, nc->addr.port);
-        nc = nc->next;
+static int validateConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
+{
+    if (config->init && config->join) {
+        RedisModule_Log(ctx, REDIS_WARNING, "'init' and 'join' are mutually exclusive");
+        return REDISMODULE_ERR;
+    }
+    if (config->init) {
+        if (!config->addr.port) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'init' specified without an 'addr'");
+            return REDISMODULE_ERR;
+        }
+        if (!config->id) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'init' requires an 'id'");
+            return REDISMODULE_ERR;
+        }
+    }
+    if (config->join) {
+        if (!config->addr.port) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'join' specified without an 'addr'");
+            return REDISMODULE_ERR;
+        }
     }
 }
 
@@ -349,18 +355,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (parseConfigArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (!VALID_NODE_ID(config.id)) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Invalid or missing node id (id= param)");
-        return REDISMODULE_ERR;
-    }
-    if (config.init && !config.addr.port) {
-        RedisModule_Log(ctx, REDIS_WARNING, "'init' specified without an 'addr'");
+
+    if (validateConfig(ctx, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
-    logConfiguration(ctx, &config);
-
-    /* Register commands */ 
+    /* Register commands */
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmdRaft, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;

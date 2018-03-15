@@ -13,14 +13,11 @@
 #include "redismodule.h"
 #include "raft.h"
 
-#define NODE_CONNECTED      1
-#define NODE_CONNECTING     2
-
 /* --------------- RedisModule_Log levels used -------------- */
 
 #define REDIS_WARNING   "warning"
 #define REDIS_NOTICE    "notice"
-
+#define REDIS_VERBOSE   "verbose"
 
 /* -------------------- Logging macros -------------------- */
 
@@ -57,19 +54,10 @@ extern FILE *redis_raft_logfile;
 #define NODE_LOG_VERBOSE(node, fmt, ...) NODE_LOG(LOGLEVEL_VERBOSE, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_DEBUG(node, fmt, ...) NODE_LOG(LOGLEVEL_DEBUG, node, fmt, ##__VA_ARGS__)
 
-typedef struct {
-    void *raft;                 /* Raft library context */
-    RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
-                                   we get from the leader. */
-    bool running;               /* Thread is running */
-    uv_thread_t thread;         /* Raft I/O thread */
-    uv_loop_t *loop;            /* Raft I/O loop */
-    uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
-    uv_timer_t ptimer;          /* Periodic timer to invoke Raft periodic function */
-    uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
-    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
-    struct RaftLog *log;
-} RedisRaftCtx;
+/* Forward declarations */
+struct RaftReq;
+struct RedisRaftConfig;
+struct Node;
 
 /* Node address specifier. */
 typedef struct node_addr {
@@ -77,36 +65,70 @@ typedef struct node_addr {
     char host[256];             /* Hostname or IP address */
 } NodeAddr;
 
-typedef struct NodeConfig {
-    int id;
+typedef struct NodeAddrListElement {
     NodeAddr addr;
-    struct NodeConfig *next;
-} NodeConfig;
+    struct NodeAddrListElement *next;
+} NodeAddrListElement;
+
+typedef enum RedisRaftState {
+    REDIS_RAFT_UP,
+    REDIS_RAFT_JOINING
+} RedisRaftState;
+
+typedef struct {
+    void *raft;                 /* Raft library context */
+    RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
+                                   we get from the leader. */
+    RedisRaftState state;       /* Raft module state */
+    uv_thread_t thread;         /* Raft I/O thread */
+    uv_loop_t *loop;            /* Raft I/O loop */
+    uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
+    uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
+    uv_timer_t node_reconnect_timer;    /* Handle connection issues */
+    uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
+    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
+    struct RaftLog *log;
+    struct RedisRaftConfig *config;
+    NodeAddrListElement *join_addr;
+    struct Node *join_node;
+} RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
 
-typedef struct {
+typedef struct RedisRaftConfig {
     int id;                     /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
-    NodeConfig *nodes;          /* Nodes to talk to */
+    NodeAddrListElement *join;
     char *raftlog;              /* Raft log file name */
     /* Flags */
     bool init;
-    bool join;
 } RedisRaftConfig;
 
-typedef struct {
+typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);
+
+typedef enum NodeState {
+    NODE_DISCONNECTED,
+    NODE_CONNECTING,
+    NODE_CONNECTED,
+    NODE_CONNECT_ERROR
+} NodeState;
+
+#define NODE_STATE_IDLE(x) \
+    ((x) == NODE_DISCONNECTED || \
+     (x) == NODE_CONNECT_ERROR)
+
+typedef struct Node {
     int id;
-    int state;
+    NodeState state;
     NodeAddr addr;
     redisAsyncContext *rc;
     uv_getaddrinfo_t uv_resolver;
     uv_tcp_t uv_tcp;
     uv_connect_t uv_connect;
     RedisRaftCtx *rr;
+    NodeConnectCallbackFunc connect_callback;
 } Node;
 
-struct RaftReq;
 typedef int (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
 enum RaftReqType {
@@ -181,9 +203,8 @@ typedef struct RaftLogEntry {
 /* node.c */
 void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
-void NodeConnect(Node *node, RedisRaftCtx *rr);
+bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
-bool NodeConfigParse(RedisModuleCtx *ctx, const char *str, NodeConfig *c);
 
 /* raft.c */
 void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);
