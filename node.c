@@ -43,7 +43,7 @@ static void handleNodeDisconnect(const redisAsyncContext *c, int status)
 {
     Node *node = (Node *) c->data;
     node->state = NODE_DISCONNECTED;
-    NODE_LOG_INFO(node, "Connection dropped, reconnecting\n");
+    NODE_LOG_INFO(node, "Connection dropped.\n");
 }
 
 static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)

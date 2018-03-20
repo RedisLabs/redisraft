@@ -100,6 +100,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
         }
 
         /* Set up raft_entry */
+        memset(&raft_entry, 0, sizeof(raft_entry));
         raft_entry.term = e.term;
         raft_entry.id = e.id;
         raft_entry.type = e.type;
@@ -142,15 +143,19 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
     return ret;
 }
 
-bool RaftLogUpdate(RaftLog *log)
+bool RaftLogUpdate(RaftLog *log, bool sync)
 {
     if (lseek(log->fd, 0, SEEK_SET) < 0) {
         return false;
     }
 
-    if (write(log->fd, log->header, sizeof(RaftLogHeader)) < sizeof(RaftLogHeader) ||
-        fsync(log->fd) < 0) {
+    if (write(log->fd, log->header, sizeof(RaftLogHeader)) < sizeof(RaftLogHeader)) {
         LOG_ERROR("Failed to update Raft log: %s", strerror(errno));
+        return false;
+    }
+
+    if (sync && fsync(log->fd) < 0) {
+        LOG_ERROR("Failed to sync Raft log: %s", strerror(errno));
         return false;
     }
 

@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #define REDISMODULE_EXPERIMENTAL_API
 #include "uv.h"
@@ -36,7 +37,7 @@ extern FILE *redis_raft_logfile;
 
 #define LOG(level, fmt, ...) \
     do { if (redis_raft_loglevel >= level) \
-            fprintf(redis_raft_logfile, fmt, ##__VA_ARGS__); \
+            fprintf(redis_raft_logfile, "%u:" fmt, getpid(), ##__VA_ARGS__); \
     } while(0)
 
 #define LOG_ERROR(fmt, ...) LOG(LOGLEVEL_ERROR, fmt, ##__VA_ARGS__)
@@ -72,6 +73,7 @@ typedef struct NodeAddrListElement {
 
 typedef enum RedisRaftState {
     REDIS_RAFT_UP,
+    REDIS_RAFT_LOADING,
     REDIS_RAFT_JOINING
 } RedisRaftState;
 
@@ -95,11 +97,21 @@ typedef struct {
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
 
+#define REDIS_RAFT_DEFAULT_INTERVAL           100
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT    250
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT   500
+#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL 100
+
 typedef struct RedisRaftConfig {
     int id;                     /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
     NodeAddrListElement *join;
     char *raftlog;              /* Raft log file name */
+    /* Tuning */
+    int raft_interval;
+    int request_timeout;
+    int election_timeout;
+    int reconnect_interval;
     /* Flags */
     bool init;
 } RedisRaftConfig;
@@ -226,7 +238,7 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
 RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
-bool RaftLogUpdate(RaftLog *log);
+bool RaftLogUpdate(RaftLog *log, bool sync);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
 

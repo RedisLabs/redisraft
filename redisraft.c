@@ -4,7 +4,7 @@
 
 #include "redisraft.h"
 
-int redis_raft_loglevel = LOGLEVEL_INFO;
+int redis_raft_loglevel = 5;
 FILE *redis_raft_logfile;
 
 static RedisRaftCtx redis_raft = { 0 };
@@ -214,7 +214,6 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 {
     int i;
 
-    memset(target, 0, sizeof(*target));
     for (i = 0; i < argc; i++) {
         size_t arglen;
         const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
@@ -266,7 +265,7 @@ static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             if (target->raftlog) {
                 RedisModule_Free(target->raftlog);
             }
-            target->raftlog = RedisModule_Strdup(arg);
+            target->raftlog = RedisModule_Strdup(valbuf);
         } else {
             RedisModule_Log(ctx, REDIS_WARNING, "invalid config keyword: '%.*s'", kwlen, arg);
             return REDISMODULE_ERR;
@@ -345,13 +344,19 @@ static int validateConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    redis_raft_logfile = stderr;
+    redis_raft_logfile = stdout;
 
     if (RedisModule_Init(ctx, "redisraft", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }
 
     /* Initialize and validate configuration */
+    memset(&config, 0, sizeof(config));
+    config.raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
+    config.request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
+    config.election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
+    config.reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
+
     if (parseConfigArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }

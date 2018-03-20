@@ -1,7 +1,7 @@
 
 BUILDDIR := $(CURDIR)/.build
 CFLAGS = -g -std=c99 -I$(BUILDDIR)/include -fPIC -O0
-CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE -DUSE_COMMAND_FILTER # -DUSE_UNSAFE_READS
+CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE # -DUSE_COMMAND_FILTER
 LDFLAGS = -shared
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
@@ -47,13 +47,13 @@ tests/test-%.o: %.c
 .PHONY: tests
 tests: tests/tests_main
 	./tests/tests_main && \
-		lcov -c -d . -d ./tests --no-external -o tests/lcov.info && \
-		lcov --summary tests/lcov.info
+		lcov --rc lcov_branch_coverage=1 -c -d . -d ./tests --no-external -o tests/lcov.info && \
+		lcov --rc lcov_branch_coverage=1 --summary tests/lcov.info
 
 .PHONY: lcov-report
 lcov-report: tests/lcov.info
 	mkdir -p tests/.lcov_html
-	genhtml -o tests/.lcov_html tests/lcov.info
+	genhtml --branch-coverage -o tests/.lcov_html tests/lcov.info
 	xdg-open tests/.lcov_html/index.html >/dev/null 2>&1
 
 .PHONY: tests/tests_main
