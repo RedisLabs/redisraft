@@ -10,6 +10,7 @@
     -> option to pre-configure nodes statically
 * Cluster key
 * Snapshotting/compaction
+* Refactor Raft library with better types (e.g. log index > int)
 * Command hooking for transparency
     -> currently a non-standard api extension
 * Binary / side-band / datagram messaging

@@ -45,7 +45,14 @@ tests/test-%.o: %.c
 	$(CC) -c $(DUT_CFLAGS) $(DUT_CPPFLAGS) -o $@ $<
 
 .PHONY: tests
-tests: tests/tests_main
+tests: unit-tests integration-tests
+
+.PHONY: integration-tests
+integration-tests:
+	PATH=../redis/src:${PATH} nosetests tests/integration -v
+
+.PHONY: unit-tests
+unit-tests: tests/tests_main
 	./tests/tests_main && \
 		lcov --rc lcov_branch_coverage=1 -c -d . -d ./tests --no-external -o tests/lcov.info && \
 		lcov --rc lcov_branch_coverage=1 --summary tests/lcov.info

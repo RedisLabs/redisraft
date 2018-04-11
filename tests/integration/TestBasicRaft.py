@@ -11,7 +11,7 @@ def _teardown(c):
     c.destroy()
 
 @with_setup_args(_setup, _teardown)
-def test_001_single_node_becomes_leader(c):
+def test_add_node_as_a_single_leader(c):
     """
     Single node becomes a leader
     """
@@ -21,7 +21,7 @@ def test_001_single_node_becomes_leader(c):
     eq_(r1.raft_info()['current_index'], 2)
 
 @with_setup_args(_setup, _teardown)
-def test_002_node_joins_and_gets_data(c):
+def test_node_joins_and_gets_data(c):
     """
     Node joins and gets data
     """
@@ -33,7 +33,7 @@ def test_002_node_joins_and_gets_data(c):
     eq_(r2.client.get('key'), b'value')
 
 @with_setup_args(_setup, _teardown)
-def test_003_single_node_log_is_reapplied(c):
+def test_single_node_log_is_reapplied(c):
     """Single node log is reapplied on startup"""
     r1 = c.add_node()
     ok_(r1.raft_exec('SET', 'key', 'value'))
@@ -44,7 +44,7 @@ def test_003_single_node_log_is_reapplied(c):
     eq_(r1.client.get('key'), b'value')
 
 @with_setup_args(_setup, _teardown)
-def test_004_basic_reelection(c):
+def test_reelection_basic_flow(c):
     """
     Basic reelection flow
     """
@@ -53,5 +53,5 @@ def test_004_basic_reelection(c):
     eq_(c.raft_exec('SET', 'key', 'value'), b'OK')
     c.node(1).terminate()
     c.node(2).wait_for_election()
-    #eq_(c.raft_exec('SET', 'key2', 'value2'), b'OK')
-    #res = c.exec_all('GET', 'key2')
+    eq_(c.raft_exec('SET', 'key2', 'value2'), b'OK')
+    res = c.exec_all('GET', 'key2')

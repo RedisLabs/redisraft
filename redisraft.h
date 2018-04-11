@@ -97,10 +97,11 @@ typedef struct {
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
 
-#define REDIS_RAFT_DEFAULT_INTERVAL           100
-#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT    250
-#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT   500
-#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL 100
+#define REDIS_RAFT_DEFAULT_INTERVAL                 100
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
+#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
+#define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
 
 typedef struct RedisRaftConfig {
     int id;                     /* Local node Id */
@@ -112,6 +113,7 @@ typedef struct RedisRaftConfig {
     int request_timeout;
     int election_timeout;
     int reconnect_interval;
+    int max_log_entries;
     /* Flags */
     bool init;
 } RedisRaftConfig;
@@ -233,6 +235,8 @@ void RaftReqHandleQueue(uv_async_t *handle);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
+int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
+int stringmatch(const char *pattern, const char *string, int nocase);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);

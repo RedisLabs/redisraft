@@ -72,18 +72,25 @@ class RedisRaft(object):
                                        self.id)
                 time.sleep(0.01)
 
+    @staticmethod
+    def _dump_log(data, title):
+        if len(data) == 0:
+            return
+        LOG.debug('==========> Begining of {} <=========='.format(title))
+        for line in data.decode('utf-8').split('\\n'):
+            LOG.debug(line)
+        LOG.debug('==========> End of {} <=========='.format(title))
+
     def terminate(self):
         if self.process:
             try:
                 self.process.terminate()
                 self.process.wait()
                 _stdout, _stderr = self.process.communicate()
-                LOG.debug('==========> Begining of RedisRaft<{}> Log Output '
-                          '<=========='.format(self.id))
-                for line in _stdout.decode('utf-8').split('\\n'):
-                    LOG.debug(line)
-                LOG.debug('==========> End of RedisRaft<{}> Log Output '
-                          '<=========='.format(self.id))
+                self._dump_log(_stdout, "RedisRaft<{}> STDOUT Result".format(
+                    self.id))
+                self._dump_log(_stderr, "RedisRaft<{}> STDERR Result".format(
+                    self.id))
 
             except OSError as err:
                 LOG.error('RedisRaft<%s> failed to terminate: %s',
@@ -106,6 +113,9 @@ class RedisRaft(object):
     def raft_exec(self, *args):
         cmd = ['RAFT'] + list(args)
         return self.client.execute_command(*cmd)
+
+    def raft_config_set(self, key, val):
+        return self.client.execute_command('raft.config', 'set', key, val)
 
     def raft_info(self):
         return self.client.execute_command('raft.info')
@@ -134,14 +144,17 @@ class RedisRaft(object):
             raise RedisRaftTimeout('Last committed entry not yet applied')
         self._wait_for_condition(commit_idx_applied, raise_not_applied,
                                  timeout)
+        LOG.debug("Finished waiting logs to be applied.")
 
-    def wait_for_num_nodes(self, num_nodes, timeout=3):
-        def num_nodes_match():
+    def wait_for_num_voting_nodes(self, count, timeout=10):
+        def num_voting_nodes_match():
             info = self.raft_info()
-            return bool(info['num_nodes'] == num_nodes)
+            return bool(info['num_voting_nodes'] == count)
         def raise_not_added():
             raise RedisRaftTimeout('Nodes not added')
-        self._wait_for_condition(num_nodes_match, raise_not_added, timeout)
+        self._wait_for_condition(num_voting_nodes_match, raise_not_added,
+                                 timeout)
+        LOG.debug("Finished waiting for num_voting_nodes == %d", count)
 
     def destroy(self):
         self.terminate()
@@ -165,7 +178,7 @@ class Cluster(object):
             else:
                 node.join(self.base_port + 1)
         self.leader = 1
-        self.node(1).wait_for_num_nodes(len(self.nodes))
+        self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
 
     def add_node(self):

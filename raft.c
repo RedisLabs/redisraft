@@ -29,6 +29,31 @@ const char *raft_logtype_str(int type)
     }
 }
 
+static void replyRaftError(RedisModuleCtx *ctx, int error)
+{
+    char buf[128];
+
+    switch (error) {
+        case RAFT_ERR_NOT_LEADER:
+            RedisModule_ReplyWithError(ctx, "-ERR not leader");
+            break;
+        case RAFT_ERR_SHUTDOWN:
+            LOG_ERROR("Raft requires immediate shutdown!\n");
+            RedisModule_Call(ctx, "SHUTDOWN", "");
+            break;
+        case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
+            RedisModule_ReplyWithError(ctx, "-ERR a voting change is already in progress");
+            break;
+        case RAFT_ERR_NOMEM:
+            RedisModule_ReplyWithError(ctx, "-OOM Raft out of memory");
+            break;
+        default:
+            snprintf(buf, sizeof(buf) - 1, "-ERR Raft error %d", error);
+            RedisModule_ReplyWithError(ctx, buf);
+            break;
+    }
+}
+
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
 
 /* Serialize a RaftRedisCommand into a Raft entry */
@@ -340,6 +365,9 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     RaftCfgChange *req = (RaftCfgChange *) entry->data.buf;
 
+    TRACE("Processing RaftCfgChange for node:%d, entry id=%d, type=%s\n",
+            req->id, entry->id, raft_logtype_str(entry->type));
+
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
             raft_node = raft_get_node(raft, req->id);
@@ -348,21 +376,34 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
 
         case RAFT_LOGTYPE_ADD_NODE:
+            /* When adding a node that is not us, create a Node object to
+             * manage communication with it.
+             *
+             * Node object may already exist, as add node may be used to just
+             * promote to voting. */
+            raft_node = raft_get_node(raft, req->id);
+            node = NULL;
+            if (req->id != raft_get_nodeid(raft)) {
+                if (raft_node) {
+                    node = raft_node_get_udata(raft_node);
+                } else {
+                    node = NodeInit(req->id, &req->addr);
+                }
+                assert(node != NULL);
+            }
+            raft_node = raft_add_node(raft, node, req->id,
+                    req->id == raft_get_nodeid(raft));
+            assert(raft_node != NULL);
+            assert(raft_node_is_voting(raft_node));
+            break;
+
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
             node = NodeInit(req->id, &req->addr);
-
-            int is_self = req->id == raft_get_nodeid(raft);
-            if (entry->type == RAFT_LOGTYPE_ADD_NODE) {
-                raft_node = raft_add_node(raft, node, node->id, is_self);
-                assert(raft_node_is_voting(raft_node));
-            } else {
-               raft_node = raft_add_non_voting_node(raft, node, node->id, is_self);
-            }
-            if (!raft_node) {
-                TRACE("Failed to add node:%d, id=%d, log type=%s\n", node->id, entry->id, raft_logtype_str(entry->type));
-            } else {
-                TRACE("Added node:%d, id=%d, logtype=%s\n", node->id, entry->id, raft_logtype_str(entry->type));
-            }
+            raft_node = raft_add_non_voting_node(raft, node, node->id,
+                    node->id == raft_get_nodeid(raft));
+            // Catch errors, but it may be okay to fail adding ourselves as
+            // non-voting because we did that already.
+            //assert(raft_node == NULL && node->id != raft_get_nodeid(raft));
             break;
     }
 
@@ -370,6 +411,11 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
 }
 
 static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+{
+    return 0;
+}
+
+static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
     return 0;
 }
@@ -458,6 +504,7 @@ raft_cbs_t redis_raft_callbacks = {
     .persist_term = raftPersistTerm,
     .log_offer = raftLogOffer,
     .log_pop = raftLogPop,
+    .log_poll = raftLogPoll,
     .log = raftLog,
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
@@ -544,6 +591,29 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
     return REDISMODULE_OK;
 }
 
+int raft_get_num_snapshottable_logs(raft_server_t *);
+
+static void performSnapshot(RedisRaftCtx *rr)
+{
+    if (raft_begin_snapshot(rr->raft) < 0) {
+        return;
+    }
+
+    /* Persist data into the snapshot.  This will move out of the keyspace when
+     * Redis Module API permits that. */
+    RedisModule_ThreadSafeContextLock(rr->ctx);
+    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "HMSET", "cclcl",
+            "__raft_snapshot__",
+            "last_included_term",
+            raft_get_current_term(rr->raft),
+            "last_included_index",
+            raft_get_current_idx(rr->raft));
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+    assert(r != NULL);
+
+    raft_end_snapshot(rr->raft);
+}
+
 static void callRaftPeriodic(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
@@ -551,6 +621,15 @@ static void callRaftPeriodic(uv_timer_t *handle)
     int ret = raft_periodic(rr->raft, rr->config->raft_interval);
     assert(ret == 0);
     raft_apply_all(rr->raft);
+
+    /* Do we need a snapshot?
+     * Snapshots are cheap because we apply the log into the FSM continously
+     * anyway.
+     */
+
+    if (raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
+        performSnapshot(rr);
+    }
 }
 
 static void handleNodeReconnects(uv_timer_t *handle)
@@ -902,12 +981,11 @@ static int handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     memcpy(entry.data.buf, &req->r.cfgchange, sizeof(req->r.cfgchange));
 
     int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
-    if (e) {
-        // todo handle errors
-        RedisModule_Free(entry.data.buf);
-        RedisModule_ReplyWithSimpleString(req->ctx, "ERROR");
-    } else {
+    if (e == 0) {
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    } else  {
+        replyRaftError(req->ctx, e);
+        RedisModule_Free(entry.data.buf);
     }
 
     RedisModule_FreeThreadSafeContext(req->ctx);
@@ -943,10 +1021,9 @@ static int handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 
     RaftRedisCommandSerialize(&entry.data, &req->r.redis.cmd);
     int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
-    if (e) {
-        // todo handle errors
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
         RedisModule_Free(entry.data.buf);
-        RedisModule_ReplyWithSimpleString(req->ctx, "ERROR");
         goto exit;
     }
 
@@ -1024,7 +1101,7 @@ static int handleInfo(RedisRaftCtx *rr, RaftReq *req)
             continue;
         }
 
-        char state[20];
+        char state[40];
         switch (node->state) {
             case NODE_DISCONNECTED:
                 strcpy(state, "disconnected");
@@ -1044,8 +1121,10 @@ static int handleInfo(RedisRaftCtx *rr, RaftReq *req)
         }
 
         s = catsnprintf(s, &slen,
-                "node%d:id=%d,state=%s,addr=%s,port=%d\r\n",
-                i, node->id, state, node->addr.host, node->addr.port);
+                "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d\r\n",
+                i, node->id, state,
+                raft_node_is_voting(rnode) ? "yes" : "no",
+                node->addr.host, node->addr.port);
     }
 
     s = catsnprintf(s, &slen,
