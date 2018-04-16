@@ -247,4 +247,10 @@ bool RaftLogUpdate(RaftLog *log, bool sync);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
 
+/* config.c */
+int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
+
+
 #endif  /* _REDISRAFT_H */

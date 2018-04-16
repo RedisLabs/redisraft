@@ -13,6 +13,7 @@ OBJECTS = \
 	  redisraft.o \
 	  node.o \
 	  util.o \
+	  config.o \
 	  raft.o \
 	  log.o
 
