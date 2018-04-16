@@ -108,6 +108,7 @@ typedef struct RedisRaftConfig {
     NodeAddr addr;              /* Address of local node, if specified */
     NodeAddrListElement *join;
     char *raftlog;              /* Raft log file name */
+    bool persist;               /* Should log be persisted */
     /* Tuning */
     int raft_interval;
     int request_timeout;

@@ -210,12 +210,25 @@ error_cleanup:
     return REDISMODULE_OK;
 }
 
+static int parseBool(const char *value, bool *result)
+{
+    if (!strcmp(value, "yes")) {
+        *result = true;
+    } else if (!strcmp(value, "no")) {
+        *result = false;
+    } else {
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
 static int processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, "id") || !strcmp(keyword, "join") ||
                 !strcmp(keyword, "addr") || !strcmp(keyword, "init") ||
+                !strcmp(keyword, "persist") ||
                 !strcmp(keyword, "raftlog"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return REDISMODULE_ERR;
@@ -259,6 +272,11 @@ static int processConfigParam(const char *keyword, const char *value,
             RedisModule_Free(target->raftlog);
         }
         target->raftlog = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, "persist")) {
+        if (parseBool(value, &target->persist) == REDISMODULE_ERR)  {
+            snprintf(errbuf, errbuflen-1, "invalid persist value '%s'", value);
+            return REDISMODULE_ERR;
+        }
     } else if (!strcmp(keyword, "raft_interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -357,6 +375,10 @@ static int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisMo
     if (stringmatch(pattern, "raftlog", 1)) {
         len++;
         replyConfigStr(ctx, "raftlog", config->raftlog);
+    }
+    if (stringmatch(pattern, "persist", 1)) {
+        len++;
+        replyConfigStr(ctx, "persist", config->persist ? "yes" : "no");
     }
     if (stringmatch(pattern, "raft_interval", 1)) {
         len++;
@@ -517,6 +539,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     config.election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config.reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
     config.max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
+    config.persist = true;
 
     if (parseConfigArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
