@@ -420,11 +420,31 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
 static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
+    RedisRaftCtx *rr = user_data;
+
+    if (!rr->log) {
+        return 0;
+    }
+
+    if (!RaftLogRemoveTail(rr->log)) {
+        return -1;
+    }
+
     return 0;
 }
 
 static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
 {
+    RedisRaftCtx *rr = user_data;
+
+    if (!rr->log) {
+        return 0;
+    }
+
+    if (!RaftLogRemoveHead(rr->log)) {
+        return -1;
+    }
+
     return 0;
 }
 
