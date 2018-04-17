@@ -3,6 +3,8 @@
 
 #include "redisraft.h"
 
+#define INITIAL_LOG_OFFSET  sizeof(RaftLogHeader)
+
 void RaftLogClose(RaftLog *log)
 {
     close(log->fd);
@@ -26,13 +28,13 @@ RaftLog *RaftLogCreate(const char *filename, uint32_t node_id)
     log->header->version = RAFTLOG_VERSION;
     log->header->node_id = node_id;
     log->header->term = 0;
-    log->header->entry_offset = sizeof(RaftLogHeader);
+    log->header->entry_offset = INITIAL_LOG_OFFSET;
 
     if (write(log->fd, log->header, sizeof(RaftLogHeader)) < 0 ||
         fsync(log->fd) < 0) {
 
         LOG_ERROR("Failed to write Raft log header: %s: %s\n", filename, strerror(errno));
-        
+
         RedisModule_Free(log->header);
         RedisModule_Free(log);
 
@@ -108,7 +110,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
         raft_entry.data.buf = RedisModule_Alloc(e.len);
 
         /* Read data */
-        uint32_t entry_len;
+        size_t entry_len;
         struct iovec iov[2] = {
             { .iov_base = raft_entry.data.buf, .iov_len = e.len },
             { .iov_base = &entry_len, .iov_len = sizeof(entry_len) }
@@ -123,14 +125,14 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
             break;
         }
 
-        int expected_len = sizeof(entry_len) + e.len + sizeof(RaftLogEntry);
+        size_t expected_len = sizeof(entry_len) + e.len + sizeof(RaftLogEntry);
         if (entry_len != expected_len) {
-            LOG_ERROR("Invalid log entry size: %d (expected %d)\n", entry_len, expected_len);
+            LOG_ERROR("Invalid log entry size: %zd (expected %zd)\n", entry_len, expected_len);
             RedisModule_Free(raft_entry.data.buf);
             ret = -1;
             break;
         }
-       
+
         int cb_ret = callback(callback_arg, &raft_entry);
         if (cb_ret < 0) {
             RedisModule_Free(raft_entry.data.buf);
@@ -170,7 +172,7 @@ bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
         .type = entry->type,
         .len = entry->data.len
     };
-    uint32_t entry_len = sizeof(ent) + entry->data.len + sizeof(entry_len);
+    size_t entry_len = sizeof(ent) + entry->data.len + sizeof(entry_len);
 
     off_t pos = lseek(log->fd, 0, SEEK_END);
     if (pos < 0) {
@@ -188,9 +190,9 @@ bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
         if (written == -1) {
             LOG_ERROR("Error writing Raft log: %s", strerror(errno));
         } else {
-            LOG_ERROR("Incomplete Raft log write: %ld/%d bytes written", written, entry_len);
+            LOG_ERROR("Incomplete Raft log write: %zd/%zd bytes written", written, entry_len);
         }
-       
+
         if (written != -1 && ftruncate(log->fd, pos) != -1) {
             LOG_ERROR("Failed to truncate partial entry!");
         }
@@ -206,3 +208,69 @@ bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
     return true;
 }
 
+bool RaftLogRemoveHead(RaftLog *log)
+{
+    RaftLogEntry entry;
+
+    if (lseek(log->fd, log->header->entry_offset, SEEK_SET) < 0) {
+        LOG_ERROR("Failed to seek Raft log: %s\n", strerror(errno));
+        return false;
+    }
+
+    size_t nread = read(log->fd, &entry, sizeof(RaftLogEntry));
+    if (nread != sizeof(RaftLogEntry)) {
+        if (nread < 0) {
+            LOG_ERROR("Failed to read entry: %s\n", strerror(errno));
+        } else {
+            LOG_ERROR("Failed to read entry: %zd/%zd bytes read\n",
+                    nread, sizeof(RaftLogEntry));
+        }
+        return false;
+    }
+
+    size_t next_off = log->header->entry_offset + sizeof(RaftLogEntry) + entry.len + sizeof(size_t);
+    if (lseek(log->fd, 0, SEEK_END) == next_off) {
+        log->header->entry_offset = INITIAL_LOG_OFFSET;
+        RaftLogUpdate(log, true);
+        ftruncate(log->fd, log->header->entry_offset);
+    } else {
+        log->header->entry_offset = next_off;
+        RaftLogUpdate(log, true);
+    }
+
+    return true;
+}
+
+bool RaftLogRemoveTail(RaftLog *log)
+{
+    off_t end_off;
+    if ((end_off = lseek(log->fd, 0 - sizeof(size_t), SEEK_END)) < 0) {
+        LOG_ERROR("Failed to seek to Raft log end: %s\n", strerror(errno));
+        return false;
+    }
+    if (end_off <= log->header->entry_offset + sizeof(RaftLogEntry)) {
+        return false;
+    }
+    end_off += sizeof(size_t);
+
+    size_t entry_len;
+    size_t nread = read(log->fd, &entry_len, sizeof(entry_len));
+    if (nread != sizeof(entry_len)) {
+        if (nread < 0) {
+            LOG_ERROR("Failed to read entry: %s\n", strerror(errno));
+        } else {
+            LOG_ERROR("Failed to read entry: %zd/%zd bytes read\n",
+                    nread, sizeof(RaftLogEntry));
+        }
+        return false;
+    }
+
+    off_t new_size = end_off - entry_len;
+    if (new_size == log->header->entry_offset) {
+        log->header->entry_offset = INITIAL_LOG_OFFSET;
+        new_size = INITIAL_LOG_OFFSET;
+        RaftLogUpdate(log, true);
+    }
+    ftruncate(log->fd, new_size);
+    return true;
+}

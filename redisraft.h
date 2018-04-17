@@ -246,6 +246,8 @@ void RaftLogClose(RaftLog *log);
 bool RaftLogUpdate(RaftLog *log, bool sync);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
+bool RaftLogRemoveHead(RaftLog *log);
+bool RaftLogRemoveTail(RaftLog *log);
 
 /* config.c */
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
