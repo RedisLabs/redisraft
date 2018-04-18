@@ -37,6 +37,8 @@ you'll need:
 
 Run `make tests` to test everything.
 
+### Starting a cluster
+
 To create a three node cluster, start the first node and initialize the
 cluster:
 
@@ -45,8 +47,6 @@ redis-server \
     --port 5001 --loadmodule <path-to>/redisraft.so \
         id=1 raftlog=raftlog1.db init addr=localhost:5001
 ```
-
-### Starting a cluster
 
 Then start the second node and make it join the cluster:
 
@@ -76,9 +76,9 @@ And to submit a Raft operation:
 redis-cli -p 5001 RAFT SET mykey myvalue
 ```
 
-## How it works
+## Implementation
 
-The module is implemented around [Standalone C library implementation of
+The module uses [Standalone C library implementation of
 Raft](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 
 A single `RAFT` command is implemented as a prefix command for users to submit
@@ -103,23 +103,24 @@ such as:
   seen (follower/candidate).
 * Process committed entries (deliver to Redis through a thread safe context)
 
-## Persistence
+All received Raft commands are placed on a queue and handled by the Raft
+thread itself, using the blocking API and a thread safe context.
+
+### Persistence
 
 Most implementations of Raft assume a disk based crash recovery model.  This
 means that a crashed process can re-start, load its state (log and snapshots)
 from disk and resume.
 
-While this module can support this model, it can also support a pure in-memory
-model where a crashed process is equivalent to total node failure (i.e. disk is
-lost as well).  If a process is to be re-started, it should rejoin the cluster
-as a new node with a new node id.
+The raft module has a `persist` parameter which controls the persistence mode:
+1. In non-persistent mode, a crashed process is equivalent to a total node
+   failure (i.e. a raft node crashed and lost its disk).  If this happens, the
+   process needs to re-join the cluster with a new ID when it's back up and
+   receive the full log (or snapshot).
+2. In persistent mode, the Raft log is persisted to disk and can be read in
+   case of a process crash.
 
-The usability of this in the real world is to be seen.
-
-Another point to explore is the relationship between Raft log persistence,
-snapshots and the Redis built-in persistence mechanisms (mainly AOF).
-
-## Log Compaction
+### Log Compaction
 
 Raft defines a mechanism for compaction of logs by storing and exchanging
 snapshots.  In the context of Redis, we can think about the Redis dataset as a
@@ -138,7 +139,7 @@ compacted with different possible strategies:
 If persistence is enabled, then log compaction can apply only to log entries
 that have been committed and persisted (on last RDB save or AOF write).
 
-## Read request handling
+### Read request handling
 
 The naive implementation of reads is identical to writes.  Reads are prefixed
 by the `RAFT` command which places the read command in the Raft log and only
