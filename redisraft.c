@@ -232,6 +232,34 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
 }
 
+static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    size_t addrlen;
+    const char *addr = RedisModule_StringPtrLen(argv[1], &addrlen);
+    RaftReq *req = RaftReqInit(NULL, RR_LOADSNAPSHOT);
+    if (!NodeAddrParse(addr, addrlen, &req->r.loadsnapshot.addr)) {
+        RaftReqFree(req);
+        RedisModule_ReplyWithError(ctx, "ERR invalid address");
+        return REDISMODULE_OK;
+    }
+
+    /* Unlike all other RAFT commands, we reply to this one immediately
+     * to avoid the -UNBLOCKED error which result from changing stat.e
+     */
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    RaftReqSubmit(&redis_raft, req);
+
+    return REDISMODULE_OK;
+}
+
+
 static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
 {
     int i;
@@ -387,6 +415,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     if (RedisModule_CreateCommand(ctx, "raft.requestvote",
                 cmdRaftRequestVote, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.loadsnapshot",
+                cmdRaftLoadSnapshot, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

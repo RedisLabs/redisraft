@@ -331,7 +331,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
     if (!rr->log) {
         return 0;
     }
-    
+
     rr->log->header->vote = vote;
     if (!RaftLogUpdate(rr->log, true)) {
         return RAFT_ERR_SHUTDOWN;
@@ -527,6 +527,35 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     return 0;
 }
 
+static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    // We should probably catch and report errors, but no way to pass them
+    // back to the Raft library anyway.
+    return;
+}
+
+static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
+{
+    RedisRaftCtx *rr = user_data;
+    Node *node = (Node *) raft_node_get_udata(raft_node);
+
+    if (node->state != NODE_CONNECTED) {
+        NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
+        return -1;
+    }
+
+    if (redisAsyncCommand(node->rc, handleLoadSnapshotResponse, node,
+        "RAFT.LOADSNAPSHOT %s:%u",
+        rr->config->addr.host,
+        rr->config->addr.port) != REDIS_OK) {
+
+        node->state = NODE_CONNECT_ERROR;
+        return -1;
+    }
+
+    return 0;
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -539,6 +568,7 @@ raft_cbs_t redis_raft_callbacks = {
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
+    /*.send_snapshot = raftSendSnapshot,*/
 };
 
 /* ------------------------------------ AddNode ------------------------------------ */
@@ -687,17 +717,75 @@ static void performSnapshot(RedisRaftCtx *rr)
     raft_end_snapshot(rr->raft);
 }
 
+static void checkLoadSnapshotProgress(RedisRaftCtx *rr)
+{
+    RedisModule_ThreadSafeContextLock(rr->ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "INFO", "c", "replication");
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+    assert(reply != NULL);
+
+    size_t info_len;
+    const char *info = RedisModule_CallReplyProto(reply, &info_len);
+    const char *key, *val;
+    size_t keylen, vallen;
+    int ret;
+
+    static const char _master_link_status[] = "master_link_status";
+    static const char _master_sync_in_progress[] = "master_sync_in_progress";
+
+    bool link_status_up = false;
+    bool sync_in_progress = true;
+
+    while ((ret = RedisInfoIterate(&info, &info_len, &key, &keylen, &val, &vallen))) {
+        if (ret == -1) {
+            LOG_ERROR("Failed to parse INFO reply");
+            goto exit;
+        }
+
+        if (keylen == sizeof(_master_link_status)-1 &&
+                !memcmp(_master_link_status, key, keylen) &&
+            vallen == 2 && !memcmp(val, "up", 2)) {
+            link_status_up = true;
+        } else if (keylen == sizeof(_master_sync_in_progress)-1 &&
+                !memcmp(_master_sync_in_progress, key, keylen) &&
+                vallen == 1 && *val == '0') {
+            sync_in_progress = false;
+        }
+    }
+
+exit:
+    RedisModule_FreeCallReply(reply);
+
+    if (link_status_up && !sync_in_progress) {
+        rr->loading_snapshot = false;
+
+        RedisModule_ThreadSafeContextLock(rr->ctx);
+        reply = RedisModule_Call(rr->ctx, "SLAVEOF", "cc", "NO", "ONE");
+        RedisModule_ThreadSafeContextUnlock(rr->ctx);
+        assert(reply != NULL);
+
+        RedisModule_FreeCallReply(reply);
+    }
+}
+
 static void callRaftPeriodic(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+
+    /* If we're loading a snapshot, check if we're done */
+    if (rr->loading_snapshot) {
+        checkLoadSnapshotProgress(rr);
+    }
 
     int ret = raft_periodic(rr->raft, rr->config->raft_interval);
     assert(ret == 0);
     raft_apply_all(rr->raft);
 
-    /* Do we need a snapshot?
-     * Snapshots are cheap because we apply the log into the FSM continously
-     * anyway.
+    /* Do we need a snapshot? */
+    /* TODO: Change logic here.
+     * 1) If we're persistent we should probably sync with AOF/RDB saving.
+     * 2) If we don't persist anything, snapshotting is cheap and should be
+     *    done every time we apply log entries.
      */
 
     if (raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
@@ -970,6 +1058,16 @@ void RaftReqHandleQueue(uv_async_t *handle)
     RaftReq *req;
 
     while ((req = raft_req_fetch(rr))) {
+        if (rr->loading_snapshot && req->type != RR_INFO) {
+            if (req->ctx) {
+                RedisModule_ReplyWithError(req->ctx, "-LOADING loading snapshot");
+                RedisModule_FreeThreadSafeContext(req->ctx);
+                RedisModule_UnblockClient(req->client, NULL);
+                RaftReqFree(req);
+            } 
+            continue;
+        }
+
         g_RaftReqHandlers[req->type](rr, req);
         if (!(req->flags & RR_PENDING_COMMIT)) {
             RaftReqFree(req);
@@ -1217,10 +1315,34 @@ static int handleInfo(RedisRaftCtx *rr, RaftReq *req)
             raft_get_commit_idx(rr->raft),
             raft_get_last_applied_idx(rr->raft));
 
+    s = catsnprintf(s, &slen,
+            "\r\n# Snapshot\r\n"
+            "loading_snapshot:%s\r\n",
+            rr->loading_snapshot ? "yes" :"no");
+
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_FreeThreadSafeContext(req->ctx);
     RedisModule_UnblockClient(req->client, NULL);
     req->ctx = NULL;
+
+    return REDISMODULE_OK;
+}
+
+static int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
+{
+    RedisModule_ThreadSafeContextLock(rr->ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(
+            rr->ctx, "SLAVEOF", "cl",
+            req->r.loadsnapshot.addr.host,
+            (long long) req->r.loadsnapshot.addr.port);
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+
+    if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to initiate loading");
+        RedisModule_UnblockClient(req->client, NULL);
+    } else {
+        rr->loading_snapshot = true;
+    }
 
     return REDISMODULE_OK;
 }
@@ -1234,6 +1356,7 @@ RaftReqHandler g_RaftReqHandlers[] = {
     handleRequestVote,      /* RR_REQUESTVOTE */
     handleRedisCommand,     /* RR_REDISOCMMAND */
     handleInfo,             /* RR_INFO */
+    handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     NULL
 };
 

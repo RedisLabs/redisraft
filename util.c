@@ -211,3 +211,52 @@ int stringmatch(const char *pattern, const char *string, int nocase)
 {
     return stringmatchlen(pattern, strlen(pattern), string, strlen(string), nocase);
 }
+
+int RedisInfoIterate(const char **info_ptr, size_t *info_len,
+        const char **key, size_t *keylen, const char **value, size_t *valuelen)
+{
+    while (*info_len > 0) {
+        bool exit_loop = false;
+
+        /* Find end of line */
+        const char *eol = memchr(*info_ptr, '\n', *info_len);
+        if (!eol) {
+            return -1;
+        }
+
+        /* Line length is without CR/LF */
+        int nl_offset = eol - *info_ptr;
+        int line_len = nl_offset;
+        if (line_len > 0 && (*info_ptr)[line_len-1] == '\r') {
+            line_len--;
+        }
+
+        /* Skip empty line */
+        if (!line_len) {
+            goto next;
+        }
+
+        /* Find colon, skip lines without it */
+        const char *colon = memchr(*info_ptr, ':', line_len);
+        if (!colon) {
+            goto next;
+            continue;
+        }
+
+        /* Have it! */
+        *key = *info_ptr;
+        *keylen = colon - *key;
+        *value = colon + 1;
+        *valuelen = line_len - *keylen - 1;
+        exit_loop = true;
+
+next:
+        *info_ptr += nl_offset + 1;
+        *info_len -= nl_offset + 1;
+        if (exit_loop) {
+            return 1;
+        }
+    }
+    return 0;
+}
+

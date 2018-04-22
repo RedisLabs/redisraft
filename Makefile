@@ -33,7 +33,8 @@ DUT_CPPFLAGS = $(CPPFLAGS) -include tests/dut_premble.h
 DUT_CFLAGS = $(CFLAGS) -fprofile-arcs -ftest-coverage
 TEST_OBJECTS = \
 	tests/main.o \
-	tests/test_log.o
+	tests/test_log.o \
+	tests/test_util.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
 TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a -lgcov

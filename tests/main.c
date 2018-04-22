@@ -7,6 +7,7 @@
 #include "cmocka.h"
 
 extern struct CMUnitTest log_tests[];
+extern struct CMUnitTest util_tests[];
 
 int tests_count(struct CMUnitTest *tests)
 {
@@ -25,5 +26,7 @@ int main(int argc, char *argv[])
     redis_raft_logfile = stderr;
 
     return _cmocka_run_group_tests(
-            "log", log_tests, tests_count(log_tests), NULL, NULL);
+            "log", log_tests, tests_count(log_tests), NULL, NULL) ||
+           _cmocka_run_group_tests(
+            "util", util_tests, tests_count(util_tests), NULL, NULL);
 }

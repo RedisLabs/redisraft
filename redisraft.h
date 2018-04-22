@@ -93,6 +93,7 @@ typedef struct {
     struct RedisRaftConfig *config;
     NodeAddrListElement *join_addr;
     struct Node *join_node;
+    bool loading_snapshot;
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
@@ -152,7 +153,8 @@ enum RaftReqType {
     RR_APPENDENTRIES,
     RR_REQUESTVOTE,
     RR_REDISCOMMAND,
-    RR_INFO
+    RR_INFO,
+    RR_LOADSNAPSHOT
 };
 
 extern RaftReqHandler g_RaftReqHandlers[];
@@ -189,6 +191,9 @@ typedef struct RaftReq {
             RaftRedisCommand cmd;
             msg_entry_response_t response;
         } redis;
+        struct {
+            NodeAddr addr;
+        } loadsnapshot;
     } r;
 } RaftReq;
 
@@ -238,6 +243,7 @@ int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int stringmatch(const char *pattern, const char *string, int nocase);
+int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);
