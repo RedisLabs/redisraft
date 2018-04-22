@@ -1,0 +1,12 @@
+**/*.o
+**/*.gcda
+**/*.gcno
+tests/tests_main
+**/__pycache__
+**/*.swp
+.build/
+core.*
+*.so
+**/dump.rdb
+cscope.*out
+tests/lcov.info
