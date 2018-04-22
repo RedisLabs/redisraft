@@ -260,5 +260,9 @@ int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
 int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
 
+/* snapshot.c */
+int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
+void checkLoadSnapshotProgress(RedisRaftCtx *rr);
+void performSnapshot(RedisRaftCtx *rr);
 
 #endif  /* _REDISRAFT_H */

@@ -15,6 +15,7 @@ OBJECTS = \
 	  util.o \
 	  config.o \
 	  raft.o \
+	  snapshot.o \
 	  log.o
 
 redisraft.so: deps $(OBJECTS)
