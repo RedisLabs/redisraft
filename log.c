@@ -75,6 +75,48 @@ error:
     return NULL;
 }
 
+int readRaftLogEntryLen(RaftLog *log, size_t *entry_len)
+{
+    size_t nread = read(log->fd, entry_len, sizeof(*entry_len));
+
+    /* EOF */
+    if (!nread) {
+        return 0;
+    }
+
+    if (nread < 0) {
+        LOG_ERROR("Error reading log entry: %s\n", strerror(errno));
+        return -1;
+    } else if (nread < sizeof(*entry_len)) {
+        LOG_ERROR("Short read reading log entry: %zd/%zd\n",
+                nread, sizeof(*entry_len));
+        return -1;
+    }
+
+    return 1;
+}
+
+int readRaftLogEntry(RaftLog *log, RaftLogEntry *entry)
+{
+    size_t nread = read(log->fd, entry, sizeof(*entry));
+
+    /* EOF */
+    if (!nread) {
+        return 0;
+    }
+
+    if (nread < 0) {
+        LOG_ERROR("Error reading log entry: %s\n", strerror(errno));
+        return -1;
+    } else if (nread < sizeof(*entry)) {
+        LOG_ERROR("Short read reading log entry: %zd/%zd\n",
+                nread, sizeof(*entry));
+        return -1;
+    }
+
+    return 1;
+}
+
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg)
 {
     int ret = 0;
@@ -87,16 +129,15 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
     do {
         raft_entry_t raft_entry;
         RaftLogEntry e;
-        ssize_t nread = read(log->fd, &e, sizeof(RaftLogEntry));
+        int r = readRaftLogEntry(log, &e);
 
         /* End of file? */
-        if (!nread) {
+        if (!r) {
             break;
         }
 
         /* Error? */
-        if (nread < 0) {
-            LOG_ERROR("Failed to read Raft log: %s\n", strerror(errno));
+        if (r < 0) {
             ret = -1;
             break;
         }
@@ -116,7 +157,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
             { .iov_base = &entry_len, .iov_len = sizeof(entry_len) }
         };
 
-        nread = readv(log->fd, iov, 2);
+        ssize_t nread = readv(log->fd, iov, 2);
         if (nread < e.len + sizeof(entry_len)) {
             LOG_ERROR("Failed to read Raft log entry: %s\n",
                     nread == -1 ? strerror(errno) : "truncated file");
@@ -217,14 +258,7 @@ bool RaftLogRemoveHead(RaftLog *log)
         return false;
     }
 
-    size_t nread = read(log->fd, &entry, sizeof(RaftLogEntry));
-    if (nread != sizeof(RaftLogEntry)) {
-        if (nread < 0) {
-            LOG_ERROR("Failed to read entry: %s\n", strerror(errno));
-        } else {
-            LOG_ERROR("Failed to read entry: %zd/%zd bytes read\n",
-                    nread, sizeof(RaftLogEntry));
-        }
+    if (readRaftLogEntry(log, &entry) <= 0) {
         return false;
     }
 
@@ -254,14 +288,7 @@ bool RaftLogRemoveTail(RaftLog *log)
     end_off += sizeof(size_t);
 
     size_t entry_len;
-    size_t nread = read(log->fd, &entry_len, sizeof(entry_len));
-    if (nread != sizeof(entry_len)) {
-        if (nread < 0) {
-            LOG_ERROR("Failed to read entry: %s\n", strerror(errno));
-        } else {
-            LOG_ERROR("Failed to read entry: %zd/%zd bytes read\n",
-                    nread, sizeof(RaftLogEntry));
-        }
+    if (readRaftLogEntryLen(log, &entry_len) <= 0) {
         return false;
     }
 
