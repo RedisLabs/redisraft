@@ -144,4 +144,19 @@ int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     return REDISMODULE_OK;
 }
 
+int handleCompact(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (performSnapshot(rr) != RR_OK) {
+        LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
+        RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
+    } else {
+        LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%d, committed=%d, entries=%d\n",
+                raft_get_current_idx(rr->raft),
+                raft_get_commit_idx(rr->raft),
+                raft_get_log_count(rr->raft));
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    }
 
+    RedisModule_UnblockClient(req->client, NULL);
+    return REDISMODULE_OK;
+}

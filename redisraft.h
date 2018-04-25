@@ -147,6 +147,11 @@ typedef struct Node {
 
 typedef int (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
+typedef enum RedisRaftResult {
+    RR_OK       = 0,
+    RR_ERROR
+} RedisRaftResult;
+
 enum RaftReqType {
     RR_CFGCHANGE_ADDNODE = 1,
     RR_CFGCHANGE_REMOVENODE,
@@ -154,7 +159,8 @@ enum RaftReqType {
     RR_REQUESTVOTE,
     RR_REDISCOMMAND,
     RR_INFO,
-    RR_LOADSNAPSHOT
+    RR_LOADSNAPSHOT,
+    RR_COMPACT
 };
 
 extern RaftReqHandler g_RaftReqHandlers[];
@@ -263,6 +269,7 @@ int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *
 /* snapshot.c */
 int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
-void performSnapshot(RedisRaftCtx *rr);
+RedisRaftResult performSnapshot(RedisRaftCtx *rr);
+int handleCompact(RedisRaftCtx *rr, RaftReq *req);
 
 #endif  /* _REDISRAFT_H */

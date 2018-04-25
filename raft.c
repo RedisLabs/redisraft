@@ -1222,6 +1222,7 @@ RaftReqHandler g_RaftReqHandlers[] = {
     handleRedisCommand,     /* RR_REDISOCMMAND */
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
+    handleCompact,          /* RR_COMPACT */
     NULL
 };
 

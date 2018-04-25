@@ -259,6 +259,31 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    size_t cmdlen;
+    const char *cmdstr = RedisModule_StringPtrLen(argv[1], &cmdlen);
+    char cmd[cmdlen+1];
+
+    memcpy(cmd, cmdstr, cmdlen);
+    cmd[cmdlen] = '\0';
+
+    if (!strcasecmp(cmd, "compact")) {
+        RaftReq *req = RaftReqInit(ctx, RR_COMPACT);
+        RaftReqSubmit(&redis_raft, req);
+    } else {
+        RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
+    }
+
+    return REDISMODULE_OK;
+}
 
 static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
 {
@@ -420,6 +445,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     if (RedisModule_CreateCommand(ctx, "raft.loadsnapshot",
                 cmdRaftLoadSnapshot, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.debug",
+                cmdRaftDebug, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
