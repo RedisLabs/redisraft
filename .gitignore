@@ -10,3 +10,4 @@ core.*
 **/dump.rdb
 cscope.*out
 tests/lcov.info
+*.rdb
