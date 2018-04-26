@@ -236,25 +236,44 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    if (argc != 2) {
+    if (argc != 4) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
+    long long term;
+    long long idx;
+    if (RedisModule_StringToLongLong(argv[1], &term) != REDISMODULE_OK ||
+        RedisModule_StringToLongLong(argv[2], &idx) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "-ERR invalid numeric values");
+        return REDISMODULE_OK;
+    }
+
+    /* Early bail out if we already have this */
+    if (raft_get_current_term(rr->raft) == term &&
+        idx <= raft_get_current_idx(rr->raft)) {
+        RedisModule_ReplyWithLongLong(ctx, 0);
+        return REDISMODULE_OK;
+    }
+
     size_t addrlen;
-    const char *addr = RedisModule_StringPtrLen(argv[1], &addrlen);
+    const char *addr = RedisModule_StringPtrLen(argv[3], &addrlen);
     RaftReq *req = RaftReqInit(NULL, RR_LOADSNAPSHOT);
     if (!NodeAddrParse(addr, addrlen, &req->r.loadsnapshot.addr)) {
         RaftReqFree(req);
-        RedisModule_ReplyWithError(ctx, "ERR invalid address");
+        RedisModule_ReplyWithError(ctx, "-ERR invalid address");
         return REDISMODULE_OK;
     }
 
     /* Unlike all other RAFT commands, we reply to this one immediately
      * to avoid the -UNBLOCKED error which result from changing stat.e
      */
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-    RaftReqSubmit(&redis_raft, req);
+    if (rr->loading_snapshot) {
+        RedisModule_ReplyWithError(ctx, "-LOADING loading snapshot");
+    } else {
+        RedisModule_ReplyWithLongLong(ctx, 1);
+        RaftReqSubmit(&redis_raft, req);
+    }
 
     return REDISMODULE_OK;
 }

@@ -17,21 +17,30 @@ class RedisRaftTimeout(RedisRaftError):
 
 class RedisRaft(object):
     def __init__(self, _id, port, raftmodule='redisraft.so',
-                 executable='redis-server', redis_args=None):
+                 executable='redis-server', redis_args=None,
+                 raft_args=None):
+        if raft_args is None:
+            raft_args = {}
+        else:
+            raft_args = raft_args.copy()
         self.id = _id
         self.port = port
         self.executable = executable
         self.process = None
         self.raftlog = 'raftlog{}.db'.format(self.id)
         self.logfile = 'redis{}.log'.format(self.id)
-        self.args = ['--port', str(port)]
+        self.dbfilename = 'redis{}.rdb'.format(self.id)
+        self.args = ['--port', str(port),
+                     '--dbfilename', self.dbfilename]
         if redis_args:
             self.args += redis_args
         self.args += ['--loadmodule', os.path.abspath(raftmodule)]
-        self.raft_args = ['id={}'.format(_id),
-                          'addr=localhost:{}'.format(self.port),
-                          'raftlog=' + self.raftlog]
 
+        raft_args['id'] = str(_id)
+        raft_args['addr'] = 'localhost:{}'.format(self.port)
+        raft_args['raftlog'] = self.raftlog
+
+        self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
@@ -168,9 +177,12 @@ class Cluster(object):
         self.nodes = {}
         self.leader = None
 
-    def create(self, node_count):
+    def create(self, node_count, raft_args=None):
+        if raft_args is None:
+            raft_args={}
         assert self.nodes == {}
-        self.nodes = {x: RedisRaft(x, self.base_port + x)
+        self.nodes = {x: RedisRaft(x, self.base_port + x,
+                                   raft_args=raft_args)
                       for x in range(1, node_count + 1)}
         for _id, node in self.nodes.items():
             if _id == 1:

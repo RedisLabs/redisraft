@@ -16,6 +16,11 @@ static char *generateCfgString(RedisRaftCtx *rr)
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
         Node *node = raft_node_get_udata(rnode);
 
+        /* Skip uncommitted nodes from the snapshot */
+        if (!raft_node_is_addition_committed(rnode)) {
+            continue;
+        }
+
         NodeAddr *na = NULL;
         if (raft_node_get_id(rnode) == raft_get_nodeid(rr->raft)) {
             na = &rr->config->addr;
@@ -25,12 +30,11 @@ static char *generateCfgString(RedisRaftCtx *rr)
             assert(0);
         }
 
-        buf = catsnprintf(buf, &buf_len, "%s%u,%u,%u,%u,%s:%u",
+        buf = catsnprintf(buf, &buf_len, "%s%u,%u,%u,%s:%u",
                 buf[0] == '\0' ? "" : ";",
                 raft_node_get_id(rnode),
                 raft_node_is_active(rnode),
                 raft_node_is_voting_committed(rnode),
-                raft_node_is_addition_committed(rnode),
                 na->host,
                 na->port);
     }
@@ -38,41 +42,222 @@ static char *generateCfgString(RedisRaftCtx *rr)
     return buf;
 }
 
+static const char __raft_snapshot[] = "__raft_snapshot__";
+static const char __last_included_term[] = "last_included_term";
+static const char __last_included_index[] = "last_included_index";
+static const char __cfg[] = "cfg";
 
 static void storeSnapshotInfo(RedisRaftCtx *rr)
 {
     /* Persist data into the snapshot.  This will move out of the keyspace when
      * Redis Module API permits that. */
     char *cfg = generateCfgString(rr);
+    unsigned int term = raft_get_current_term(rr->raft);
+    unsigned int index = raft_get_last_applied_idx(rr->raft);
+
+    LOG_DEBUG("storeSnapshotInfo: last included term %u, index %u\n", term, index);
 
     RedisModule_ThreadSafeContextLock(rr->ctx);
     RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "HMSET", "cclclcc",
-            "__raft_snapshot__",
-            "last_included_term",
-            raft_get_current_term(rr->raft),
-            "last_included_index",
-            raft_get_current_idx(rr->raft),
-            "cfg", cfg
+            __raft_snapshot,
+            __last_included_term,
+            term,
+            __last_included_index,
+            index,
+            __cfg, cfg
             );
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     assert(r != NULL);
 
+    RedisModule_FreeCallReply(r);
     RedisModule_Free(cfg);
+}
+
+typedef struct SnapshotCfgEntry {
+    uint32_t    id;
+    int         active;
+    int         voting;
+    NodeAddr    addr;
+    struct SnapshotCfgEntry *next;
+} SnapshotCfgEntry;
+
+typedef struct SnapshotMetadata {
+    uint32_t    last_included_term;
+    uint32_t    last_included_index;
+    SnapshotCfgEntry *cfg_entry;
+} SnapshotMetadata;
+
+static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
+{
+    while (head != NULL) {
+        SnapshotCfgEntry *next = head->next;
+        RedisModule_Free(head);
+        head = next;
+    }
+}
+
+
+static SnapshotCfgEntry *parseCfgString(char *str)
+{
+    SnapshotCfgEntry *result = NULL;
+    SnapshotCfgEntry **prev = &result;
+
+    char *tmp;
+    char *p = strtok_r(str, ";", &tmp);
+    while (p != NULL) {
+        SnapshotCfgEntry *r = RedisModule_Calloc(1, sizeof(SnapshotCfgEntry));
+        *prev = r;
+        char *addr;
+
+        if (sscanf(p, "%u,%u,%u,%ms", &r->id, &r->active, &r->voting, &addr) != 4) {
+            freeSnapshotCfgEntryList(result);
+            return NULL;
+        }
+
+        bool parsed = NodeAddrParse(addr, strlen(addr), &r->addr);
+        free(addr);
+
+        if (!parsed) {
+            freeSnapshotCfgEntryList(result);
+            return NULL;
+        }
+
+        prev = &r->next;
+        p = strtok_r(NULL, ";", &tmp);
+    }
+
+    return result;
+}
+
+static RedisRaftResult loadSnapshotInfo(RedisRaftCtx *rr, SnapshotMetadata *result)
+{
+    RedisRaftResult ret = RR_OK;
+
+    RedisModule_ThreadSafeContextLock(rr->ctx);
+    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "HGETALL", "c", __raft_snapshot);
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+
+    assert(r != NULL);
+    if (RedisModule_CallReplyType(r) != REDISMODULE_REPLY_ARRAY) {
+        ret = RR_ERROR;
+        LOG_ERROR("loadSnapshotInfo failed, corrupt snapshot metadata\n");
+        goto exit;
+    }
+
+    int i = 0;
+    for (i = 0; i < RedisModule_CallReplyLength(r); i++) {
+        RedisModuleCallReply *name = RedisModule_CallReplyArrayElement(r, i);
+        RedisModuleCallReply *value = RedisModule_CallReplyArrayElement(r, ++i);
+
+        size_t namelen;
+        const char *namestr = RedisModule_CallReplyStringPtr(name, &namelen);
+
+        size_t valuelen;
+        const char *valuestr = RedisModule_CallReplyStringPtr(value, &valuelen);
+
+        char namebuf[namelen + 1];
+        memcpy(namebuf, namestr, namelen);
+        namebuf[namelen] = '\0';
+
+        char valuebuf[valuelen + 1];
+        memcpy(valuebuf, valuestr, valuelen);
+        valuebuf[valuelen] = '\0';
+
+        char *endptr;
+
+        if (!strcmp(__last_included_term, namebuf)) {
+            result->last_included_term = strtoul(valuebuf, &endptr, 10);
+            if (*endptr) {
+                LOG_ERROR("Invalid last_included_term value\n");
+                goto exit;
+            }
+        } else if (!strcmp(__last_included_index, namebuf)) {
+            result->last_included_index = strtoul(valuebuf, &endptr, 10);
+            if (*endptr) {
+                LOG_ERROR("Invalid last_included_index value\n");
+                goto exit;
+            }
+        } else if (namelen == strlen(__cfg) && !memcmp(namestr, __cfg, namelen)) {
+            result->cfg_entry = parseCfgString(valuebuf);
+            if (!result->cfg_entry) {
+                ret = RR_ERROR;
+                LOG_ERROR("Invalid cfg value\n");
+                goto exit;
+            }
+        }
+    }
+
+exit:
+    RedisModule_FreeCallReply(r);
+    return ret;
 }
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
-void performSnapshot(RedisRaftCtx *rr)
+RedisRaftResult performSnapshot(RedisRaftCtx *rr)
 {
     if (raft_begin_snapshot(rr->raft) < 0) {
-        return;
+        return RR_ERROR;
     }
 
+    /* TODO: Persistence */
     storeSnapshotInfo(rr);
     raft_end_snapshot(rr->raft);
+
+    return RR_OK;
 }
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
+
+static void loadSnapshot(RedisRaftCtx *rr)
+{
+    SnapshotMetadata metadata = { 0 };
+    if (loadSnapshotInfo(rr, &metadata) != RR_OK ||
+        !metadata.cfg_entry) {
+            LOG_ERROR("Failed to load snapshot metadata, aborting.\n");
+            return;
+    }
+
+    LOG_INFO("Begining snapshot load, term=%u, last_included_index=%u\n",
+            metadata.last_included_term,
+            metadata.last_included_index);
+
+    int ret;
+    if ((ret = raft_begin_load_snapshot(rr->raft, metadata.last_included_term,
+                metadata.last_included_index)) != 0) {
+        LOG_ERROR("Cannot load snapshot: already loaded?\n");
+        goto exit;
+    }
+
+    SnapshotCfgEntry *cfg = metadata.cfg_entry;
+    while (cfg != NULL) {
+        if (cfg->id == raft_get_nodeid(rr->raft)) {
+            continue;
+        }
+
+        /* TODO -- handle deletion properly here */
+        raft_node_t *rn = raft_get_node(rr->raft, cfg->id);
+        if (rn != NULL) {
+            raft_remove_node(rr->raft, rn);
+        }
+
+        Node *n = NodeInit(cfg->id, &cfg->addr);
+        if (cfg->voting) {
+            rn = raft_add_node(rr->raft, n, cfg->id, 0);
+        } else {
+            rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
+        }
+
+        raft_node_set_active(rn, cfg->active);
+
+        cfg = cfg->next;
+    }
+
+    raft_end_load_snapshot(rr->raft);
+
+exit:
+    freeSnapshotCfgEntryList(metadata.cfg_entry);
+}
 
 void checkLoadSnapshotProgress(RedisRaftCtx *rr)
 {
@@ -110,18 +295,20 @@ void checkLoadSnapshotProgress(RedisRaftCtx *rr)
         }
     }
 
+
 exit:
     RedisModule_FreeCallReply(reply);
 
     if (link_status_up && !sync_in_progress) {
-        rr->loading_snapshot = false;
-
         RedisModule_ThreadSafeContextLock(rr->ctx);
         reply = RedisModule_Call(rr->ctx, "SLAVEOF", "cc", "NO", "ONE");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
         assert(reply != NULL);
 
         RedisModule_FreeCallReply(reply);
+
+        loadSnapshot(rr);
+        rr->loading_snapshot = false;
     }
 }
 
@@ -135,10 +322,15 @@ int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
 
     if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
-        RedisModule_ReplyWithError(req->ctx, "ERR failed to initiate loading");
-        RedisModule_UnblockClient(req->client, NULL);
+        /* No errors because we don't use a blocking client for this type
+         * of requests.
+         */
     } else {
         rr->loading_snapshot = true;
+    }
+
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
     }
 
     return REDISMODULE_OK;

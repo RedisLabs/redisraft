@@ -143,6 +143,8 @@ typedef struct Node {
     uv_connect_t uv_connect;
     RedisRaftCtx *rr;
     NodeConnectCallbackFunc connect_callback;
+    bool load_snapshot_in_progress;
+    unsigned long load_snapshot_idx;
 } Node;
 
 typedef int (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);

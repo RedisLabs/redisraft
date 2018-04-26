@@ -361,7 +361,12 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
     raft_node_t *raft_node;
     Node *node;
 
-    if (rr->log) {
+    TRACE("raftLogOffer: entry_idx=%d\n", entry_idx);
+
+    /* If we're in the process of loading from disk, don't feedback back to
+     * the disk.
+     */
+    if (rr->log && rr->state != REDIS_RAFT_LOADING) {
         if (!RaftLogAppend(rr->log, entry)) {
             return RAFT_ERR_SHUTDOWN;
         }
@@ -437,11 +442,14 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
 {
     RedisRaftCtx *rr = user_data;
 
+    TRACE("raftLogPoll: entry_idx=%d\n", entry_idx);
+
     if (!rr->log) {
         return 0;
     }
 
     if (!RaftLogRemoveHead(rr->log)) {
+        LOG_DEBUG("raftLogPoll: RaftLogRemoveHead() failed!\n");
         return -1;
     }
 
@@ -527,11 +535,39 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     return 0;
 }
 
+/* TODO -- move this to Raft library header file */
+void raft_node_set_next_idx(raft_node_t* me_, int nextIdx);
+
 static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *privdata)
 {
-    // We should probably catch and report errors, but no way to pass them
-    // back to the Raft library anyway.
-    return;
+    Node *node = privdata;
+    RedisRaftCtx *rr = node->rr;
+
+    redisReply *reply = r;
+    assert(reply != NULL);
+
+    node->load_snapshot_in_progress = false;
+
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: %s\n",
+                reply ? reply->str : "connection dropped.");
+    } else if (reply->type != REDIS_REPLY_INTEGER) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT invalid response type\n");
+    } else {
+        NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld\n",
+                reply->integer);
+
+        /* If snapshot is already available on node, update it.
+         *
+         * The Raft paper does not address this issue and whether this should be
+         * deduced by AE heartbeats or not.  The Raft library doesn't so it's
+         * required here.
+         */
+        if (!reply->integer) {
+            raft_node_t *n = raft_get_node(rr->raft, node->id);
+            raft_node_set_next_idx(n, node->load_snapshot_idx);
+        }
+    }
 }
 
 static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
@@ -539,19 +575,37 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
     RedisRaftCtx *rr = user_data;
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
+    /* We don't attempt to load a snapshot before we receive a response.
+     *
+     * Note: a response in this case only lets us know the operation begun,
+     * but it's not a blocking operation.  See RAFT.LOADSNAPSHOT for more info.
+     */
+    if (node->load_snapshot_in_progress) {
+        return 0;
+    }
+
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %u, node idx %u\n",
+            raft_get_snapshot_last_idx(raft),
+            raft_node_get_next_idx(raft_node));
+
     if (node->state != NODE_CONNECTED) {
         NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
         return -1;
     }
 
     if (redisAsyncCommand(node->rc, handleLoadSnapshotResponse, node,
-        "RAFT.LOADSNAPSHOT %s:%u",
+        "RAFT.LOADSNAPSHOT %u %u %s:%u",
+        raft_get_snapshot_last_term(raft),
+        raft_get_snapshot_last_idx(raft),
         rr->config->addr.host,
         rr->config->addr.port) != REDIS_OK) {
 
         node->state = NODE_CONNECT_ERROR;
         return -1;
     }
+
+    node->load_snapshot_idx = raft_get_snapshot_last_idx(raft);
+    node->load_snapshot_in_progress = true;
 
     return 0;
 }
@@ -568,7 +622,7 @@ raft_cbs_t redis_raft_callbacks = {
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
-    /*.send_snapshot = raftSendSnapshot,*/
+    .send_snapshot = raftSendSnapshot
 };
 
 /* ------------------------------------ AddNode ------------------------------------ */
@@ -642,12 +696,15 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
 
     raft_vote_for_nodeid(rr->raft, rr->log->header->vote);
     raft_set_current_term(rr->raft, rr->log->header->term);
-    rr->state = REDIS_RAFT_UP;
 
+    /* TODO is this needed? */
+#if 0
     if (raft_get_num_nodes(rr->raft) == 1) {
         raft_node_set_voting(raft_get_my_node(rr->raft), 1);
         raft_become_leader(rr->raft);
     }
+#endif
+
     return REDISMODULE_OK;
 }
 
@@ -764,12 +821,35 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
         return REDISMODULE_ERR;
     }
 
+    /* Initialize log */
+    if (initRaftLog(ctx, rr) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
     /* Become leader and create initial entry */
     rr->state = REDIS_RAFT_UP;
     raft_become_leader(rr->raft);
-    assert(appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) == 0);
 
-    return initRaftLog(ctx, rr);
+    /* We need to create the first add node entry.  Because we don't have
+     * callbacks set yet, we also need to manually push this in our log
+     * as well.
+     *
+     * In the future it could be nicer to have callbacks already set and this
+     * be done automatically (but some other raft lib fixes would be required).
+     */
+
+    if (appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) != 0) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to append initial configuration entry");
+        return REDISMODULE_ERR;
+    }
+
+    if (rr->log) {
+        raft_entry_t *entry = raft_get_entry_from_idx(rr->raft, 1);
+        assert(entry != NULL);
+        assert(RaftLogAppend(rr->log, entry) == true);
+    }
+
+    return REDISMODULE_OK;
 }
 
 int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
@@ -787,6 +867,7 @@ int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 
 int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
+    rr->state = REDIS_RAFT_LOADING;
     rr->log = RaftLogOpen(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG);
     if (!rr->log)  {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to open Raft log");
@@ -808,7 +889,6 @@ int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
         RedisModule_Log(ctx, REDIS_NOTICE, "%d entries loaded from Raft log", entries);
     }
 
-    rr->state = REDIS_RAFT_LOADING;
     return REDISMODULE_OK;
 }
 
@@ -849,6 +929,10 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
         joinCluster(ctx, rr, config);
     }
 
+    /* NOTE: The Raft library apparently does not handle well initial
+     * setup if callbacks are already set. Not sure if this is by design,
+     * and it may be a good idea to fix at some point.
+     */
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
 
     if (!config->init && !config->join) {
@@ -949,7 +1033,7 @@ void RaftReqHandleQueue(uv_async_t *handle)
                 RedisModule_FreeThreadSafeContext(req->ctx);
                 RedisModule_UnblockClient(req->client, NULL);
                 RaftReqFree(req);
-            } 
+            }
             continue;
         }
 
@@ -1089,8 +1173,15 @@ static int handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         goto exit;
     }
 
-    // We're now waiting
-    req->flags |= RR_PENDING_COMMIT;
+    /* If we're a single node we can try to apply now, as we have no need
+     * or way to wait for AE responses to do that.
+     */
+    if (raft_get_current_idx(rr->raft) == raft_get_commit_idx(rr->raft)) {
+        raft_apply_all(rr->raft);
+    } else {
+        // We're now waiting
+        req->flags |= RR_PENDING_COMMIT;
+    }
 
     return REDISMODULE_OK;
 
