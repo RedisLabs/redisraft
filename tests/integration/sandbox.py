@@ -3,9 +3,9 @@ import time
 import os
 import os.path
 import subprocess
-import weakref
-import redis
+import threading
 import logging
+import redis
 
 LOG = logging.getLogger('sandbox')
 
@@ -14,6 +14,24 @@ class RedisRaftError(Exception):
 
 class RedisRaftTimeout(RedisRaftError):
     pass
+
+
+class PipeLogger(threading.Thread):
+    def __init__(self, pipe, prefix):
+        super(PipeLogger, self).__init__()
+        self.prefix = prefix
+        self.pipe = pipe
+        self.daemon = True
+        self.start()
+
+    def getvalue(self):
+        return self.buf
+
+    def run(self):
+        for line in iter(self.pipe.readline, b''):
+            LOG.debug('{}: {}'.format(self.prefix,
+                                      str(line, 'utf-8').rstrip()))
+
 
 class RedisRaft(object):
     def __init__(self, _id, port, raftmodule='redisraft.so',
@@ -45,6 +63,8 @@ class RedisRaft(object):
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
         self.client.set_response_callback('raft.info', redis.client.parse_info)
+        self.stdout = None
+        self.stderr = None
 
     def init(self):
         self.cleanup()
@@ -64,6 +84,11 @@ class RedisRaft(object):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             executable=self.executable,
             args=args)
+        self.stdout = PipeLogger(self.process.stdout,
+                                 '{}/stdout'.format(self.id))
+        self.stderr = PipeLogger(self.process.stderr,
+                                 '{}/stderr'.format(self.id))
+
         self.verify_up()
         LOG.info('RedisRaft<%s> is up, pid=%s', self.id, self.process.pid)
 
@@ -81,25 +106,11 @@ class RedisRaft(object):
                                        self.id)
                 time.sleep(0.01)
 
-    @staticmethod
-    def _dump_log(data, title):
-        if len(data) == 0:
-            return
-        LOG.debug('==========> Begining of {} <=========='.format(title))
-        for line in data.decode('utf-8').split('\\n'):
-            LOG.debug(line)
-        LOG.debug('==========> End of {} <=========='.format(title))
-
     def terminate(self):
         if self.process:
             try:
                 self.process.terminate()
                 self.process.wait()
-                _stdout, _stderr = self.process.communicate()
-                self._dump_log(_stdout, "RedisRaft<{}> STDOUT Result".format(
-                    self.id))
-                self._dump_log(_stderr, "RedisRaft<{}> STDERR Result".format(
-                    self.id))
 
             except OSError as err:
                 LOG.error('RedisRaft<%s> failed to terminate: %s',
