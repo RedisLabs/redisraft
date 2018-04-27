@@ -29,8 +29,8 @@ submodules under `deps`.  To compile you will need:
 
 ### Testing
 
-The module includes a set of unit tests and integration tests.  To run them
-you'll need:
+The module includes a minimal set of unit tests and integration tests.  To run
+them you'll need:
 * lcov (for coverage analysis)
 * Python and nose (for flows tests)
 * redis-server in your PATH, or in `../redis/src`.
@@ -76,7 +76,7 @@ And to submit a Raft operation:
 redis-cli -p 5001 RAFT SET mykey myvalue
 ```
 
-## Implementation
+## Module Architecture
 
 The module uses [Standalone C library implementation of
 Raft](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
@@ -106,40 +106,94 @@ such as:
 All received Raft commands are placed on a queue and handled by the Raft
 thread itself, using the blocking API and a thread safe context.
 
+## Raft Cluster Design
+
+### Node Membership
+
+When a new node starts up, it can follow one of the following flows:
+
+1. Start as the first node of a new cluster.
+2. Start as a new node of an existing cluster (with a new unique ID).
+   Initially it will be a non-voting node, only receiving logs (or snapshot).
+3. Start as an existing cluster node which recovers from crash.  Typically
+   this is done by loading persistent data from disk.
+
+Configuration changes are propagated as special Raft log entries, as described
+in the Raft paper.
+
+The trigger for configuration changes is provided by `RAFT.ADDNODE` and
+`RAFT.REMOVENODE` commands.
+
+*NOTE: Currently membership operations are node-centric. That is, a node is
+started with module arguments that describe how it should behave.  For
+example, a joined node will have a `join=<leader-addr>` argument telling it to
+connect to the leader and execute a `RAFT.ADDNODE` command.  While there are
+some benefits to this approach, it may make more sense to change to a
+cluster-centric approach which is the way Redis Cluster does things.*
+
 ### Persistence
 
 Most implementations of Raft assume a disk based crash recovery model.  This
 means that a crashed process can re-start, load its state (log and snapshots)
 from disk and resume.
 
-The raft module has a `persist` parameter which controls the persistence mode:
+The Raft module has a `persist` parameter which controls the persistence mode:
 1. In non-persistent mode, a crashed process is equivalent to a total node
    failure (i.e. a raft node crashed and lost its disk).  If this happens, the
    process needs to re-join the cluster with a new ID when it's back up and
-   receive the full log (or snapshot).
+   receive the full log (or snapshot).  *This may not be entirely true, a Raft
+   node may crash recover and still maintain it's ID*.
 2. In persistent mode, the Raft log is persisted to disk and can be read in
    case of a process crash.
 
 ### Log Compaction
 
+#### Strategies
+
 Raft defines a mechanism for compaction of logs by storing and exchanging
-snapshots.  In the context of Redis, we can think about the Redis dataset as a
-constantly updated snapshot.
+snapshots.  The snapshot is expected to be persisted just like the log, and
+include information that was removed from the log during compaction.
 
-Snapshot delivery is based on the built in Redis replication mechanism.  A
-follower temporarily becomes a slave and replicates the dataset from the
-leader.
+In the context of Redis, we can think about the Redis dataset as a constantly
+updated snapshot.  If persistence is required, then our snapshot is version of
+the data that was last saved to RDB or AOF.
 
-If persistence is not enabled, this means the Raft log can be continuously
-compacted with different possible strategies:
-1. Removing entries seen by all members
-2. Removing entries seen by the majority, leaving a configurable fixed number
-   of "backlog" entries that can be delivered to follows lagging behind.
+**If persistence is not required**: we may be able to continuously compact the
+Raft log and remove entries that have been received by *all* cluster members.
+A majority in this case is not enough, as those nodes that did not receive the
+entries would have to fall back to snapshots.
 
-If persistence is enabled, then log compaction can apply only to log entries
-that have been committed and persisted (on last RDB save or AOF write).
+**If persistence is required**: ideally we can follow the same compaction
+strategy above, but make sure we only compact entries that have been persisted
+by Redis.
 
-### Read request handling
+*NOTE: The Redis Module API currently does not offer a way to implement these
+strategies.*
+
+#### Snapshot Delivery
+
+The current implementation of snapshot delivery is constrained by the existing
+Redis Module API and operates this way:
+
+1. Leader decides it needs to send a snapshot to a remote node.
+2. Leader sends a `RAFT.LOADSNAPSHOT` command.  The command includes the
+   *last-included-term* and *last-included-index* of the snapshot (local
+   dataset) so the remote node can quickly refuse it if it was already loaded.
+3. The remote node's load snapshot implementation uses `SLAVEOF` to
+   temporarily become a Redis Replication Slave and fetch the snapshot from
+   the leader.
+4. When the replication is complete, the Raft module reconfigures Redis to be
+   a master again.
+
+`RAFT.LOADSNAPSHOT` operates in the background and responds immediately, as it
+is not possible to maintain a blocked client across role changes.  Possible
+responses are:
+* `1` indicates snapshot loading is started.
+* `0` indicates the local index already matches the required snapshot index so
+  nothing needs to be done.
+* `-LOADING` indicates snapshot loading is already in progress.
+
+#### Read request handling
 
 The naive implementation of reads is identical to writes.  Reads are prefixed
 by the `RAFT` command which places the read command in the Raft log and only
@@ -150,3 +204,6 @@ This has two limitations:
    many Raft implementations support.
 2. It bloats the Raft log for no reason.  An optimization would trigger a
    heartbeat to avoid stale reads but not generate a real log entry.
+
+A better approach, which needs to be implemented at the Raft library level, is
+to synchronize reads with heartbeats received from the majority.
