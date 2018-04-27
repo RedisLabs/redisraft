@@ -5,6 +5,36 @@
 
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
+/* Snapshot metadata includes the current term and index at time of snapshot
+ * creation, and the up to date configuration (nodes, addresses, etc.).
+ *
+ * It is currently stored as a single `__raft_snapshot__` hash key in the namespace,
+ * for lack of better Redis Module API options.
+ */
+
+static const char __raft_snapshot[] = "__raft_snapshot__";
+static const char __last_included_term[] = "last_included_term";
+static const char __last_included_index[] = "last_included_index";
+static const char __cfg[] = "cfg";
+
+typedef struct SnapshotCfgEntry {
+    uint32_t    id;
+    int         active;
+    int         voting;
+    NodeAddr    addr;
+    struct SnapshotCfgEntry *next;
+} SnapshotCfgEntry;
+
+typedef struct SnapshotMetadata {
+    uint32_t    last_included_term;
+    uint32_t    last_included_index;
+    SnapshotCfgEntry *cfg_entry;
+} SnapshotMetadata;
+
+/* Generate a configuration field string from the current Raft configuration state.
+ * This string can then be parsed into a series of SnapshotCfgEntry structs when
+ * loading a snapshot.
+ */
 static char *generateCfgString(RedisRaftCtx *rr)
 {
     size_t buf_len = 1024;
@@ -42,15 +72,10 @@ static char *generateCfgString(RedisRaftCtx *rr)
     return buf;
 }
 
-static const char __raft_snapshot[] = "__raft_snapshot__";
-static const char __last_included_term[] = "last_included_term";
-static const char __last_included_index[] = "last_included_index";
-static const char __cfg[] = "cfg";
-
+/* Persist data into the snapshot.  This will move out of the keyspace when
+ * Redis Module API permits that. */
 static void storeSnapshotInfo(RedisRaftCtx *rr)
 {
-    /* Persist data into the snapshot.  This will move out of the keyspace when
-     * Redis Module API permits that. */
     char *cfg = generateCfgString(rr);
     unsigned int term = raft_get_current_term(rr->raft);
     unsigned int index = raft_get_last_applied_idx(rr->raft);
@@ -73,20 +98,7 @@ static void storeSnapshotInfo(RedisRaftCtx *rr)
     RedisModule_Free(cfg);
 }
 
-typedef struct SnapshotCfgEntry {
-    uint32_t    id;
-    int         active;
-    int         voting;
-    NodeAddr    addr;
-    struct SnapshotCfgEntry *next;
-} SnapshotCfgEntry;
-
-typedef struct SnapshotMetadata {
-    uint32_t    last_included_term;
-    uint32_t    last_included_index;
-    SnapshotCfgEntry *cfg_entry;
-} SnapshotMetadata;
-
+/* Free a chain of SnapshotCfgEntry structs */
 static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
 {
     while (head != NULL) {
@@ -95,7 +107,6 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
         head = next;
     }
 }
-
 
 static SnapshotCfgEntry *parseCfgString(char *str)
 {
@@ -194,13 +205,25 @@ exit:
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
+/* Create a snapshot.
+ *
+ * 1. raft_begin_snapshot() determines which part of the log can be compacted
+ *    and applies any unapplied entry.
+ * 2. storeSnapshotInfo() updates the metadata which is part of the snapshot.
+ * 3. raft_end_snapshot() does the actual compaction of the log.
+ *
+ * TODO: We currently don't properly deal with snapshot persistence.  We need to either
+ * (a) BGSAVE; or (b) make sure we're covered by AOF.  In the case of RDB, a better
+ * approach may be to trigger snapshot generation on BGSAVE, but it requires better
+ * synchronization so we can determine how far the log should be compacted.
+ */
+
 RedisRaftResult performSnapshot(RedisRaftCtx *rr)
 {
     if (raft_begin_snapshot(rr->raft) < 0) {
         return RR_ERROR;
     }
 
-    /* TODO: Persistence */
     storeSnapshotInfo(rr);
     raft_end_snapshot(rr->raft);
 
@@ -209,6 +232,11 @@ RedisRaftResult performSnapshot(RedisRaftCtx *rr)
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
 
+/* After a snapshot is received (becomes the Redis dataset), load it into the Raft
+ * library:
+ * 1. Configure index/term/etc.
+ * 2. Reconfigure nodes based on the snapshot metadata configuration.
+ */
 static void loadSnapshot(RedisRaftCtx *rr)
 {
     SnapshotMetadata metadata = { 0 };
@@ -259,6 +287,9 @@ exit:
     freeSnapshotCfgEntryList(metadata.cfg_entry);
 }
 
+/* Monitor Redis Replication progress when loading a snapshot.  If completed,
+ * reconfigure Raft with the metadata from the new snapshot.
+ */
 void checkLoadSnapshotProgress(RedisRaftCtx *rr)
 {
     RedisModule_ThreadSafeContextLock(rr->ctx);
