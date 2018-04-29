@@ -38,7 +38,7 @@ TEST_OBJECTS = \
 	tests/test_util.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
-TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a -lgcov
+TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a -lgcov -lpthread
 
 .PHONY: clean-tests
 clean-tests:

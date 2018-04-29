@@ -10,6 +10,9 @@ FILE *redis_raft_logfile;
 static RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
 
+/* This is needed for newer pthread versions to properly link and work */
+void *__dso_handle;
+
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 static int cmdRaftAddNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)

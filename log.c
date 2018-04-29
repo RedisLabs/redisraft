@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <string.h>
+#include <sys/uio.h>
 
 #include "redisraft.h"
 
