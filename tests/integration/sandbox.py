@@ -48,6 +48,10 @@ class RedisRaft(object):
         self.raftlog = 'raftlog{}.db'.format(self.id)
         self.logfile = 'redis{}.log'.format(self.id)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
+        if os.path.exists(self.raftlog):
+            os.unlink(self.raftlog)
+        if os.path.exists(self.dbfilename):
+            os.unlink(self.dbfilename)
         self.args = ['--port', str(port),
                      '--dbfilename', self.dbfilename]
         if redis_args:
