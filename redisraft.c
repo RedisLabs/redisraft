@@ -412,6 +412,19 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
+    /* Report arguments */
+    size_t str_len = 1024;
+    char *str = RedisModule_Calloc(1, str_len);
+    int i;
+    for (i = 0; i < argc; i++) {
+        size_t slen;
+        const char *s = RedisModule_StringPtrLen(argv[i], &slen);
+        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", slen, s);
+    }
+
+    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft starting, arguments: %s", str);
+    RedisModule_Free(str);
+
     /* Initialize and validate configuration */
     memset(&config, 0, sizeof(config));
     config.raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
