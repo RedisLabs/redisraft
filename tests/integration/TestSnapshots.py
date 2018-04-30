@@ -1,7 +1,7 @@
 import sys
 import time
 import sandbox
-from nose.tools import eq_, ok_
+from nose.tools import eq_, ok_, assert_greater
 from test_tools import with_setup_args
 
 def _setup():
@@ -22,7 +22,7 @@ def test_compaction_thresholds(c):
     for x in range(10):
         ok_(r1.raft_exec('SET', 'testkey', x))
     time.sleep(1)
-    eq_(0, r1.raft_info()['log_entries'])
+    assert_greater(5, r1.raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
 def test_cfg_from_snapshot(c):
