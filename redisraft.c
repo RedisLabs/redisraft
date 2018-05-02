@@ -199,6 +199,10 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
             goto error_cleanup;
         }
 
+        /* Note: There is an extra allocation that can be avoided here, but
+         * we then need to keep the list of retained strings so RaftReqFree()
+         * can later release them. TODO later on.
+         */
         tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
         e->data.buf = RedisModule_Alloc(tmplen);
         e->data.len = tmplen;

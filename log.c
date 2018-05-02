@@ -176,8 +176,8 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), v
         }
 
         int cb_ret = callback(callback_arg, &raft_entry);
+        RedisModule_Free(raft_entry.data.buf);
         if (cb_ret < 0) {
-            RedisModule_Free(raft_entry.data.buf);
             ret = cb_ret;
             break;
         }

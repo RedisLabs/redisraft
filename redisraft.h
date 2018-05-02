@@ -97,6 +97,7 @@ typedef struct {
     NodeAddrListElement *join_addr;
     struct Node *join_node;
     bool loading_snapshot;
+    bool callbacks_set;
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"

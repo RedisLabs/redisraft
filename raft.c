@@ -373,6 +373,18 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     TRACE("raftLogOffer: entry_idx=%d\n", entry_idx);
 
+    /* Memory management policy: we always make a copy of the data here. In some cases
+     * we could avoid it but the Raft library makes no distinction of how an entry was
+     * received so we stick to it.  Free is on raftLogPoll()/raftLogPop().
+     */
+    if (entry->data.len) {
+        void *old_buf = entry->data.buf;
+        entry->data.buf = RedisModule_Alloc(entry->data.len);
+        memcpy(entry->data.buf, old_buf, entry->data.len);
+    } else {
+        entry->data.buf = NULL;
+    }
+
     /* If we're in the process of loading from disk, don't feedback back to
      * the disk.
      */
@@ -552,13 +564,12 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     entry.type = RAFT_LOGTYPE_ADD_NODE;
 
     msg_entry_response_t response;
+    RaftCfgChange cfgchange = { 0 };
+    cfgchange.id = node->id;
+    cfgchange.addr = node->addr;
 
-    RaftCfgChange *req;
-    entry.data.len = sizeof(RaftCfgChange);
-    entry.data.buf = RedisModule_Calloc(1, entry.data.len);
-    req = (RaftCfgChange *) entry.data.buf;
-    req->id = node->id;
-    req->addr = node->addr;
+    entry.data.len = sizeof(cfgchange);
+    entry.data.buf = &cfgchange;
 
     int e = raft_recv_entry(raft, &entry, &response);
     assert(e == 0);
@@ -811,20 +822,29 @@ static void RedisRaftThread(void *arg)
     uv_run(rr->loop, UV_RUN_DEFAULT);
 }
 
-int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
+static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
 {
     msg_entry_t msg = { 0 };
     msg_entry_response_t response;
 
+    RaftCfgChange cfgchange = { 0 };
+    cfgchange.id = id;
+    if (addr != NULL) {
+        cfgchange.addr = *addr;
+    }
+
     msg.id = rand();
     msg.type = type;
     msg.data.len = sizeof(RaftCfgChange);
-    msg.data.buf = RedisModule_Calloc(1, msg.data.len);
 
-    RaftCfgChange *cc = (RaftCfgChange *) msg.data.buf;
-    cc->id = id;
-    if (addr != NULL) {
-        cc->addr = *addr;
+    /* We need to explicitly copy the buffer if callbacks were not set and
+     * raftLogOffer() will not have a chance to do this for us.
+     */
+    if (rr->callbacks_set) {
+        msg.data.buf = &cfgchange;
+    } else {
+        msg.data.buf = RedisModule_Alloc(sizeof(cfgchange));
+        memcpy(msg.data.buf, &cfgchange, sizeof(cfgchange));
     }
 
     return raft_recv_entry(rr->raft, &msg, &response);
@@ -965,6 +985,7 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
      * and it may be a good idea to fix at some point.
      */
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
+    rr->callbacks_set = true;
 
     if (!config->init && !config->join) {
         if (!config->persist) {
@@ -1006,6 +1027,10 @@ void RaftReqFree(RaftReq *req)
              * are owned by the log and should be freed when the log entry is freed.
              */
             if (req->r.appendentries.msg.entries) {
+                int i;
+                for (i = 0; i < req->r.appendentries.msg.n_entries; i++) {
+                    RedisModule_Free(req->r.appendentries.msg.entries[i].data.buf);
+                }
                 RedisModule_Free(req->r.appendentries.msg.entries);
                 req->r.appendentries.msg.entries = NULL;
             }
@@ -1152,15 +1177,13 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     }
 
     entry.data.len = sizeof(req->r.cfgchange);
-    entry.data.buf = RedisModule_Calloc(1, sizeof(req->r.cfgchange));
-    memcpy(entry.data.buf, &req->r.cfgchange, sizeof(req->r.cfgchange));
+    entry.data.buf = &req->r.cfgchange;
 
     int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
     if (e == 0) {
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     } else  {
         replyRaftError(req->ctx, e);
-        RedisModule_Free(entry.data.buf);
     }
 
     RaftReqFree(req);
@@ -1191,10 +1214,11 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     };
 
     RaftRedisCommandSerialize(&entry.data, &req->r.redis.cmd);
+    void *buf = entry.data.buf;     /* Store it because raft_recv_entry will overwrite */
     int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
+    RedisModule_Free(buf);
     if (e != 0) {
         replyRaftError(req->ctx, e);
-        RedisModule_Free(entry.data.buf);
         goto exit;
     }
 

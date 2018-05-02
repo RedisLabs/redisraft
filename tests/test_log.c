@@ -40,7 +40,6 @@ static int __check_entry(const long unsigned int a, const long unsigned int b)
 static int read_callback(void **arg, raft_entry_t *entry)
 {
     check_expected(entry);
-    test_free(entry->data.buf);
     return mock();
 }
 
