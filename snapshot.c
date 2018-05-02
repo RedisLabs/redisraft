@@ -343,7 +343,7 @@ exit:
     }
 }
 
-int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
+void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
     RedisModule_ThreadSafeContextLock(rr->ctx);
     RedisModuleCallReply *reply = RedisModule_Call(
@@ -364,10 +364,10 @@ int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_FreeCallReply(reply);
     }
 
-    return REDISMODULE_OK;
+    RaftReqFree(req);
 }
 
-int handleCompact(RedisRaftCtx *rr, RaftReq *req)
+void handleCompact(RedisRaftCtx *rr, RaftReq *req)
 {
     if (performSnapshot(rr) != RR_OK) {
         LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
@@ -380,6 +380,5 @@ int handleCompact(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     }
 
-    RedisModule_UnblockClient(req->client, NULL);
-    return REDISMODULE_OK;
+    RaftReqFree(req);
 }

@@ -32,31 +32,47 @@ class PipeLogger(threading.Thread):
             LOG.debug('{}: {}'.format(self.prefix,
                                       str(line, 'utf-8').rstrip()))
 
+class DefaultConfig(object):
+    executable = 'redis-server'
+    args = None
+    raftmodule = 'redisraft.so'
+
+class ValgrindConfig(object):
+    executable = 'valgrind'
+    args = [
+        '--leak-check=full',
+        '--show-reachable=no',
+        '--show-possibly-lost=no',
+        '--suppressions=../redis/src/valgrind.sup',
+        '--log-file=valgrind-redis.%p',
+        'redis-server'
+    ]
+    raftmodule = 'redisraft.so'
+
+def resolve_config():
+    name = os.environ.get('SANDBOX_CONFIG')
+    if name is not None:
+        return getattr(sys.modules[__name__], name)
+    return DefaultConfig
 
 class RedisRaft(object):
-    def __init__(self, _id, port, raftmodule='redisraft.so',
-                 executable='redis-server', redis_args=None,
-                 raft_args=None):
+    def __init__(self, _id, port, config=None, raft_args=None):
+        if config is None:
+            config = resolve_config()
         if raft_args is None:
             raft_args = {}
         else:
             raft_args = raft_args.copy()
         self.id = _id
         self.port = port
-        self.executable = executable
+        self.executable = config.executable
         self.process = None
         self.raftlog = 'raftlog{}.db'.format(self.id)
-        self.logfile = 'redis{}.log'.format(self.id)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
-        if os.path.exists(self.raftlog):
-            os.unlink(self.raftlog)
-        if os.path.exists(self.dbfilename):
-            os.unlink(self.dbfilename)
-        self.args = ['--port', str(port),
-                     '--dbfilename', self.dbfilename]
-        if redis_args:
-            self.args += redis_args
-        self.args += ['--loadmodule', os.path.abspath(raftmodule)]
+        self.args = config.args.copy() if config.args else []
+        self.args += ['--port', str(port),
+                      '--dbfilename', self.dbfilename]
+        self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
 
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
@@ -69,14 +85,13 @@ class RedisRaft(object):
         self.client.set_response_callback('raft.info', redis.client.parse_info)
         self.stdout = None
         self.stderr = None
+        self.cleanup()
 
     def init(self):
-        self.cleanup()
         self.start(['init'])
         return self
 
     def join(self, port):
-        self.cleanup()
         self.start(['join=localhost:{}'.format(port)])
         return self
 
@@ -129,10 +144,10 @@ class RedisRaft(object):
         self.start()
 
     def cleanup(self):
-        try:
+        if os.path.exists(self.raftlog):
             os.unlink(self.raftlog)
-        except OSError:
-            pass
+        if os.path.exists(self.dbfilename):
+            os.unlink(self.dbfilename)
 
     def raft_exec(self, *args):
         cmd = ['RAFT'] + list(args)

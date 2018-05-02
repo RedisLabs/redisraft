@@ -33,7 +33,7 @@ static int cmdRaftAddNode(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     }
 
     /* Parse address */
-    NodeAddr node_addr;
+    NodeAddr node_addr = { 0 };
     size_t node_addr_len;
     const char *node_addr_str = RedisModule_StringPtrLen(argv[2], &node_addr_len);
     if (!NodeAddrParse(node_addr_str, node_addr_len, &node_addr)) {
@@ -128,7 +128,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     int i;
     for (i = 0; i < argc - 1; i++) {
         req->r.redis.cmd.argv[i] =  argv[i + 1];
-        RedisModule_RetainString(ctx, req->r.redis.cmd.argv[i]);
+        RedisModule_RetainString(req->ctx, req->r.redis.cmd.argv[i]);
     }
     RaftReqSubmit(&redis_raft, req);
 
@@ -263,8 +263,8 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
     const char *addr = RedisModule_StringPtrLen(argv[3], &addrlen);
     RaftReq *req = RaftReqInit(NULL, RR_LOADSNAPSHOT);
     if (!NodeAddrParse(addr, addrlen, &req->r.loadsnapshot.addr)) {
-        RaftReqFree(req);
         RedisModule_ReplyWithError(ctx, "-ERR invalid address");
+        RaftReqFree(req);
         return REDISMODULE_OK;
     }
 
@@ -273,6 +273,7 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
      */
     if (rr->loading_snapshot) {
         RedisModule_ReplyWithError(ctx, "-LOADING loading snapshot");
+        RaftReqFree(req);
     } else {
         RedisModule_ReplyWithLongLong(ctx, 1);
         RaftReqSubmit(&redis_raft, req);

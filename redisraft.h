@@ -150,7 +150,7 @@ typedef struct Node {
     unsigned long load_snapshot_idx;
 } Node;
 
-typedef int (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
+typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
 typedef enum RedisRaftResult {
     RR_OK       = 0,
@@ -168,10 +168,6 @@ enum RaftReqType {
     RR_COMPACT
 };
 
-extern RaftReqHandler g_RaftReqHandlers[];
-
-#define RR_PENDING_COMMIT 1
-
 typedef struct {
     int id;
     NodeAddr addr;
@@ -184,7 +180,6 @@ typedef struct {
 
 typedef struct RaftReq {
     int type;
-    int flags;
     STAILQ_ENTRY(RaftReq) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
@@ -272,9 +267,9 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
 int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
 
 /* snapshot.c */
-int handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
+void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
 RedisRaftResult performSnapshot(RedisRaftCtx *rr);
-int handleCompact(RedisRaftCtx *rr, RaftReq *req);
+void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 
 #endif  /* _REDISRAFT_H */

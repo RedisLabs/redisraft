@@ -54,6 +54,10 @@ tests: unit-tests integration-tests
 integration-tests:
 	PATH=../redis/src:${PATH} nosetests tests/integration -v
 
+.PHONY: valgrind-tests
+valgrind-tests:
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests tests/integration -v
+
 .PHONY: unit-tests
 unit-tests: tests/tests_main
 	./tests/tests_main && \

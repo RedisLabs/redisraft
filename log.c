@@ -221,13 +221,18 @@ bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
         return false;
     }
 
-    struct iovec iov[3] = {
-        { .iov_base = &ent, .iov_len = sizeof(ent) },
-        { .iov_base = entry->data.buf, .iov_len = entry->data.len },
-        { .iov_base = &entry_len, .iov_len = sizeof(entry_len) }
-    };
+    int iovcnt = 0;
+    struct iovec iov[3];
+    iov[iovcnt++] = (struct iovec) {
+        .iov_base = &ent, .iov_len = sizeof(ent) };
+    if (entry->data.len) {
+        iov[iovcnt++] = (struct iovec) { 
+            .iov_base = entry->data.buf, .iov_len = entry->data.len };
+    }
+    iov[iovcnt++] = (struct iovec) {
+        .iov_base = &entry_len, .iov_len = sizeof(entry_len) };
 
-    ssize_t written = writev(log->fd, iov, 3);
+    ssize_t written = writev(log->fd, iov, iovcnt);
     if (written < entry_len) {
         if (written == -1) {
             LOG_ERROR("Error writing Raft log: %s", strerror(errno));
