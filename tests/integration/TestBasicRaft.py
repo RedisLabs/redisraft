@@ -1,7 +1,8 @@
 import sys
 import time
 import sandbox
-from nose.tools import eq_, ok_
+import redis
+from nose.tools import eq_, ok_, assert_raises_regex
 from test_tools import with_setup_args
 
 def _setup():
@@ -31,6 +32,10 @@ def test_node_joins_and_gets_data(c):
     r2.wait_for_election()
     eq_(r2.raft_info().get('leader_id'), 1)
     eq_(r2.client.get('key'), b'value')
+
+    # Also validate -MOVED as expected
+    with assert_raises_regex(redis.ResponseError, 'MOVED'):
+        eq_(r2.raft_exec('SET', 'key', 'value'), None)
 
 @with_setup_args(_setup, _teardown)
 def test_single_node_log_is_reapplied(c):
