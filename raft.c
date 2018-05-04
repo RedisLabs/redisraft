@@ -785,7 +785,7 @@ static void handleNodeReconnects(uv_timer_t *handle)
      * join_node synthetic node which establishes the initial connection.
      */
     if (rr->state == REDIS_RAFT_JOINING) {
-        if (!rr->join_node) {
+        if (!rr->join_node || rr->join_node->state == NODE_CONNECT_ERROR) {
             initiateAddNode(rr);
         }
         return;

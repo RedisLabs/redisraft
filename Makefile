@@ -2,7 +2,7 @@
 BUILDDIR := $(CURDIR)/.build
 CFLAGS = -g -std=c99 -I$(BUILDDIR)/include -fPIC -O0
 CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE # -DUSE_COMMAND_FILTER
-LDFLAGS = -shared
+LDFLAGS = -shared -Bsymbolic-functions
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
        $(BUILDDIR)/lib/libhiredis.a \
