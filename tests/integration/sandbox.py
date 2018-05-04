@@ -258,6 +258,7 @@ class Cluster(object):
                     self.leader = 1
             except redis.ResponseError as err:
                 if str(err).startswith('MOVED'):
+                    retries = self.noleader_retries
                     port = int(str(err).split(':')[-1])
                     new_leader = port - 5000
                     assert new_leader != self.leader
