@@ -19,11 +19,11 @@ The main capabilities are:
 
 ## Getting Started
 
-### Building (Linux only at the moment)
+### Building
 
 The module is mostly self contained and comes with its dependencies as git
 submodules under `deps`.  To compile you will need:
-* Obvious build essentials (gcc, make, etc.)
+* Obvious build essentials (compiler, GNU make, etc.)
 * CMake
 * GNU autotools (autoconf, automake, libtool)
 
@@ -31,11 +31,19 @@ submodules under `deps`.  To compile you will need:
 
 The module includes a minimal set of unit tests and integration tests.  To run
 them you'll need:
-* lcov (for coverage analysis)
-* Python and nose (for flows tests)
+* lcov (for coverage analysis, on Linux)
+* Python and a few packages (e.g. nose, redis, etc.)
 * redis-server in your PATH, or in `../redis/src`.
 
-Run `make tests` to test everything.
+To run tests in a Python virtualenv, follow these steps:
+
+```
+$ mkdir -p .env
+$ virtualenv .env
+$ . .env/bin/active
+$ pip install -r tests/integration/requirements.txt
+$ make tests
+```
 
 ### Starting a cluster
 

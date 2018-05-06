@@ -33,7 +33,7 @@ libuv/configure: libuv/autogen.sh
 .PHONY: raft
 raft: raft/Makefile
 	cd raft && \
-	    make static GCOV_CCFLAGS= && \
+	    make static GCOV_CCFLAGS= ASANFLAGS= && \
 	    cp libraft.a $(PREFIX)/lib && \
 	    cp include/raft.h $(PREFIX)/include
 

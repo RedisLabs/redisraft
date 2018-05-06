@@ -17,7 +17,7 @@ def test_basic_persisted_fuzzer(c):
     """
 
     nodes = 3
-    cycles = 1000
+    cycles = 100
 
     c.create(nodes, raft_args={'persist': 'yes'})
     for i in range(cycles):

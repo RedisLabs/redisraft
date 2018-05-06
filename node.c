@@ -112,8 +112,11 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     unsigned long l;
 
     /* Split */
-    char *colon = memrchr(node_addr, ':', node_addr_len);
-    if (!colon) {
+    const char *colon = node_addr + node_addr_len;
+    while (colon > node_addr && *colon != ':') {
+        colon--;
+    }
+    if (*colon != ':') {
         return false;
     }
 

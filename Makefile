@@ -1,8 +1,18 @@
-
+OS := $(shell sh -c 'uname -s 2>/dev/null || echo none')
 BUILDDIR := $(CURDIR)/.build
-CFLAGS = -g -std=c99 -I$(BUILDDIR)/include -fPIC -O0
+
+ifeq ($(OS),Linux)
+    ARCH_CFLAGS := -fPIC
+    ARCH_LDFLAGS := -shared -Bsymbolic-functions
+else
+    ARCH_CFLAGS := -dynamic
+    ARCH_LDFLAGS := -bundle -undefined dynamic_lookup
+endif
+
 CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE # -DUSE_COMMAND_FILTER
-LDFLAGS = -shared -Bsymbolic-functions
+CFLAGS = -g -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS)
+LDFLAGS = $(ARCH_LDFLAGS)
+
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
        $(BUILDDIR)/lib/libhiredis.a \
@@ -31,14 +41,20 @@ cleanall: clean
 # ----------------------------- Unit Tests -----------------------------
 
 DUT_CPPFLAGS = $(CPPFLAGS) -include tests/dut_premble.h
-DUT_CFLAGS = $(CFLAGS) -fprofile-arcs -ftest-coverage
+ifeq ($(OS),Linux)
+    DUT_CFLAGS = $(CFLAGS) -fprofile-arcs -ftest-coverage
+    DUT_LIBS = -lgcov
+else
+    DUT_CFLAGS = $(CFLAGS)
+    DUT_LIBS =
+endif
 TEST_OBJECTS = \
 	tests/main.o \
 	tests/test_log.o \
 	tests/test_util.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
-TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a -lgcov -lpthread
+TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a $(DUT_LIBS) -lpthread
 
 .PHONY: clean-tests
 clean-tests:
@@ -59,10 +75,15 @@ valgrind-tests:
 	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests tests/integration -v
 
 .PHONY: unit-tests
+ifeq ($(OS),Linux)
 unit-tests: tests/tests_main
 	./tests/tests_main && \
 		lcov --rc lcov_branch_coverage=1 -c -d . -d ./tests --no-external -o tests/lcov.info && \
 		lcov --rc lcov_branch_coverage=1 --summary tests/lcov.info
+else
+unit-tests: tests/tests_main
+	./tests/tests_main
+endif
 
 .PHONY: lcov-report
 lcov-report: tests/lcov.info

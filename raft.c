@@ -1,9 +1,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <endian.h>
 
-#if __BYTE_ORDER != __LITTLE_ENDIAN
+/* Verify we're little endian, as our encoding is such and we
+ * don't do network/host reodering.
+ */
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 #error Byte order swapping is currently not implemented.
 #endif
 

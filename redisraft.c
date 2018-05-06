@@ -139,6 +139,8 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RaftReq *req = RaftReqInit(ctx, RR_INFO);
     RaftReqSubmit(&redis_raft, req);
+
+    return REDISMODULE_OK;
 }
 
 
@@ -407,6 +409,8 @@ static int validateConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
             return REDISMODULE_ERR;
         }
     }
+
+    return REDISMODULE_OK;
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)

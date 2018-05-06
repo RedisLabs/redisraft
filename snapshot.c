@@ -108,6 +108,29 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
     }
 }
 
+/* Parse string as decimal integer until delimiter character or end of string.
+ * Returns pointer to next char after delimiter, or NULL if parsing failed.
+ */
+static const char *consumeInt(const char *s, unsigned long *value, char delim)
+{
+    *value = 0;
+
+    while (*s) {
+        if (*s == delim) {
+            return s + 1;
+        }
+        if (*s >= '0' && *s <= '9') {
+            *value *= 10;
+            *value += (*s - '0');
+        } else {
+            return NULL;
+        }
+        s++;
+    }
+
+    return s;
+}
+
 static SnapshotCfgEntry *parseCfgString(char *str)
 {
     SnapshotCfgEntry *result = NULL;
@@ -120,17 +143,24 @@ static SnapshotCfgEntry *parseCfgString(char *str)
         *prev = r;
         char *addr;
 
-        if (sscanf(p, "%u,%u,%u,%ms", &r->id, &r->active, &r->voting, &addr) != 4) {
-            freeSnapshotCfgEntryList(result);
-            return NULL;
+        unsigned long val;
+        const char *s = p;
+
+        if (!(s = consumeInt(s, &val, ','))) {
+            goto error;
         }
+        r->id = val;
+        if (!(s = consumeInt(s, &val, ','))) {
+            goto error;
+        }
+        r->active = val;
+        if (!(s = consumeInt(s, &val, ','))) {
+            goto error;
+        }
+        r->voting = val;
 
-        bool parsed = NodeAddrParse(addr, strlen(addr), &r->addr);
-        free(addr);
-
-        if (!parsed) {
-            freeSnapshotCfgEntryList(result);
-            return NULL;
+        if (!NodeAddrParse(s, strlen(s), &r->addr)) {
+            goto error;
         }
 
         prev = &r->next;
@@ -138,6 +168,9 @@ static SnapshotCfgEntry *parseCfgString(char *str)
     }
 
     return result;
+error:
+    freeSnapshotCfgEntryList(result);
+    return NULL;
 }
 
 static RedisRaftResult loadSnapshotInfo(RedisRaftCtx *rr, SnapshotMetadata *result)
