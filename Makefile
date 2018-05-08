@@ -66,13 +66,15 @@ tests/test-%.o: %.c
 .PHONY: tests
 tests: unit-tests integration-tests
 
+NOSE_OPTS ?= tests/integration -v
+
 .PHONY: integration-tests
 integration-tests:
-	PATH=../redis/src:${PATH} nosetests tests/integration -v
+	PATH=../redis/src:${PATH} nosetests $(NOSE_OPTS)
 
 .PHONY: valgrind-tests
 valgrind-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests tests/integration -v
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests $(NOSE_OPTS)
 
 .PHONY: unit-tests
 ifeq ($(OS),Linux)

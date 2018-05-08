@@ -3,6 +3,7 @@ import random
 import sandbox
 from nose.tools import eq_, ok_
 from test_tools import with_setup_args
+from nose.plugins.attrib import attr
 
 def _setup():
     return [sandbox.Cluster()], {}
@@ -10,6 +11,7 @@ def _setup():
 def _teardown(c):
     c.destroy()
 
+@attr('fuzz')
 @with_setup_args(_setup, _teardown)
 def test_basic_persisted_fuzzer(c):
     """

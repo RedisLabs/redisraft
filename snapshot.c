@@ -265,6 +265,55 @@ RedisRaftResult performSnapshot(RedisRaftCtx *rr)
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
 
+static void removeAllNodes(RedisRaftCtx *rr)
+{
+    int i;
+
+    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+        raft_node_t *rn = raft_get_node_from_idx(rr->raft, i);
+        assert(rn != NULL);
+
+        /* Leave our node */
+        if (raft_node_get_id(rn) == raft_get_nodeid(rr->raft)) {
+            continue;
+        }
+
+        Node *n = raft_node_get_udata(rn);
+        if (n != NULL) {
+            NodeFree(n);
+        }
+        raft_remove_node(rr->raft, rn);
+    }
+}
+
+/* Load node configuration from snapshot metadata.  We assume no duplicate nodes
+ * here, so removeAllNodes() should be called beforehand.
+ */
+static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotMetadata *metadata)
+{
+    SnapshotCfgEntry *cfg = metadata->cfg_entry;
+    while (cfg != NULL) {
+        /* Skip myself */
+        if (cfg->id == raft_get_nodeid(rr->raft)) {
+            continue;
+        }
+
+        /* Set up new node */
+        raft_node_t *rn;
+        Node *n = NodeInit(cfg->id, &cfg->addr);
+        if (cfg->voting) {
+            rn = raft_add_node(rr->raft, n, cfg->id, 0);
+        } else {
+            rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
+        }
+
+        assert(rn != NULL);
+        raft_node_set_active(rn, cfg->active);
+        cfg = cfg->next;
+    }
+
+}
+
 /* After a snapshot is received (becomes the Redis dataset), load it into the Raft
  * library:
  * 1. Configure index/term/etc.
@@ -290,29 +339,9 @@ static void loadSnapshot(RedisRaftCtx *rr)
         goto exit;
     }
 
-    SnapshotCfgEntry *cfg = metadata.cfg_entry;
-    while (cfg != NULL) {
-        if (cfg->id == raft_get_nodeid(rr->raft)) {
-            continue;
-        }
-
-        /* TODO -- handle deletion properly here */
-        raft_node_t *rn = raft_get_node(rr->raft, cfg->id);
-        if (rn != NULL) {
-            raft_remove_node(rr->raft, rn);
-        }
-
-        Node *n = NodeInit(cfg->id, &cfg->addr);
-        if (cfg->voting) {
-            rn = raft_add_node(rr->raft, n, cfg->id, 0);
-        } else {
-            rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
-        }
-
-        raft_node_set_active(rn, cfg->active);
-
-        cfg = cfg->next;
-    }
+    /* Load node configuration */
+    removeAllNodes(rr);
+    loadSnapshotNodes(rr, &metadata);
 
     raft_end_load_snapshot(rr->raft);
 

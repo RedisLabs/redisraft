@@ -25,7 +25,7 @@ def test_compaction_thresholds(c):
     assert_greater(5, r1.raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
-def test_cfg_from_snapshot(c):
+def test_cfg_node_added_from_snapshot(c):
     """
     Node able to join cluster and read cfg and data from snapshot.
     """
@@ -46,3 +46,29 @@ def test_cfg_from_snapshot(c):
     for i in range(100):
         eq_(str(c.node(3).client.get('key%s' % i), 'utf-8'), 'val%s' % i)
     eq_(c.node(3).client.get('counter'), b'100')
+
+@with_setup_args(_setup, _teardown)
+def test_cfg_node_removed_from_snapshot(c):
+    """
+    Node able to learn that another node left by reading the snapshot metadata.
+    """
+    c.create(5, raft_args={'persist': 'yes'})
+    c.node(1).raft_exec('SET', 'key', 'value')
+    c.wait_for_unanimity()
+
+    # interrupt
+    # we now take down node 4 so it doesn't get updates and remove node 5.
+    c.node(4).terminate()
+    c.remove_node(5)
+    c.node(1).wait_for_log_applied()
+    eq_(4, c.node(1).raft_info()['num_nodes'])
+
+    # now compact logs
+    c.wait_for_unanimity(exclude=[4])
+    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
+    eq_(0, c.node(1).raft_info()['log_entries'])
+
+    # bring back node 4
+    c.node(4).start()
+    c.node(4).wait_for_election()
+    eq_(5, c.node(4).raft_info()['num_nodes'])

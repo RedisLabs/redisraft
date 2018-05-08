@@ -159,6 +159,9 @@ class RedisRaft(object):
     def raft_info(self):
         return self.client.execute_command('raft.info')
 
+    def commit_index(self):
+        return self.raft_info()['commit_index']
+
     def _wait_for_condition(self, test_func, timeout_func, timeout=3):
         retries = timeout * 10
         while retries > 0:
@@ -184,6 +187,15 @@ class RedisRaft(object):
         self._wait_for_condition(commit_idx_applied, raise_not_applied,
                                  timeout)
         LOG.debug("Finished waiting logs to be applied.")
+
+    def wait_for_commit_index(self, idx, timeout=3):
+        def commit_idx_reached():
+            info = self.raft_info()
+            return bool(info['commit_index'] == idx)
+        def raise_not_reached():
+            raise RedisRaftTimeout('Expected commit index not reached')
+        self._wait_for_condition(commit_idx_reached, raise_not_reached,
+                                 timeout)
 
     def wait_for_num_voting_nodes(self, count, timeout=10):
         def num_voting_nodes_match():
@@ -234,6 +246,11 @@ class Cluster(object):
         self.nodes[_id] = node
         return node
 
+    def remove_node(self, _id):
+        self.node(self.leader).client.execute_command('RAFT.REMOVENODE', _id)
+        self.nodes[_id].destroy()
+        del(self.nodes[_id])
+
     def node(self, _id):
         return self.nodes[_id]
 
@@ -246,6 +263,13 @@ class Cluster(object):
             except redis.ConnectionError:
                 pass
         return result
+
+    def wait_for_unanimity(self, exclude=None):
+        commit_idx = self.node(self.leader).commit_index()
+        for _id, node in self.nodes.items():
+            if exclude is not None and int(_id) in exclude:
+                continue
+            node.wait_for_commit_index(commit_idx)
 
     def raft_exec(self, *cmd):
         retries = self.noleader_retries
