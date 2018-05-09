@@ -406,12 +406,6 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
             req->id, entry->id, raft_logtype_str(entry->type));
 
     switch (entry->type) {
-        case RAFT_LOGTYPE_REMOVE_NODE:
-            raft_node = raft_get_node(raft, req->id);
-            assert(raft_node != NULL);
-            raft_remove_node(raft, raft_node);
-            break;
-
         case RAFT_LOGTYPE_ADD_NODE:
             /* When adding a node that is not us, create a Node object to
              * manage communication with it.
