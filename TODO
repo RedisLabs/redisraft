@@ -1,4 +1,0 @@
-* Refactor Raft library with better types (e.g. log index > int)
-* Complete compaction implementation
-* Improve log crash recovery in different scenarios, given that there is no
-  atomicity guarantee on writes and other file ops.
