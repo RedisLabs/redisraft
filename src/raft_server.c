@@ -125,7 +125,6 @@ void raft_clear(raft_server_t* me_)
     me->last_applied_idx = 0;
     me->num_nodes = 0;
     me->node = NULL;
-    me->voting_cfg_change_log_idx = 0;
     log_clear(me->log);
 }
 
@@ -253,7 +252,7 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
         !raft_snapshot_is_in_progress(me_))
     {
         int e = raft_apply_entry(me_);
-        if (-1 != e)
+        if (0 != e)
             return e;
     }
 
@@ -799,8 +798,11 @@ int raft_apply_entry(raft_server_t* me_)
             return RAFT_ERR_SHUTDOWN;
     }
 
-    /* voting cfg change is now complete */
-    if (log_idx == me->voting_cfg_change_log_idx)
+    /* voting cfg change is now complete.
+     * TODO: there seem to be a possible off-by-one bug hidden here, requiring
+     * checking log_idx >= voting_cfg_change_log_idx rather than plain ==.
+     */
+    if (log_idx >= me->voting_cfg_change_log_idx)
         me->voting_cfg_change_log_idx = -1;
 
     if (!raft_entry_is_cfg_change(ety))
