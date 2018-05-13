@@ -95,6 +95,7 @@ typedef struct {
     struct RaftLog *log;
     struct RedisRaftConfig *config;
     NodeAddrListElement *join_addr;
+    NodeAddrListElement *join_addr_iter;
     struct Node *join_node;
     bool loading_snapshot;
     bool callbacks_set;
@@ -232,6 +233,7 @@ void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
+void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr);
 
 /* raft.c */
 void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);

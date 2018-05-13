@@ -4,6 +4,7 @@ import os
 import os.path
 import subprocess
 import threading
+import random
 import logging
 import redis
 
@@ -91,8 +92,8 @@ class RedisRaft(object):
         self.start(['init'])
         return self
 
-    def join(self, port):
-        self.start(['join=localhost:{}'.format(port)])
+    def join(self, ports):
+        self.start(['join=localhost:{}'.format(port) for port in ports])
         return self
 
     def start(self, extra_raft_args=None):
@@ -165,8 +166,13 @@ class RedisRaft(object):
     def _wait_for_condition(self, test_func, timeout_func, timeout=3):
         retries = timeout * 10
         while retries > 0:
-            if test_func():
-                return
+            try:
+                if test_func():
+                    return
+            except redis.ResponseError as err:
+                if not str(err).startswith('UNBLOCKED'):
+                    raise
+
             retries -= 1
             time.sleep(0.1)
         timeout_func()
@@ -202,22 +208,40 @@ class RedisRaft(object):
             info = self.raft_info()
             return bool(info['num_voting_nodes'] == count)
         def raise_not_added():
+            info = self.raft_info()
             raise RedisRaftTimeout('Nodes not added')
         self._wait_for_condition(num_voting_nodes_match, raise_not_added,
                                  timeout)
         LOG.debug("Finished waiting for num_voting_nodes == %d", count)
+
+    def wait_for_node_voting(self, timeout=10):
+        def check_voting():
+            info = self.raft_info()
+            return bool(info['is_voting'] == 'yes')
+        def raise_not_voting():
+            info = self.raft_info()
+            LOG.debug("Non voting node: %s", str(info))
+            raise RedisRaftTimeout('Node is not voting')
+        self._wait_for_condition(check_voting, raise_not_voting, timeout)
 
     def destroy(self):
         self.terminate()
         self.cleanup()
 
 class Cluster(object):
-    noleader_retries = 5
+    noleader_timeout = 5
     base_port = 5000
 
     def __init__(self):
+        self.next_id = 1
         self.nodes = {}
         self.leader = None
+
+    def nodes_count(self):
+        return len(self.nodes)
+
+    def node_ports(self):
+        return [self.base_port + p for p in self.nodes.keys()]
 
     def create(self, node_count, raft_args=None):
         if raft_args is None:
@@ -226,33 +250,49 @@ class Cluster(object):
         self.nodes = {x: RedisRaft(x, self.base_port + x,
                                    raft_args=raft_args)
                       for x in range(1, node_count + 1)}
+        self.next_id = node_count + 1
         for _id, node in self.nodes.items():
             if _id == 1:
                 node.init()
             else:
-                node.join(self.base_port + 1)
+                node.join([self.base_port + 1])
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
 
     def add_node(self):
-        _id = max(self.nodes.keys()) + 1 if len(self.nodes) > 0 else 1
+        _id = self.next_id
+        self.next_id += 1
         node = RedisRaft(_id, self.base_port + _id)
         if len(self.nodes) > 0:
-            node.join(self.base_port + self.leader)
+            node.join(self.node_ports())
         else:
             node.init()
             self.leader = _id
         self.nodes[_id] = node
         return node
 
+    def reset_leader(self):
+        self.leader = next(iter(self.nodes.keys()))
+
     def remove_node(self, _id):
-        self.node(self.leader).client.execute_command('RAFT.REMOVENODE', _id)
+        def _func():
+            self.node(self.leader).client.execute_command('RAFT.REMOVENODE',
+                                                          _id)
+        self.raft_retry(_func)
         self.nodes[_id].destroy()
         del(self.nodes[_id])
+        if self.leader == _id:
+            self.reset_leader()
+
+    def random_node_id(self):
+        return random.choice(list(self.nodes.keys()))
 
     def node(self, _id):
         return self.nodes[_id]
+
+    def leader_node(self):
+        return self.nodes[self.leader]
 
     def exec_all(self, *cmd):
         result = []
@@ -271,28 +311,37 @@ class Cluster(object):
                 continue
             node.wait_for_commit_index(commit_idx)
 
-    def raft_exec(self, *cmd):
-        retries = self.noleader_retries
-        while retries > 0:
+    def raft_retry(self, func):
+        start_time = time.time()
+        while time.time() < start_time + self.noleader_timeout:
             try:
-                return self.nodes[self.leader].raft_exec(*cmd)
+                return func()
             except redis.ConnectionError:
-                self.leader += 1
-                if self.leader > len(self.nodes):
-                    self.leader = 1
+                self.leader = self.random_node_id()
             except redis.ResponseError as err:
-                if str(err).startswith('MOVED'):
-                    retries = self.noleader_retries
+                if str(err).startswith('UNBLOCKED'):
+                    # Ignore unblocked replies...
+                    time.sleep(0.5)
+                elif str(err).startswith('MOVED'):
+                    start_time = time.time()
                     port = int(str(err).split(':')[-1])
                     new_leader = port - 5000
                     assert new_leader != self.leader
-                    self.leader = new_leader
+
+                    # When removing a leader there can be a race condition,
+                    # in this case we need to do nothing
+                    if new_leader in self.nodes:
+                        self.leader = new_leader
                 elif str(err).startswith('NOLEADER'):
-                    retries -= 1
-                    time.sleep(0.500)
+                    time.sleep(0.5)
                 else:
                     raise
         raise RedisRaftError('No leader elected')
+
+    def raft_exec(self, *cmd):
+        def _func():
+            return self.nodes[self.leader].raft_exec(*cmd)
+        return self.raft_retry(_func)
 
     def destroy(self):
         for node in self.nodes.values():

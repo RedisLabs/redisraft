@@ -60,6 +60,7 @@ def test_cfg_node_removed_from_snapshot(c):
     # we now take down node 4 so it doesn't get updates and remove node 5.
     c.node(4).terminate()
     c.remove_node(5)
+    c.wait_for_unanimity(exclude=[4])
     c.node(1).wait_for_log_applied()
     eq_(4, c.node(1).raft_info()['num_nodes'])
 

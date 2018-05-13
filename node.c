@@ -144,3 +144,32 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     return true;
 }
 
+/* Compare two NodeAddr sructs */
+bool NodeAddrEqual(NodeAddr *a1, NodeAddr *a2)
+{
+    return (a1->port == a2->port && !strcmp(a1->host, a2->host));
+}
+
+/* Add a NodeAddrListElement to a chain of elements.  If an existing element with the same
+ * address already exists, nothing is done.  The addr pointer provided is copied into newly
+ * allocated memory, caller should free addr if necessary.
+ */
+void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
+{
+    assert(head != NULL);
+    do {
+        if (NodeAddrEqual(&head->addr, addr)) {
+            return;
+        }
+
+        if (head->next) {
+            head = head->next;
+        } else {
+            NodeAddrListElement *new = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
+            head->next = new;
+            new->addr.port = addr->port;
+            strcpy(new->addr.host, addr->host);
+            return;
+        }
+    } while (1);
+}
