@@ -129,6 +129,7 @@ typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);
 
 typedef enum NodeState {
     NODE_DISCONNECTED,
+    NODE_RESOLVING,
     NODE_CONNECTING,
     NODE_CONNECTED,
     NODE_CONNECT_ERROR
@@ -144,8 +145,6 @@ typedef struct Node {
     NodeAddr addr;
     redisAsyncContext *rc;
     uv_getaddrinfo_t uv_resolver;
-    uv_tcp_t uv_tcp;
-    uv_connect_t uv_connect;
     RedisRaftCtx *rr;
     NodeConnectCallbackFunc connect_callback;
     bool load_snapshot_in_progress;
@@ -230,6 +229,7 @@ typedef struct RaftLogEntry {
 
 /* node.c */
 void NodeFree(Node *node);
+void NodeUnlink(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);

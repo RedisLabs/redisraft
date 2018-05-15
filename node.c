@@ -30,6 +30,7 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
         NODE_LOG_INFO(node, "Connection established.\n");
     } else {
         node->state = NODE_CONNECT_ERROR;
+        node->rc = NULL;
         NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
     }
 
@@ -42,8 +43,11 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
 static void handleNodeDisconnect(const redisAsyncContext *c, int status)
 {
     Node *node = (Node *) c->data;
-    node->state = NODE_DISCONNECTED;
-    NODE_LOG_INFO(node, "Connection dropped.\n");
+    if (node) {
+        node->rc = NULL;
+        node->state = NODE_DISCONNECTED;
+        NODE_LOG_INFO(node, "Connection dropped.\n");
+    }
 }
 
 static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
@@ -52,6 +56,11 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
 
     Node *node = uv_req_get_data((uv_req_t *)resolver);
     if (status < 0) {
+        if (status == UV_ECANCELED) {
+            NodeFree(node);
+            return;
+        }
+
         NODE_LOG_ERROR(node, "Failed to resolve '%s': %s\n", node->addr.host, uv_strerror(status));
         node->state = NODE_CONNECT_ERROR;
         return;
@@ -68,10 +77,15 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
 
         NODE_LOG_ERROR(node, "Failed to initiate connection\n");
         node->state = NODE_CONNECT_ERROR;
+
+        redisAsyncFree(node->rc);
+        node->rc = NULL;
         return;
     }
 
     node->rc->data = node;
+    node->state = NODE_CONNECTING;
+
     redisLibuvAttach(node->rc, node->rr->loop);
     redisAsyncSetConnectCallback(node->rc, handleNodeConnect);
     redisAsyncSetDisconnectCallback(node->rc, handleNodeDisconnect);
@@ -90,7 +104,7 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
     assert(NODE_STATE_IDLE(node->state));
 
     NODE_LOG_INFO(node, "Resolving '%s'...\n", node->addr.host);
-    node->state = NODE_CONNECTING;
+    node->state = NODE_RESOLVING;
     node->rr = rr;
     node->connect_callback = connect_callback;
     uv_req_set_data((uv_req_t *)&node->uv_resolver, node);
@@ -172,4 +186,31 @@ void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
             return;
         }
     } while (1);
+}
+
+static void freeResolver(uv_handle_t *handle)
+{
+    Node *n = uv_handle_get_data(handle);
+    if (n != NULL) {
+        NodeFree(n);
+    }
+}
+
+void NodeUnlink(Node *n)
+{
+    if (!n) {
+        return;
+    }
+
+    if (n != NULL) {
+        if (n->rc) {
+            n->rc->data = NULL;
+        }
+
+        if (n->state == NODE_RESOLVING) {
+            uv_cancel((uv_req_t *) &n->uv_resolver);
+        } else {
+            NodeFree(n);
+        }
+    }
 }

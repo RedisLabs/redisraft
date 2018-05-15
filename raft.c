@@ -183,7 +183,6 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
     RedisRaftCtx *rr = node->rr;
 
     redisReply *reply = r;
-    assert(reply != NULL);
 
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         NODE_LOG_ERROR(node, "RAFT.REQUESTVOTE failed: %s\n", reply ? reply->str : "connection dropped.");
@@ -511,10 +510,16 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
-
             req = (RaftCfgChange *) entry->data.buf;
             if (req->id == raft_get_nodeid(raft)) {
                 return RAFT_ERR_SHUTDOWN;
+            }
+
+            /* Clean up node, as the Raft library will remove it shortly */
+            raft_node_t *rn = raft_get_node(rr->raft, req->id);
+            if (rn != NULL) {
+                NodeUnlink(raft_node_get_udata(rn));
+                raft_node_set_udata(rn, NULL);
             }
             break;
 
@@ -1322,6 +1327,9 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
         switch (node->state) {
             case NODE_DISCONNECTED:
                 strcpy(state, "disconnected");
+                break;
+            case NODE_RESOLVING:
+                strcpy(state, "resolving");
                 break;
             case NODE_CONNECTING:
                 strcpy(state, "connecting");
