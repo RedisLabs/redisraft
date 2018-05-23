@@ -902,6 +902,7 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     /* Become leader and create initial entry */
     rr->state = REDIS_RAFT_UP;
     raft_become_leader(rr->raft);
+    raft_set_current_term(rr->raft, 1);
 
     /* We need to create the first add node entry.  Because we don't have
      * callbacks set yet, we also need to manually push this in our log
