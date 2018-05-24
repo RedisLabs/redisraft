@@ -16,6 +16,11 @@
 
 /* --------------- RedisModule_Log levels used -------------- */
 
+#define REDIS_RAFT_DATATYPE_NAME     "redisraft"
+#define REDIS_RAFT_DATATYPE_ENCVER   1
+
+/* --------------- RedisModule_Log levels used -------------- */
+
 #define REDIS_WARNING   "warning"
 #define REDIS_NOTICE    "notice"
 #define REDIS_VERBOSE   "verbose"
@@ -80,6 +85,21 @@ typedef enum RedisRaftState {
     REDIS_RAFT_JOINING
 } RedisRaftState;
 
+typedef struct SnapshotCfgEntry {
+    uint32_t    id;
+    int         active;
+    int         voting;
+    NodeAddr    addr;
+    struct SnapshotCfgEntry *next;
+} SnapshotCfgEntry;
+
+typedef struct RaftSnapshotInfo {
+    bool loaded;
+    unsigned long int last_applied_term;
+    unsigned long int last_applied_idx;
+    SnapshotCfgEntry *cfg;
+} RaftSnapshotInfo;
+
 typedef struct {
     void *raft;                 /* Raft library context */
     RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
@@ -99,6 +119,8 @@ typedef struct {
     struct Node *join_node;
     bool loading_snapshot;
     bool callbacks_set;
+    /* Tracking of applied entries */
+    RaftSnapshotInfo snapshot_info;
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
@@ -270,6 +292,9 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
 int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
 
 /* snapshot.c */
+extern RedisModuleTypeMethods RedisRaftTypeMethods;
+extern RedisModuleType *RedisRaftType;
+void initializeSnapshotInfo(RedisRaftCtx *rr);
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
 RedisRaftResult performSnapshot(RedisRaftCtx *rr);

@@ -5,43 +5,16 @@
 
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
-/* Snapshot metadata includes the current term and index at time of snapshot
- * creation, and the up to date configuration (nodes, addresses, etc.).
- *
- * It is currently stored as a single `__raft_snapshot__` hash key in the namespace,
- * for lack of better Redis Module API options.
- */
-
-static const char __raft_snapshot[] = "__raft_snapshot__";
-static const char __last_included_term[] = "last_included_term";
-static const char __last_included_index[] = "last_included_index";
-static const char __cfg[] = "cfg";
-
-typedef struct SnapshotCfgEntry {
-    uint32_t    id;
-    int         active;
-    int         voting;
-    NodeAddr    addr;
-    struct SnapshotCfgEntry *next;
-} SnapshotCfgEntry;
-
-typedef struct SnapshotMetadata {
-    uint32_t    last_included_term;
-    uint32_t    last_included_index;
-    SnapshotCfgEntry *cfg_entry;
-} SnapshotMetadata;
-
 /* Generate a configuration field string from the current Raft configuration state.
  * This string can then be parsed into a series of SnapshotCfgEntry structs when
  * loading a snapshot.
  */
-static char *generateCfgString(RedisRaftCtx *rr)
+static SnapshotCfgEntry *generateSnapshotCfgEntryList(RedisRaftCtx *rr)
 {
-    size_t buf_len = 1024;
-    char *buf = RedisModule_Alloc(buf_len);
+    SnapshotCfgEntry *head = NULL;
+    SnapshotCfgEntry **entry = &head;
     int i;
 
-    buf[0] = '\0';
     for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
         Node *node = raft_node_get_udata(rnode);
@@ -60,42 +33,18 @@ static char *generateCfgString(RedisRaftCtx *rr)
             assert(0);
         }
 
-        buf = catsnprintf(buf, &buf_len, "%s%u,%u,%u,%s:%u",
-                buf[0] == '\0' ? "" : ";",
-                raft_node_get_id(rnode),
-                raft_node_is_active(rnode),
-                raft_node_is_voting_committed(rnode),
-                na->host,
-                na->port);
+        *entry = RedisModule_Calloc(1, sizeof(SnapshotCfgEntry));
+        SnapshotCfgEntry *e = *entry;
+
+        e->id = raft_node_get_id(rnode);
+        e->active = raft_node_is_active(rnode);
+        e->voting = raft_node_is_voting_committed(rnode);
+        e->addr = *na;
+
+        entry = &e->next;
     }
 
-    return buf;
-}
-
-/* Persist data into the snapshot.  This will move out of the keyspace when
- * Redis Module API permits that. */
-static void storeSnapshotInfo(RedisRaftCtx *rr)
-{
-    char *cfg = generateCfgString(rr);
-    unsigned int term = raft_get_current_term(rr->raft);
-    unsigned int index = raft_get_last_applied_idx(rr->raft);
-
-    LOG_DEBUG("storeSnapshotInfo: last included term %u, index %u\n", term, index);
-
-    RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "HMSET", "cclclcc",
-            __raft_snapshot,
-            __last_included_term,
-            term,
-            __last_included_index,
-            index,
-            __cfg, cfg
-            );
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
-    assert(r != NULL);
-
-    RedisModule_FreeCallReply(r);
-    RedisModule_Free(cfg);
+    return head;
 }
 
 /* Free a chain of SnapshotCfgEntry structs */
@@ -106,134 +55,6 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
         RedisModule_Free(head);
         head = next;
     }
-}
-
-/* Parse string as decimal integer until delimiter character or end of string.
- * Returns pointer to next char after delimiter, or NULL if parsing failed.
- */
-static const char *consumeInt(const char *s, unsigned long *value, char delim)
-{
-    *value = 0;
-
-    while (*s) {
-        if (*s == delim) {
-            return s + 1;
-        }
-        if (*s >= '0' && *s <= '9') {
-            *value *= 10;
-            *value += (*s - '0');
-        } else {
-            return NULL;
-        }
-        s++;
-    }
-
-    return s;
-}
-
-static SnapshotCfgEntry *parseCfgString(char *str)
-{
-    SnapshotCfgEntry *result = NULL;
-    SnapshotCfgEntry **prev = &result;
-
-    char *tmp;
-    char *p = strtok_r(str, ";", &tmp);
-    while (p != NULL) {
-        SnapshotCfgEntry *r = RedisModule_Calloc(1, sizeof(SnapshotCfgEntry));
-        *prev = r;
-        char *addr;
-
-        unsigned long val;
-        const char *s = p;
-
-        if (!(s = consumeInt(s, &val, ','))) {
-            goto error;
-        }
-        r->id = val;
-        if (!(s = consumeInt(s, &val, ','))) {
-            goto error;
-        }
-        r->active = val;
-        if (!(s = consumeInt(s, &val, ','))) {
-            goto error;
-        }
-        r->voting = val;
-
-        if (!NodeAddrParse(s, strlen(s), &r->addr)) {
-            goto error;
-        }
-
-        prev = &r->next;
-        p = strtok_r(NULL, ";", &tmp);
-    }
-
-    return result;
-error:
-    freeSnapshotCfgEntryList(result);
-    return NULL;
-}
-
-static RedisRaftResult loadSnapshotInfo(RedisRaftCtx *rr, SnapshotMetadata *result)
-{
-    RedisRaftResult ret = RR_OK;
-
-    RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "HGETALL", "c", __raft_snapshot);
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
-
-    assert(r != NULL);
-    if (RedisModule_CallReplyType(r) != REDISMODULE_REPLY_ARRAY) {
-        ret = RR_ERROR;
-        LOG_ERROR("loadSnapshotInfo failed, corrupt snapshot metadata\n");
-        goto exit;
-    }
-
-    int i = 0;
-    for (i = 0; i < RedisModule_CallReplyLength(r); i++) {
-        RedisModuleCallReply *name = RedisModule_CallReplyArrayElement(r, i);
-        RedisModuleCallReply *value = RedisModule_CallReplyArrayElement(r, ++i);
-
-        size_t namelen;
-        const char *namestr = RedisModule_CallReplyStringPtr(name, &namelen);
-
-        size_t valuelen;
-        const char *valuestr = RedisModule_CallReplyStringPtr(value, &valuelen);
-
-        char namebuf[namelen + 1];
-        memcpy(namebuf, namestr, namelen);
-        namebuf[namelen] = '\0';
-
-        char valuebuf[valuelen + 1];
-        memcpy(valuebuf, valuestr, valuelen);
-        valuebuf[valuelen] = '\0';
-
-        char *endptr;
-
-        if (!strcmp(__last_included_term, namebuf)) {
-            result->last_included_term = strtoul(valuebuf, &endptr, 10);
-            if (*endptr) {
-                LOG_ERROR("Invalid last_included_term value\n");
-                goto exit;
-            }
-        } else if (!strcmp(__last_included_index, namebuf)) {
-            result->last_included_index = strtoul(valuebuf, &endptr, 10);
-            if (*endptr) {
-                LOG_ERROR("Invalid last_included_index value\n");
-                goto exit;
-            }
-        } else if (namelen == strlen(__cfg) && !memcmp(namestr, __cfg, namelen)) {
-            result->cfg_entry = parseCfgString(valuebuf);
-            if (!result->cfg_entry) {
-                ret = RR_ERROR;
-                LOG_ERROR("Invalid cfg value\n");
-                goto exit;
-            }
-        }
-    }
-
-exit:
-    RedisModule_FreeCallReply(r);
-    return ret;
 }
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
@@ -257,7 +78,10 @@ RedisRaftResult performSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
-    storeSnapshotInfo(rr);
+    /* Create a snapshot of the nodes configuration */
+    freeSnapshotCfgEntryList(rr->snapshot_info.cfg);
+    rr->snapshot_info.cfg = generateSnapshotCfgEntryList(rr);
+
     raft_end_snapshot(rr->raft);
 
     return RR_OK;
@@ -289,9 +113,8 @@ static void removeAllNodes(RedisRaftCtx *rr)
 /* Load node configuration from snapshot metadata.  We assume no duplicate nodes
  * here, so removeAllNodes() should be called beforehand.
  */
-static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotMetadata *metadata)
+static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
-    SnapshotCfgEntry *cfg = metadata->cfg_entry;
     while (cfg != NULL) {
         /* Skip myself */
         if (cfg->id == raft_get_nodeid(rr->raft)) {
@@ -321,32 +144,27 @@ static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotMetadata *metadata)
  */
 static void loadSnapshot(RedisRaftCtx *rr)
 {
-    SnapshotMetadata metadata = { 0 };
-    if (loadSnapshotInfo(rr, &metadata) != RR_OK ||
-        !metadata.cfg_entry) {
-            LOG_ERROR("Failed to load snapshot metadata, aborting.\n");
-            return;
+    if (!rr->snapshot_info.loaded) {
+        LOG_ERROR("No snapshot metadata received, aborting.\n");
+        return;
     }
 
-    LOG_INFO("Begining snapshot load, term=%u, last_included_index=%u\n",
-            metadata.last_included_term,
-            metadata.last_included_index);
+    LOG_INFO("Begining snapshot load, term=%lu, last_included_index=%lu\n",
+            rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
 
     int ret;
-    if ((ret = raft_begin_load_snapshot(rr->raft, metadata.last_included_term,
-                metadata.last_included_index)) != 0) {
+    if ((ret = raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
+                rr->snapshot_info.last_applied_idx)) != 0) {
         LOG_ERROR("Cannot load snapshot: already loaded?\n");
-        goto exit;
+        return;
     }
 
     /* Load node configuration */
     removeAllNodes(rr);
-    loadSnapshotNodes(rr, &metadata);
+    loadSnapshotNodes(rr, rr->snapshot_info.cfg);
 
     raft_end_load_snapshot(rr->raft);
-
-exit:
-    freeSnapshotCfgEntryList(metadata.cfg_entry);
 }
 
 /* Monitor Redis Replication progress when loading a snapshot.  If completed,
@@ -419,6 +237,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
          * of requests.
          */
     } else {
+        rr->snapshot_info.loaded = false;
         rr->loading_snapshot = true;
     }
 
@@ -444,3 +263,100 @@ void handleCompact(RedisRaftCtx *rr, RaftReq *req)
 
     RaftReqFree(req);
 }
+
+
+/* ------------------------------------ Snapshot metadata type ------------------------------------ */
+
+static const char snapshot_info_metakey[] = "__raft_snapshot_info__";
+
+extern RedisRaftCtx redis_raft;
+
+void initializeSnapshotInfo(RedisRaftCtx *rr)
+{
+    RedisModuleString *name = RedisModule_CreateString(rr->ctx, snapshot_info_metakey,
+            sizeof(snapshot_info_metakey) - 1);
+    RedisModuleKey *k = RedisModule_OpenKey(rr->ctx, name, REDISMODULE_WRITE);
+    RedisModule_ModuleTypeSetValue(k, RedisRaftType, &rr->snapshot_info);
+    RedisModule_CloseKey(k);
+    RedisModule_FreeString(rr->ctx, name);
+}
+
+
+RedisModuleType *RedisRaftType = NULL;
+
+void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
+{
+    RaftSnapshotInfo *info = &redis_raft.snapshot_info;
+
+    /* Load term/index */
+    info->last_applied_term = RedisModule_LoadUnsigned(rdb);
+    info->last_applied_idx = RedisModule_LoadUnsigned(rdb);
+
+    /* Load configuration */
+    freeSnapshotCfgEntryList(info->cfg);
+    info->cfg = NULL;
+    SnapshotCfgEntry **ep = &info->cfg;
+
+    do {
+        unsigned long _id = RedisModule_LoadUnsigned(rdb);
+        char *buf;
+        size_t len;
+
+        if (!_id) {
+            break;
+        }
+
+        /* Allocate new entry, advance ep */
+        *ep = RedisModule_Calloc(1, sizeof(SnapshotCfgEntry));
+        SnapshotCfgEntry *entry = *ep;
+        ep = &entry->next;
+
+        /* Populate */
+        entry->id = _id;
+        entry->active = RedisModule_LoadUnsigned(rdb);
+        entry->voting = RedisModule_LoadUnsigned(rdb);
+
+        buf = RedisModule_LoadStringBuffer(rdb, &len);
+        entry->addr.port = RedisModule_LoadUnsigned(rdb);
+
+        assert(len < sizeof(entry->addr.host));
+        memcpy(entry->addr.host, buf, len);
+        RedisModule_Free(buf);
+    } while (1);
+
+    info->loaded = true;
+
+    return info;
+}
+
+void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
+{
+    RaftSnapshotInfo *info = (RaftSnapshotInfo *) value;
+
+    /* Term/Index */
+    RedisModule_SaveUnsigned(rdb, info->last_applied_term);
+    RedisModule_SaveUnsigned(rdb, info->last_applied_idx);
+
+    /* Nodes configuration */
+    SnapshotCfgEntry *cfg = info->cfg;
+    while (cfg != NULL) {
+        RedisModule_SaveUnsigned(rdb, cfg->id);
+        RedisModule_SaveUnsigned(rdb, cfg->active);
+        RedisModule_SaveUnsigned(rdb, cfg->voting);
+        RedisModule_SaveStringBuffer(rdb, cfg->addr.host, strlen(cfg->addr.host));
+        RedisModule_SaveUnsigned(rdb, cfg->addr.port);
+
+        cfg = cfg->next;
+    }
+
+    /* Last node marker */
+    RedisModule_SaveUnsigned(rdb, 0);
+}
+
+
+RedisModuleTypeMethods RedisRaftTypeMethods = {
+    .version = 1,
+    .rdb_load = rdbLoadSnapshotInfo,
+    .rdb_save = rdbSaveSnapshotInfo,
+};
+

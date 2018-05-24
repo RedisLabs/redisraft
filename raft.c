@@ -529,6 +529,14 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         default:
             break;
     }
+
+    /* Update snapshot info in Redis dataset. This must be done now so it's
+     * always consistent with what we applied and we never end up applying
+     * an entry onto a snapshot where it was applied already.
+     */
+    rr->snapshot_info.last_applied_term = entry->term;
+    rr->snapshot_info.last_applied_idx = entry_idx;
+
     return 0;
 }
 
@@ -903,6 +911,9 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     rr->state = REDIS_RAFT_UP;
     raft_become_leader(rr->raft);
     raft_set_current_term(rr->raft, 1);
+
+    /* Create a Snapshot Info meta-key */
+    initializeSnapshotInfo(rr);
 
     /* We need to create the first add node entry.  Because we don't have
      * callbacks set yet, we also need to manually push this in our log

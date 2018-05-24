@@ -7,7 +7,7 @@
 int redis_raft_loglevel = 5;
 FILE *redis_raft_logfile;
 
-static RedisRaftCtx redis_raft = { 0 };
+RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
 
 /* This is needed for newer pthread versions to properly link and work */
@@ -494,6 +494,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     if (RedisModule_CreateCommand(ctx, "raft.debug",
                 cmdRaftDebug, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
+            &RedisRaftTypeMethods)) == NULL) {
         return REDISMODULE_ERR;
     }
 
