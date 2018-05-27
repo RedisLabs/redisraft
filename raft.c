@@ -305,7 +305,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     argv[1] = argv1_buf;
     argvlen[1] = snprintf(argv1_buf, sizeof(argv1_buf)-1, "%d", raft_get_nodeid(raft));
     argv[2] = argv2_buf;
-    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%d:%d:%d:%d",
+    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%ld:%ld:%ld:%ld",
             msg->term,
             msg->prev_log_idx,
             msg->prev_log_term,
@@ -317,7 +317,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = &msg->entries[i];
         argv[4 + i*2] = RedisModule_Alloc(64);
-        argvlen[4 + i*2] = snprintf(argv[4 + i*2], 63, "%d:%d:%d", e->term, e->id, e->type);
+        argvlen[4 + i*2] = snprintf(argv[4 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
         argvlen[5 + i*2] = e->data.len;
         argv[5 + i*2] = e->data.buf;
     }
@@ -350,7 +350,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
     return 0;
 }
 
-static int raftPersistTerm(raft_server_t *raft, void *user_data, int term, int vote)
+static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, int vote)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     if (!rr->log) {
@@ -365,13 +365,13 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, int term, int v
     return 0;
 }
 
-static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     raft_node_t *raft_node;
     Node *node;
 
-    TRACE("raftLogOffer: entry_idx=%d\n", entry_idx);
+    TRACE("raftLogOffer: entry_idx=%ld\n", entry_idx);
 
     /* Memory management policy: we always make a copy of the data here. In some cases
      * we could avoid it but the Raft library makes no distinction of how an entry was
@@ -454,11 +454,11 @@ static void raftFreeEntry(raft_entry_t *entry)
     }
 }
 
-static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
 
-    TRACE("raftLogPop: entry_idx=%d, id=%d\n", entry_idx, entry->id);
+    TRACE("raftLogPop: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
     if (!rr->log) {
         raftFreeEntry(entry);
@@ -473,11 +473,11 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
     return 0;
 }
 
-static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
 
-    TRACE("raftLogPoll: entry_idx=%d, id=%d\n", entry_idx, entry->id);
+    TRACE("raftLogPoll: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
     if (!rr->log) {
         raftFreeEntry(entry);
@@ -493,7 +493,7 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
     return 0;
 }
 
-static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
     RaftCfgChange *req;
@@ -554,7 +554,8 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
     LOG_DEBUG("[raft] %s\n", buf);
 }
 
-static int raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry, int entry_idx)
+static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
+        raft_index_t entry_idx)
 {
     RaftCfgChange *req = (RaftCfgChange *) entry->data.buf;
     return req->id;
@@ -565,7 +566,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     Node *node = raft_node_get_udata(raft_node);
     assert (node != NULL);
 
-    TRACE("node:%u has sufficient logs now, adding as voting node.\n", node->id);
+    TRACE("node:%d has sufficient logs now, adding as voting node.\n", node->id);
 
     raft_entry_t entry = { 0 };
     entry.id = rand();
@@ -586,7 +587,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 }
 
 /* TODO -- move this to Raft library header file */
-void raft_node_set_next_idx(raft_node_t* me_, int nextIdx);
+void raft_node_set_next_idx(raft_node_t* me_, raft_index_t nextIdx);
 
 static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *privdata)
 {
@@ -634,7 +635,7 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
         return 0;
     }
 
-    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %u, node idx %u\n",
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %ld, node idx %ld\n",
             raft_get_snapshot_last_idx(raft),
             raft_node_get_next_idx(raft_node));
 

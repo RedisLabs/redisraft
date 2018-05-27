@@ -35,7 +35,7 @@ raft: raft/Makefile
 	cd raft && \
 	    make static GCOV_CCFLAGS= ASANFLAGS= && \
 	    cp libraft.a $(PREFIX)/lib && \
-	    cp include/raft.h $(PREFIX)/include
+	    cp include/raft.h include/raft_types.h $(PREFIX)/include
 
 ##
 

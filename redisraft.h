@@ -56,7 +56,7 @@ extern FILE *redis_raft_logfile;
 #define TRACE(fmt, ...) LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define NODE_LOG(level, node, fmt, ...) \
-    LOG(level, "node:%u: " fmt, (node)->id, ##__VA_ARGS__)
+    LOG(level, "node:%d: " fmt, (node)->id, ##__VA_ARGS__)
 
 #define NODE_LOG_ERROR(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_INFO(node, fmt, ...) NODE_LOG(LOGLEVEL_INFO, node, fmt, ##__VA_ARGS__)
@@ -86,17 +86,17 @@ typedef enum RedisRaftState {
 } RedisRaftState;
 
 typedef struct SnapshotCfgEntry {
-    uint32_t    id;
-    int         active;
-    int         voting;
-    NodeAddr    addr;
+    raft_node_id_t  id;
+    int             active;
+    int             voting;
+    NodeAddr        addr;
     struct SnapshotCfgEntry *next;
 } SnapshotCfgEntry;
 
 typedef struct RaftSnapshotInfo {
     bool loaded;
-    unsigned long int last_applied_term;
-    unsigned long int last_applied_idx;
+    raft_term_t last_applied_term;
+    raft_index_t last_applied_idx;
     SnapshotCfgEntry *cfg;
 } RaftSnapshotInfo;
 
@@ -132,7 +132,7 @@ typedef struct {
 #define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
 
 typedef struct RedisRaftConfig {
-    int id;                     /* Local node Id */
+    raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
     NodeAddrListElement *join;
     char *raftlog;              /* Raft log file name */
@@ -162,7 +162,7 @@ typedef enum NodeState {
      (x) == NODE_CONNECT_ERROR)
 
 typedef struct Node {
-    int id;
+    raft_node_id_t id;
     NodeState state;
     NodeAddr addr;
     redisAsyncContext *rc;
@@ -170,7 +170,7 @@ typedef struct Node {
     RedisRaftCtx *rr;
     NodeConnectCallbackFunc connect_callback;
     bool load_snapshot_in_progress;
-    unsigned long load_snapshot_idx;
+    raft_index_t load_snapshot_idx;
 } Node;
 
 typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
@@ -192,7 +192,7 @@ enum RaftReqType {
 };
 
 typedef struct {
-    int id;
+    raft_node_id_t id;
     NodeAddr addr;
 } RaftCfgChange;
 
@@ -209,11 +209,11 @@ typedef struct RaftReq {
     union {
         RaftCfgChange cfgchange;
         struct {
-            int src_node_id;
+            raft_node_id_t src_node_id;
             msg_appendentries_t msg;
         } appendentries;
         struct {
-            int src_node_id;
+            raft_node_id_t src_node_id;
             msg_requestvote_t msg;
         } requestvote;
         struct {
@@ -234,19 +234,19 @@ typedef struct RaftLog {
 #define RAFTLOG_VERSION     1
 
 typedef struct RaftLogHeader {
-    uint32_t    version;
-    uint32_t    node_id;        /* Node id writing this file */
-    uint32_t    vote;           /* Last node voted */
-    uint32_t    term;           /* Current term */
-    uint32_t    commit_idx;     /* Commit index */
-    size_t      entry_offset;   /* File offset for first entry */
+    uint32_t        version;
+    raft_node_id_t  node_id;  /* Node id writing this file */
+    raft_node_id_t  vote;     /* Last node voted */
+    raft_term_t     term;     /* Current term */
+    raft_index_t    commit_idx;     /* Commit index */
+    size_t          entry_offset;   /* File offset for first entry */
 } RaftLogHeader;
 
 typedef struct RaftLogEntry {
-    uint32_t    term;
-    uint32_t    id;
-    uint32_t    type;
-    uint32_t    len;
+    raft_term_t     term;
+    raft_entry_id_t id;
+    uint32_t        type;
+    uint32_t        len;
 } RaftLogEntry;
 
 /* node.c */

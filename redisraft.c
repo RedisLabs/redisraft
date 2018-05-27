@@ -97,7 +97,7 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[2], &tmplen);
-    if (sscanf(tmpstr, "%d:%d:%d:%d",
+    if (sscanf(tmpstr, "%ld:%d:%ld:%ld",
                 &req->r.requestvote.msg.term,
                 &req->r.requestvote.msg.candidate_id,
                 &req->r.requestvote.msg.last_log_idx,
@@ -176,7 +176,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
     int i;
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[2], &tmplen);
-    if (sscanf(tmpstr, "%d:%d:%d:%d",
+    if (sscanf(tmpstr, "%ld:%ld:%ld:%ld",
                 &req->r.appendentries.msg.term,
                 &req->r.appendentries.msg.prev_log_idx,
                 &req->r.appendentries.msg.prev_log_term,
@@ -193,7 +193,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         msg_entry_t *e = &req->r.appendentries.msg.entries[i];
 
         tmpstr = RedisModule_StringPtrLen(argv[4 + 2*i], &tmplen);
-        if (sscanf(tmpstr, "%d:%d:%d",
+        if (sscanf(tmpstr, "%ld:%d:%d",
                     &e->term,
                     &e->id,
                     &e->type) != 3) {

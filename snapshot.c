@@ -254,7 +254,7 @@ void handleCompact(RedisRaftCtx *rr, RaftReq *req)
         LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
         RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
     } else {
-        LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%d, committed=%d, entries=%d\n",
+        LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%ld, committed=%ld, entries=%ld\n",
                 raft_get_current_idx(rr->raft),
                 raft_get_commit_idx(rr->raft),
                 raft_get_log_count(rr->raft));
