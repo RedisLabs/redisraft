@@ -338,7 +338,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (!rr->log) {
+    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
         return 0;
     }
 
@@ -352,7 +352,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
 static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, int vote)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (!rr->log) {
+    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
         return 0;
     }
 
@@ -752,10 +752,17 @@ static void initiateAddNode(RedisRaftCtx *rr)
 
 int applyLoadedRaftLog(RedisRaftCtx *rr)
 {
+    /* Special case: if no other nodes, set commit index to the latest
+     * entry in the log.
+     */
+    if (raft_get_num_nodes(rr->raft) == 1) {
+        raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
+    }
+
     raft_apply_all(rr->raft);
 
-    // raft_vote_for_nodeid(rr->raft, rr->log->header->vote);
-    // raft_set_current_term(rr->raft, rr->log->header->term);
+    raft_vote_for_nodeid(rr->raft, rr->log->vote);
+    raft_set_current_term(rr->raft, rr->log->term);
 
     /* TODO is this needed? */
 #if 0

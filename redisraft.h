@@ -236,13 +236,6 @@ typedef struct RaftLog {
 
 #define RAFTLOG_VERSION     1
 
-typedef struct RaftLogEntry {
-    raft_term_t     term;
-    raft_entry_id_t id;
-    uint32_t        type;
-    uint32_t        len;
-} RaftLogEntry;
-
 /* node.c */
 void NodeFree(Node *node);
 void NodeUnlink(Node *node);

@@ -32,7 +32,7 @@ static int writeEnd(RaftLog *log)
         fsync(fileno(log->file)) < 0) {
             return -1;
     }
-    
+
     return 0;
 }
 
@@ -57,7 +57,7 @@ static int writeInteger(RaftLog *log, unsigned long value)
     if (fprintf(log->file, "$%zu\r\n%s\r\n", strlen(buf), buf) < 0) {
         return -1;
     }
-    
+
     return 0;
 }
 
@@ -261,6 +261,46 @@ static int parseRaftLogEntry(RawLogEntry *re, raft_entry_t *e)
     return 0;
 }
 
+static int handleTerm(RaftLog *log, RawLogEntry *re)
+{
+    char *eptr;
+
+    if (re->num_elements != 3) {
+        LOG_ERROR("Log entry: TERM: invalid number of arguments: %d\n", re->num_elements);
+        return -1;
+    }
+
+    log->term = strtoul(re->elements[1].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+    log->vote = strtoul(re->elements[2].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int handleVote(RaftLog *log, RawLogEntry *re)
+{
+    char *eptr;
+
+    if (re->num_elements != 2) {
+        LOG_ERROR("Log entry: VOTE: invalid number of arguments: %d\n", re->num_elements);
+        return -1;
+    }
+
+    log->vote = strtoul(re->elements[1].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    return 0;
+}
+
+
+
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raft_entry_t *), void *callback_arg)
 {
     int ret = 0;
@@ -298,6 +338,24 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             // Silently ignore
             freeRawLogEntry(re);
             continue;
+        } else if (!strcasecmp(re->elements[0].ptr, "TERM")) {
+            int r = handleTerm(log, re);
+            freeRawLogEntry(re);
+            if (r < 0) {
+                ret = -1;
+                break;
+            } else {
+                continue;
+            }
+        } else if (!strcasecmp(re->elements[0].ptr, "VOTE")) {
+            int r = handleVote(log, re);
+            freeRawLogEntry(re);
+            if (r < 0) {
+                ret = -1;
+                break;
+            } else {
+                continue;
+            }
         } else {
             LOG_ERROR("Invalid log entry: %s\n", (char *) re->elements[0].ptr);
             freeRawLogEntry(re);
@@ -318,11 +376,6 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
         log->num_entries = ret;
     }
     return ret;
-}
-
-bool RaftLogUpdate(RaftLog *log, bool sync)
-{
-    return true;
 }
 
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
@@ -373,10 +426,28 @@ bool RaftLogRemoveTail(RaftLog *log)
 
 bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
 {
+    log->vote = vote;
+
+    if (writeBegin(log, 2) < 0 ||
+        writeBuffer(log, "VOTE", 4) < 0 ||
+        writeInteger(log, vote) < 0 ||
+        writeEnd(log) < 0) {
+        return false;
+    }
     return true;
 }
 
 bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
 {
+    log->term = term;
+    log->vote = vote;
+
+    if (writeBegin(log, 3) < 0 ||
+        writeBuffer(log, "TERM", 4) < 0 ||
+        writeInteger(log, term) < 0 ||
+        writeInteger(log, vote) < 0 ||
+        writeEnd(log) < 0) {
+        return false;
+    }
     return true;
 }
