@@ -25,11 +25,8 @@ static int teardown_log(void **state)
     return 0;
 }
 
-static int __check_entry(const long unsigned int a, const long unsigned int b)
+static int cmp_entry(raft_entry_t *e1, raft_entry_t *e2)
 {
-    raft_entry_t *e1 = (raft_entry_t *) a;
-    raft_entry_t *e2 = (raft_entry_t *) b;
-
     return (e1->term == e2->term &&
             e1->type == e2->type &&
             e1->id == e2->id &&
@@ -37,15 +34,49 @@ static int __check_entry(const long unsigned int a, const long unsigned int b)
             !memcmp(e1->data.buf, e2->data.buf, e1->data.len));
 }
 
-static int read_callback(void **arg, raft_entry_t *entry)
+#define MAX_FAKELOG 10
+struct fakelog {
+    int first;
+    int last;
+    raft_entry_t entries[MAX_FAKELOG];
+};
+
+static int fakelog_entries(struct fakelog *log)
 {
-    check_expected(entry);
+    return log->last - log->first;
+}
+
+static int fakelog_cmp_entry(struct fakelog *log, int idx, raft_entry_t *e)
+{
+    return cmp_entry(&log->entries[log->first + idx - 1], e);
+}
+
+static void fakelog_clear(struct fakelog *log)
+{
+    log->first = log->last = 0;
+}
+
+static int read_callback(void *arg, LogEntryAction action, raft_entry_t *entry)
+{
+    struct fakelog *log = (struct fakelog *) arg;
+    if (action == LA_APPEND) {
+        assert_true(log->last < MAX_FAKELOG);
+        log->entries[log->last++] = *entry;
+    } else if (action == LA_REMOVE_HEAD) {
+        assert_true(log->last > log->first);
+        log->first++;
+    } else if (action == LA_REMOVE_TAIL) {
+        assert_true(log->last > log->first);
+        log->last--;
+    }
     return mock();
 }
 
 static void test_basic_log_read_write(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
+    struct fakelog fl = { 0 };
+
     char value1[] = "value1";
     raft_entry_t entry1 = {
         .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
@@ -61,13 +92,16 @@ static void test_basic_log_read_write(void **state)
 
     /* Load entries */
     will_return_always(read_callback, 0);
-    expect_check(read_callback, entry, __check_entry, &entry1);
-    expect_check(read_callback, entry, __check_entry, &entry2);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *) 0x1234), 2);
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *) &fl), 2);
+    assert_int_equal(fakelog_entries(&fl), 2);
+    assert_true(!fakelog_cmp_entry(&fl, 1, &entry1));
+    assert_true(!fakelog_cmp_entry(&fl, 2, &entry2));
 }
 
 static void test_log_remove_head(void **state)
 {
+    struct fakelog fl = { 0 };
+
     RaftLog *log = (RaftLog *) *state;
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -86,13 +120,15 @@ static void test_log_remove_head(void **state)
     /* Remove first */
     assert_true(RaftLogRemoveHead(log));
     will_return_always(read_callback, 0);
-    expect_check(read_callback, entry, __check_entry, &entry2);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 1);
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, &fl), 1);
+    assert_int_equal(fakelog_entries(&fl), 1);
+    assert_true(!fakelog_cmp_entry(&fl, 1, &entry2));
 
     /* Remove last */
+    fakelog_clear(&fl);
     assert_true(RaftLogRemoveHead(log));
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 0);
-    assert_int_equal(lseek(log->fd, 0, SEEK_END), sizeof(RaftLogHeader));
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
+    assert_int_equal(fakelog_entries(&fl), 0);
 
     /* No more */
     assert_false(RaftLogRemoveHead(log));
@@ -100,6 +136,8 @@ static void test_log_remove_head(void **state)
 
 static void test_log_remove_tail(void **state)
 {
+    struct fakelog fl = { 0 };
+
     RaftLog *log = (RaftLog *) *state;
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -118,20 +156,24 @@ static void test_log_remove_tail(void **state)
     /* Remove tail */
     assert_true(RaftLogRemoveTail(log));
     will_return_always(read_callback, 0);
-    expect_check(read_callback, entry, __check_entry, &entry1);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 1);
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
+    assert_int_equal(fakelog_entries(&fl), 1);
+    assert_true(!fakelog_cmp_entry(&fl, 1, &entry1));
 
     /* Remove last entry */
+    fakelog_clear(&fl);
     assert_true(RaftLogRemoveTail(log));
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 0);
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
+    assert_int_equal(fakelog_entries(&fl), 0);
 
     /* No more */
     assert_false(RaftLogRemoveTail(log));
-    assert_int_equal(lseek(log->fd, 0, SEEK_END), sizeof(RaftLogHeader));
 }
 
 static void test_log_remove_head_and_tail(void **state)
 {
+    struct fakelog fl = { 0 };
+
     RaftLog *log = (RaftLog *) *state;
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -157,13 +199,15 @@ static void test_log_remove_head_and_tail(void **state)
     assert_true(RaftLogRemoveHead(log));
     assert_true(RaftLogRemoveTail(log));
     will_return_always(read_callback, 0);
-    expect_check(read_callback, entry, __check_entry, &entry2);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 1);
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
+    assert_int_equal(fakelog_entries(&fl), 1);
+    assert_true(!fakelog_cmp_entry(&fl, 1, &entry2));
 
     /* Remove tail */
+    fakelog_clear(&fl);
     assert_true(RaftLogRemoveTail(log));
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)0x1234), 0);
-    assert_int_equal(lseek(log->fd, 0, SEEK_END), sizeof(RaftLogHeader));
+    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
+    assert_int_equal(fakelog_entries(&fl), 0);
 }
 
 

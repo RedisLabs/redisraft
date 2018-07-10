@@ -227,20 +227,14 @@ typedef struct RaftReq {
 } RaftReq;
 
 typedef struct RaftLog {
-    struct RaftLogHeader *header;
-    int fd;
+    uint32_t            version;
+    unsigned long int   num_entries;
+    raft_node_id_t      vote;
+    raft_term_t         term;
+    FILE                *file;
 } RaftLog;
 
 #define RAFTLOG_VERSION     1
-
-typedef struct RaftLogHeader {
-    uint32_t        version;
-    raft_node_id_t  node_id;  /* Node id writing this file */
-    raft_node_id_t  vote;     /* Last node voted */
-    raft_term_t     term;     /* Current term */
-    raft_index_t    commit_idx;     /* Commit index */
-    size_t          entry_offset;   /* File offset for first entry */
-} RaftLogHeader;
 
 typedef struct RaftLogEntry {
     raft_term_t     term;
@@ -277,12 +271,19 @@ int stringmatch(const char *pattern, const char *string, int nocase);
 int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
 
 /* log.c */
+typedef enum LogEntryAction {
+    LA_APPEND,
+    LA_REMOVE_HEAD,
+    LA_REMOVE_TAIL
+} LogEntryAction;
+
 RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
-bool RaftLogUpdate(RaftLog *log, bool sync);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg);
+bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
+bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction action, raft_entry_t *), void *callback_arg);
 bool RaftLogRemoveHead(RaftLog *log);
 bool RaftLogRemoveTail(RaftLog *log);
 

@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/uio.h>
 
 #include "redisraft.h"
@@ -8,35 +9,159 @@
 
 void RaftLogClose(RaftLog *log)
 {
-    close(log->fd);
-    RedisModule_Free(log->header);
+    fclose(log->file);
     RedisModule_Free(log);
 }
 
+/*
+ * Raw reading/writing of Raft log.
+ */
+
+static int writeBegin(RaftLog *log, int length)
+{
+    if (fprintf(log->file, "*%u\r\n", length) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int writeEnd(RaftLog *log)
+{
+    if (fflush(log->file) < 0 ||
+        fsync(fileno(log->file)) < 0) {
+            return -1;
+    }
+    
+    return 0;
+}
+
+static int writeBuffer(RaftLog *log, void *buf, size_t buf_len)
+{
+    static const char crlf[] = "\r\n";
+
+    if (fprintf(log->file, "$%zu\r\n", buf_len) < 0 ||
+        fwrite(buf, 1, buf_len, log->file) < buf_len ||
+        fwrite(crlf, 1, 2, log->file) < 2) {
+            return -1;
+    }
+
+    return 0;
+}
+
+static int writeInteger(RaftLog *log, unsigned long value)
+{
+    char buf[25];
+
+    snprintf(buf, sizeof(buf) - 1, "%lu", value);
+    if (fprintf(log->file, "$%zu\r\n%s\r\n", strlen(buf), buf) < 0) {
+        return -1;
+    }
+    
+    return 0;
+}
+
+typedef struct RawElement {
+    void *ptr;
+    size_t len;
+} RawElement;
+
+typedef struct RawLogEntry {
+    int num_elements;
+    RawElement elements[];
+} RawLogEntry;
+
+static int readEncodedLength(RaftLog *log, char type, unsigned long *length)
+{
+    char buf[128];
+    char *eptr;
+
+    if (!fgets(buf, sizeof(buf), log->file)) {
+            return -1;
+    }
+
+    if (buf[0] != type) {
+        return -1;
+    }
+
+    *length = strtoul(buf + 1, &eptr, 10);
+    if (*eptr != '\n' && *eptr != '\r') {
+        return -1;
+    }
+
+    return 0;
+}
+
+static void freeRawLogEntry(RawLogEntry *entry)
+{
+    int i;
+
+    for (i = 0; i < entry->num_elements; i++) {
+        if (entry->elements[i].ptr != NULL) {
+            RedisModule_Free(entry->elements[i].ptr);
+            entry->elements[i].ptr = NULL;
+        }
+    }
+
+    RedisModule_Free(entry);
+}
+
+static int readRawLogEntry(RaftLog *log, RawLogEntry **entry)
+{
+    unsigned long num_elements;
+    int i;
+
+    if (readEncodedLength(log, '*', &num_elements) < 0) {
+        return -1;
+    }
+
+    *entry = RedisModule_Calloc(1, sizeof(RawLogEntry) + sizeof(RawElement) * num_elements);
+    (*entry)->num_elements = num_elements;
+    for (i = 0; i < num_elements; i++) {
+        unsigned long len;
+        char *ptr;
+
+        if (readEncodedLength(log, '$', &len) < 0) {
+            goto error;
+        }
+        (*entry)->elements[i].len = len;
+        (*entry)->elements[i].ptr = ptr = RedisModule_Alloc(len + 2);
+
+        /* Read extra CRLF */
+        if (fread(ptr, 1, len + 2, log->file) != len + 2) {
+            goto error;
+        }
+        ptr[len] = '\0';
+        ptr[len + 1] = '\0';
+    }
+
+    return 0;
+error:
+    freeRawLogEntry(*entry);
+    *entry = NULL;
+
+    return -1;
+}
 
 RaftLog *RaftLogCreate(const char *filename, uint32_t node_id)
 {
-    int fd = open(filename, O_CREAT|O_RDWR|O_TRUNC, S_IRWXU|S_IRWXG);
-    if (fd < 0) {
+    FILE *file = fopen(filename, "w+");
+    if (!file) {
         LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
         return NULL;
     }
 
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
-    log->header = RedisModule_Calloc(1, sizeof(RaftLogHeader));
-    log->fd = fd;
+    log->file = file;
 
-    log->header->version = RAFTLOG_VERSION;
-    log->header->node_id = node_id;
-    log->header->term = 0;
-    log->header->entry_offset = INITIAL_LOG_OFFSET;
+    /* Write log start */
+    if (writeBegin(log, 2) < 0 ||
+        writeBuffer(log, "RAFTLOG", 7) < 0 ||
+        writeInteger(log, RAFTLOG_VERSION) < 0 ||
+        writeEnd(log) < 0) {
 
-    if (write(log->fd, log->header, sizeof(RaftLogHeader)) < 0 ||
-        fsync(log->fd) < 0) {
+        LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
 
-        LOG_ERROR("Failed to write Raft log header: %s: %s\n", filename, strerror(errno));
-
-        RedisModule_Free(log->header);
         RedisModule_Free(log);
 
         log = NULL;
@@ -47,38 +172,48 @@ RaftLog *RaftLogCreate(const char *filename, uint32_t node_id)
 
 RaftLog *RaftLogOpen(const char *filename)
 {
-    int fd = open(filename, O_RDWR);
-    if (fd < 0) {
+    FILE *file = fopen(filename, "r+");
+    if (!file) {
         LOG_ERROR("Failed top open Raft log: %s: %s\n", filename, strerror(errno));
         return NULL;
     }
 
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
-    log->header = RedisModule_Calloc(1, sizeof(RaftLogHeader));
-    log->fd = fd;
+    log->file = file;
 
-    int bytes;
-    if ((bytes = read(log->fd, log->header, sizeof(RaftLogHeader))) < sizeof(RaftLogHeader)) {
-        LOG_ERROR("Failed to read Raft log header: %s\n", bytes < 0 ? strerror(errno) : "file too short");
+    /* Read start */
+    RawLogEntry *e = NULL;
+    if (readRawLogEntry(log, &e) < 0) {
+        /* TODO: better error reporting */
+        LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
         goto error;
     }
 
-    if (log->header->version != RAFTLOG_VERSION) {
-        LOG_ERROR("Invalid Raft log version: %d\n", log->header->version);
+    if (e->num_elements != 2 ||
+        strcmp(e->elements[0].ptr, "RAFTLOG")) {
+        LOG_ERROR("Invalid Raft log start command.");
         goto error;
     }
 
+    char *eptr;
+    unsigned long ver = strtoul(e->elements[1].ptr, &eptr, 10);
+    if (*eptr != '\0' || ver != RAFTLOG_VERSION) {
+        LOG_ERROR("Invalid Raft log version: %lu\n", ver);
+        goto error;
+    }
+
+    freeRawLogEntry(e);
     return log;
 
 error:
-    RedisModule_Free(log->header);
+    freeRawLogEntry(e);
     RedisModule_Free(log);
     return NULL;
 }
 
 int readRaftLogEntryLen(RaftLog *log, size_t *entry_len)
 {
-    size_t nread = read(log->fd, entry_len, sizeof(*entry_len));
+    size_t nread = fread(entry_len, 1, sizeof(*entry_len), log->file);
 
     /* EOF */
     if (!nread) {
@@ -97,213 +232,151 @@ int readRaftLogEntryLen(RaftLog *log, size_t *entry_len)
     return 1;
 }
 
-int readRaftLogEntry(RaftLog *log, RaftLogEntry *entry)
+static int parseRaftLogEntry(RawLogEntry *re, raft_entry_t *e)
 {
-    size_t nread = read(log->fd, entry, sizeof(*entry));
+    char *eptr;
 
-    /* EOF */
-    if (!nread) {
-        return 0;
-    }
-
-    if (nread < 0) {
-        LOG_ERROR("Error reading log entry: %s\n", strerror(errno));
-        return -1;
-    } else if (nread < sizeof(*entry)) {
-        LOG_ERROR("Short read reading log entry: %zd/%zd\n",
-                nread, sizeof(*entry));
+    if (re->num_elements != 5) {
+        LOG_ERROR("Log entry: invalid number of arguments: %d\n", re->num_elements);
         return -1;
     }
 
-    return 1;
+    e->term = strtoul(re->elements[1].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    e->id = strtoul(re->elements[2].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    e->type = strtoul(re->elements[3].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    e->data.len = re->elements[4].len;
+    e->data.buf = re->elements[4].ptr;
+    return 0;
 }
 
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void **, raft_entry_t *), void *callback_arg)
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raft_entry_t *), void *callback_arg)
 {
     int ret = 0;
 
-    if (lseek(log->fd, log->header->entry_offset, SEEK_SET) < 0) {
-        LOG_ERROR("Failed to read Raft log: %s\n", strerror(errno));
+    if (fseek(log->file, 0, SEEK_SET) < 0) {
         return -1;
     }
 
     do {
-        raft_entry_t raft_entry;
-        RaftLogEntry e;
-        int r = readRaftLogEntry(log, &e);
+        RawLogEntry *re;
+        raft_entry_t e;
+        LogEntryAction action;
 
-        /* End of file? */
-        if (!r) {
+        if (readRawLogEntry(log, &re) < 0 || !re->num_elements) {
             break;
         }
 
-        /* Error? */
-        if (r < 0) {
+        if (!strcasecmp(re->elements[0].ptr, "ENTRY")) {
+            memset(&e, 0, sizeof(raft_entry_t));
+
+            if (parseRaftLogEntry(re, &e) < 0) {
+                freeRawLogEntry(re);
+                ret = -1;
+                break;
+            }
+            action = LA_APPEND;
+            ret++;
+        } else if (!strcasecmp(re->elements[0].ptr, "REMHEAD")) {
+            action = LA_REMOVE_HEAD;
+            ret--;
+        } else if (!strcasecmp(re->elements[0].ptr, "REMTAIL")) {
+            action = LA_REMOVE_TAIL;
+            ret--;
+        } else if (!strcasecmp(re->elements[0].ptr, "RAFTLOG")) {
+            // Silently ignore
+            freeRawLogEntry(re);
+            continue;
+        } else {
+            LOG_ERROR("Invalid log entry: %s\n", (char *) re->elements[0].ptr);
+            freeRawLogEntry(re);
+
             ret = -1;
             break;
         }
 
-        /* Set up raft_entry */
-        memset(&raft_entry, 0, sizeof(raft_entry));
-        raft_entry.term = e.term;
-        raft_entry.id = e.id;
-        raft_entry.type = e.type;
-        raft_entry.data.len = e.len;
-        raft_entry.data.buf = RedisModule_Alloc(e.len);
-
-        /* Read data */
-        size_t entry_len;
-        struct iovec iov[2] = {
-            { .iov_base = raft_entry.data.buf, .iov_len = e.len },
-            { .iov_base = &entry_len, .iov_len = sizeof(entry_len) }
-        };
-
-        ssize_t nread = readv(log->fd, iov, 2);
-        if (nread < e.len + sizeof(entry_len)) {
-            LOG_ERROR("Failed to read Raft log entry: %s\n",
-                    nread == -1 ? strerror(errno) : "truncated file");
-            RedisModule_Free(raft_entry.data.buf);
-            ret = -1;
-            break;
-        }
-
-        size_t expected_len = sizeof(entry_len) + e.len + sizeof(RaftLogEntry);
-        if (entry_len != expected_len) {
-            LOG_ERROR("Invalid log entry size: %zd (expected %zd)\n", entry_len, expected_len);
-            RedisModule_Free(raft_entry.data.buf);
-            ret = -1;
-            break;
-        }
-
-        int cb_ret = callback(callback_arg, &raft_entry);
-        RedisModule_Free(raft_entry.data.buf);
+        int cb_ret = callback(callback_arg, action, action == LA_APPEND ? &e : NULL);
+        freeRawLogEntry(re);
         if (cb_ret < 0) {
             ret = cb_ret;
             break;
         }
-        ret++;
     } while(1);
 
+    if (ret > 0) {
+        log->num_entries = ret;
+    }
     return ret;
 }
 
 bool RaftLogUpdate(RaftLog *log, bool sync)
 {
-    if (lseek(log->fd, 0, SEEK_SET) < 0) {
-        return false;
-    }
-
-    if (write(log->fd, log->header, sizeof(RaftLogHeader)) < sizeof(RaftLogHeader)) {
-        LOG_ERROR("Failed to update Raft log: %s", strerror(errno));
-        return false;
-    }
-
-    if (sync && fsync(log->fd) < 0) {
-        LOG_ERROR("Failed to sync Raft log: %s", strerror(errno));
-        return false;
-    }
-
     return true;
 }
 
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
-    RaftLogEntry ent = {
-        .term = entry->term,
-        .id = entry->id,
-        .type = entry->type,
-        .len = entry->data.len
-    };
-    size_t entry_len = sizeof(ent) + entry->data.len + sizeof(entry_len);
-
-    off_t pos = lseek(log->fd, 0, SEEK_END);
-    if (pos < 0) {
+    if (writeBegin(log, 5) < 0 ||
+        writeBuffer(log, "ENTRY", 5) < 0 ||
+        writeInteger(log, entry->term) < 0 ||
+        writeInteger(log, entry->id) < 0 ||
+        writeInteger(log, entry->type) < 0 ||
+        writeBuffer(log, entry->data.buf, entry->data.len) < 0 ||
+        writeEnd(log) < 0) {
         return false;
     }
 
-    int iovcnt = 0;
-    struct iovec iov[3];
-    iov[iovcnt++] = (struct iovec) {
-        .iov_base = &ent, .iov_len = sizeof(ent) };
-    if (entry->data.len) {
-        iov[iovcnt++] = (struct iovec) { 
-            .iov_base = entry->data.buf, .iov_len = entry->data.len };
-    }
-    iov[iovcnt++] = (struct iovec) {
-        .iov_base = &entry_len, .iov_len = sizeof(entry_len) };
-
-    ssize_t written = writev(log->fd, iov, iovcnt);
-    if (written < entry_len) {
-        if (written == -1) {
-            LOG_ERROR("Error writing Raft log: %s", strerror(errno));
-        } else {
-            LOG_ERROR("Incomplete Raft log write: %zd/%zd bytes written", written, entry_len);
-        }
-
-        if (written != -1 && ftruncate(log->fd, pos) != -1) {
-            LOG_ERROR("Failed to truncate partial entry!");
-        }
-
-        return false;
-    }
-
-    if (fsync(log->fd) < 0) {
-        LOG_ERROR("Error syncing Raft log: %s", strerror(errno));
-        return false;
-    }
-
+    log->num_entries++;
     return true;
 }
 
 bool RaftLogRemoveHead(RaftLog *log)
 {
-    RaftLogEntry entry;
-
-    if (lseek(log->fd, log->header->entry_offset, SEEK_SET) < 0) {
-        LOG_ERROR("Failed to seek Raft log: %s\n", strerror(errno));
+    if (!log->num_entries) {
         return false;
     }
-
-    if (readRaftLogEntry(log, &entry) <= 0) {
+    if (writeBegin(log, 1) < 0 ||
+        writeBuffer(log, "REMHEAD", 7) < 0 ||
+        writeEnd(log) < 0) {
         return false;
     }
-
-    size_t next_off = log->header->entry_offset + sizeof(RaftLogEntry) + entry.len + sizeof(size_t);
-    if (lseek(log->fd, 0, SEEK_END) == next_off) {
-        log->header->entry_offset = INITIAL_LOG_OFFSET;
-        RaftLogUpdate(log, true);
-        ftruncate(log->fd, log->header->entry_offset);
-    } else {
-        log->header->entry_offset = next_off;
-        RaftLogUpdate(log, true);
-    }
+    log->num_entries--;
 
     return true;
 }
 
 bool RaftLogRemoveTail(RaftLog *log)
 {
-    off_t end_off;
-    if ((end_off = lseek(log->fd, 0 - sizeof(size_t), SEEK_END)) < 0) {
-        LOG_ERROR("Failed to seek to Raft log end: %s\n", strerror(errno));
+    if (!log->num_entries) {
         return false;
     }
-    if (end_off <= log->header->entry_offset + sizeof(RaftLogEntry)) {
+    if (writeBegin(log, 1) < 0 ||
+        writeBuffer(log, "REMHEAD", 7) < 0 ||
+        writeEnd(log) < 0) {
         return false;
     }
-    end_off += sizeof(size_t);
+    log->num_entries--;
 
-    size_t entry_len;
-    if (readRaftLogEntryLen(log, &entry_len) <= 0) {
-        return false;
-    }
+    return true;
+}
 
-    off_t new_size = end_off - entry_len;
-    if (new_size == log->header->entry_offset) {
-        log->header->entry_offset = INITIAL_LOG_OFFSET;
-        new_size = INITIAL_LOG_OFFSET;
-        RaftLogUpdate(log, true);
-    }
-    ftruncate(log->fd, new_size);
+bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
+{
+    return true;
+}
+
+bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
+{
     return true;
 }

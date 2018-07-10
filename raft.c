@@ -342,8 +342,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
         return 0;
     }
 
-    rr->log->header->vote = vote;
-    if (!RaftLogUpdate(rr->log, true)) {
+    if (!RaftLogSetVote(rr->log, vote)) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -357,8 +356,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
         return 0;
     }
 
-    rr->log->header->term = term;
-    if (rr->log && !RaftLogUpdate(rr->log, true)) {
+    if (!RaftLogSetTerm(rr->log, term, vote)) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -460,7 +458,7 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
 
     TRACE("raftLogPop: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
-    if (!rr->log) {
+    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
         raftFreeEntry(entry);
         return 0;
     }
@@ -479,7 +477,7 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
 
     TRACE("raftLogPoll: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
-    if (!rr->log) {
+    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
         raftFreeEntry(entry);
         return 0;
     }
@@ -497,16 +495,6 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 {
     RedisRaftCtx *rr = user_data;
     RaftCfgChange *req;
-
-    /* Update commit index.
-     * TODO: Do we want to write it now? Probably not sync though.
-     */
-    if (rr->log) {
-        if (entry_idx > rr->log->header->commit_idx) {
-            rr->log->header->commit_idx = entry_idx;
-            RaftLogUpdate(rr->log, false);
-        }
-    }
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
@@ -764,11 +752,10 @@ static void initiateAddNode(RedisRaftCtx *rr)
 
 int applyLoadedRaftLog(RedisRaftCtx *rr)
 {
-    raft_set_commit_idx(rr->raft, rr->log->header->commit_idx);
     raft_apply_all(rr->raft);
 
-    raft_vote_for_nodeid(rr->raft, rr->log->header->vote);
-    raft_set_current_term(rr->raft, rr->log->header->term);
+    // raft_vote_for_nodeid(rr->raft, rr->log->header->vote);
+    // raft_set_current_term(rr->raft, rr->log->header->term);
 
     /* TODO is this needed? */
 #if 0
@@ -951,6 +938,21 @@ int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     return initRaftLog(ctx, rr);
 }
 
+static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *entry)
+{
+    switch (action) {
+        case LA_APPEND:
+            return raft_append_entry(arg, entry);
+        case LA_REMOVE_HEAD:
+            return raft_poll_entry(arg, &entry);
+        case LA_REMOVE_TAIL:
+            return raft_pop_entry(arg);
+        default:
+            return -1;
+    }
+}
+
+
 int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     rr->state = REDIS_RAFT_LOADING;
@@ -960,14 +962,14 @@ int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
         return REDISMODULE_ERR;
     }
 
-    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->log->header->node_id, 1);
+    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
     if (!self) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to create local Raft node [id %d]\n", rr->log->header->node_id);
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to create local Raft node [id %d]\n", rr->config->id);
         return REDISMODULE_ERR;
     }
 
     RedisModule_Log(ctx, REDIS_NOTICE, "Reading Raft log\n");
-    int entries = RaftLogLoadEntries(rr->log, raft_append_entry, rr->raft);
+    int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr->raft);
     if (entries < 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to read Raft log");
         return REDISMODULE_ERR;
