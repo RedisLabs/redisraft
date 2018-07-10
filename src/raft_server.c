@@ -1193,6 +1193,13 @@ int raft_poll_entry(raft_server_t* me_, raft_entry_t **ety)
     return 0;
 }
 
+int raft_pop_entry(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*)me_;
+
+    return log_delete(me->log, log_get_current_idx(me->log));
+}
+
 raft_index_t raft_get_first_entry_idx(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;

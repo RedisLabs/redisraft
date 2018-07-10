@@ -715,6 +715,13 @@ void raft_set_commit_idx(raft_server_t* me, raft_index_t commit_idx);
  *  RAFT_ERR_NOMEM memory allocation failure */
 int raft_append_entry(raft_server_t* me, raft_entry_t* ety);
 
+/** Remove the last entry from the server's log.
+ * This should only be used when reloading persistent state from an append log
+ * store, where removed entries are still in the log but followed by a pop
+ * action.
+ */
+int raft_pop_entry(raft_server_t* me);
+
 /** Confirm if a msg_entry_response has been committed.
  * @param[in] r The response we want to check */
 int raft_msg_entry_response_committed(raft_server_t* me_,
