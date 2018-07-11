@@ -82,14 +82,6 @@ static int __raft_log_offer(raft_server_t* raft,
         raft_entry_t *entry,
         raft_index_t entry_idx)
 {
-    switch (entry->type) {
-        case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            raft_add_non_voting_node(raft, NULL, atoi(entry->data.buf), 0);
-            break;
-        case RAFT_LOGTYPE_ADD_NODE:
-            raft_add_node(raft, NULL, atoi(entry->data.buf), 0);
-            break;
-    }
     return 0;
 }
 
@@ -1471,7 +1463,7 @@ void TestRaft_follower_recv_appendentries_delete_entries_if_conflict_with_new_en
 
     char* strs[] = {"111", "222", "333"};
     raft_entry_t *ety_appended;
-    
+   
     __create_mock_entries_for_conflict_tests(tc, r, strs);
     CuAssertIntEquals(tc, 3, raft_get_log_count(r));
 
@@ -1967,7 +1959,7 @@ void TestRaft_follower_recv_appendentries_heartbeat_does_not_overwrite_logs(
     raft_recv_appendentries(r, raft_get_node(r, 2), &ae, &aer);
 
     /* receive a heartbeat
-     * NOTE: the leader hasn't received the response to the last AE so it can 
+     * NOTE: the leader hasn't received the response to the last AE so it can
      * only assume prev_Log_idx is still 1 */
     memset(&ae, 0, sizeof(msg_appendentries_t));
     ae.term = 1;
@@ -3963,10 +3955,10 @@ void TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_v
         .type = RAFT_LOGTYPE_ADD_NONVOTING_NODE
     };
     msg_entry_response_t etyr;
-    raft_recv_entry(r, &ety, &etyr);
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, &ety, &etyr));
     ety.id++;
     ety.data.buf = "3";
-    raft_recv_entry(r, &ety, &etyr);
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, &ety, &etyr));
 
     msg_appendentries_response_t aer = {
         .term = 1, .success = 1, .current_idx = 2, .first_idx = 0
@@ -3999,4 +3991,3 @@ void TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_v
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertIntEquals(tc, 2, has_sufficient_logs_flag);
 }
-

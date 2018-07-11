@@ -12,14 +12,21 @@
 
 #include "raft_types.h"
 
-#define RAFT_ERR_NOT_LEADER                  -2
-#define RAFT_ERR_ONE_VOTING_CHANGE_ONLY      -3
-#define RAFT_ERR_SHUTDOWN                    -4
-#define RAFT_ERR_NOMEM                       -5
-#define RAFT_ERR_NEEDS_SNAPSHOT              -6
-#define RAFT_ERR_SNAPSHOT_IN_PROGRESS        -7
-#define RAFT_ERR_SNAPSHOT_ALREADY_LOADED     -8
-#define RAFT_ERR_LAST                        -100
+typedef enum {
+    RAFT_ERR_NOT_LEADER=-2,
+    RAFT_ERR_ONE_VOTING_CHANGE_ONLY=-3,
+    RAFT_ERR_SHUTDOWN=-4,
+    RAFT_ERR_NOMEM=-5,
+    RAFT_ERR_NEEDS_SNAPSHOT=-6,
+    RAFT_ERR_SNAPSHOT_IN_PROGRESS=-7,
+    RAFT_ERR_SNAPSHOT_ALREADY_LOADED=-8,
+    RAFT_ERR_LAST=-100,
+} raft_error_e;
+
+typedef enum {
+    RAFT_MEMBERSHIP_ADD,
+    RAFT_MEMBERSHIP_REMOVE,
+} raft_membership_e;
 
 #define RAFT_REQUESTVOTE_ERR_GRANTED          1
 #define RAFT_REQUESTVOTE_ERR_NOT_GRANTED      0
@@ -64,7 +71,6 @@ typedef enum {
      * Removing nodes is a 2 step process: first demote, then remove.
      */
     RAFT_LOGTYPE_REMOVE_NODE,
-    RAFT_LOGTYPE_SNAPSHOT,
     /**
      * Users can piggyback the entry mechanism by specifying log types that
      * are higher than RAFT_LOGTYPE_NUM.
@@ -229,7 +235,7 @@ typedef int (
     msg_appendentries_t* msg
     );
 
-/** 
+/**
  * Log compaction
  * Callback for telling the user to send a snapshot.
  *
@@ -297,7 +303,7 @@ typedef int (
  * @param[in] raft The Raft server making this callback
  * @param[in] user_data User data that is passed from Raft server
  * @param[in] term Current term
- * @param[in] vote The node value dicating we haven't voted for anybody
+ * @param[in] vote The node value dictating we haven't voted for anybody
  * @return 0 on success */
 typedef int (
 *func_persist_term_f
@@ -335,6 +341,25 @@ typedef int (
     void *user_data,
     raft_entry_t *entry,
     raft_index_t entry_idx
+    );
+
+/** Callback for being notified of membership changes.
+ *
+ * Implementing this callback is optional.
+ *
+ * Remove notification happens before the node is about to be removed.
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] node The node that is the subject of this log. Could be NULL.
+ * @param[in] type The type of membership change */
+typedef void (
+*func_membership_event_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_node_t *node,
+    raft_membership_e type
     );
 
 typedef struct
@@ -387,6 +412,8 @@ typedef struct
 
     /** Callback for detecting when a non-voting node has sufficient logs. */
     func_node_has_sufficient_logs_f node_has_sufficient_logs;
+
+    func_membership_event_f notify_membership_event;
 
     /** Callback for catching debugging log messages
      * This callback is optional */
@@ -735,12 +762,12 @@ raft_node_id_t raft_node_get_id(raft_node_t* me_);
  * @return get state of type raft_state_e. */
 int raft_get_state(raft_server_t* me_);
 
-/** The the most recent log's term
+/** Get the most recent log's term
  * @return the last log term */
 raft_term_t raft_get_last_log_term(raft_server_t* me_);
 
 /** Turn a node into a voting node.
- * Voting nodes can take part in elections and in-regards to commiting entries,
+ * Voting nodes can take part in elections and in-regards to committing entries,
  * are counted in majorities. */
 void raft_node_set_voting(raft_node_t* node, int voting);
 
@@ -829,8 +856,11 @@ raft_index_t raft_get_first_entry_idx(raft_server_t* me_);
  * This is usually the result of a snapshot being loaded.
  * We need to send an appendentries response.
  *
+ * This will remove all other nodes (not ourself). The user MUST use the
+ * snapshot to load the new membership information.
+ *
  * @param[in] last_included_term Term of the last log of the snapshot
- * @param[in] last_included_index Index of the last log of the snapshot 
+ * @param[in] last_included_index Index of the last log of the snapshot
  *
  * @return
  *  0 on success
@@ -888,5 +918,20 @@ void raft_set_heap_functions(void *(*_malloc)(size_t),
                              void *(*_calloc)(size_t, size_t),
                              void *(*_realloc)(void *, size_t),
                              void (*_free)(void *));
+
+/** Confirm that a node's voting status is final
+ * @param[in] node The node
+ * @param[in] voting Whether this node's voting status is committed or not */
+void raft_node_set_voting_committed(raft_node_t* me_, int voting);
+
+/** Confirm that a node's voting status is final
+ * @param[in] node The node
+ * @param[in] committed Whether this node's membership is committed or not */
+void raft_node_set_addition_committed(raft_node_t* me_, int committed);
+
+/** Check if a voting change is in progress
+ * @param[in] raft The Raft server
+ * @return 1 if a voting change is in progress */
+int raft_voting_change_is_in_progress(raft_server_t* me_);
 
 #endif /* RAFT_H_ */
