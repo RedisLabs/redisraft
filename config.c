@@ -166,7 +166,7 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     if (stringmatch(pattern, "raftlog", 1)) {
         len++;
-        replyConfigStr(ctx, "raftlog", config->raftlog);
+        replyConfigStr(ctx, "raftlog", config->raftlog ? config->raftlog : "");
     }
     if (stringmatch(pattern, "persist", 1)) {
         len++;
