@@ -154,7 +154,8 @@ typedef enum NodeState {
     NODE_RESOLVING,
     NODE_CONNECTING,
     NODE_CONNECTED,
-    NODE_CONNECT_ERROR
+    NODE_CONNECT_ERROR,
+    NODE_UNLINKED
 } NodeState;
 
 #define NODE_STATE_IDLE(x) \
@@ -170,6 +171,7 @@ typedef struct Node {
     RedisRaftCtx *rr;
     NodeConnectCallbackFunc connect_callback;
     bool load_snapshot_in_progress;
+    bool unlinked;
     raft_index_t load_snapshot_idx;
 } Node;
 

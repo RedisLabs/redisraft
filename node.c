@@ -45,8 +45,12 @@ static void handleNodeDisconnect(const redisAsyncContext *c, int status)
     Node *node = (Node *) c->data;
     if (node) {
         node->rc = NULL;
-        node->state = NODE_DISCONNECTED;
-        NODE_LOG_INFO(node, "Connection dropped.\n");
+        if (node->unlinked) {
+            NodeFree(node);
+        } else {
+            node->state = NODE_DISCONNECTED;
+            NODE_LOG_INFO(node, "Connection dropped.\n");
+        }
     }
 }
 
@@ -188,14 +192,6 @@ void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
     } while (1);
 }
 
-static void freeResolver(uv_handle_t *handle)
-{
-    Node *n = uv_handle_get_data(handle);
-    if (n != NULL) {
-        NodeFree(n);
-    }
-}
-
 void NodeUnlink(Node *n)
 {
     if (!n) {
@@ -209,6 +205,9 @@ void NodeUnlink(Node *n)
 
         if (n->state == NODE_RESOLVING) {
             uv_cancel((uv_req_t *) &n->uv_resolver);
+        } else if (n->state == NODE_CONNECTED || n->state == NODE_CONNECTING) {
+            n->unlinked = true;
+            redisAsyncDisconnect(n->rc);
         } else {
             NodeFree(n);
         }

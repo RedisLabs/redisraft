@@ -22,12 +22,11 @@ const char *raft_logtype_str(int type)
         "ADD_NODE",
         "DEMOTE_NODE",
         "REMOVE_NODE",
-        "SNAPSHOT",
         "(unknown)"
     };
     static const char *logtype_unknown = "(unknown)";
 
-    if (type < RAFT_LOGTYPE_NORMAL || type > RAFT_LOGTYPE_SNAPSHOT) {
+    if (type < RAFT_LOGTYPE_NORMAL || type > RAFT_LOGTYPE_REMOVE_NODE) {
         return logtype_unknown;
     } else {
         return logtype_str[type];
@@ -401,42 +400,6 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
     TRACE("Processing RaftCfgChange for node:%d, entry id=%d, type=%s\n",
             req->id, entry->id, raft_logtype_str(entry->type));
 
-    switch (entry->type) {
-        case RAFT_LOGTYPE_ADD_NODE:
-            /* When adding a node that is not us, create a Node object to
-             * manage communication with it.
-             *
-             * Node object may already exist, as add node may be used to just
-             * promote to voting. */
-            raft_node = raft_get_node(raft, req->id);
-            node = NULL;
-            if (req->id != raft_get_nodeid(raft)) {
-                if (raft_node) {
-                    node = raft_node_get_udata(raft_node);
-                } else {
-                    node = NodeInit(req->id, &req->addr);
-                }
-                assert(node != NULL);
-            }
-            raft_node = raft_add_node(raft, node, req->id,
-                    req->id == raft_get_nodeid(raft));
-            assert(raft_node != NULL);
-            assert(raft_node_is_voting(raft_node));
-            break;
-
-        case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            node = NodeInit(req->id, &req->addr);
-            raft_node = raft_add_non_voting_node(raft, node, node->id,
-                    node->id == raft_get_nodeid(raft));
-            /* TODO revisit the way Raft library handles duplicate nodes,
-             * not sure it's all good.
-             */
-            if (!raft_node) {
-                NodeFree(node);
-            }
-            break;
-    }
-
     return 0;
 }
 
@@ -497,20 +460,6 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     RaftCfgChange *req;
 
     switch (entry->type) {
-        case RAFT_LOGTYPE_REMOVE_NODE:
-            req = (RaftCfgChange *) entry->data.buf;
-            if (req->id == raft_get_nodeid(raft)) {
-                return RAFT_ERR_SHUTDOWN;
-            }
-
-            /* Clean up node, as the Raft library will remove it shortly */
-            raft_node_t *rn = raft_get_node(rr->raft, req->id);
-            if (rn != NULL) {
-                NodeUnlink(raft_node_get_udata(rn));
-                raft_node_set_udata(rn, NULL);
-            }
-            break;
-
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry);
             break;
@@ -649,6 +598,50 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
     return 0;
 }
 
+void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t *raft_node,
+        raft_entry_t *entry, raft_membership_e type)
+{
+    RedisRaftCtx *rr = user_data;
+    RaftCfgChange *cfgchange;
+    Node *node;
+
+    switch (type) {
+        case RAFT_MEMBERSHIP_ADD:
+            /* When raft_add_node() is called explicitly, we get no entry so we
+             * have nothing to do.
+             */
+            if (!entry) {
+                break;
+            }
+
+            /* Ignore our own node, as we don't maintain a Node structure for it */
+            assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
+            cfgchange = (RaftCfgChange *) entry->data.buf;
+            if (cfgchange->id == raft_get_nodeid(raft)) {
+                break;
+            }
+
+            /* Allocate a new node */
+            node = NodeInit(cfgchange->id, &cfgchange->addr);
+            assert(node != NULL);
+
+            raft_node_set_udata(raft_node, node);
+            break;
+
+        case RAFT_MEMBERSHIP_REMOVE:
+            node = raft_node_get_udata(raft_node);
+            if (node != NULL) {
+                NodeUnlink(node);
+                raft_node_set_udata(raft_node, NULL);
+            }
+            break;
+
+        default:
+            assert(0);
+    }
+
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -661,7 +654,8 @@ raft_cbs_t redis_raft_callbacks = {
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
-    .send_snapshot = raftSendSnapshot
+    .send_snapshot = raftSendSnapshot,
+    .notify_membership_event = raftNotifyMembershipEvent
 };
 
 /* ------------------------------------ AddNode ------------------------------------ */
