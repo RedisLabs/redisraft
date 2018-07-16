@@ -460,6 +460,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     RaftCfgChange *req;
 
     switch (entry->type) {
+        case RAFT_LOGTYPE_REMOVE_NODE:
+            req = (RaftCfgChange *) entry->data.buf;
+            if (req->id == raft_get_nodeid(raft)) {
+                return RAFT_ERR_SHUTDOWN;
+            }
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry);
             break;
@@ -631,7 +636,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
         case RAFT_MEMBERSHIP_REMOVE:
             node = raft_node_get_udata(raft_node);
             if (node != NULL) {
-                NodeUnlink(node);
+                node->flags |= NODE_TERMINATING;
                 raft_node_set_udata(raft_node, NULL);
             }
             break;
@@ -657,85 +662,6 @@ raft_cbs_t redis_raft_callbacks = {
     .send_snapshot = raftSendSnapshot,
     .notify_membership_event = raftNotifyMembershipEvent
 };
-
-/* ------------------------------------ AddNode ------------------------------------ */
-
-void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
-{
-    Node *node = privdata;
-    RedisRaftCtx *rr = node->rr;
-
-    redisReply *reply = r;
-    assert(reply != NULL);
-
-    if (!reply) {
-        NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: connection dropped.\n");
-    } else if (reply->type == REDIS_REPLY_ERROR) {
-        /* -MOVED? */
-        if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
-            const char *addrstr = reply->str + 6;
-            NodeAddr addr;
-            if (!NodeAddrParse(addrstr, strlen(addrstr), &addr)) {
-                NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: invalid MOVED response: %s\n", reply->str);
-            } else {
-                NODE_LOG_INFO(node, "Join redirected to leader: %s\n", addrstr);
-                NodeAddrListAddElement(rr->join_addr, &addr);
-            }
-        }
-    } else if (reply->type != REDIS_REPLY_STATUS || strcmp(reply->str, "OK")) {
-        NODE_LOG_ERROR(node, "invalid RAFT.ADDNODE reply: %s\n", reply->str);
-    } else {
-        NODE_LOG_INFO(node, "Cluster join request placed as node:%d.\n",
-                raft_get_nodeid(rr->raft));
-        rr->state = REDIS_RAFT_UP;
-    }
-
-    if (rr->state != REDIS_RAFT_UP) {
-        rr->join_node->state = NODE_CONNECT_ERROR;
-    }
-
-    redisAsyncDisconnect(c);
-}
-
-void sendAddNodeRequest(const redisAsyncContext *c, int status)
-{
-    Node *node = (Node *) c->data;
-    RedisRaftCtx *rr = node->rr;
-
-    /* Connection is not good?  Terminate and continue */
-    if (status != REDIS_OK) {
-        node->state = NODE_CONNECT_ERROR;
-    } else if (redisAsyncCommand(node->rc, handleAddNodeResponse, node,
-        "RAFT.ADDNODE %d %s:%u",
-        raft_get_nodeid(rr->raft),
-        rr->config->addr.host,
-        rr->config->addr.port) != REDIS_OK) {
-
-        node->state = NODE_CONNECT_ERROR;
-    }
-}
-
-static void initiateAddNode(RedisRaftCtx *rr)
-{
-    if (!rr->join_addr) {
-        rr->join_addr = rr->config->join;
-        rr->join_addr_iter = rr->join_addr;
-    }
-
-    /* Allocate a node and initiate connection */
-    if (!rr->join_node) {
-        rr->join_node = NodeInit(0, &rr->join_addr->addr);
-    } else {
-        /* Try next address we have */
-        rr->join_addr_iter = rr->join_addr_iter->next;
-        if (!rr->join_addr_iter) {
-            rr->join_addr_iter = rr->join_addr;
-        }
-        rr->join_node->addr = rr->join_addr_iter->addr;
-    }
-
-    NodeConnect(rr->join_node, rr, sendAddNodeRequest);
-}
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
 
@@ -796,33 +722,10 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 }
 
-static void handleNodeReconnects(uv_timer_t *handle)
+static void callHandleNodeStates(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
-
-    /* When in joining state, we don't have nodes to worry about but only the
-     * join_node synthetic node which establishes the initial connection.
-     */
-    if (rr->state == REDIS_RAFT_JOINING) {
-        if (!rr->join_node || NODE_STATE_IDLE(rr->join_node->state)) {
-            initiateAddNode(rr);
-        }
-        return;
-    }
-
-    /* Iterate nodes and find nodes that require reconnection */
-    int i;
-    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
-        raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
-        Node *node = raft_node_get_udata(rnode);
-        if (!node) {
-            continue;
-        }
-
-        if (NODE_STATE_IDLE(node->state)) {
-            NodeConnect(node, rr, NULL);
-        }
-    }
+    HandleNodeStates(rr);
 }
 
 static void RedisRaftThread(void *arg)
@@ -836,7 +739,7 @@ static void RedisRaftThread(void *arg)
 
     uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
             rr->config->raft_interval, rr->config->raft_interval);
-    uv_timer_start(&rr->node_reconnect_timer, handleNodeReconnects, 0,
+    uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
             rr->config->reconnect_interval);
     uv_run(rr->loop, UV_RUN_DEFAULT);
 }

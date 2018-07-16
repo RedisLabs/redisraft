@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <sys/queue.h>
+#include <bsd/sys/queue.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -154,9 +154,12 @@ typedef enum NodeState {
     NODE_RESOLVING,
     NODE_CONNECTING,
     NODE_CONNECTED,
-    NODE_CONNECT_ERROR,
-    NODE_UNLINKED
+    NODE_CONNECT_ERROR
 } NodeState;
+
+typedef enum NodeFlags {
+    NODE_TERMINATING    = 1 << 0
+} NodeFlags;
 
 #define NODE_STATE_IDLE(x) \
     ((x) == NODE_DISCONNECTED || \
@@ -165,6 +168,7 @@ typedef enum NodeState {
 typedef struct Node {
     raft_node_id_t id;
     NodeState state;
+    NodeFlags flags;
     NodeAddr addr;
     redisAsyncContext *rc;
     uv_getaddrinfo_t uv_resolver;
@@ -173,6 +177,7 @@ typedef struct Node {
     bool load_snapshot_in_progress;
     bool unlinked;
     raft_index_t load_snapshot_idx;
+    LIST_ENTRY(Node) entries;
 } Node;
 
 typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
@@ -245,6 +250,7 @@ Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
 void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr);
+void HandleNodeStates(RedisRaftCtx *rr);
 
 /* raft.c */
 void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);

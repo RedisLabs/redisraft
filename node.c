@@ -3,6 +3,8 @@
 
 #include <assert.h>
 
+static LIST_HEAD(node_list, Node) node_list = LIST_HEAD_INITIALIZER(node_list);
+
 Node *NodeInit(int id, const NodeAddr *addr)
 {
     Node *node = RedisModule_Calloc(1, sizeof(Node));
@@ -10,6 +12,8 @@ Node *NodeInit(int id, const NodeAddr *addr)
     node->id = id;
     strcpy(node->addr.host, addr->host);
     node->addr.port = addr->port;
+
+    LIST_INSERT_HEAD(&node_list, node, entries);
 
     return node;
 }
@@ -19,6 +23,8 @@ void NodeFree(Node *node)
     if (!node) {
         return;
     }
+
+    LIST_REMOVE(node, entries);
     RedisModule_Free(node);
 }
 
@@ -34,6 +40,14 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
         NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
     }
 
+    /* If we're terminating, abort now */
+    if (node->flags & NODE_TERMINATING) {
+        if (status == REDIS_OK) {
+            redisAsyncDisconnect(node->rc);
+        }
+        return;
+    }
+
     /* Call explicit connect callback (even if failed) */
     if (node->connect_callback) {
         node->connect_callback(c, status);
@@ -45,12 +59,8 @@ static void handleNodeDisconnect(const redisAsyncContext *c, int status)
     Node *node = (Node *) c->data;
     if (node) {
         node->rc = NULL;
-        if (node->unlinked) {
-            NodeFree(node);
-        } else {
-            node->state = NODE_DISCONNECTED;
-            NODE_LOG_INFO(node, "Connection dropped.\n");
-        }
+        node->state = NODE_DISCONNECTED;
+        NODE_LOG_INFO(node, "Connection dropped.\n");
     }
 }
 
@@ -59,26 +69,27 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     int r;
 
     Node *node = uv_req_get_data((uv_req_t *)resolver);
-    if (status < 0) {
-        if (status == UV_ECANCELED) {
-            NodeFree(node);
-            return;
-        }
+    if (node->flags & NODE_TERMINATING) {
+        node->state = NODE_DISCONNECTED;
+        uv_freeaddrinfo(res);
+        return;
+    }
 
+    if (status < 0) {
         NODE_LOG_ERROR(node, "Failed to resolve '%s': %s\n", node->addr.host, uv_strerror(status));
         node->state = NODE_CONNECT_ERROR;
+        uv_freeaddrinfo(res);
         return;
     }
 
     char addr[17] = { 0 };
     uv_ip4_name((struct sockaddr_in *) res->ai_addr, addr, 16);
+    uv_freeaddrinfo(res);
     NODE_LOG_INFO(node, "connecting at %s:%u...\n", addr, node->addr.port);
 
     /* Initiate connection */
     node->rc = redisAsyncConnect(addr, node->addr.port);
     if (node->rc->err) {
-        uv_freeaddrinfo(res);
-
         NODE_LOG_ERROR(node, "Failed to initiate connection\n");
         node->state = NODE_CONNECT_ERROR;
 
@@ -93,7 +104,6 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     redisLibuvAttach(node->rc, node->rr->loop);
     redisAsyncSetConnectCallback(node->rc, handleNodeConnect);
     redisAsyncSetDisconnectCallback(node->rc, handleNodeDisconnect);
-    uv_freeaddrinfo(res);
 }
 
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback)
@@ -213,3 +223,109 @@ void NodeUnlink(Node *n)
         }
     }
 }
+
+void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    Node *node = privdata;
+    RedisRaftCtx *rr = node->rr;
+
+    redisReply *reply = r;
+    assert(reply != NULL);
+
+    if (!reply) {
+        NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: connection dropped.\n");
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        /* -MOVED? */
+        if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
+            const char *addrstr = reply->str + 6;
+            NodeAddr addr;
+            if (!NodeAddrParse(addrstr, strlen(addrstr), &addr)) {
+                NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: invalid MOVED response: %s\n", reply->str);
+            } else {
+                NODE_LOG_INFO(node, "Join redirected to leader: %s\n", addrstr);
+                NodeAddrListAddElement(rr->join_addr, &addr);
+            }
+        }
+    } else if (reply->type != REDIS_REPLY_STATUS || strcmp(reply->str, "OK")) {
+        NODE_LOG_ERROR(node, "invalid RAFT.ADDNODE reply: %s\n", reply->str);
+    } else {
+        NODE_LOG_INFO(node, "Cluster join request placed as node:%d.\n",
+                raft_get_nodeid(rr->raft));
+        rr->state = REDIS_RAFT_UP;
+    }
+
+    if (rr->state != REDIS_RAFT_UP) {
+        rr->join_node->state = NODE_CONNECT_ERROR;
+    }
+
+    redisAsyncDisconnect(c);
+}
+
+
+void sendAddNodeRequest(const redisAsyncContext *c, int status)
+{
+    Node *node = (Node *) c->data;
+    RedisRaftCtx *rr = node->rr;
+
+    /* Connection is not good?  Terminate and continue */
+    if (status != REDIS_OK) {
+        node->state = NODE_CONNECT_ERROR;
+    } else if (redisAsyncCommand(node->rc, handleAddNodeResponse, node,
+        "RAFT.ADDNODE %d %s:%u",
+        raft_get_nodeid(rr->raft),
+        rr->config->addr.host,
+        rr->config->addr.port) != REDIS_OK) {
+
+        node->state = NODE_CONNECT_ERROR;
+    }
+}
+
+static void initiateAddNode(RedisRaftCtx *rr)
+{
+    if (!rr->join_addr) {
+        rr->join_addr = rr->config->join;
+        rr->join_addr_iter = rr->join_addr;
+    }
+
+    /* Allocate a node and initiate connection */
+    if (!rr->join_node) {
+        rr->join_node = NodeInit(0, &rr->join_addr->addr);
+    } else {
+        /* Try next address we have */
+        rr->join_addr_iter = rr->join_addr_iter->next;
+        if (!rr->join_addr_iter) {
+            rr->join_addr_iter = rr->join_addr;
+        }
+        rr->join_node->addr = rr->join_addr_iter->addr;
+    }
+
+    NodeConnect(rr->join_node, rr, sendAddNodeRequest);
+}
+
+void HandleNodeStates(RedisRaftCtx *rr)
+{
+
+    /* When in joining state, we don't have nodes to worry about but only the
+     * join_node synthetic node which establishes the initial connection.
+     */
+    if (rr->state == REDIS_RAFT_JOINING) {
+        if (!rr->join_node || NODE_STATE_IDLE(rr->join_node->state)) {
+            initiateAddNode(rr);
+        }
+        return;
+    }
+
+    /* Iterate nodes and find nodes that require reconnection */
+    Node *node, *tmp;
+    LIST_FOREACH_SAFE(node, &node_list, entries, tmp) {
+        if (NODE_STATE_IDLE(node->state)) {
+            if (node->flags & NODE_TERMINATING) {
+                LIST_REMOVE(node, entries);
+                NodeFree(node);
+            } else {
+                NodeConnect(node, rr, NULL);
+            }
+        }
+    }
+}
+
