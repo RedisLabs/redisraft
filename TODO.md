@@ -4,7 +4,6 @@ To-do list
 Raft Module
 -----------
 
-[] Node/redis connection memory free and use-after-free fixes
 [] Persistence strategy, integrated with RDB and/or AOF
 [] Better cluster membership UX
 [] Automatic proxying
