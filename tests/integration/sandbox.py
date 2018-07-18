@@ -44,8 +44,22 @@ class ValgrindConfig(object):
         '--leak-check=full',
         '--show-reachable=no',
         '--show-possibly-lost=no',
+        '--show-reachable=no',
         '--suppressions=../redis/src/valgrind.sup',
         '--log-file=valgrind-redis.%p',
+        'redis-server'
+    ]
+    raftmodule = 'redisraft.so'
+
+class ValgrindShowPossiblyLostConfig(object):
+    executable = 'valgrind'
+    args = [
+        '--leak-check=full',
+        '--show-reachable=no',
+        '--show-possibly-lost=yes',
+        '--suppressions=../redis/src/valgrind.sup',
+        '--log-file=valgrind-redis.%p',
+        '--suppressions=redisraft.supp',
         'redis-server'
     ]
     raftmodule = 'redisraft.so'

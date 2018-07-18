@@ -76,6 +76,10 @@ integration-tests:
 valgrind-tests:
 	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests $(NOSE_OPTS)
 
+.PHONY: valgrind-show-possibly-lost-tests
+valgrind-show-possibly-lost-tests:
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig nosetests $(NOSE_OPTS)
+
 .PHONY: unit-tests
 ifeq ($(OS),Linux)
 unit-tests: tests/tests_main
