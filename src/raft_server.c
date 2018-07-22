@@ -1305,10 +1305,9 @@ int raft_end_snapshot(raft_server_t *me_)
         return -1;
 
     assert(raft_get_num_snapshottable_logs(me_) != 0);
-    assert(me->snapshot_last_idx == raft_get_commit_idx(me_));
 
     /* If needed, remove compacted logs */
-    raft_index_t i = log_get_base(me->log) + 1, end = raft_get_commit_idx(me_);
+    raft_index_t i = log_get_base(me->log) + 1, end = me->snapshot_last_idx;
     for (; i <= end; i++)
     {
         raft_entry_t* _ety;
