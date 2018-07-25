@@ -37,8 +37,16 @@ class DefaultConfig(object):
     executable = 'redis-server'
     args = None
     raftmodule = 'redisraft.so'
+    up_timeout = 2
 
-class ValgrindConfig(object):
+class DebugConfig(DefaultConfig):
+    executable = 'gnome-terminal'
+    args = [
+        '--wait', '--', 'gdb', '--args', 'redis-server'
+    ]
+    up_timeout = None
+
+class ValgrindConfig(DefaultConfig):
     executable = 'valgrind'
     args = [
         '--leak-check=full',
@@ -49,9 +57,8 @@ class ValgrindConfig(object):
         '--log-file=valgrind-redis.%p',
         'redis-server'
     ]
-    raftmodule = 'redisraft.so'
 
-class ValgrindShowPossiblyLostConfig(object):
+class ValgrindShowPossiblyLostConfig(DefaultConfig):
     executable = 'valgrind'
     args = [
         '--leak-check=full',
@@ -62,7 +69,6 @@ class ValgrindShowPossiblyLostConfig(object):
         '--suppressions=redisraft.supp',
         'redis-server'
     ]
-    raftmodule = 'redisraft.so'
 
 def resolve_config():
     name = os.environ.get('SANDBOX_CONFIG')
@@ -84,6 +90,7 @@ class RedisRaft(object):
         self.process = None
         self.raftlog = 'raftlog{}.db'.format(self.id)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
+        self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
         self.args += ['--port', str(port),
                       '--dbfilename', self.dbfilename]
@@ -126,18 +133,21 @@ class RedisRaft(object):
         self.verify_up()
         LOG.info('RedisRaft<%s> is up, pid=%s', self.id, self.process.pid)
 
-    def verify_up(self, timeout=2):
-        retries = timeout * 100
+    def verify_up(self):
+        retries = self.up_timeout
+        if retries is not None:
+            retries *= 100
         while True:
             try:
                 self.client.ping()
                 return
             except redis.exceptions.ConnectionError:
-                retries -= 1
-                if not retries:
-                    LOG.fatal('RedisRaft<%s> failed to start', self.id)
-                    raise RuntimeError('RedisRaft<%s> failed to start' %
-                                       self.id)
+                if retries is not None:
+                    retries -= 1
+                    if not retries:
+                        LOG.fatal('RedisRaft<%s> failed to start', self.id)
+                        raise RuntimeError('RedisRaft<%s> failed to start' %
+                                        self.id)
                 time.sleep(0.01)
 
     def terminate(self):
