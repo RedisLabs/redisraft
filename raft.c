@@ -440,7 +440,7 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
 
     TRACE("raftLogPoll: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
-    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
+    if (!rr->log || rr->state == REDIS_RAFT_LOADING || rr->snapshot_in_progress) {
         raftFreeEntry(entry);
         return 0;
     }
@@ -706,6 +706,18 @@ static void callRaftPeriodic(uv_timer_t *handle)
         checkLoadSnapshotProgress(rr);
     }
 
+    /* If we're creating a persistent snapshot, check if we're done */
+    if (rr->snapshot_in_progress) {
+        int ret = pollSnapshotStatus(rr);
+        if (ret == -1) {
+            LOG_ERROR("Snapshot operation failed, cancelling.\n");
+            cancelSnapshot(rr);
+        }  else {
+            LOG_DEBUG("Snapshot operation completed successfuly.\n");
+            finalizeSnapshot(rr);
+        }
+    }
+
     int ret = raft_periodic(rr->raft, rr->config->raft_interval);
     assert(ret == 0);
     raft_apply_all(rr->raft);
@@ -717,8 +729,9 @@ static void callRaftPeriodic(uv_timer_t *handle)
      *    done every time we apply log entries.
      */
 
-    if (raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
-        performSnapshot(rr);
+    if (!rr->snapshot_in_progress &&
+            raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
+        initiateSnapshot(rr);
     }
 }
 
@@ -775,8 +788,7 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     if (rr->config->persist) {
-        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG,
-                rr->config->id);
+        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG);
         if (!rr->log) {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
             return REDISMODULE_ERR;
@@ -1284,8 +1296,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
-            "loading_snapshot:%s\r\n",
-            rr->loading_snapshot ? "yes" :"no");
+            "loading_snapshot:%s\r\n"
+            "snapshot_in_progress:%s\r\n",
+            rr->loading_snapshot ? "yes" :"no",
+            rr->snapshot_in_progress ? "yes" : "no"
+            );
 
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);

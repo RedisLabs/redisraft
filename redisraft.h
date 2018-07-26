@@ -117,8 +117,11 @@ typedef struct {
     NodeAddrListElement *join_addr;
     NodeAddrListElement *join_addr_iter;
     struct Node *join_node;
+    bool snapshot_in_progress;
     bool loading_snapshot;
+    struct RaftReq *compact_req;
     bool callbacks_set;
+    int snapshot_child_fd;
     /* Tracking of applied entries */
     RaftSnapshotInfo snapshot_info;
 } RedisRaftCtx;
@@ -278,7 +281,7 @@ typedef enum LogEntryAction {
     LA_REMOVE_TAIL
 } LogEntryAction;
 
-RaftLog *RaftLogCreate(const char *filename, uint32_t node_id);
+RaftLog *RaftLogCreate(const char *filename);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
@@ -287,6 +290,8 @@ bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction action, raft_entry_t *), void *callback_arg);
 bool RaftLogRemoveHead(RaftLog *log);
 bool RaftLogRemoveTail(RaftLog *log);
+bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
+bool RaftLogSync(RaftLog *log);
 
 /* config.c */
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
@@ -299,7 +304,10 @@ extern RedisModuleType *RedisRaftType;
 void initializeSnapshotInfo(RedisRaftCtx *rr);
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
-RedisRaftResult performSnapshot(RedisRaftCtx *rr);
+RedisRaftResult initiateSnapshot(RedisRaftCtx *rr);
+RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr);
+void cancelSnapshot(RedisRaftCtx *rr);
 void handleCompact(RedisRaftCtx *rr, RaftReq *req);
+int pollSnapshotStatus(RedisRaftCtx *rr);
 
 #endif  /* _REDISRAFT_H */

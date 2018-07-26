@@ -143,7 +143,7 @@ error:
     return -1;
 }
 
-RaftLog *RaftLogCreate(const char *filename, uint32_t node_id)
+RaftLog *RaftLogCreate(const char *filename)
 {
     FILE *file = fopen(filename, "w+");
     if (!file) {
@@ -184,7 +184,6 @@ RaftLog *RaftLogOpen(const char *filename)
     /* Read start */
     RawLogEntry *e = NULL;
     if (readRawLogEntry(log, &e) < 0) {
-        /* TODO: better error reporting */
         LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
         goto error;
     }
@@ -378,15 +377,32 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
     return ret;
 }
 
-bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
+bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 {
     if (writeBegin(log, 5) < 0 ||
         writeBuffer(log, "ENTRY", 5) < 0 ||
         writeInteger(log, entry->term) < 0 ||
         writeInteger(log, entry->id) < 0 ||
         writeInteger(log, entry->type) < 0 ||
-        writeBuffer(log, entry->data.buf, entry->data.len) < 0 ||
-        writeEnd(log) < 0) {
+        writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
+        return false;
+    }
+
+    return true;
+}
+
+bool RaftLogSync(RaftLog *log)
+{
+    if (writeEnd(log) < 0) {
+        return false;
+    }
+    return true;
+}
+
+bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
+{
+    if (!RaftLogWriteEntry(log, entry) ||
+            writeEnd(log) < 0) {
         return false;
     }
 

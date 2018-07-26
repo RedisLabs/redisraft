@@ -57,7 +57,192 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
     }
 }
 
+long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
+{
+    RaftLog *log = RaftLogCreate(filename);
+    long long int num_entries = 0;
+
+    raft_index_t i;
+    for (i = raft_get_first_entry_idx(rr->raft); i <= raft_get_current_idx(rr->raft); i++) {
+        num_entries++;
+        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
+        if (RaftLogWriteEntry(log, ety) < 0) {
+            RaftLogClose(log);
+            return -1;
+        }
+    }
+
+    if (!RaftLogSync(log)) {
+        RaftLogClose(log);
+        return -1;
+    }
+
+    RaftLogClose(log);
+    return num_entries;
+}
+
+
+long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_index_t idx)
+{
+    long long int num_entries = 0;
+    RaftLog *log = RaftLogOpen(filename);
+    if (!log) {
+        return -1;
+    }
+
+    raft_index_t i;
+    for (i = idx; i <= raft_get_current_idx(rr->raft); i++) {
+        num_entries++;
+        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
+        if (RaftLogWriteEntry(log, ety) < 0) {
+            RaftLogClose(log);
+            return -1;
+        }
+    }
+
+    if (!RaftLogSync(log)) {
+        RaftLogClose(log);
+        return -1;
+    }
+
+    return num_entries;
+}
+
+
 /* ------------------------------------ Generate snapshots ------------------------------------ */
+
+const char *getTempLogFilename(RedisRaftCtx *rr)
+{
+    static char filename[PATH_MAX];
+
+    if (!rr->config->raftlog) {
+        return NULL;
+    }
+
+    snprintf(filename, sizeof(filename) - 1, "%s.templog", rr->config->raftlog);
+    return filename;
+}
+
+const char *getTempDbFilename(RedisRaftCtx *rr)
+{
+    static char filename[PATH_MAX];
+
+    if (!rr->config->raftlog) {
+        return NULL;
+    }
+
+    snprintf(filename, sizeof(filename) - 1, "%s.temprdb", rr->config->raftlog);
+    return filename;
+}
+
+#define SNAPSHOT_CHILD_MAGIC    0x70616e73  /* "snap" */
+typedef struct SnapshotChildMsg {
+    int magic;
+    int success;
+    long long int num_entries;
+    char err[256];
+} SnapshotChildMsg;
+
+void cancelSnapshot(RedisRaftCtx *rr)
+{
+    assert(rr->snapshot_in_progress);
+
+    raft_cancel_snapshot(rr->raft);
+    rr->snapshot_in_progress = false;
+}
+
+RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr)
+{
+    assert(rr->snapshot_in_progress);
+
+    /* If a persistent log is in use, we now have to append any new 
+     * entries to the temporary log and switch.
+     */
+    if (rr->config->persist) {
+        long long int n = appendLogEntries(rr, getTempLogFilename(rr), raft_get_snapshot_last_idx(rr->raft) + 1);
+        if (n < 0) {
+            LOG_ERROR("Failed to append entries to rewritten log, aborting snapshot.\n");
+            cancelSnapshot(rr);
+            return -1;
+        }
+
+        LOG_INFO("Log rewrite complete, %lld entries appended.\n", n);
+
+        RaftLog *new_log = RaftLogOpen(getTempLogFilename(rr));
+        if (!new_log) {
+            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+            cancelSnapshot(rr);
+            return -1;
+        }
+
+        if (rename(getTempLogFilename(rr), rr->config->raftlog) < 0) {
+            LOG_ERROR("Failed to switch logfiles (%s to %s): %s\n",
+                    getTempLogFilename(rr), rr->config->raftlog, strerror(errno));
+            RaftLogClose(new_log);
+            cancelSnapshot(rr);
+            return -1;
+        }
+
+        RaftLogClose(rr->log);
+        rr->log = new_log;
+    }
+
+    raft_end_snapshot(rr->raft);
+    rr->snapshot_in_progress = false;
+
+    return RR_OK;
+}
+
+int pollSnapshotStatus(RedisRaftCtx *rr)
+{
+    SnapshotChildMsg msg;
+    int ret = read(rr->snapshot_child_fd, &msg, sizeof(msg));
+    if (ret == -1) {
+        /* Not ready yet? */
+        if (errno == EAGAIN) {
+            return 0;
+        }
+
+        LOG_ERROR("Failed to read snapshot child status: %s\n", strerror(errno));
+        goto exit;
+    }
+
+    if (msg.magic != SNAPSHOT_CHILD_MAGIC) {
+        LOG_ERROR("Corrupted snapshot child status (magic=%08x)\n", msg.magic);
+        goto exit;
+    }
+
+    if (!msg.success) {
+        LOG_ERROR("Snapshot failed: %s", msg.err);
+        goto exit;
+    }
+
+    LOG_INFO("Snapshot created, %lld log entries rewritten to log.", msg.num_entries);
+    ret = 1;
+
+exit:
+    /* If this is a result of a RAFT.COMPACT request, we need to reply */
+    if (rr->compact_req) {
+        if (ret == 1) {
+            LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%ld, committed=%ld, entries=%ld\n",
+                    raft_get_current_idx(rr->raft),
+                    raft_get_commit_idx(rr->raft),
+                    raft_get_log_count(rr->raft));
+
+            RedisModule_ReplyWithSimpleString(rr->compact_req->ctx, "OK");
+        } else {
+            LOG_VERBOSE("RAFT.DEBUG COMPACT failed: %s\n", msg.err);
+            RedisModule_ReplyWithError(rr->compact_req->ctx, msg.err);
+        }
+        RaftReqFree(rr->compact_req);
+        rr->compact_req = NULL;
+    }
+
+    close(rr->snapshot_child_fd);
+    rr->snapshot_child_fd = -1;
+
+    return ret;
+}
 
 /* Create a snapshot.
  *
@@ -72,17 +257,91 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
  * synchronization so we can determine how far the log should be compacted.
  */
 
-RedisRaftResult performSnapshot(RedisRaftCtx *rr)
+RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
 {
-    if (raft_begin_snapshot(rr->raft) < 0) {
+    if (rr->snapshot_in_progress || raft_begin_snapshot(rr->raft) < 0) {
         return RR_ERROR;
     }
+
+    rr->snapshot_in_progress = true;
 
     /* Create a snapshot of the nodes configuration */
     freeSnapshotCfgEntryList(rr->snapshot_info.cfg);
     rr->snapshot_info.cfg = generateSnapshotCfgEntryList(rr);
 
-    raft_end_snapshot(rr->raft);
+    /* If we are not persistent we're basically done.  The raft_end_snapshot() call will
+     * take care of removing log entries that have been applied.
+     */
+    if (!rr->config->persist) {
+        return finalizeSnapshot(rr);
+    }
+
+    /* Persistence is enabled, so we need to initiate a background process which will:
+     * 1. Create an RDB file that serves as a persistence snapshot.
+     * 2. Create a new temporary log with old entries removed.
+     * 3. Notify us back when it's done, so we can append any new log entries received
+     *    since and rotate.
+     */
+
+    int snapshot_fds[2];    /* [0] our side, [1] child's side */
+    if (pipe2(snapshot_fds, O_NONBLOCK) < 0) {
+        LOG_ERROR("Failed to create snapshot child pipe: %s\n", strerror(errno));
+        cancelSnapshot(rr);
+        return RR_ERROR;
+    }
+
+    rr->snapshot_child_fd = snapshot_fds[0];
+    pid_t child = fork();
+    if (child < 0) {
+        LOG_ERROR("Failed to fork snapshot child: %s\n", strerror(errno));
+        cancelSnapshot(rr);
+        return RR_ERROR;
+    } else if (!child) {
+        /* Report result */
+        SnapshotChildMsg msg = {
+            .magic = SNAPSHOT_CHILD_MAGIC,
+            .success = 0,
+        };
+
+        /* Configure rdb filename */
+        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename", getTempDbFilename(rr));
+        if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+            snprintf(msg.err, sizeof(msg.err) - 1, "%s", "CONFIG SET dbfilename failed");
+            goto exit;
+        }
+        RedisModule_FreeCallReply(reply);
+
+        /* Save */
+        reply = RedisModule_Call(rr->ctx, "SAVE", "");
+        if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+            snprintf(msg.err, sizeof(msg.err) - 1, "%s", "SAVE failed");
+            goto exit;
+        }
+
+        size_t len;
+        const char *s = RedisModule_CallReplyStringPtr(reply, &len);
+        if (len != 2 && memcmp(s, "OK", 2)) {
+            snprintf(msg.err, sizeof(msg.err) - 1, "SAVE failed: %.*s", (int) len, s);
+            goto exit;
+        }
+        RedisModule_FreeCallReply(reply);
+
+        /* Now create a compact log file */
+        msg.num_entries = rewriteLog(rr, getTempLogFilename(rr));
+        if (msg.num_entries < 0) {
+            snprintf(msg.err, sizeof(msg.err) - 1, "%s", "Log rewrite failed");
+            goto exit;
+        }
+        msg.success = 1;
+
+exit:
+        write(snapshot_fds[1], &msg, sizeof(msg));
+
+        _exit(0);
+    }
+
+    /* Close pipe's other side */
+    close(snapshot_fds[1]);
 
     return RR_OK;
 }
@@ -250,17 +509,19 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 
 void handleCompact(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (performSnapshot(rr) != RR_OK) {
+    if (initiateSnapshot(rr) != RR_OK) {
         LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
         RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
-    } else {
-        LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%ld, committed=%ld, entries=%ld\n",
-                raft_get_current_idx(rr->raft),
-                raft_get_commit_idx(rr->raft),
-                raft_get_log_count(rr->raft));
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+        return;
     }
 
+    if (rr->config->persist) {
+        rr->compact_req = req;
+        return;
+    }
+
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     RaftReqFree(req);
 }
 
