@@ -745,6 +745,8 @@ static void callRaftPeriodic(uv_timer_t *handle)
 
     if (!rr->snapshot_in_progress &&
             raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
+        LOG_DEBUG("Log reached max_log_entries (%d/%d), initiating snapshot.\n",
+                raft_get_num_snapshottable_logs(rr->raft), rr->config->max_log_entries);
         initiateSnapshot(rr);
     }
 }
@@ -881,7 +883,6 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
             return -1;
     }
 }
-
 
 int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {

@@ -187,6 +187,9 @@ class RedisRaft(object):
     def commit_index(self):
         return self.raft_info()['commit_index']
 
+    def current_index(self):
+        return self.raft_info()['current_index']
+
     def _wait_for_condition(self, test_func, timeout_func, timeout=3):
         retries = timeout * 10
         while retries > 0:
@@ -247,6 +250,15 @@ class RedisRaft(object):
             LOG.debug("Non voting node: %s", str(info))
             raise RedisRaftTimeout('Node is not voting')
         self._wait_for_condition(check_voting, raise_not_voting, timeout)
+
+    def wait_for_info_param(self, name, value, timeout=10):
+        def check_param():
+            info = self.raft_info()
+            return bool(info.get(name) == value)
+        def raise_not_matched():
+            raise RedisRaftTimeout('RAFT.INFO "%s" did not reach "%s"' %
+                                   (name, value))
+        self._wait_for_condition(check_param, raise_not_matched, timeout)
 
     def destroy(self):
         self.terminate()

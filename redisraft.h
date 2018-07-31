@@ -151,6 +151,8 @@ typedef struct RedisRaftConfig {
     int max_log_entries;
     /* Flags */
     bool init;
+    /* Debug options */
+    int compact_delay;
 } RedisRaftConfig;
 
 typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);

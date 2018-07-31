@@ -329,6 +329,15 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cmd[cmdlen] = '\0';
 
     if (!strcasecmp(cmd, "compact")) {
+        long long delay = 0;
+        if (argc == 3) {
+            if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact delay value");
+                return REDISMODULE_OK;
+            }
+        }
+        rr->config->compact_delay = delay;
+
         RaftReq *req = RaftReqInit(ctx, RR_COMPACT);
         RaftReqSubmit(&redis_raft, req);
     } else {

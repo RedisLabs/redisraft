@@ -69,7 +69,7 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
     }
 
     raft_index_t i;
-    for (i = raft_get_first_entry_idx(rr->raft); i <= raft_get_current_idx(rr->raft); i++) {
+    for (i = raft_get_first_entry_idx(rr->raft) + 1; i <= raft_get_current_idx(rr->raft); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
         if (RaftLogWriteEntry(log, ety) < 0) {
@@ -88,7 +88,7 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
 }
 
 
-long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_index_t idx)
+long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
 {
     long long int num_entries = 0;
     RaftLog *log = RaftLogOpen(filename);
@@ -97,7 +97,7 @@ long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_inde
     }
 
     raft_index_t i;
-    for (i = idx; i <= raft_get_current_idx(rr->raft); i++) {
+    for (i = from_idx; i <= raft_get_current_idx(rr->raft); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
         if (RaftLogWriteEntry(log, ety) < 0) {
@@ -161,18 +161,21 @@ RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr)
 {
     assert(rr->snapshot_in_progress);
 
-    /* If a persistent log is in use, we now have to append any new 
+    LOG_DEBUG("Finalizing snapshot.\n");
+
+    /* If a persistent log is in use, we now have to append any new
      * entries to the temporary log and switch.
      */
     if (rr->config->persist) {
-        long long int n = appendLogEntries(rr, getTempLogFilename(rr), raft_get_snapshot_last_idx(rr->raft) + 1);
+        long long int n = appendLogEntries(rr, getTempLogFilename(rr), rr->snapshot_rewrite_last_idx + 1);
         if (n < 0) {
             LOG_ERROR("Failed to append entries to rewritten log, aborting snapshot.\n");
             cancelSnapshot(rr);
             return -1;
         }
 
-        LOG_INFO("Log rewrite complete, %lld entries appended.\n", n);
+        LOG_INFO("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
+                raft_get_snapshot_last_idx(rr->raft));
 
         RaftLog *new_log = RaftLogOpen(getTempLogFilename(rr));
         if (!new_log) {
@@ -223,18 +226,14 @@ int pollSnapshotStatus(RedisRaftCtx *rr)
         goto exit;
     }
 
-    LOG_INFO("Snapshot created, %lld log entries rewritten to log.", msg.num_entries);
+    LOG_INFO("Snapshot created, %lld log entries rewritten to log.\n", msg.num_entries);
     ret = 1;
 
 exit:
-    /* If this is a result of a RAFT.COMPACT request, we need to reply */
+    /* If this is a result of a RAFT.COMPACT request, we need to reply. */
     if (rr->compact_req) {
         if (ret == 1) {
-            LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully, index=%ld, committed=%ld, entries=%ld\n",
-                    raft_get_current_idx(rr->raft),
-                    raft_get_commit_idx(rr->raft),
-                    raft_get_log_count(rr->raft));
-
+            LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully.\n");
             RedisModule_ReplyWithSimpleString(rr->compact_req->ctx, "OK");
         } else {
             LOG_VERBOSE("RAFT.DEBUG COMPACT failed: %s\n", msg.err);
@@ -265,9 +264,19 @@ exit:
 
 RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
 {
-    if (rr->snapshot_in_progress || raft_begin_snapshot(rr->raft) < 0) {
+    if (rr->snapshot_in_progress) {
+       return RR_ERROR;
+    }
+
+    LOG_DEBUG("Initiating snapshot%s.\n", rr->compact_req ? ", trigerred by COMPACT" : "");
+
+    if (raft_begin_snapshot(rr->raft) < 0) {
+        LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.\n");
         return RR_ERROR;
     }
+    LOG_DEBUG("Snapshot scope: first_entry_idx=%lu, current_idx=%lu\n",
+            raft_get_first_entry_idx(rr->raft),
+            raft_get_current_idx(rr->raft));
 
     rr->snapshot_rewrite_last_idx = raft_get_current_idx(rr->raft);
     rr->snapshot_in_progress = true;
@@ -297,6 +306,10 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
+    /* Flush stdio files to avoid leaks from child */
+    fflush(redis_raft_logfile);
+    RaftLogSync(rr->log);
+
     rr->snapshot_child_fd = snapshot_fds[0];
     pid_t child = fork();
     if (child < 0) {
@@ -310,6 +323,15 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
             .success = 0,
         };
 
+        redis_raft_logfile = NULL;
+
+        /* Handle compact delay, used for strictly as a debugging tool for testing */
+        if (rr->compact_req && rr->config->compact_delay) {
+            sleep(rr->config->compact_delay);
+        }
+
+        RedisModuleCallReply *reply;
+#if 0
         /* Configure rdb filename */
         RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename", getTempDbFilename(rr));
         if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
@@ -317,6 +339,7 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
             goto exit;
         }
         RedisModule_FreeCallReply(reply);
+#endif
 
         /* Save */
         reply = RedisModule_Call(rr->ctx, "SAVE", "");
@@ -516,6 +539,8 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 
 void handleCompact(RedisRaftCtx *rr, RaftReq *req)
 {
+    rr->compact_req = req;
+
     if (initiateSnapshot(rr) != RR_OK) {
         LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
         RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
@@ -523,13 +548,11 @@ void handleCompact(RedisRaftCtx *rr, RaftReq *req)
         return;
     }
 
-    if (rr->config->persist) {
-        rr->compact_req = req;
-        return;
+    if (!rr->config->persist) {
+        rr->compact_req = NULL;
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
     }
-
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-    RaftReqFree(req);
 }
 
 
