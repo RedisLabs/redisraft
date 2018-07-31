@@ -726,10 +726,10 @@ static void callRaftPeriodic(uv_timer_t *handle)
         if (ret == -1) {
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
             cancelSnapshot(rr);
-        }  else {
+        }  else if (ret) {
             LOG_DEBUG("Snapshot operation completed successfuly.\n");
             finalizeSnapshot(rr);
-        }
+        } /* else we're still in progress */
     }
 
     int ret = raft_periodic(rr->raft, rr->config->raft_interval);
