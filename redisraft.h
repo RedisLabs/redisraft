@@ -38,6 +38,8 @@
 extern int redis_raft_loglevel;
 extern FILE *redis_raft_logfile;
 
+void raft_module_log(const char *fmt, ...);
+
 #define LOGLEVEL_ERROR           0
 #define LOGLEVEL_INFO            1
 #define LOGLEVEL_VERBOSE         2
@@ -45,7 +47,7 @@ extern FILE *redis_raft_logfile;
 
 #define LOG(level, fmt, ...) \
     do { if (redis_raft_loglevel >= level) \
-            fprintf(redis_raft_logfile, "%u:" fmt, getpid(), ##__VA_ARGS__); \
+            raft_module_log(fmt, ##__VA_ARGS__); \
     } while(0)
 
 #define LOG_ERROR(fmt, ...) LOG(LOGLEVEL_ERROR, fmt, ##__VA_ARGS__)

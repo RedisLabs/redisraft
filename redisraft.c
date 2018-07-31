@@ -7,6 +7,30 @@
 int redis_raft_loglevel = 5;
 FILE *redis_raft_logfile;
 
+void raft_module_log(const char *fmt, ...)
+{
+    va_list ap;
+    struct timeval tv;
+    struct tm tm;
+    char _fmt[strlen(fmt) + 50];
+    int n;
+
+    if (!redis_raft_logfile) {
+        return;
+    }
+
+    gettimeofday(&tv, NULL);
+    localtime_r(&tv.tv_sec, &tm);
+
+    n = snprintf(_fmt, sizeof(_fmt), "%u:", (unsigned int) getpid());
+    n += strftime(_fmt + n, sizeof(_fmt) - n, "%d %b %H:%M:%S", &tm);
+    snprintf(_fmt + n, sizeof(_fmt) - n, ".%03u %s", (unsigned int) tv.tv_usec / 1000, fmt);
+
+    va_start(ap, fmt);
+    vfprintf(redis_raft_logfile, _fmt, ap);
+    va_end(ap);
+}
+
 RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
 

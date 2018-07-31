@@ -489,11 +489,11 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
     if (node) {
         Node *n = raft_node_get_udata(node);
         if (n) {
-            NODE_LOG_DEBUG(n, "[raft] %s\n", buf);
+            NODE_LOG_DEBUG(n, "<raftlib> %s\n", buf);
             return;
         }
     }
-    LOG_DEBUG("[raft] %s\n", buf);
+    LOG_DEBUG("<raftlib> %s\n", buf);
 }
 
 static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
