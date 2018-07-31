@@ -172,7 +172,7 @@ RaftLog *RaftLogCreate(const char *filename)
 
 RaftLog *RaftLogOpen(const char *filename)
 {
-    FILE *file = fopen(filename, "r+");
+    FILE *file = fopen(filename, "a+");
     if (!file) {
         LOG_ERROR("Failed top open Raft log: %s: %s\n", filename, strerror(errno));
         return NULL;
