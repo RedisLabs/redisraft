@@ -489,11 +489,11 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
     if (node) {
         Node *n = raft_node_get_udata(node);
         if (n) {
-            NODE_LOG_DEBUG(n, "[raft] %s\n", buf);
+            NODE_LOG_DEBUG(n, "<raftlib> %s\n", buf);
             return;
         }
     }
-    LOG_DEBUG("[raft] %s\n", buf);
+    LOG_DEBUG("<raftlib> %s\n", buf);
 }
 
 static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
@@ -672,6 +672,20 @@ raft_cbs_t redis_raft_callbacks = {
 
 int applyLoadedRaftLog(RedisRaftCtx *rr)
 {
+    /* Make sure the log we're going to apply matches the RDB we've loaded */
+    if (rr->snapshot_info.loaded) {
+        if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
+            LOG_ERROR("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
+                    rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
+            return -1;
+        }
+        if (rr->snapshot_info.last_applied_idx != rr->log->snapshot_last_idx) {
+            LOG_ERROR("Log initial index (%lu) does not match snapshot last index (%lu), aborting.\n",
+                    rr->log->snapshot_last_idx, rr->snapshot_info.last_applied_idx);
+            return -1;
+        }
+    }
+
     /* Special case: if no other nodes, set commit index to the latest
      * entry in the log.
      */
@@ -712,10 +726,10 @@ static void callRaftPeriodic(uv_timer_t *handle)
         if (ret == -1) {
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
             cancelSnapshot(rr);
-        }  else {
+        }  else if (ret) {
             LOG_DEBUG("Snapshot operation completed successfuly.\n");
             finalizeSnapshot(rr);
-        }
+        } /* else we're still in progress */
     }
 
     int ret = raft_periodic(rr->raft, rr->config->raft_interval);
@@ -731,6 +745,8 @@ static void callRaftPeriodic(uv_timer_t *handle)
 
     if (!rr->snapshot_in_progress &&
             raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
+        LOG_DEBUG("Log reached max_log_entries (%d/%d), initiating snapshot.\n",
+                raft_get_num_snapshottable_logs(rr->raft), rr->config->max_log_entries);
         initiateSnapshot(rr);
     }
 }
@@ -867,7 +883,6 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
             return -1;
     }
 }
-
 
 int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {

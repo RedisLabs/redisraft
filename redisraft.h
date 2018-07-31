@@ -38,6 +38,8 @@
 extern int redis_raft_loglevel;
 extern FILE *redis_raft_logfile;
 
+void raft_module_log(const char *fmt, ...);
+
 #define LOGLEVEL_ERROR           0
 #define LOGLEVEL_INFO            1
 #define LOGLEVEL_VERBOSE         2
@@ -45,7 +47,7 @@ extern FILE *redis_raft_logfile;
 
 #define LOG(level, fmt, ...) \
     do { if (redis_raft_loglevel >= level) \
-            fprintf(redis_raft_logfile, "%u:" fmt, getpid(), ##__VA_ARGS__); \
+            raft_module_log(fmt, ##__VA_ARGS__); \
     } while(0)
 
 #define LOG_ERROR(fmt, ...) LOG(LOGLEVEL_ERROR, fmt, ##__VA_ARGS__)
@@ -119,6 +121,7 @@ typedef struct {
     struct Node *join_node;
     bool snapshot_in_progress;
     bool loading_snapshot;
+    raft_index_t snapshot_rewrite_last_idx;
     struct RaftReq *compact_req;
     bool callbacks_set;
     int snapshot_child_fd;
@@ -148,6 +151,8 @@ typedef struct RedisRaftConfig {
     int max_log_entries;
     /* Flags */
     bool init;
+    /* Debug options */
+    int compact_delay;
 } RedisRaftConfig;
 
 typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);
@@ -239,6 +244,8 @@ typedef struct RaftReq {
 typedef struct RaftLog {
     uint32_t            version;
     unsigned long int   num_entries;
+    raft_term_t         snapshot_last_term;
+    raft_index_t        snapshot_last_idx;
     raft_node_id_t      vote;
     raft_term_t         term;
     FILE                *file;
@@ -291,6 +298,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction acti
 bool RaftLogRemoveHead(RaftLog *log);
 bool RaftLogRemoveTail(RaftLog *log);
 bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
+bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx);
 bool RaftLogSync(RaftLog *log);
 
 /* config.c */
