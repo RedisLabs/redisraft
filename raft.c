@@ -672,6 +672,20 @@ raft_cbs_t redis_raft_callbacks = {
 
 int applyLoadedRaftLog(RedisRaftCtx *rr)
 {
+    /* Make sure the log we're going to apply matches the RDB we've loaded */
+    if (rr->snapshot_info.loaded) {
+        if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
+            LOG_ERROR("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
+                    rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
+            return -1;
+        }
+        if (rr->snapshot_info.last_applied_idx != rr->log->snapshot_last_idx) {
+            LOG_ERROR("Log initial index (%lu) does not match snapshot last index (%lu), aborting.\n",
+                    rr->log->snapshot_last_idx, rr->snapshot_info.last_applied_idx);
+            return -1;
+        }
+    }
+
     /* Special case: if no other nodes, set commit index to the latest
      * entry in the log.
      */

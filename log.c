@@ -298,7 +298,29 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
+static int handleSnapshot(RaftLog *log, RawLogEntry *re)
+{
+    char *eptr;
+    raft_term_t term;
+    raft_index_t idx;
 
+    if (re->num_elements != 3) {
+        LOG_ERROR("Log entry: SNAPSHOT: invalid number of arguments: %d\n", re->num_elements);
+        return -1;
+    }
+
+    term = strtoul(re->elements[1].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    idx = strtoul(re->elements[2].ptr, &eptr, 10);
+    if (*eptr) {
+        return -1;
+    }
+
+    return 0;
+}
 
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raft_entry_t *), void *callback_arg)
 {
@@ -355,6 +377,13 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             } else {
                 continue;
             }
+        } else if (!strcasecmp(re->elements[0].ptr, "SNAPSHOT")) {
+            if (handleSnapshot(log, re) < 0) {
+                ret = -1;
+                break;
+            }
+            freeRawLogEntry(re);
+            continue;
         } else {
             LOG_ERROR("Invalid log entry: %s\n", (char *) re->elements[0].ptr);
             freeRawLogEntry(re);
@@ -385,6 +414,18 @@ bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
         writeInteger(log, entry->id) < 0 ||
         writeInteger(log, entry->type) < 0 ||
         writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
+        return false;
+    }
+
+    return true;
+}
+
+bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx)
+{
+    if (writeBegin(log, 3) < 0 ||
+            writeBuffer(log, "SNAPSHOT", 8) < 0 ||
+            writeInteger(log, term) < 0 ||
+            writeInteger(log, idx) < 0) {
         return false;
     }
 

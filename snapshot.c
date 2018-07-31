@@ -62,6 +62,12 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
     RaftLog *log = RaftLogCreate(filename);
     long long int num_entries = 0;
 
+    /* Write a snapshot marker */
+    if (RaftLogWriteSnapshotInfo(log, rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx) < 0) {
+        RaftLogClose(log);
+        return -1;
+    }
+
     raft_index_t i;
     for (i = raft_get_first_entry_idx(rr->raft); i <= raft_get_current_idx(rr->raft); i++) {
         num_entries++;
@@ -263,6 +269,7 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
+    rr->snapshot_rewrite_last_idx = raft_get_current_idx(rr->raft);
     rr->snapshot_in_progress = true;
 
     /* Create a snapshot of the nodes configuration */
