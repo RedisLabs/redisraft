@@ -1,5 +1,6 @@
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 #include "redisraft.h"
 
 int RedisModuleStringToInt(RedisModuleString *str, int *value)
@@ -260,3 +261,36 @@ next:
     return 0;
 }
 
+char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param)
+{
+    RedisModule_ThreadSafeContextLock(rr->ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "INFO", "c", section);
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+    assert(reply != NULL);
+
+    size_t info_len;
+    const char *info = RedisModule_CallReplyProto(reply, &info_len);
+    const char *key, *val;
+    size_t keylen, vallen;
+    int r;
+    char *ret = NULL;
+
+    while ((r = RedisInfoIterate(&info, &info_len, &key, &keylen, &val, &vallen))) {
+        if (r == -1) {
+            LOG_ERROR("Failed to parse INFO reply");
+            goto exit;
+        }
+
+        if (keylen == strlen(param) && !memcmp(param, key, keylen)) {
+            ret = RedisModule_Alloc(vallen + 1);
+            memcpy(ret, val, vallen);
+            ret[vallen] = '\0';
+
+            break;
+        }
+    }
+
+exit:
+    RedisModule_FreeCallReply(reply);
+    return ret;
+}

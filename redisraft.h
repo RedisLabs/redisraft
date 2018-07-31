@@ -280,6 +280,7 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int stringmatch(const char *pattern, const char *string, int nocase);
 int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
+char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 
 /* log.c */
 typedef enum LogEntryAction {

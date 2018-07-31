@@ -301,20 +301,18 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
 static int handleSnapshot(RaftLog *log, RawLogEntry *re)
 {
     char *eptr;
-    raft_term_t term;
-    raft_index_t idx;
 
     if (re->num_elements != 3) {
         LOG_ERROR("Log entry: SNAPSHOT: invalid number of arguments: %d\n", re->num_elements);
         return -1;
     }
 
-    term = strtoul(re->elements[1].ptr, &eptr, 10);
+    log->snapshot_last_term = strtoul(re->elements[1].ptr, &eptr, 10);
     if (*eptr) {
         return -1;
     }
 
-    idx = strtoul(re->elements[2].ptr, &eptr, 10);
+    log->snapshot_last_idx = strtoul(re->elements[2].ptr, &eptr, 10);
     if (*eptr) {
         return -1;
     }

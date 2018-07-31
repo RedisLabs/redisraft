@@ -711,9 +711,30 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
 
 int raft_get_num_snapshottable_logs(raft_server_t *);
 
+static bool checkRedisLoading(RedisRaftCtx *rr)
+{
+    char *val = RedisInfoGetParam(rr, "persistence", "loading");
+    assert(val != NULL);
+    bool loading = (!strcmp(val, "1"));
+
+    RedisModule_Free(val);
+    return loading;
+}
+
 static void callRaftPeriodic(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+
+    /* If we're in LOADING state, we need to wait for Redis to finish loading before
+     * we can apply the log.
+     */
+    if (rr->state == REDIS_RAFT_LOADING) {
+        if (!checkRedisLoading(rr)) {
+            LOG_INFO("Redis finished loading, applying log now.\n");
+            applyLoadedRaftLog(rr);
+            rr->state = REDIS_RAFT_UP;
+        }
+    }
 
     /* If we're loading a snapshot, check if we're done */
     if (rr->loading_snapshot) {
@@ -760,11 +781,6 @@ static void callHandleNodeStates(uv_timer_t *handle)
 static void RedisRaftThread(void *arg)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) arg;
-
-    if (rr->state == REDIS_RAFT_LOADING) {
-        applyLoadedRaftLog(rr);
-        rr->state = REDIS_RAFT_UP;
-    }
 
     uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
             rr->config->raft_interval, rr->config->raft_interval);

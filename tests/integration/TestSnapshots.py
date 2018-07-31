@@ -149,4 +149,5 @@ def test_new_uncommitted_during_rewrite(c):
     c.node(3).terminate()
     c.node(1).restart()
 
+    c.node(1).wait_for_info_param('state', 'up')
     eq_(b'10', c.node(1).client.get('key'))
