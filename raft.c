@@ -1176,6 +1176,10 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
+    if (rr->state != REDIS_RAFT_UP) {
+        RedisModule_ReplyWithError(req->ctx, "LOADING");
+        goto exit;
+    }
     if (!leader) {
         RedisModule_ReplyWithError(req->ctx, "NOLEADER");
         goto exit;

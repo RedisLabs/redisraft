@@ -92,6 +92,7 @@ class RedisRaft(object):
         self.dbfilename = 'redis{}.rdb'.format(self.id)
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
+        self.args += ['--repl-diskless-sync', 'yes']
         self.args += ['--port', str(port),
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
@@ -355,6 +356,9 @@ class Cluster(object):
             except redis.ConnectionError:
                 self.leader = self.random_node_id()
             except redis.ResponseError as err:
+                if str(err).startswith('READONLY'):
+                    # While loading a snapshot we can get a READONLY
+                    time.sleep(0.5)
                 if str(err).startswith('UNBLOCKED'):
                     # Ignore unblocked replies...
                     time.sleep(0.5)

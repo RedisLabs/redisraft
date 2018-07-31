@@ -516,7 +516,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.requestvote",
-                cmdRaftRequestVote, "write", 0, 0, 0) == REDISMODULE_ERR) {
+                cmdRaftRequestVote, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

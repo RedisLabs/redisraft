@@ -22,11 +22,13 @@ def test_basic_persisted_fuzzer(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'persist': 'yes'})
+    c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
     for i in range(cycles):
         ok_(c.raft_exec('INCRBY', 'counter', 1))
         if i % 7 == 0:
-            c.node(random.randint(1, nodes)).restart()
+            r = random.randint(1, nodes)
+            c.node(r).restart()
+            c.node(r).wait_for_info_param('state', 'up')
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
 
