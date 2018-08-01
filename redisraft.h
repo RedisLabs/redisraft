@@ -318,5 +318,6 @@ RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr);
 void cancelSnapshot(RedisRaftCtx *rr);
 void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr);
+void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 
 #endif  /* _REDISRAFT_H */

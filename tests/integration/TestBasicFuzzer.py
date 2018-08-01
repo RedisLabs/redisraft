@@ -1,5 +1,6 @@
 import sys
 import random
+import logging
 import sandbox
 import redis
 from nose.tools import eq_, ok_
@@ -25,10 +26,13 @@ def test_basic_persisted_fuzzer(c):
     c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
     for i in range(cycles):
         ok_(c.raft_exec('INCRBY', 'counter', 1))
+        logging.info('---------- Executed INCRBY # %s', i)
         if i % 7 == 0:
             r = random.randint(1, nodes)
+            logging.info('********** Restarting node %s **********', r)
             c.node(r).restart()
             c.node(r).wait_for_info_param('state', 'up')
+            logging.info('********** Node %s reports state==up **********', r)
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
 

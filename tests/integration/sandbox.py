@@ -16,6 +16,8 @@ class RedisRaftError(Exception):
 class RedisRaftTimeout(RedisRaftError):
     pass
 
+class RedisRaftFailedToStart(RedisRaftError):
+    pass
 
 class PipeLogger(threading.Thread):
     def __init__(self, pipe, prefix):
@@ -147,8 +149,8 @@ class RedisRaft(object):
                     retries -= 1
                     if not retries:
                         LOG.fatal('RedisRaft<%s> failed to start', self.id)
-                        raise RuntimeError('RedisRaft<%s> failed to start' %
-                                        self.id)
+                        raise RedisRaftFailedToStart(
+                            'RedisRaft<%s> failed to start' % self.id)
                 time.sleep(0.01)
 
     def terminate(self):
@@ -165,9 +167,16 @@ class RedisRaft(object):
                 LOG.info('RedisRaft<%s> terminated', self.id)
         self.process = None
 
-    def restart(self):
+    def restart(self, retries=5):
         self.terminate()
-        self.start()
+        while retries > 0:
+            try:
+                self.start()
+                break
+            except RedisRaftFailedToStart:
+                retries -= 1
+                time.sleep(0.5)
+                continue
 
     def cleanup(self):
         if os.path.exists(self.raftlog):

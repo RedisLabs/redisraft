@@ -731,9 +731,13 @@ static void callRaftPeriodic(uv_timer_t *handle)
     if (rr->state == REDIS_RAFT_LOADING) {
         if (!checkRedisLoading(rr)) {
             LOG_INFO("Redis finished loading, applying log now.\n");
+            configRaftFromSnapshotInfo(rr);
             applyLoadedRaftLog(rr);
             rr->state = REDIS_RAFT_UP;
         }
+
+        /* There is nothing for us to do until we finish loading. */
+        return;
     }
 
     /* If we're loading a snapshot, check if we're done */
@@ -1099,6 +1103,12 @@ void RaftReqHandleQueue(uv_async_t *handle)
 static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
+
+    if (rr->state != REDIS_RAFT_UP) {
+        RedisModule_ReplyWithError(req->ctx, "LOADING Raft module loading");
+        RaftReqFree(req);
+        return;
+    }
 
     if (raft_recv_requestvote(rr->raft,
                 raft_get_node(rr->raft, req->r.requestvote.src_node_id),
