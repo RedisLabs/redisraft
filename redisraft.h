@@ -136,6 +136,7 @@ typedef struct {
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
 #define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
+#define REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF    5
 
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
@@ -149,6 +150,7 @@ typedef struct RedisRaftConfig {
     int election_timeout;
     int reconnect_interval;
     int max_log_entries;
+    int load_snapshot_backoff;
     /* Flags */
     bool init;
     /* Debug options */
@@ -185,6 +187,7 @@ typedef struct Node {
     bool load_snapshot_in_progress;
     bool unlinked;
     raft_index_t load_snapshot_idx;
+    time_t load_snapshot_last_time;
     LIST_ENTRY(Node) entries;
 } Node;
 

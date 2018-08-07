@@ -537,7 +537,6 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
     RedisRaftCtx *rr = node->rr;
 
     redisReply *reply = r;
-    assert(reply != NULL);
 
     node->load_snapshot_in_progress = false;
 
@@ -567,6 +566,7 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
 {
     RedisRaftCtx *rr = user_data;
     Node *node = (Node *) raft_node_get_udata(raft_node);
+    time_t now = time(NULL);
 
     /* We don't attempt to load a snapshot before we receive a response.
      *
@@ -574,6 +574,9 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
      * but it's not a blocking operation.  See RAFT.LOADSNAPSHOT for more info.
      */
     if (node->load_snapshot_in_progress) {
+        return 0;
+    }
+    if (node->load_snapshot_last_time + rr->config->load_snapshot_backoff < now) {
         return 0;
     }
 
@@ -599,6 +602,7 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
 
     node->load_snapshot_idx = raft_get_snapshot_last_idx(raft);
     node->load_snapshot_in_progress = true;
+    node->load_snapshot_last_time = now;
 
     return 0;
 }
