@@ -664,10 +664,20 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
     RedisModule_SaveUnsigned(rdb, 0);
 }
 
+static void clearSnapshotInfo(void *value)
+{
+    RaftSnapshotInfo *info = (RaftSnapshotInfo *) value;
+
+    info->loaded = false;
+    info->last_applied_term = info->last_applied_idx = 0;
+    freeSnapshotCfgEntryList(info->cfg);
+    info->cfg = NULL;
+}
 
 RedisModuleTypeMethods RedisRaftTypeMethods = {
     .version = 1,
     .rdb_load = rdbLoadSnapshotInfo,
     .rdb_save = rdbSaveSnapshotInfo,
+    .free = clearSnapshotInfo
 };
 
