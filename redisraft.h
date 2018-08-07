@@ -266,6 +266,7 @@ void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr);
 void HandleNodeStates(RedisRaftCtx *rr);
 
 /* raft.c */
+const char *getStateStr(RedisRaftCtx *rr);
 void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);
 bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, raft_entry_data_t *source);
 void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);

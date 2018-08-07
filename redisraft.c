@@ -560,5 +560,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
+    RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'\n",
+            getStateStr(&redis_raft));
     return REDISMODULE_OK;
 }

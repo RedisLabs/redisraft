@@ -432,21 +432,19 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     removeAllNodes(rr);
     loadSnapshotNodes(rr, rr->snapshot_info.cfg);
 
-    LOG_INFO("Reconfigured Raft nodes from stored snapshot info:\n");
-#if 0
+    LOG_INFO("Snapshot configuration loaded. Raft state:\n");
     int i;
     for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
         Node *node = raft_node_get_udata(rnode);
 
         if (!node) {
-            LOG_INFO("  node%d:<unknown?>\n", i);
+            LOG_INFO("  node <unknown?>\n", i);
         } else {
-            LOG_INFO("  node%d:id=%d,addr=%s,port=%d\n",
-                    i, node->id, node->addr.host, node->addr.port);
+            LOG_INFO("  node id=%d,addr=%s,port=%d\n",
+                    node->id, node->addr.host, node->addr.port);
         }
     }
-#endif
 }
 
 /* After a snapshot is received (becomes the Redis dataset), load it into the Raft

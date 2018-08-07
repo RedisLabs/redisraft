@@ -14,6 +14,19 @@
 /* Forward declaration */
 static RaftReqHandler RaftReqHandlers[];
 
+const char *getStateStr(RedisRaftCtx *rr)
+{
+    static const char *state_str[] = { "up", "loading", "joining" };
+    static const char *invalid = "<invalid>";
+
+    if (rr->state < REDIS_RAFT_UP ||
+        rr->state > REDIS_RAFT_JOINING) {
+            return invalid;
+    }
+
+    return state_str[rr->state];
+}
+
 const char *raft_logtype_str(int type)
 {
     static const char *logtype_str[] = {
@@ -1261,21 +1274,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             break;
     }
 
-    char state[15];
-    switch (rr->state) {
-        case REDIS_RAFT_LOADING:
-            strcpy(state, "loading");
-            break;
-        case REDIS_RAFT_UP:
-            strcpy(state, "up");
-            break;
-        case REDIS_RAFT_JOINING:
-            strcpy(state, "joining");
-            break;
-        default:
-            strcpy(state, "(none)");
-            break;
-    }
+    raft_node_t *me = raft_get_my_node(rr->raft);
     s = catsnprintf(s, &slen,
             "# Raft\r\n"
             "node_id:%d\r\n"
@@ -1287,9 +1286,9 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "num_nodes:%d\r\n"
             "num_voting_nodes:%d\r\n",
             raft_get_nodeid(rr->raft),
-            state,
+            getStateStr(rr),
             role,
-            raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no",
+            me ? (raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no") : "-",
             raft_get_current_leader(rr->raft),
             raft_get_current_term(rr->raft),
             raft_get_num_nodes(rr->raft),
