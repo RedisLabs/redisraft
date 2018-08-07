@@ -407,6 +407,7 @@ static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
     while (cfg != NULL) {
         /* Skip myself */
         if (cfg->id == raft_get_nodeid(rr->raft)) {
+            cfg = cfg->next;
             continue;
         }
 
