@@ -347,35 +347,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
-static int parseConfigArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
-{
-    int i;
-
-    for (i = 0; i < argc; i++) {
-        size_t arglen;
-        const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
-
-        char argbuf[arglen + 1];
-        memcpy(argbuf, arg, arglen);
-        argbuf[arglen] = '\0';
-
-        const char *val = NULL;
-        char *eq = strchr(argbuf, '=');
-        if (eq != NULL) {
-            *eq = '\0';
-            val = eq + 1;
-        }
-
-        char errbuf[256];
-        if (processConfigParam(argbuf, val, target, true,
-                    errbuf, sizeof(errbuf)) != REDISMODULE_OK) {
-            RedisModule_Log(ctx, REDIS_WARNING, errbuf);
-            return REDISMODULE_ERR;
-        }
-    }
-
-    return REDISMODULE_OK;
-}
 
 #ifdef USE_COMMAND_FILTER
 void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
@@ -419,72 +390,8 @@ void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
 }
 #endif
 
-
-static int validateConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
+static int registerRaftCommands(RedisModuleCtx *ctx)
 {
-    if (config->init && config->join) {
-        RedisModule_Log(ctx, REDIS_WARNING, "'init' and 'join' are mutually exclusive");
-        return REDISMODULE_ERR;
-    }
-    if (config->init) {
-        if (!config->addr.port) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'init' specified without an 'addr'");
-            return REDISMODULE_ERR;
-        }
-        if (!config->id) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'init' requires an 'id'");
-            return REDISMODULE_ERR;
-        }
-    }
-    if (config->join) {
-        if (!config->addr.port) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'join' specified without an 'addr'");
-            return REDISMODULE_ERR;
-        }
-    }
-
-    return REDISMODULE_OK;
-}
-
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    redis_raft_logfile = stdout;
-
-    if (RedisModule_Init(ctx, "redisraft", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-    }
-
-    /* Report arguments */
-    size_t str_len = 1024;
-    char *str = RedisModule_Calloc(1, str_len);
-    int i;
-    for (i = 0; i < argc; i++) {
-        size_t slen;
-        const char *s = RedisModule_StringPtrLen(argv[i], &slen);
-        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", slen, s);
-    }
-
-    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft starting, arguments: %s", str);
-    RedisModule_Free(str);
-
-    /* Initialize and validate configuration */
-    memset(&config, 0, sizeof(config));
-    config.raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
-    config.request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
-    config.election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
-    config.reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
-    config.max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
-    config.load_snapshot_backoff = REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF;
-    config.persist = true;
-
-    if (parseConfigArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    if (validateConfig(ctx, &config) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
     /* Register commands */
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmdRaft, "write", 0, 0, 0) == REDISMODULE_ERR) {
@@ -541,6 +448,46 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 #endif
+
+}
+
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    redis_raft_logfile = stdout;
+
+    if (RedisModule_Init(ctx, "redisraft", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+
+    /* Report arguments */
+    size_t str_len = 1024;
+    char *str = RedisModule_Calloc(1, str_len);
+    int i;
+    for (i = 0; i < argc; i++) {
+        size_t slen;
+        const char *s = RedisModule_StringPtrLen(argv[i], &slen);
+        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", slen, s);
+    }
+
+    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft starting, arguments: %s", str);
+    RedisModule_Free(str);
+
+    /* Initialize and validate configuration */
+    if (ConfigInit(ctx, &config) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (ConfigParseArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (ConfigValidate(ctx, &config) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (registerRaftCommands(ctx) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
 
     raft_set_heap_functions(RedisModule_Alloc,
                             RedisModule_Calloc,

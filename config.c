@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
+
 #include "redisraft.h"
 
 static int parseBool(const char *value, bool *result)
@@ -194,6 +196,75 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
     }
 
     RedisModule_ReplySetArrayLength(ctx, len * 2);
+    return REDISMODULE_OK;
+}
+
+int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
+{
+    memset(config, 0, sizeof(RedisRaftConfig));
+
+    config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
+    config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
+    config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
+    config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
+    config->max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
+    config->load_snapshot_backoff = REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF;
+    config->persist = true;
+}
+
+int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
+{
+    int i;
+
+    for (i = 0; i < argc; i++) {
+        size_t arglen;
+        const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
+
+        char argbuf[arglen + 1];
+        memcpy(argbuf, arg, arglen);
+        argbuf[arglen] = '\0';
+
+        const char *val = NULL;
+        char *eq = strchr(argbuf, '=');
+        if (eq != NULL) {
+            *eq = '\0';
+            val = eq + 1;
+        }
+
+        char errbuf[256];
+        if (processConfigParam(argbuf, val, target, true,
+                    errbuf, sizeof(errbuf)) != REDISMODULE_OK) {
+            RedisModule_Log(ctx, REDIS_WARNING, errbuf);
+            return REDISMODULE_ERR;
+        }
+    }
+
+    return REDISMODULE_OK;
+}
+
+int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
+{
+    if (config->init && config->join) {
+        RedisModule_Log(ctx, REDIS_WARNING, "'init' and 'join' are mutually exclusive");
+        return REDISMODULE_ERR;
+    }
+    if (config->init) {
+        if (!config->addr.port) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'init' specified without an 'addr'");
+            return REDISMODULE_ERR;
+        }
+        if (!config->id) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'init' requires an 'id'");
+            return REDISMODULE_ERR;
+        }
+    }
+    if (config->join) {
+        if (!config->addr.port) {
+            RedisModule_Log(ctx, REDIS_WARNING, "'join' specified without an 'addr'");
+            return REDISMODULE_ERR;
+        }
+    }
+
     return REDISMODULE_OK;
 }
 

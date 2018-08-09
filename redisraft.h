@@ -307,6 +307,9 @@ bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx);
 bool RaftLogSync(RaftLog *log);
 
 /* config.c */
+int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
+int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
+int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
