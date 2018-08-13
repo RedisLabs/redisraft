@@ -13,7 +13,7 @@ def _setup():
 def _teardown(c):
     c.destroy()
 
-@attr('fuzz')
+@attr('pfuzz')
 @with_setup_args(_setup, _teardown)
 def test_counter_fuzzer_with_rewrites(c):
     """
@@ -23,7 +23,7 @@ def test_counter_fuzzer_with_rewrites(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'max_log_entries': 11})
+    c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         logging.info('---------- Executed INCRBY # %s', i)
@@ -37,9 +37,9 @@ def test_counter_fuzzer_with_rewrites(c):
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
 
-@attr('fuzz')
+@attr('pfuzz')
 @with_setup_args(_setup, _teardown)
-def test_basic_fuzzer(c):
+def test_basic_persisted_fuzzer(c):
     """
     Basic Raft fuzzer test
     """
@@ -47,7 +47,7 @@ def test_basic_fuzzer(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes)
+    c.create(nodes, raft_args={'persist': 'yes'})
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:
@@ -55,25 +55,3 @@ def test_basic_fuzzer(c):
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
 
-@attr('fuzz')
-@with_setup_args(_setup, _teardown)
-def test_fuzzing_with_config_changes(c):
-    """
-    Basic Raft fuzzer test
-    """
-
-    nodes = 5
-    cycles = 100
-
-    c.create(nodes, raft_args={'persist': 'yes'})
-    for i in range(cycles):
-        eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
-        if i % 7 == 0:
-            try:
-                node_id = c.random_node_id()
-                c.remove_node(node_id)
-            except redis.ResponseError:
-                continue
-            c.add_node().wait_for_node_voting()
-
-    eq_(int(c.raft_exec('GET', 'counter')), cycles)
