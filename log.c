@@ -49,7 +49,20 @@ static int writeBuffer(RaftLog *log, void *buf, size_t buf_len)
     return 0;
 }
 
-static int writeInteger(RaftLog *log, unsigned long value)
+
+static int writeInteger(RaftLog *log, long value)
+{
+    char buf[25];
+
+    snprintf(buf, sizeof(buf) - 1, "%ld", value);
+    if (fprintf(log->file, "$%zu\r\n%s\r\n", strlen(buf), buf) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int writeUnsignedInteger(RaftLog *log, unsigned long value)
 {
     char buf[25];
 
@@ -157,7 +170,7 @@ RaftLog *RaftLogCreate(const char *filename)
     /* Write log start */
     if (writeBegin(log, 2) < 0 ||
         writeBuffer(log, "RAFTLOG", 7) < 0 ||
-        writeInteger(log, RAFTLOG_VERSION) < 0 ||
+        writeUnsignedInteger(log, RAFTLOG_VERSION) < 0 ||
         writeEnd(log) < 0) {
 
         LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
@@ -273,7 +286,7 @@ static int handleTerm(RaftLog *log, RawLogEntry *re)
     if (*eptr) {
         return -1;
     }
-    log->vote = strtoul(re->elements[2].ptr, &eptr, 10);
+    log->vote = strtol(re->elements[2].ptr, &eptr, 10);
     if (*eptr) {
         return -1;
     }
@@ -290,7 +303,7 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
         return -1;
     }
 
-    log->vote = strtoul(re->elements[1].ptr, &eptr, 10);
+    log->vote = strtol(re->elements[1].ptr, &eptr, 10);
     if (*eptr) {
         return -1;
     }
@@ -408,9 +421,9 @@ bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 {
     if (writeBegin(log, 5) < 0 ||
         writeBuffer(log, "ENTRY", 5) < 0 ||
-        writeInteger(log, entry->term) < 0 ||
-        writeInteger(log, entry->id) < 0 ||
-        writeInteger(log, entry->type) < 0 ||
+        writeUnsignedInteger(log, entry->term) < 0 ||
+        writeUnsignedInteger(log, entry->id) < 0 ||
+        writeUnsignedInteger(log, entry->type) < 0 ||
         writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
         return false;
     }
@@ -422,8 +435,8 @@ bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx)
 {
     if (writeBegin(log, 3) < 0 ||
             writeBuffer(log, "SNAPSHOT", 8) < 0 ||
-            writeInteger(log, term) < 0 ||
-            writeInteger(log, idx) < 0) {
+            writeUnsignedInteger(log, term) < 0 ||
+            writeUnsignedInteger(log, idx) < 0) {
         return false;
     }
 
@@ -499,7 +512,7 @@ bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
 
     if (writeBegin(log, 3) < 0 ||
         writeBuffer(log, "TERM", 4) < 0 ||
-        writeInteger(log, term) < 0 ||
+        writeUnsignedInteger(log, term) < 0 ||
         writeInteger(log, vote) < 0 ||
         writeEnd(log) < 0) {
         return false;
