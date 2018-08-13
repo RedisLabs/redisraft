@@ -55,6 +55,9 @@ void raft_module_log(const char *fmt, ...);
 #define LOG_VERBOSE(fmt, ...) LOG(LOGLEVEL_VERBOSE, fmt, ##__VA_ARGS__)
 #define LOG_DEBUG(fmt, ...) LOG(LOGLEVEL_DEBUG, fmt, ##__VA_ARGS__)
 
+#define PANIC(fmt, ...) \
+    do {  LOG_ERROR("!!!! Redis Raft Module Panic !!!!\n" fmt, ##__VA_ARGS__); exit(1); } while (0)
+
 #define TRACE(fmt, ...) LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define NODE_LOG(level, node, fmt, ...) \
@@ -136,13 +139,15 @@ typedef struct {
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
 #define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
-#define REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF    5
+#define REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF    1
 
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
     NodeAddrListElement *join;
-    char *raftlog;              /* Raft log file name */
+    char *rdb_filename;         /* Original Redis dbfilename */
+    char *raftlog;              /* Raft log file name, derived from dbfilename */
+    char *snapshot_filename;    /* Name used when creating a snapshot */
     bool persist;               /* Should log be persisted */
     /* Tuning */
     int raft_interval;
@@ -239,6 +244,8 @@ typedef struct RaftReq {
             msg_entry_response_t response;
         } redis;
         struct {
+            raft_term_t term;
+            raft_index_t idx;
             NodeAddr addr;
         } loadsnapshot;
     } r;
@@ -312,7 +319,7 @@ int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Red
 int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
-int processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen);
+int ConfigSetupFilenames(RedisRaftCtx *rr);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

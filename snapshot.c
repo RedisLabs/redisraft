@@ -78,6 +78,11 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
         }
     }
 
+    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) < 0) {
+        RaftLogClose(log);
+        return -1;
+    }
+
     if (!RaftLogSync(log)) {
         RaftLogClose(log);
         return -1;
@@ -129,7 +134,7 @@ const char *getTempLogFilename(RedisRaftCtx *rr)
     return filename;
 }
 
-const char *getTempDbFilename(RedisRaftCtx *rr)
+const char *getTempDbFilename(RedisRaftCtx *rr, const char *suffix)
 {
     static char filename[PATH_MAX];
 
@@ -137,7 +142,7 @@ const char *getTempDbFilename(RedisRaftCtx *rr)
         return NULL;
     }
 
-    snprintf(filename, sizeof(filename) - 1, "%s.temprdb", rr->config->raftlog);
+    snprintf(filename, sizeof(filename) - 1, "%s.suffix", rr->config->raftlog);
     return filename;
 }
 
@@ -180,6 +185,14 @@ RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr)
         RaftLog *new_log = RaftLogOpen(getTempLogFilename(rr));
         if (!new_log) {
             LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+            cancelSnapshot(rr);
+            return -1;
+        }
+
+        if (rename(rr->config->snapshot_filename, rr->config->rdb_filename) < 0) {
+            LOG_ERROR("Failed to switch snapshot filename (%s to %s): %s\n",
+                    rr->config->snapshot_filename, rr->config->rdb_filename, strerror(errno));
+            RaftLogClose(new_log);
             cancelSnapshot(rr);
             return -1;
         }
@@ -270,7 +283,7 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
 
     LOG_DEBUG("Initiating snapshot%s.\n", rr->compact_req ? ", trigerred by COMPACT" : "");
 
-    if (raft_begin_snapshot(rr->raft) < 0) {
+    if (raft_begin_snapshot(rr->raft, RAFT_SNAPSHOT_NONBLOCKING_APPLY) < 0) {
         LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.\n");
         return RR_ERROR;
     }
@@ -330,16 +343,14 @@ RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
             sleep(rr->config->compact_delay);
         }
 
-        RedisModuleCallReply *reply;
-#if 0
         /* Configure rdb filename */
-        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename", getTempDbFilename(rr));
+        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename",
+                rr->config->snapshot_filename);
         if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
             snprintf(msg.err, sizeof(msg.err) - 1, "%s", "CONFIG SET dbfilename failed");
             goto exit;
         }
         RedisModule_FreeCallReply(reply);
-#endif
 
         /* Save */
         reply = RedisModule_Call(rr->ctx, "SAVE", "");
@@ -405,23 +416,26 @@ static void removeAllNodes(RedisRaftCtx *rr)
 static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
     while (cfg != NULL) {
+        Node *n = NULL;
+
         /* Skip myself */
         if (cfg->id == raft_get_nodeid(rr->raft)) {
-            cfg = cfg->next;
-            continue;
+            n = NULL;
+        } else {
+            n = NodeInit(cfg->id, &cfg->addr);
         }
 
         /* Set up new node */
         raft_node_t *rn;
-        Node *n = NodeInit(cfg->id, &cfg->addr);
         if (cfg->voting) {
             rn = raft_add_node(rr->raft, n, cfg->id, 0);
         } else {
             rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
         }
 
-        assert(rn != NULL);
-        raft_node_set_active(rn, cfg->active);
+        if (rn) {
+            raft_node_set_active(rn, cfg->active);
+        }
         cfg = cfg->next;
     }
 
@@ -521,6 +535,14 @@ exit:
 
     if (link_status_up && !sync_in_progress) {
         RedisModule_ThreadSafeContextLock(rr->ctx);
+
+        /* Rename dbfilename, so we don't overwrite our last snapshot */
+        reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename",
+                rr->config->snapshot_filename);
+        assert(reply != NULL);
+        assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+        RedisModule_FreeCallReply(reply);
+
         reply = RedisModule_Call(rr->ctx, "SLAVEOF", "cc", "NO", "ONE");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
         assert(reply != NULL);
@@ -534,12 +556,25 @@ exit:
 
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
+    /* Ignore load snapshot request if we are leader, or if we already have
+     * what we are looking for.
+     */
+    raft_node_t *leader = raft_get_current_leader_node(rr->raft);
+    if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
+        LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT as I am the leader.");
+        goto exit;
+    }
+
+    if (rr->snapshot_in_progress) {
+        LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
+        goto exit;
+    }
+
     RedisModule_ThreadSafeContextLock(rr->ctx);
     RedisModuleCallReply *reply = RedisModule_Call(
             rr->ctx, "SLAVEOF", "cl",
             req->r.loadsnapshot.addr.host,
             (long long) req->r.loadsnapshot.addr.port);
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
 
     if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
         /* No errors because we don't use a blocking client for this type
@@ -550,10 +585,13 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         rr->loading_snapshot = true;
     }
 
+    RedisModule_ThreadSafeContextUnlock(rr->ctx);
+
     if (reply) {
         RedisModule_FreeCallReply(reply);
     }
 
+exit:
     RaftReqFree(req);
 }
 
@@ -666,16 +704,10 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
 
 static void clearSnapshotInfo(void *value)
 {
-    RaftSnapshotInfo *info = (RaftSnapshotInfo *) value;
-
-    info->loaded = false;
-    info->last_applied_term = info->last_applied_idx = 0;
-    freeSnapshotCfgEntryList(info->cfg);
-    info->cfg = NULL;
 }
 
 RedisModuleTypeMethods RedisRaftTypeMethods = {
-    .version = 1,
+    .version = REDISMODULE_TYPE_METHOD_VERSION,
     .rdb_load = rdbLoadSnapshotInfo,
     .rdb_save = rdbSaveSnapshotInfo,
     .free = clearSnapshotInfo

@@ -90,11 +90,15 @@ class RedisRaft(object):
         self.port = port
         self.executable = config.executable
         self.process = None
-        self.raftlog = 'raftlog{}.db'.format(self.id)
+        #TODO: fix this when changing file naming in module
+        #self.raftlog = 'raftlog{}.db'.format(self.id)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
+        self.raftlog = self.dbfilename + '.raftlog'
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
-        self.args += ['--repl-diskless-sync', 'yes']
+        self.args += ['--repl-diskless-sync', 'yes',
+                      '--repl-diskless-sync-delay', '0']
+        self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
@@ -209,19 +213,21 @@ class RedisRaft(object):
             except redis.ResponseError as err:
                 if not str(err).startswith('UNBLOCKED'):
                     raise
+            except redis.ConnectionError:
+                pass
 
             retries -= 1
             time.sleep(0.1)
         timeout_func()
 
-    def wait_for_election(self, timeout=3):
+    def wait_for_election(self, timeout=10):
         def has_leader():
             return bool(self.raft_info()['leader_id'] != -1)
         def raise_no_master_error():
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
 
-    def wait_for_log_applied(self, timeout=3):
+    def wait_for_log_applied(self, timeout=10):
         def commit_idx_applied():
             info = self.raft_info()
             return bool(info['commit_index'] == info['last_applied_index'])
@@ -231,12 +237,13 @@ class RedisRaft(object):
                                  timeout)
         LOG.debug("Finished waiting logs to be applied.")
 
-    def wait_for_commit_index(self, idx, timeout=3):
+    def wait_for_commit_index(self, idx, timeout=10):
         def commit_idx_reached():
             info = self.raft_info()
             return bool(info['commit_index'] == idx)
         def raise_not_reached():
-            raise RedisRaftTimeout('Expected commit index not reached')
+            raise RedisRaftTimeout(
+                'Expected commit index %s not reached' % idx)
         self._wait_for_condition(commit_idx_reached, raise_not_reached,
                                  timeout)
 
@@ -275,7 +282,7 @@ class RedisRaft(object):
         self.cleanup()
 
 class Cluster(object):
-    noleader_timeout = 5
+    noleader_timeout = 10
     base_port = 5000
 
     def __init__(self):
@@ -358,12 +365,15 @@ class Cluster(object):
             node.wait_for_commit_index(commit_idx)
 
     def raft_retry(self, func):
+        no_leader_first = True
         start_time = time.time()
         while time.time() < start_time + self.noleader_timeout:
             try:
                 return func()
             except redis.ConnectionError:
                 self.leader = self.random_node_id()
+            except redis.ReadOnlyError:
+                time.sleep(0.5)
             except redis.ResponseError as err:
                 if str(err).startswith('READONLY'):
                     # While loading a snapshot we can get a READONLY
@@ -382,6 +392,10 @@ class Cluster(object):
                     if new_leader in self.nodes:
                         self.leader = new_leader
                 elif str(err).startswith('NOLEADER'):
+                    if no_leader_first:
+                        LOG.info("-NOLEADER response received, will retry"
+                                 " for %s seconds" % self.noleader_timeout)
+                        no_leader_first = False
                     time.sleep(0.5)
                 else:
                     raise

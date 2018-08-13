@@ -9,6 +9,9 @@ Raft Module
 [] Automatic proxying
 [] MULTI command handling
 [] Improved read command handling
+[] Add a NO-OP log entry on startup to get the commit index computed.
+[] Add unique dataset id, catch fuzzer problems?
+[] Log facilities
 
 Raft Library
 ------------

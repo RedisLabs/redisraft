@@ -144,10 +144,20 @@ def test_new_uncommitted_during_rewrite(c):
     log.read()
     eq_(3, log.entry_count(LogEntry.LogType.NORMAL))
 
-    # Make sure we can read it back
+    # Extra check -- Make sure we can read it back. Note that we need to start
+    # all nodes because we don't log the commit index.
+    c.node(1).terminate()
     c.node(2).terminate()
     c.node(3).terminate()
-    c.node(1).restart()
+    c.node(1).start()
+    c.node(2).start()
+    c.node(3).start()
 
     c.node(1).wait_for_info_param('state', 'up')
+
+    # TODO: Need a log entry for the commit index to be re-computed; In the
+    # future Redis Raft should do that implicitly with a no-op.
+    c.raft_exec('set','no-op','no-op')
+    c.wait_for_unanimity()
+
     eq_(b'10', c.node(1).client.get('key'))

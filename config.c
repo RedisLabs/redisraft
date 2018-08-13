@@ -212,6 +212,61 @@ int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->persist = true;
 }
 
+/* TODO: Remove the hard coded naming mechanism */
+int ConfigSetupFilenames(RedisRaftCtx *rr)
+{
+    /* Query RDB filename */
+    size_t len;
+    const char *str;
+    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "cc", "GET", "dbfilename");
+    assert(reply != NULL);
+    assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+
+    RedisModuleCallReply *reply_name = RedisModule_CallReplyArrayElement(reply, 1);
+    assert(RedisModule_CallReplyType(reply_name) == REDISMODULE_REPLY_STRING);
+
+    str = RedisModule_CallReplyStringPtr(reply_name, &len);
+    assert(len>1);
+    rr->config->rdb_filename = RedisModule_Alloc(len+1);
+    memcpy(rr->config->rdb_filename, str, len);
+    rr->config->rdb_filename[len] = '\0';
+    RedisModule_FreeCallReply(reply_name);
+    RedisModule_FreeCallReply(reply);
+
+    /* Compute derived filenames */
+    len += 64;
+    rr->config->raftlog = RedisModule_Alloc(len);
+    snprintf(rr->config->raftlog, len-1, "%s.raftlog",
+            rr->config->rdb_filename);
+
+    /* Rename Redis's own dbfilename to protect our snapshots:
+     * 1. When doing replication;
+     * 2. When shutting down and saving.
+     */
+    int filename_size = strlen(rr->config->rdb_filename) + 20;
+    char filename[filename_size];
+
+#if 0
+    snprintf(filename, filename_size - 1, "%s.tmp",
+            rr->config->rdb_filename);
+
+    reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename", filename);
+    assert(reply != NULL);
+    assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+    RedisModule_FreeCallReply(reply);
+#endif
+
+    LOG_INFO("Raft: Log file: %s\n", rr->config->raftlog);
+    LOG_INFO("Raft: Snapshot file: %s\n", rr->config->rdb_filename);
+
+    /* Configure snapshot filename */
+    rr->config->snapshot_filename = RedisModule_Alloc(filename_size);
+    snprintf(rr->config->snapshot_filename, filename_size - 1,
+            "%s.snapshot", rr->config->rdb_filename);
+
+    return REDISMODULE_OK;
+}
+
 int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
 {
     int i;

@@ -347,7 +347,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 
 /* ------------------------------------ Log Callbacks ------------------------------------ */
 
-static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
+static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
@@ -361,7 +361,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, int vote)
     return 0;
 }
 
-static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, int vote)
+static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, raft_node_id_t vote)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
@@ -589,7 +589,7 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
     if (node->load_snapshot_in_progress) {
         return 0;
     }
-    if (node->load_snapshot_last_time + rr->config->load_snapshot_backoff < now) {
+    if (node->load_snapshot_last_time + rr->config->load_snapshot_backoff > now) {
         return 0;
     }
 
@@ -692,14 +692,18 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
         if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
-            LOG_ERROR("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
+            PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
                     rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
-            return -1;
         }
-        if (rr->snapshot_info.last_applied_idx != rr->log->snapshot_last_idx) {
-            LOG_ERROR("Log initial index (%lu) does not match snapshot last index (%lu), aborting.\n",
+        if (rr->snapshot_info.last_applied_idx < rr->log->snapshot_last_idx) {
+            PANIC("Log initial index (%lu) does not match snapshot last index (%lu), aborting.\n",
                     rr->log->snapshot_last_idx, rr->snapshot_info.last_applied_idx);
-            return -1;
+        }
+    } else {
+        /* If there is no snapshot, the log should also not refer to it */
+        if (rr->log->snapshot_last_idx) {
+            PANIC("Log refers to snapshot (term=%lu/index=%lu which was not loaded, aborting.\n",
+                    rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
         }
     }
 
@@ -710,10 +714,17 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
         raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
     }
 
+    raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
+
     raft_apply_all(rr->raft);
 
-    raft_vote_for_nodeid(rr->raft, rr->log->vote);
     raft_set_current_term(rr->raft, rr->log->term);
+    raft_vote_for_nodeid(rr->raft, rr->log->vote);
+
+    LOG_INFO("Raft Log: loaded current term=%lu, vote=%d\n", rr->log->term, rr->log->vote);
+
+    initializeSnapshotInfo(rr);
 
     /* TODO is this needed? */
 #if 0
@@ -738,17 +749,57 @@ static bool checkRedisLoading(RedisRaftCtx *rr)
     return loading;
 }
 
+int loadRaftLog(RedisRaftCtx *rr);
+
 static void callRaftPeriodic(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    int ret;
 
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
      * we can apply the log.
      */
     if (rr->state == REDIS_RAFT_LOADING) {
         if (!checkRedisLoading(rr)) {
-            LOG_INFO("Redis finished loading, applying log now.\n");
-            configRaftFromSnapshotInfo(rr);
+            /* If Redis loaded a snapshot (RDB), log some information and configure the
+             * raft library as necessary.
+             */
+            LOG_INFO("Loading: Redis loading complete, snapshot %s\n",
+                    rr->snapshot_info.loaded ? "LOADED" : "NOT LOADED");
+            if (rr->snapshot_info.loaded) {
+                SnapshotCfgEntry *c;
+                LOG_INFO("Loading: Snapshot: applied term=%lu index=%lu\n",
+                        rr->snapshot_info.last_applied_term,
+                        rr->snapshot_info.last_applied_idx);
+
+                for (c = rr->snapshot_info.cfg; c != NULL; c = c->next) {
+                    LOG_INFO("Loading: Snapshot config: node id=%u [%s:%u], active=%u, voting=%u\n",
+                            c->id, c->addr.host, c->addr.port, c->active, c->voting);
+                }
+
+                if ((ret = raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
+                            rr->snapshot_info.last_applied_idx)) < 0) {
+                    assert(0);
+                    PANIC("Failed to begin snapshot loading [%d], aborting.\n", ret);
+                }
+                configRaftFromSnapshotInfo(rr);
+                if ((ret = raft_end_load_snapshot(rr->raft)) < 0) {
+                    PANIC("Failed to end snapshot loading [%d], aborting.\n", ret);
+                }
+            }
+
+            if (loadRaftLog(rr) < 0) {
+                LOG_ERROR("Failed to read Raft log, aborting.\n");
+                exit(1);
+            }
+
+            if (rr->log->snapshot_last_term) {
+                LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
+                        rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
+            } else {
+                LOG_INFO("Loading: Log is complete.\n");
+            }
+
             applyLoadedRaftLog(rr);
             rr->state = REDIS_RAFT_UP;
         }
@@ -764,7 +815,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
 
     /* If we're creating a persistent snapshot, check if we're done */
     if (rr->snapshot_in_progress) {
-        int ret = pollSnapshotStatus(rr);
+        ret = pollSnapshotStatus(rr);
         if (ret == -1) {
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
             cancelSnapshot(rr);
@@ -774,7 +825,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
         } /* else we're still in progress */
     }
 
-    int ret = raft_periodic(rr->raft, rr->config->raft_interval);
+    ret = raft_periodic(rr->raft, rr->config->raft_interval);
     assert(ret == 0);
     raft_apply_all(rr->raft);
 
@@ -803,6 +854,8 @@ static void RedisRaftThread(void *arg)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) arg;
 
+    /* TODO: Properly handle the race condition here */
+    sleep(2);
     uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
             rr->config->raft_interval, rr->config->raft_interval);
     uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
@@ -896,6 +949,9 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 
 int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
+    /* Create a Snapshot Info meta-key */
+    initializeSnapshotInfo(rr);
+
     /* Create our own node */
     raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, config->id, 1);
     if (!self) {
@@ -921,28 +977,24 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
     }
 }
 
-int loadRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+int loadRaftLog(RedisRaftCtx *rr)
 {
+    const char *filename = rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG;
+
     rr->state = REDIS_RAFT_LOADING;
-    rr->log = RaftLogOpen(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG);
+    rr->log = RaftLogOpen(filename);
     if (!rr->log)  {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to open Raft log");
+        LOG_ERROR("Failed to open Raft log: %s\n", filename);
         return REDISMODULE_ERR;
     }
 
-    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
-    if (!self) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to create local Raft node [id %d]\n", rr->config->id);
-        return REDISMODULE_ERR;
-    }
-
-    RedisModule_Log(ctx, REDIS_NOTICE, "Reading Raft log\n");
     int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr->raft);
     if (entries < 0) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to read Raft log");
+        LOG_ERROR("Failed to read Raft log\n");
         return REDISMODULE_ERR;
     } else {
-        RedisModule_Log(ctx, REDIS_NOTICE, "%d entries loaded from Raft log", entries);
+        LOG_INFO("Loading: Log loaded, %d entries, snapshot last term=%lu, index=%lu\n",
+               entries, rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
     }
 
     return REDISMODULE_OK;
@@ -973,6 +1025,9 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
     rr->config = config;
 
+    /* Configure file names */
+    ConfigSetupFilenames(rr);
+
     /* Initialize raft library */
     rr->raft = raft_new();
     raft_set_election_timeout(rr->raft, rr->config->election_timeout);
@@ -997,7 +1052,16 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
             RedisModule_Log(ctx, REDIS_WARNING, "No persist, init or join");
             return REDISMODULE_ERR;
         }
-        return loadRaftLog(ctx, rr);
+
+        /* We're in loading state until Redis loads the RDB and we load the log */
+        rr->state = REDIS_RAFT_LOADING;
+
+        /* Create local Raft node */
+        raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
+        if (!self) {
+            LOG_ERROR("Failed to create local Raft node [id %d]\n", rr->config->id);
+            return REDISMODULE_ERR;
+        }
     }
 
     return REDISMODULE_OK;
@@ -1148,6 +1212,11 @@ static void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_appendentries_response_t response;
     int err;
+
+    if (rr->state != REDIS_RAFT_UP) {
+        RedisModule_ReplyWithError(req->ctx, "LOADING Raft module loading");
+        goto exit;
+    }
 
     if ((err = raft_recv_appendentries(rr->raft,
                 raft_get_node(rr->raft, req->r.appendentries.src_node_id),

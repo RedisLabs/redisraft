@@ -29,6 +29,7 @@ void raft_module_log(const char *fmt, ...)
     va_start(ap, fmt);
     vfprintf(redis_raft_logfile, _fmt, ap);
     va_end(ap);
+    fflush(redis_raft_logfile);
 }
 
 RedisRaftCtx redis_raft = { 0 };

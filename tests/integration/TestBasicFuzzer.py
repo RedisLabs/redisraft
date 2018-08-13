@@ -15,6 +15,30 @@ def _teardown(c):
 
 @attr('fuzz')
 @with_setup_args(_setup, _teardown)
+def test_counter_fuzzer_with_rewrites(c):
+    """
+    Counter fuzzer with log rewrites.
+    """
+
+    nodes = 3
+    cycles = 100
+
+    c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
+    for i in range(cycles):
+        eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
+        logging.info('---------- Executed INCRBY # %s', i)
+        if i % 7 == 0:
+            c.wait_for_unanimity()
+            r = random.randint(1, nodes)
+            logging.info('********** Restarting node %s **********', r)
+            c.node(r).restart()
+            c.node(r).wait_for_election()
+            logging.info('********** Node %s is UP **********', r)
+
+    eq_(int(c.raft_exec('GET', 'counter')), cycles)
+
+@attr('fuzz')
+@with_setup_args(_setup, _teardown)
 def test_basic_persisted_fuzzer(c):
     """
     Basic Raft fuzzer test
@@ -23,16 +47,11 @@ def test_basic_persisted_fuzzer(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
+    c.create(nodes, raft_args={'persist': 'yes'})
     for i in range(cycles):
-        ok_(c.raft_exec('INCRBY', 'counter', 1))
-        logging.info('---------- Executed INCRBY # %s', i)
+        eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:
-            r = random.randint(1, nodes)
-            logging.info('********** Restarting node %s **********', r)
-            c.node(r).restart()
-            c.node(r).wait_for_info_param('state', 'up')
-            logging.info('********** Node %s reports state==up **********', r)
+            c.node(random.randint(1, nodes)).restart()
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
 
@@ -48,7 +67,7 @@ def test_fuzzing_with_config_changes(c):
 
     c.create(nodes, raft_args={'persist': 'yes'})
     for i in range(cycles):
-        ok_(c.raft_exec('INCRBY', 'counter', 1))
+        eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:
             try:
                 node_id = c.random_node_id()
