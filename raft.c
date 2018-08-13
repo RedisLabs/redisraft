@@ -570,7 +570,7 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
          */
         if (!reply->integer) {
             raft_node_t *n = raft_get_node(rr->raft, node->id);
-            raft_node_set_next_idx(n, node->load_snapshot_idx);
+            raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
         }
     }
 }
