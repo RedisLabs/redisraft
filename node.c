@@ -33,11 +33,11 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
     Node *node = (Node *) c->data;
     if (status == REDIS_OK) {
         node->state = NODE_CONNECTED;
-        NODE_LOG_INFO(node, "Connection established.\n");
+        //NODE_LOG_INFO(node, "Connection established.\n");
     } else {
         node->state = NODE_CONNECT_ERROR;
         node->rc = NULL;
-        NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
+        //NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
     }
 
     /* If we're terminating, abort now */
@@ -60,7 +60,7 @@ static void handleNodeDisconnect(const redisAsyncContext *c, int status)
     if (node) {
         node->rc = NULL;
         node->state = NODE_DISCONNECTED;
-        NODE_LOG_INFO(node, "Connection dropped.\n");
+        //NODE_LOG_INFO(node, "Connection dropped.\n");
     }
 }
 
@@ -85,12 +85,12 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     char addr[17] = { 0 };
     uv_ip4_name((struct sockaddr_in *) res->ai_addr, addr, 16);
     uv_freeaddrinfo(res);
-    NODE_LOG_INFO(node, "connecting at %s:%u...\n", addr, node->addr.port);
+    //NODE_LOG_INFO(node, "connecting at %s:%u...\n", addr, node->addr.port);
 
     /* Initiate connection */
     node->rc = redisAsyncConnect(addr, node->addr.port);
     if (node->rc->err) {
-        NODE_LOG_ERROR(node, "Failed to initiate connection\n");
+        //NODE_LOG_ERROR(node, "Failed to initiate connection\n");
         node->state = NODE_CONNECT_ERROR;
 
         redisAsyncFree(node->rc);
@@ -117,7 +117,7 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
 
     assert(NODE_STATE_IDLE(node->state));
 
-    NODE_LOG_INFO(node, "Resolving '%s'...\n", node->addr.host);
+    //NODE_LOG_INFO(node, "Resolving '%s'...\n", node->addr.host);
     node->state = NODE_RESOLVING;
     node->rr = rr;
     node->connect_callback = connect_callback;
@@ -125,7 +125,7 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
     int r = uv_getaddrinfo(rr->loop, &node->uv_resolver, handleNodeResolved,
             node->addr.host, NULL, &hints);
     if (r) {
-        NODE_LOG_INFO(node, "Resolver error: %s: %s\n", node->addr.host, uv_strerror(r));
+        //NODE_LOG_INFO(node, "Resolver error: %s: %s\n", node->addr.host, uv_strerror(r));
         node->state = NODE_CONNECT_ERROR;
         return false;
     }
