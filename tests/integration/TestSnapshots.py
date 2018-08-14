@@ -158,6 +158,10 @@ def test_new_uncommitted_during_rewrite(c):
     # TODO: Need a log entry for the commit index to be re-computed; In the
     # future Redis Raft should do that implicitly with a no-op.
     c.raft_exec('set','no-op','no-op')
-    c.wait_for_unanimity()
 
+    # Make sure cluster state is as expected
+    eq_(b'10', c.raft_exec('get', 'key'))
+
+    # Make sure node 1 state is as expected
+    c.node(1).wait_for_log_applied()
     eq_(b'10', c.node(1).client.get('key'))
