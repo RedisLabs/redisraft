@@ -363,6 +363,7 @@ class Cluster(object):
             if exclude is not None and int(_id) in exclude:
                 continue
             node.wait_for_commit_index(commit_idx)
+        LOG.info("wait_for_unanimity: commit index is %s", commit_idx)
 
     def raft_retry(self, func):
         no_leader_first = True

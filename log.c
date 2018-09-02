@@ -36,7 +36,7 @@ static int writeEnd(RaftLog *log)
     return 0;
 }
 
-static int writeBuffer(RaftLog *log, void *buf, size_t buf_len)
+static int writeBuffer(RaftLog *log, const void *buf, size_t buf_len)
 {
     static const char crlf[] = "\r\n";
 
@@ -156,7 +156,7 @@ error:
     return -1;
 }
 
-RaftLog *RaftLogCreate(const char *filename)
+RaftLog *RaftLogCreate(const char *filename, const char *dbid)
 {
     FILE *file = fopen(filename, "w+");
     if (!file) {
@@ -167,10 +167,14 @@ RaftLog *RaftLogCreate(const char *filename)
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
     log->file = file;
 
+    memcpy(log->dbid, dbid, RAFT_DBID_LEN);
+    log->dbid[RAFT_DBID_LEN] = '\0';
+
     /* Write log start */
-    if (writeBegin(log, 2) < 0 ||
+    if (writeBegin(log, 3) < 0 ||
         writeBuffer(log, "RAFTLOG", 7) < 0 ||
         writeUnsignedInteger(log, RAFTLOG_VERSION) < 0 ||
+        writeBuffer(log, dbid, strlen(dbid)) < 0 ||
         writeEnd(log) < 0) {
 
         LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
@@ -201,7 +205,7 @@ RaftLog *RaftLogOpen(const char *filename)
         goto error;
     }
 
-    if (e->num_elements != 2 ||
+    if (e->num_elements != 3 ||
         strcmp(e->elements[0].ptr, "RAFTLOG")) {
         LOG_ERROR("Invalid Raft log start command.");
         goto error;
@@ -213,6 +217,12 @@ RaftLog *RaftLogOpen(const char *filename)
         LOG_ERROR("Invalid Raft log version: %lu\n", ver);
         goto error;
     }
+
+    if (strlen(e->elements[2].ptr) > RAFT_DBID_LEN) {
+        LOG_ERROR("Invalid Raft log dbid: %s\n", e->elements[2].ptr);
+        goto error;
+    }
+    strcpy(log->dbid, e->elements[2].ptr);
 
     freeRawLogEntry(e);
     return log;

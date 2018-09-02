@@ -691,6 +691,10 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
 {
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
+        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid)) {
+            PANIC("Log and snapshot have different dbids: [%s/%s]\n",
+                    rr->log->dbid, rr->snapshot_info.dbid);
+        }
         if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
                     rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
@@ -894,7 +898,7 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     if (rr->config->persist) {
-        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG);
+        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG, rr->snapshot_info.dbid);
         if (!rr->log) {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
             return REDISMODULE_ERR;
@@ -905,6 +909,10 @@ int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
 int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
+    /* Initialize dbid */
+    RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
+    rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
+
     /* Create our own node */
     raft_node_t *self = raft_add_node(rr->raft, NULL, config->id, 1);
     if (!self) {
@@ -1261,7 +1269,14 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 
     int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
     if (e == 0) {
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        char r[RAFT_DBID_LEN + 5];
+        if (req->type == RR_CFGCHANGE_ADDNODE) {
+            snprintf(r, sizeof(r) - 1, "OK %s", rr->snapshot_info.dbid);
+        } else {
+            strcpy(r, "OK");
+        }
+
+        RedisModule_ReplyWithSimpleString(req->ctx, r);
     } else  {
         replyRaftError(req->ctx, e);
     }

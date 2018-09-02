@@ -9,10 +9,11 @@
 #include "../redisraft.h"
 
 #define LOGNAME "test.log.db"
+#define DBID "01234567890123456789012345678901"
 
 static int setup_create_log(void **state)
 {
-    *state = RaftLogCreate(LOGNAME);
+    *state = RaftLogCreate(LOGNAME, DBID);
     assert_non_null(*state);
     return 0;
 }

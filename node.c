@@ -246,11 +246,13 @@ void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
                 NodeAddrListAddElement(rr->join_addr, &addr);
             }
         }
-    } else if (reply->type != REDIS_REPLY_STATUS || strcmp(reply->str, "OK")) {
+    } else if (reply->type != REDIS_REPLY_STATUS || strlen(reply->str) < 4 ||
+            strlen(reply->str) > 3 + RAFT_DBID_LEN || strncmp(reply->str, "OK", 2)) {
         NODE_LOG_ERROR(node, "invalid RAFT.ADDNODE reply: %s\n", reply->str);
     } else {
-        NODE_LOG_INFO(node, "Cluster join request placed as node:%d.\n",
-                raft_get_nodeid(rr->raft));
+        NODE_LOG_INFO(node, "Join RAFT.ADDNODE succeeded, dbid: %s\n", reply->str + 3);
+        strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
+        rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
         rr->state = REDIS_RAFT_UP;
     }
 

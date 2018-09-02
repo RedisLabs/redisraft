@@ -56,7 +56,7 @@ void raft_module_log(const char *fmt, ...);
 #define LOG_DEBUG(fmt, ...) LOG(LOGLEVEL_DEBUG, fmt, ##__VA_ARGS__)
 
 #define PANIC(fmt, ...) \
-    do {  LOG_ERROR("!!!! Redis Raft Module Panic !!!!\n" fmt, ##__VA_ARGS__); exit(1); } while (0)
+    do {  LOG_ERROR("\n\n!!!! Redis Raft Module Panic !!!!\n" fmt, ##__VA_ARGS__); exit(1); } while (0)
 
 #define TRACE(fmt, ...) LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
@@ -98,8 +98,11 @@ typedef struct SnapshotCfgEntry {
     struct SnapshotCfgEntry *next;
 } SnapshotCfgEntry;
 
+#define RAFT_DBID_LEN   32
+
 typedef struct RaftSnapshotInfo {
     bool loaded;
+    char dbid[RAFT_DBID_LEN+1];
     raft_term_t last_applied_term;
     raft_index_t last_applied_idx;
     SnapshotCfgEntry *cfg;
@@ -253,6 +256,7 @@ typedef struct RaftReq {
 
 typedef struct RaftLog {
     uint32_t            version;
+    char                dbid[RAFT_DBID_LEN+1];
     unsigned long int   num_entries;
     raft_term_t         snapshot_last_term;
     raft_index_t        snapshot_last_idx;
@@ -300,7 +304,7 @@ typedef enum LogEntryAction {
     LA_REMOVE_TAIL
 } LogEntryAction;
 
-RaftLog *RaftLogCreate(const char *filename);
+RaftLog *RaftLogCreate(const char *filename, const char *dbid);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);

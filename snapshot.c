@@ -59,7 +59,7 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
 
 long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
 {
-    RaftLog *log = RaftLogCreate(filename);
+    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid);
     long long int num_entries = 0;
 
     /* Write a snapshot marker */
@@ -635,7 +635,18 @@ RedisModuleType *RedisRaftType = NULL;
 
 void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
 {
+    size_t len;
+    char *buf;
+
     RaftSnapshotInfo *info = &redis_raft.snapshot_info;
+
+    /* dbid */
+    buf = RedisModule_LoadStringBuffer(rdb, &len);
+    assert(len <= RAFT_DBID_LEN);
+    if (len) {
+        memcpy(info->dbid, buf, len);
+    }
+    info->dbid[len] = '\0';
 
     /* Load term/index */
     info->last_applied_term = RedisModule_LoadUnsigned(rdb);
@@ -648,8 +659,6 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
 
     do {
         unsigned long _id = RedisModule_LoadUnsigned(rdb);
-        char *buf;
-        size_t len;
 
         if (!_id) {
             break;
@@ -681,6 +690,9 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
 void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
 {
     RaftSnapshotInfo *info = (RaftSnapshotInfo *) value;
+
+    /* dbid */
+    RedisModule_SaveStringBuffer(rdb, info->dbid, strlen(info->dbid));
 
     /* Term/Index */
     RedisModule_SaveUnsigned(rdb, info->last_applied_term);
