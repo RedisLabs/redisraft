@@ -815,6 +815,13 @@ static void callRaftPeriodic(uv_timer_t *handle)
     /* If we're loading a snapshot, check if we're done */
     if (rr->loading_snapshot) {
         checkLoadSnapshotProgress(rr);
+
+        /* If we're still loading snapshot, exit now and don't call raft_periodic
+         * as we don't want to start election in this condition.
+         */
+        if (rr->loading_snapshot) {
+            return;
+        }
     }
 
     /* If we're creating a persistent snapshot, check if we're done */
