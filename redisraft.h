@@ -56,7 +56,11 @@ void raft_module_log(const char *fmt, ...);
 #define LOG_DEBUG(fmt, ...) LOG(LOGLEVEL_DEBUG, fmt, ##__VA_ARGS__)
 
 #define PANIC(fmt, ...) \
-    do {  LOG_ERROR("\n\n!!!! Redis Raft Module Panic !!!!\n" fmt, ##__VA_ARGS__); exit(1); } while (0)
+    do {  LOG_ERROR("\n\n" \
+                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n" \
+                    "REDIS RAFT PANIC\n" \
+                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" \
+                    fmt, ##__VA_ARGS__); exit(1); } while (0)
 
 #define TRACE(fmt, ...) LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
 
