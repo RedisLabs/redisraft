@@ -254,6 +254,16 @@ void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
         strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
         rr->state = REDIS_RAFT_UP;
+
+        /* Initialize Raft log.  We delay this operation as we want to create the log
+         * with the proper dbid which is only received now.
+         */
+        if (rr->config->persist) {
+            rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG, rr->snapshot_info.dbid);
+            if (!rr->log) {
+                PANIC("Failed to initialize Raft log");
+            }
+        }
     }
 
     if (rr->state != REDIS_RAFT_UP) {

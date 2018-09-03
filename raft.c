@@ -692,7 +692,7 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
         if (strcmp(rr->snapshot_info.dbid, rr->log->dbid)) {
-            PANIC("Log and snapshot have different dbids: [%s/%s]\n",
+            PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]\n",
                     rr->log->dbid, rr->snapshot_info.dbid);
         }
         if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
@@ -968,7 +968,8 @@ int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     }
     rr->state = REDIS_RAFT_JOINING;
 
-    return initRaftLog(ctx, rr);
+    /* We don't yet initialize the log, as we're waiting for dbid */
+    return REDISMODULE_OK;
 }
 
 static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *entry)
