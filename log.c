@@ -156,7 +156,7 @@ error:
     return -1;
 }
 
-RaftLog *RaftLogCreate(const char *filename, const char *dbid)
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index)
 {
     FILE *file = fopen(filename, "w+");
     if (!file) {
@@ -171,10 +171,12 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid)
     log->dbid[RAFT_DBID_LEN] = '\0';
 
     /* Write log start */
-    if (writeBegin(log, 3) < 0 ||
+    if (writeBegin(log, 5) < 0 ||
         writeBuffer(log, "RAFTLOG", 7) < 0 ||
         writeUnsignedInteger(log, RAFTLOG_VERSION) < 0 ||
         writeBuffer(log, dbid, strlen(dbid)) < 0 ||
+        writeUnsignedInteger(log, term) < 0 ||
+        writeUnsignedInteger(log, index) < 0 ||
         writeEnd(log) < 0) {
 
         LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
@@ -205,7 +207,7 @@ RaftLog *RaftLogOpen(const char *filename)
         goto error;
     }
 
-    if (e->num_elements != 3 ||
+    if (e->num_elements != 5 ||
         strcmp(e->elements[0].ptr, "RAFTLOG")) {
         LOG_ERROR("Invalid Raft log start command.");
         goto error;
@@ -223,6 +225,18 @@ RaftLog *RaftLogOpen(const char *filename)
         goto error;
     }
     strcpy(log->dbid, e->elements[2].ptr);
+
+    log->term = log->snapshot_last_term = strtoul(e->elements[3].ptr, &eptr, 10);
+    if (*eptr != '\0') {
+        LOG_ERROR("Invalid Raft log term: %s\n", e->elements[3].ptr);
+        goto error;
+    }
+
+    log->index = log->snapshot_last_idx = strtoul(e->elements[4].ptr, &eptr, 10);
+    if (*eptr != '\0') {
+        LOG_ERROR("Invalid Raft log index: %s\n", e->elements[4].ptr);
+        goto error;
+    }
 
     freeRawLogEntry(e);
     return log;
@@ -321,28 +335,6 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
-static int handleSnapshot(RaftLog *log, RawLogEntry *re)
-{
-    char *eptr;
-
-    if (re->num_elements != 3) {
-        LOG_ERROR("Log entry: SNAPSHOT: invalid number of arguments: %d\n", re->num_elements);
-        return -1;
-    }
-
-    log->snapshot_last_term = strtoul(re->elements[1].ptr, &eptr, 10);
-    if (*eptr) {
-        return -1;
-    }
-
-    log->snapshot_last_idx = strtoul(re->elements[2].ptr, &eptr, 10);
-    if (*eptr) {
-        return -1;
-    }
-
-    return 0;
-}
-
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raft_entry_t *), void *callback_arg)
 {
     int ret = 0;
@@ -350,6 +342,9 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
     if (fseek(log->file, 0, SEEK_SET) < 0) {
         return -1;
     }
+
+    log->term = 1;
+    log->index = 0;
 
     do {
         RawLogEntry *re;
@@ -368,6 +363,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
                 ret = -1;
                 break;
             }
+            log->index++;
             action = LA_APPEND;
             ret++;
         } else if (!strcasecmp(re->elements[0].ptr, "REMHEAD")) {
@@ -375,6 +371,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             ret--;
         } else if (!strcasecmp(re->elements[0].ptr, "REMTAIL")) {
             action = LA_REMOVE_TAIL;
+            log->index--;
             ret--;
         } else if (!strcasecmp(re->elements[0].ptr, "RAFTLOG")) {
             // Silently ignore
@@ -398,13 +395,6 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             } else {
                 continue;
             }
-        } else if (!strcasecmp(re->elements[0].ptr, "SNAPSHOT")) {
-            if (handleSnapshot(log, re) < 0) {
-                ret = -1;
-                break;
-            }
-            freeRawLogEntry(re);
-            continue;
         } else {
             LOG_ERROR("Invalid log entry: %s\n", (char *) re->elements[0].ptr);
             freeRawLogEntry(re);
@@ -435,18 +425,6 @@ bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
         writeUnsignedInteger(log, entry->id) < 0 ||
         writeUnsignedInteger(log, entry->type) < 0 ||
         writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
-        return false;
-    }
-
-    return true;
-}
-
-bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx)
-{
-    if (writeBegin(log, 3) < 0 ||
-            writeBuffer(log, "SNAPSHOT", 8) < 0 ||
-            writeUnsignedInteger(log, term) < 0 ||
-            writeUnsignedInteger(log, idx) < 0) {
         return false;
     }
 

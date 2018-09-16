@@ -266,6 +266,7 @@ typedef struct RaftLog {
     raft_index_t        snapshot_last_idx;
     raft_node_id_t      vote;
     raft_term_t         term;
+    raft_index_t        index;
     FILE                *file;
 } RaftLog;
 
@@ -308,7 +309,7 @@ typedef enum LogEntryAction {
     LA_REMOVE_TAIL
 } LogEntryAction;
 
-RaftLog *RaftLogCreate(const char *filename, const char *dbid);
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
 bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
@@ -318,7 +319,6 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction acti
 bool RaftLogRemoveHead(RaftLog *log);
 bool RaftLogRemoveTail(RaftLog *log);
 bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
-bool RaftLogWriteSnapshotInfo(RaftLog *log, raft_term_t term, raft_index_t idx);
 bool RaftLogSync(RaftLog *log);
 
 /* config.c */

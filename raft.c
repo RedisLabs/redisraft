@@ -695,7 +695,7 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
             PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]\n",
                     rr->log->dbid, rr->snapshot_info.dbid);
         }
-        if (rr->snapshot_info.last_applied_term != rr->log->snapshot_last_term) {
+        if (rr->snapshot_info.last_applied_term < rr->log->snapshot_last_term) {
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
                     rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
         }
@@ -905,7 +905,9 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     if (rr->config->persist) {
-        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG, rr->snapshot_info.dbid);
+        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG,
+                rr->snapshot_info.dbid,
+                1, 0);
         if (!rr->log) {
             RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
             return REDISMODULE_ERR;
@@ -981,13 +983,20 @@ int joinCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 
 static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *entry)
 {
+    RedisRaftCtx *rr = (RedisRaftCtx *) arg;
+
     switch (action) {
         case LA_APPEND:
-            return raft_append_entry(arg, entry);
+            if (rr->snapshot_info.last_applied_term <= entry->term &&
+                    rr->snapshot_info.last_applied_idx < rr->log->index) {
+                return raft_append_entry(rr->raft, entry);
+            } else {
+                return 0;
+            }
         case LA_REMOVE_HEAD:
-            return raft_poll_entry(arg, &entry);
+            return raft_poll_entry(rr->raft, &entry);
         case LA_REMOVE_TAIL:
-            return raft_pop_entry(arg);
+            return raft_pop_entry(rr->raft);
         default:
             return -1;
     }
@@ -1004,7 +1013,7 @@ int loadRaftLog(RedisRaftCtx *rr)
         return REDISMODULE_ERR;
     }
 
-    int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr->raft);
+    int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr);
     if (entries < 0) {
         LOG_ERROR("Failed to read Raft log\n");
         return REDISMODULE_ERR;

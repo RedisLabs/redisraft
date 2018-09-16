@@ -13,7 +13,7 @@
 
 static int setup_create_log(void **state)
 {
-    *state = RaftLogCreate(LOGNAME, DBID);
+    *state = RaftLogCreate(LOGNAME, DBID, 1, 0);
     assert_non_null(*state);
     return 0;
 }

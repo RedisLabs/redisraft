@@ -59,14 +59,10 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
 
 long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
 {
-    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid);
+    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid, 
+            rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
     long long int num_entries = 0;
-
-    /* Write a snapshot marker */
-    if (RaftLogWriteSnapshotInfo(log, rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx) < 0) {
-        RaftLogClose(log);
-        return -1;
-    }
 
     raft_index_t i;
     for (i = raft_get_first_entry_idx(rr->raft) + 1; i <= raft_get_current_idx(rr->raft); i++) {
