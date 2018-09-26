@@ -79,7 +79,8 @@ def resolve_config():
     return DefaultConfig
 
 class RedisRaft(object):
-    def __init__(self, _id, port, config=None, raft_args=None):
+    def __init__(self, _id, port, config=None, persist_log=True,
+                 raft_args=None):
         if config is None:
             config = resolve_config()
         if raft_args is None:
@@ -96,13 +97,14 @@ class RedisRaft(object):
         self.raftlog = self.dbfilename + '.raftlog'
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
-        self.args += ['--repl-diskless-sync', 'yes',
-                      '--repl-diskless-sync-delay', '0']
+        if not persist_log:
+            self.args += ['--save', '']
         self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
 
+        raft_args['persist'] = 'yes' if persist_log else 'no'
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
         raft_args['raftlog'] = self.raftlog
@@ -171,6 +173,20 @@ class RedisRaft(object):
                 LOG.info('RedisRaft<%s> terminated', self.id)
         self.process = None
 
+    def kill(self):
+        if self.process:
+            try:
+                self.process.kill()
+                self.process.wait()
+
+            except OSError as err:
+                LOG.error('Cannot kill RedisRaft<%s>: %s',
+                          self.id, err)
+                pass
+            else:
+                LOG.info('RedisRaft<%s> killed', self.id)
+        self.process = None
+
     def restart(self, retries=5):
         self.terminate()
         while retries > 0:
@@ -237,11 +253,27 @@ class RedisRaft(object):
                                  timeout)
         LOG.debug("Finished waiting logs to be applied.")
 
+    def wait_for_current_index(self, idx, timeout=10):
+        def current_idx_reached():
+            info = self.raft_info()
+            return bool(info['current_index'] == idx)
+        def raise_not_reached():
+            info = self.raft_info()
+            LOG.debug("------- last info before bail out: %s\n", info)
+
+            raise RedisRaftTimeout(
+                'Expected current index %s not reached' % idx)
+        self._wait_for_condition(current_idx_reached, raise_not_reached,
+                                 timeout)
+
     def wait_for_commit_index(self, idx, timeout=10):
         def commit_idx_reached():
             info = self.raft_info()
             return bool(info['commit_index'] == idx)
         def raise_not_reached():
+            info = self.raft_info()
+            LOG.debug("------- last info before bail out: %s\n", info)
+
             raise RedisRaftTimeout(
                 'Expected commit index %s not reached' % idx)
         self._wait_for_condition(commit_idx_reached, raise_not_reached,
@@ -296,11 +328,12 @@ class Cluster(object):
     def node_ports(self):
         return [self.base_port + p for p in self.nodes.keys()]
 
-    def create(self, node_count, raft_args=None):
+    def create(self, node_count, persist_log=True, raft_args=None):
         if raft_args is None:
             raft_args={}
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
+                                   persist_log=persist_log,
                                    raft_args=raft_args)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
@@ -313,10 +346,11 @@ class Cluster(object):
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
 
-    def add_node(self):
+    def add_node(self, persist_log=True, raft_args=None):
         _id = self.next_id
         self.next_id += 1
-        node = RedisRaft(_id, self.base_port + _id)
+        node = RedisRaft(_id, self.base_port + _id, persist_log=persist_log,
+                         raft_args=raft_args)
         if len(self.nodes) > 0:
             node.join(self.node_ports())
         else:
@@ -363,7 +397,13 @@ class Cluster(object):
             if exclude is not None and int(_id) in exclude:
                 continue
             node.wait_for_commit_index(commit_idx)
-        LOG.info("wait_for_unanimity: commit index is %s", commit_idx)
+
+    def wait_for_replication(self, exclude=None):
+        current_idx = self.node(self.leader).current_index()
+        for _id, node in self.nodes.items():
+            if exclude is not None and int(_id) in exclude:
+                continue
+            node.wait_for_current_index(current_idx)
 
     def raft_retry(self, func):
         no_leader_first = True

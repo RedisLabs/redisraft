@@ -9,7 +9,6 @@ class RawEntry(object):
     REMTAIL = 'REMTAIL'
     TERM = 'TERM'
     VOTE = 'VOTE'
-    SNAPSHOT = 'SNAPSHOT'
 
     def __init__(self, args):
         self.args = args.copy()

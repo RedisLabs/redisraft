@@ -23,12 +23,11 @@ def test_counter_fuzzer_with_rewrites(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'max_log_entries': 11})
+    c.create(nodes, persist_log=True, raft_args={'max_log_entries': 11})
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         logging.info('---------- Executed INCRBY # %s', i)
         if i % 7 == 0:
-            c.wait_for_unanimity()
             r = random.randint(1, nodes)
             logging.info('********** Restarting node %s **********', r)
             c.node(r).restart()
@@ -47,7 +46,7 @@ def test_basic_fuzzer(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes)
+    c.create(nodes, persist_log=True)
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:
@@ -65,7 +64,7 @@ def test_fuzzing_with_config_changes(c):
     nodes = 5
     cycles = 100
 
-    c.create(nodes, raft_args={'persist': 'yes'})
+    c.create(nodes, persist_log=True)
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:

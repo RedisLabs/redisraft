@@ -23,12 +23,12 @@ def test_counter_fuzzer_with_rewrites(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'persist': 'yes', 'max_log_entries': '11'})
+    c.create(nodes, persist_log=True, raft_args={'max_log_entries': '11'})
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         logging.info('---------- Executed INCRBY # %s', i)
         if i % 7 == 0:
-            c.wait_for_unanimity()
+            c.wait_for_replication()
             r = random.randint(1, nodes)
             logging.info('********** Restarting node %s **********', r)
             c.node(r).restart()

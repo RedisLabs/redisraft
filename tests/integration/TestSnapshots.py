@@ -1,7 +1,7 @@
 import sys
 import time
 import sandbox
-from nose.tools import eq_, ok_, assert_greater
+from nose.tools import eq_, ok_, assert_greater, nottest
 from test_tools import with_setup_args
 from raftlog import RaftLog, LogEntry
 
@@ -165,3 +165,51 @@ def test_new_uncommitted_during_rewrite(c):
     # Make sure node 1 state is as expected
     c.node(1).wait_for_log_applied()
     eq_(b'10', c.node(1).client.get('key'))
+
+@with_setup_args(_setup, _teardown)
+def test_identical_snapshot_and_log(c):
+    r1 = c.add_node(raft_args={'persist': 'yes'})
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    r1.terminate()
+    r1.start()
+    r1.wait_for_info_param('state', 'up')
+
+    # Both log and snapshot have all entries
+    eq_(r1.client.get('testkey'), b'2')
+
+@with_setup_args(_setup, _teardown)
+def test_loading_log_tail(c):
+    r1 = c.add_node(raft_args={'persist': 'yes'})
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    r1.client.save()
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    r1.kill()
+    r1.start()
+    r1.wait_for_info_param('state', 'up')
+
+    # Log contains all entries
+    # Snapshot has all but last 3 entries
+    eq_(r1.client.get('testkey'), b'6')
+
+@with_setup_args(_setup, _teardown)
+def test_loading_log_tail_after_rewrite(c):
+    r1 = c.add_node(raft_args={'persist': 'yes'})
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    eq_(r1.client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    ok_(r1.raft_exec('INCR', 'testkey'))
+    r1.kill()
+    r1.start()
+    r1.wait_for_info_param('state', 'up')
+
+    # Log contains last 3 entries
+    # Snapshot has first 3 entries
+    eq_(r1.client.get('testkey'), b'6')
