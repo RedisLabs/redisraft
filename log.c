@@ -189,64 +189,6 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
     return log;
 }
 
-RaftLog *RaftLogOpen(const char *filename)
-{
-    FILE *file = fopen(filename, "a+");
-    if (!file) {
-        LOG_ERROR("Failed top open Raft log: %s: %s\n", filename, strerror(errno));
-        return NULL;
-    }
-
-    RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
-    log->file = file;
-
-    /* Read start */
-    RawLogEntry *e = NULL;
-    if (readRawLogEntry(log, &e) < 0) {
-        LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
-        goto error;
-    }
-
-    if (e->num_elements != 5 ||
-        strcmp(e->elements[0].ptr, "RAFTLOG")) {
-        LOG_ERROR("Invalid Raft log start command.");
-        goto error;
-    }
-
-    char *eptr;
-    unsigned long ver = strtoul(e->elements[1].ptr, &eptr, 10);
-    if (*eptr != '\0' || ver != RAFTLOG_VERSION) {
-        LOG_ERROR("Invalid Raft log version: %lu\n", ver);
-        goto error;
-    }
-
-    if (strlen(e->elements[2].ptr) > RAFT_DBID_LEN) {
-        LOG_ERROR("Invalid Raft log dbid: %s\n", e->elements[2].ptr);
-        goto error;
-    }
-    strcpy(log->dbid, e->elements[2].ptr);
-
-    log->term = log->snapshot_last_term = strtoul(e->elements[3].ptr, &eptr, 10);
-    if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log term: %s\n", e->elements[3].ptr);
-        goto error;
-    }
-
-    log->index = log->snapshot_last_idx = strtoul(e->elements[4].ptr, &eptr, 10);
-    if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log index: %s\n", e->elements[4].ptr);
-        goto error;
-    }
-
-    freeRawLogEntry(e);
-    return log;
-
-error:
-    freeRawLogEntry(e);
-    RedisModule_Free(log);
-    return NULL;
-}
-
 int readRaftLogEntryLen(RaftLog *log, size_t *entry_len)
 {
     size_t nread = fread(entry_len, 1, sizeof(*entry_len), log->file);
@@ -318,6 +260,42 @@ static int handleTerm(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
+static int handleHeader(RaftLog *log, RawLogEntry *re)
+{
+    if (re->num_elements != 5 ||
+        strcmp(re->elements[0].ptr, "RAFTLOG")) {
+        LOG_ERROR("Invalid Raft log header.");
+        return -1;
+    }
+
+    char *eptr;
+    unsigned long ver = strtoul(re->elements[1].ptr, &eptr, 10);
+    if (*eptr != '\0' || ver != RAFTLOG_VERSION) {
+        LOG_ERROR("Invalid Raft header version: %lu\n", ver);
+        return -1;
+    }
+
+    if (strlen(re->elements[2].ptr) > RAFT_DBID_LEN) {
+        LOG_ERROR("Invalid Raft log dbid: %s\n", re->elements[2].ptr);
+        return -1;
+    }
+    strcpy(log->dbid, re->elements[2].ptr);
+
+    log->term = log->snapshot_last_term = strtoul(re->elements[3].ptr, &eptr, 10);
+    if (*eptr != '\0') {
+        LOG_ERROR("Invalid Raft log term: %s\n", re->elements[3].ptr);
+        return -1;
+    }
+
+    log->index = log->snapshot_last_idx = strtoul(re->elements[4].ptr, &eptr, 10);
+    if (*eptr != '\0') {
+        LOG_ERROR("Invalid Raft log index: %s\n", re->elements[4].ptr);
+        return -1;
+    }
+
+    return 0;
+}
+
 static int handleVote(RaftLog *log, RawLogEntry *re)
 {
     char *eptr;
@@ -334,6 +312,38 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
 
     return 0;
 }
+
+RaftLog *RaftLogOpen(const char *filename)
+{
+    FILE *file = fopen(filename, "a+");
+    if (!file) {
+        LOG_ERROR("Failed top open Raft log: %s: %s\n", filename, strerror(errno));
+        return NULL;
+    }
+
+    RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
+    log->file = file;
+
+    /* Read start */
+    RawLogEntry *e = NULL;
+    if (readRawLogEntry(log, &e) < 0) {
+        LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
+        goto error;
+    }
+
+    if (handleHeader(log, e) < 0) {
+        goto error;
+    }
+
+    freeRawLogEntry(e);
+    return log;
+
+error:
+    freeRawLogEntry(e);
+    RedisModule_Free(log);
+    return NULL;
+}
+
 
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raft_entry_t *), void *callback_arg)
 {
@@ -374,7 +384,10 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             log->index--;
             ret--;
         } else if (!strcasecmp(re->elements[0].ptr, "RAFTLOG")) {
-            // Silently ignore
+            if (handleHeader(log, re) < 0) {
+                return -1;
+                break;
+            }
             freeRawLogEntry(re);
             continue;
         } else if (!strcasecmp(re->elements[0].ptr, "TERM")) {

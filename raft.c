@@ -718,6 +718,9 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
         raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
     }
 
+    memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
+    rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
+
     raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
 
@@ -726,7 +729,11 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
     raft_set_current_term(rr->raft, rr->log->term);
     raft_vote_for_nodeid(rr->raft, rr->log->vote);
 
-    LOG_INFO("Raft Log: loaded current term=%lu, vote=%d\n", rr->log->term, rr->log->vote);
+    LOG_DEBUG("Raft Log: loaded current term=%lu, vote=%d\n", rr->log->term, rr->log->vote);
+    LOG_DEBUG("Raft state after applying log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu\n",
+            raft_get_log_count(rr->raft),
+            raft_get_current_idx(rr->raft),
+            raft_get_last_applied_idx(rr->raft));
 
     initializeSnapshotInfo(rr);
 
@@ -866,7 +873,7 @@ static void RedisRaftThread(void *arg)
     RedisRaftCtx *rr = (RedisRaftCtx *) arg;
 
     /* TODO: Properly handle the race condition here */
-    sleep(2);
+    sleep(0.5);
     uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
             rr->config->raft_interval, rr->config->raft_interval);
     uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
@@ -1071,6 +1078,10 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
      */
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
     rr->callbacks_set = true;
+
+    if (ValidateRedisConfig(rr, ctx) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
 
     if (!config->init && !config->join) {
         if (!config->persist) {

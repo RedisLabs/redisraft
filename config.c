@@ -323,3 +323,27 @@ int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
     return REDISMODULE_OK;
 }
 
+int ValidateRedisConfig(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    if (!rr->config->persist) {
+        size_t len;
+        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "cc", "GET", "save");
+        assert(reply != NULL);
+        assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+
+        RedisModuleCallReply *reply_save = RedisModule_CallReplyArrayElement(reply, 1);
+        assert(RedisModule_CallReplyType(reply_save) == REDISMODULE_REPLY_STRING);
+
+        RedisModule_CallReplyStringPtr(reply_save, &len);
+        if (len != 0) {
+            RedisModule_Log(ctx, REDIS_WARNING, "Redis is configured with 'save' but Redis Raft expects no persistence.");
+            return REDISMODULE_ERR;
+        }
+
+        RedisModule_FreeCallReply(reply_save);
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return REDISMODULE_OK;
+}
+

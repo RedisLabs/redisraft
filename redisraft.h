@@ -146,7 +146,7 @@ typedef struct {
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
 #define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
-#define REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF    1
+#define REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF    10
 
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
@@ -328,6 +328,7 @@ int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int ConfigSetupFilenames(RedisRaftCtx *rr);
+int ValidateRedisConfig(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
