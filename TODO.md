@@ -1,6 +1,11 @@
 To-do list
 ==========
 
+Problems
+--------
+
+[] Long running Raft initiated operations leading to election.
+
 Raft Module
 -----------
 
@@ -19,3 +24,8 @@ Raft Library
 [] Make it possible to set up callbacks immediately, fix anything that breaks
    because of it now.
 [] Improve callback API to prevent unnecessary allocations/deallocations.
+
+Tests
+-----
+
+>> Node joins, restarts from log and needs to know term/vote properly.

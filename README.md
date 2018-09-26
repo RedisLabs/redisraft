@@ -45,6 +45,14 @@ $ pip install -r tests/integration/requirements.txt
 $ make tests
 ```
 
+Integration tests are based on Python nose, and specific parameters can be
+provided to configure tests.  For example, running a single test with
+no logging capture, so output is printed in runtime:
+
+```
+NOSE_OPTS="-v --nologcapture --logging-config=tests/integration/logging.ini --tests tests/integration/TestSnapshots.py:test_new_snapshot_with_old_log" make integration-tests
+```
+
 ### Starting a cluster
 
 To create a three node cluster, start the first node and initialize the
