@@ -17,7 +17,7 @@ LIBS = \
        $(BUILDDIR)/lib/libraft.a \
        $(BUILDDIR)/lib/libhiredis.a \
        $(BUILDDIR)/lib/libuv.a \
-       -lpthread
+       -lpthread -lc
 
 OBJECTS = \
 	  redisraft.o \

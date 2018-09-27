@@ -208,7 +208,6 @@ int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
     config->max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
-    config->load_snapshot_backoff = REDIS_RAFT_DEFAULT_LOAD_SNAPSHOT_BACKOFF;
     config->persist = true;
 }
 

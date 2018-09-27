@@ -290,25 +290,11 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
         return REDISMODULE_OK;
     }
 
-    size_t addrlen;
-    const char *addr = RedisModule_StringPtrLen(argv[3], &addrlen);
-    RaftReq *req = RaftReqInit(NULL, RR_LOADSNAPSHOT);
-    if (!NodeAddrParse(addr, addrlen, &req->r.loadsnapshot.addr)) {
-        RedisModule_ReplyWithError(ctx, "-ERR invalid address");
-        RaftReqFree(req);
-        return REDISMODULE_OK;
-    }
+    RaftReq *req = RaftReqInit(ctx, RR_LOADSNAPSHOT);
+    req->r.loadsnapshot.snapshot = argv[3];
+    RedisModule_RetainString(ctx, req->r.loadsnapshot.snapshot);
 
-    /* Unlike all other RAFT commands, we reply to this one immediately
-     * to avoid the -UNBLOCKED error which result from changing stat.e
-     */
-    if (rr->loading_snapshot) {
-        RedisModule_ReplyWithError(ctx, "-LOADING loading snapshot");
-        RaftReqFree(req);
-    } else {
-        RedisModule_ReplyWithLongLong(ctx, 1);
-        RaftReqSubmit(&redis_raft, req);
-    }
+    RaftReqSubmit(&redis_raft, req);
 
     return REDISMODULE_OK;
 }

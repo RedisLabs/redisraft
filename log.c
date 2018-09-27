@@ -339,7 +339,9 @@ RaftLog *RaftLogOpen(const char *filename)
     return log;
 
 error:
-    freeRawLogEntry(e);
+    if (e != NULL) {
+        freeRawLogEntry(e);
+    }
     RedisModule_Free(log);
     return NULL;
 }

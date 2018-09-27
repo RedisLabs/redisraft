@@ -1,6 +1,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* Verify we're little endian, as our encoding is such and we
  * don't do network/host reodering.
@@ -381,7 +384,7 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
     raft_node_t *raft_node;
     Node *node;
 
-    TRACE("raftLogOffer: entry_idx=%ld\n", entry_idx);
+    TRACE("raftLogOffer: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
     /* Memory management policy: we always make a copy of the data here. In some cases
      * we could avoid it but the Raft library makes no distinction of how an entry was
@@ -561,18 +564,41 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
     } else {
         NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld\n",
                 reply->integer);
-
-        /* If snapshot is already available on node, update it.
-         *
-         * The Raft paper does not address this issue and whether this should be
-         * deduced by AE heartbeats or not.  The Raft library doesn't so it's
-         * required here.
-         */
-        if (!reply->integer) {
-            raft_node_t *n = raft_get_node(rr->raft, node->id);
-            raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
-        }
+        raft_node_t *n = raft_get_node(rr->raft, node->id);
+        raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
     }
+}
+
+static char *loadSnapshotFile(const char *filename, size_t *size)
+{
+    int fd = open(filename, O_RDONLY);
+    struct stat st;
+    char *buf = NULL;
+
+    if (fd < 0 || fstat(fd, &st) < 0) {
+        LOG_ERROR("Failed to load snapshot file: %s: %s\n",
+                filename, strerror(errno));
+        goto exit;
+    }
+
+    buf = RedisModule_Alloc(st.st_size);
+    assert(buf != NULL);
+
+    if (read(fd, buf, st.st_size) != st.st_size) {
+        LOG_ERROR("Failed to read snapshot file: %s: %s\n",
+                filename, strerror(errno));
+        RedisModule_Free(buf);
+        buf = NULL;
+        goto exit;
+    }
+
+    *size = st.st_size;
+
+exit:
+    if (fd != -1) {
+        close(fd);
+    }
+    return buf;
 }
 
 static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
@@ -581,15 +607,18 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
     Node *node = (Node *) raft_node_get_udata(raft_node);
     time_t now = time(NULL);
 
+    /* Don't attempt to send a snapshot if we're in the process of creating one */
+    if (rr->snapshot_in_progress) {
+        NODE_LOG_DEBUG(node, "not sending snapshot, snapshot_in_progress\n");
+        return 0;
+    }
+
     /* We don't attempt to load a snapshot before we receive a response.
      *
      * Note: a response in this case only lets us know the operation begun,
      * but it's not a blocking operation.  See RAFT.LOADSNAPSHOT for more info.
      */
     if (node->load_snapshot_in_progress) {
-        return 0;
-    }
-    if (node->load_snapshot_last_time + rr->config->load_snapshot_backoff > now) {
         return 0;
     }
 
@@ -602,20 +631,45 @@ static int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *r
         return -1;
     }
 
-    if (redisAsyncCommand(node->rc, handleLoadSnapshotResponse, node,
-        "RAFT.LOADSNAPSHOT %u %u %s:%u",
-        raft_get_snapshot_last_term(raft),
-        raft_get_snapshot_last_idx(raft),
-        rr->config->addr.host,
-        rr->config->addr.port) != REDIS_OK) {
-
-        node->state = NODE_CONNECT_ERROR;
+    /* Load snapshot data */
+    char last_term[30];
+    snprintf(last_term, sizeof(last_term) - 1, "%lu", raft_get_snapshot_last_term(raft));
+    char last_idx[30];
+    snprintf(last_idx, sizeof(last_idx) - 1, "%lu", raft_get_snapshot_last_idx(raft));
+    size_t snapshot_size;
+    char *snapshot_data = loadSnapshotFile(rr->config->rdb_filename, &snapshot_size);
+    if (!snapshot_data) {
         return -1;
     }
+
+    LOG_DEBUG("Loaded snapshot: %s: %lu bytes\n",
+            rr->config->rdb_filename, snapshot_size);
+
+    const char *args[4] = {
+        "RAFT.LOADSNAPSHOT",
+        last_term,
+        last_idx,
+        snapshot_data
+    };
+    size_t args_len[4] = {
+        strlen(args[0]),
+        strlen(args[1]),
+        strlen(args[2]),
+        snapshot_size
+    };
 
     node->load_snapshot_idx = raft_get_snapshot_last_idx(raft);
     node->load_snapshot_in_progress = true;
     node->load_snapshot_last_time = now;
+
+    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
+        node->state = NODE_CONNECT_ERROR;
+        node->load_snapshot_in_progress = false;
+        RedisModule_Free(snapshot_data);
+        return -1;
+    }
+
+    RedisModule_Free(snapshot_data);
 
     return 0;
 }
@@ -804,31 +858,21 @@ static void callRaftPeriodic(uv_timer_t *handle)
                 exit(1);
             }
 
-            if (rr->log->snapshot_last_term) {
-                LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
-                        rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
-            } else {
-                LOG_INFO("Loading: Log is complete.\n");
-            }
+            if (rr->log) {
+                if (rr->log->snapshot_last_term) {
+                    LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
+                            rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
+                } else {
+                    LOG_INFO("Loading: Log is complete.\n");
+                }
 
-            applyLoadedRaftLog(rr);
+                applyLoadedRaftLog(rr);
+            }
             rr->state = REDIS_RAFT_UP;
         }
 
         /* There is nothing for us to do until we finish loading. */
         return;
-    }
-
-    /* If we're loading a snapshot, check if we're done */
-    if (rr->loading_snapshot) {
-        checkLoadSnapshotProgress(rr);
-
-        /* If we're still loading snapshot, exit now and don't call raft_periodic
-         * as we don't want to start election in this condition.
-         */
-        if (rr->loading_snapshot) {
-            return;
-        }
     }
 
     /* If we're creating a persistent snapshot, check if we're done */
@@ -1148,6 +1192,9 @@ void RaftReqFree(RaftReq *req)
                 RedisModule_Free(req->r.redis.cmd.argv);
             }
             req->r.redis.cmd.argv = NULL;
+            break;
+        case RR_LOADSNAPSHOT:
+            RedisModule_Free(req->r.loadsnapshot.snapshot);
             break;
     }
     if (req->ctx) {

@@ -26,6 +26,25 @@ def test_compaction_thresholds(c):
     assert_greater(5, r1.raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
+def test_simple_snapshot_delivery(c):
+    """
+    Ability to properly deliver and load a snapshot.
+    """
+
+    r1 = c.add_node()
+    r1.raft_exec('INCR', 'testkey')
+    r1.raft_exec('INCR', 'testkey')
+    r1.raft_exec('INCR', 'testkey')
+    eq_(r1.client.get('testkey'), b'3')
+
+    eq_(r1.client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
+    eq_(0, r1.raft_info()['log_entries'])
+
+    r2 = c.add_node()
+    c.wait_for_unanimity()
+    eq_(r2.client.get('testkey'), b'3')
+
+@with_setup_args(_setup, _teardown)
 def test_cfg_node_added_from_snapshot(c):
     """
     Node able to join cluster and read cfg and data from snapshot.
@@ -99,23 +118,30 @@ def test_all_committed_log_rewrite(c):
 def test_uncommitted_log_rewrite(c):
     c.create(3, raft_args={'persist': 'yes'})
 
+    # Log contains 5 config entries
+
     # Take down majority to create uncommitted entries and check rewrite
-    c.node(1).raft_exec('SET', 'key', 'value')
+    c.node(1).raft_exec('SET', 'key', 'value')  # Entry idx 6
     c.node(2).terminate()
     c.node(3).terminate()
     conn = c.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'SET', 'key2', 'value2')
+    conn.send_command('RAFT', 'SET', 'key2', 'value2')  # Entry idx 7
 
-    eq_(1, c.node(1).current_index() - c.node(1).commit_index())
+    eq_(c.node(1).current_index(), 7)
+    eq_(c.node(1).commit_index(), 6)
     eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
     eq_(1, c.node(1).raft_info()['log_entries'])
-
-    import shutil
-    shutil.copy(c.node(1).raftlog, 'test.log')
 
     log = RaftLog(c.node(1).raftlog)
     log.read()
     eq_(1, log.entry_count(LogEntry.LogType.NORMAL))
+
+    c.node(1).kill()
+    c.node(1).start()
+    c.node(1).wait_for_info_param('state', 'up')
+    eq_(c.node(1).current_index(), 7)
+    eq_(c.node(1).commit_index(), 6)
+    eq_(1, c.node(1).raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
 def test_new_uncommitted_during_rewrite(c):

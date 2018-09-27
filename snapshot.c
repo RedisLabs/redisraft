@@ -59,7 +59,7 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
 
 long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
 {
-    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid, 
+    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
     long long int num_entries = 0;
@@ -463,11 +463,11 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
  * 1. Configure index/term/etc.
  * 2. Reconfigure nodes based on the snapshot metadata configuration.
  */
-static void loadSnapshot(RedisRaftCtx *rr)
+static int loadSnapshot(RedisRaftCtx *rr)
 {
     if (!rr->snapshot_info.loaded) {
         LOG_ERROR("No snapshot metadata received, aborting.\n");
-        return;
+        return -1;
     }
 
     LOG_INFO("Begining snapshot load, term=%lu, last_included_index=%lu\n",
@@ -478,77 +478,47 @@ static void loadSnapshot(RedisRaftCtx *rr)
     if ((ret = raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
                 rr->snapshot_info.last_applied_idx)) != 0) {
         LOG_ERROR("Cannot load snapshot: already loaded?\n");
-        return;
+        return -1;
     }
 
     configRaftFromSnapshotInfo(rr);
 
     raft_end_load_snapshot(rr->raft);
+    return 0;
 }
 
-/* Monitor Redis Replication progress when loading a snapshot.  If completed,
- * reconfigure Raft with the metadata from the new snapshot.
- */
-void checkLoadSnapshotProgress(RedisRaftCtx *rr)
+static int storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
 {
-    RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "INFO", "c", "replication");
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
-    assert(reply != NULL);
+    size_t data_len;
+    const char *data = RedisModule_StringPtrLen(data_str, &data_len);
+    int fd = open(rr->config->rdb_filename, O_CREAT|O_TRUNC|O_RDWR, 0666);
 
-    size_t info_len;
-    const char *info = RedisModule_CallReplyProto(reply, &info_len);
-    const char *key, *val;
-    size_t keylen, vallen;
-    int ret;
-
-    static const char _master_link_status[] = "master_link_status";
-    static const char _master_sync_in_progress[] = "master_sync_in_progress";
-
-    bool link_status_up = false;
-    bool sync_in_progress = true;
-
-    while ((ret = RedisInfoIterate(&info, &info_len, &key, &keylen, &val, &vallen))) {
-        if (ret == -1) {
-            LOG_ERROR("Failed to parse INFO reply");
-            goto exit;
-        }
-
-        if (keylen == sizeof(_master_link_status)-1 &&
-                !memcmp(_master_link_status, key, keylen) &&
-            vallen == 2 && !memcmp(val, "up", 2)) {
-            link_status_up = true;
-        } else if (keylen == sizeof(_master_sync_in_progress)-1 &&
-                !memcmp(_master_sync_in_progress, key, keylen) &&
-                vallen == 1 && *val == '0') {
-            sync_in_progress = false;
-        }
+    if (fd < 0) {
+        LOG_ERROR("Failed to open snapshot file: %s: %s",
+                rr->config->rdb_filename, strerror(errno));
+        return REDISMODULE_ERR;
     }
 
+    int r = write(fd, data, data_len);
+    if (r < data_len) {
+        if (r < 0) {
+            LOG_ERROR("Failed to write snapshot file: %s: %s", rr->config->rdb_filename,
+                    strerror(errno));
+        } else {
+            LOG_ERROR("Short write on snapshot file: %s", rr->config->rdb_filename);
+        }
+        close(fd);
 
-exit:
-    RedisModule_FreeCallReply(reply);
-
-    if (link_status_up && !sync_in_progress) {
-        RedisModule_ThreadSafeContextLock(rr->ctx);
-
-        /* Rename dbfilename, so we don't overwrite our last snapshot */
-        reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename",
-                rr->config->snapshot_filename);
-        assert(reply != NULL);
-        assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
-        RedisModule_FreeCallReply(reply);
-
-        reply = RedisModule_Call(rr->ctx, "SLAVEOF", "cc", "NO", "ONE");
-        RedisModule_ThreadSafeContextUnlock(rr->ctx);
-        assert(reply != NULL);
-
-        RedisModule_FreeCallReply(reply);
-
-        loadSnapshot(rr);
-        rr->loading_snapshot = false;
+        return REDISMODULE_ERR;
     }
+
+    LOG_DEBUG("Saved received snapshot to file: %s, %lu bytes\n",
+            rr->config->rdb_filename, data_len);
+
+    return REDISMODULE_OK;
 }
+
+int rdbLoad(const char *filename, void *info);
 
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -558,36 +528,48 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
         LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT as I am the leader.");
+        RedisModule_ReplyWithError(req->ctx, "ERR leader does not accept snapshots");
         goto exit;
     }
 
     if (rr->snapshot_in_progress) {
         LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
+        RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");
+        goto exit;
+    }
+
+    if (storeSnapshotData(rr, req->r.loadsnapshot.snapshot) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to store snapshot");
         goto exit;
     }
 
     RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(
-            rr->ctx, "SLAVEOF", "cl",
-            req->r.loadsnapshot.addr.host,
-            (long long) req->r.loadsnapshot.addr.port);
-
+    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "FLUSHALL", "");
     if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
-        /* No errors because we don't use a blocking client for this type
-         * of requests.
-         */
-    } else {
-        rr->snapshot_info.loaded = false;
-        rr->loading_snapshot = true;
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to flush db before loading snapshot");
+        RedisModule_ThreadSafeContextUnlock(rr->ctx);
+        goto exit;
+    }
+
+    rr->snapshot_info.loaded = false;
+
+    if (rdbLoad(rr->config->rdb_filename, NULL) != 0 ||
+            !rr->snapshot_info.loaded ||
+            loadSnapshot(rr) < 0) {
+        LOG_ERROR("Failed to load snapshot");
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to load snapshot");
+        RedisModule_ThreadSafeContextUnlock(rr->ctx);
+        goto exit;
     }
 
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
+    RedisModule_ReplyWithLongLong(req->ctx, 1);
 
+exit:
     if (reply) {
         RedisModule_FreeCallReply(reply);
     }
 
-exit:
     RaftReqFree(req);
 }
 

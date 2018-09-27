@@ -9,6 +9,9 @@
 extern struct CMUnitTest log_tests[];
 extern struct CMUnitTest util_tests[];
 
+/* Redis symbols to keep linker happy */
+void *rdbLoad;
+
 int tests_count(struct CMUnitTest *tests)
 {
     int count = 0;
