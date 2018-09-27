@@ -266,10 +266,13 @@ class RedisRaft(object):
         self._wait_for_condition(current_idx_reached, raise_not_reached,
                                  timeout)
 
-    def wait_for_commit_index(self, idx, timeout=10):
+    def wait_for_commit_index(self, idx, gt_ok=False, timeout=10):
         def commit_idx_reached():
             info = self.raft_info()
-            return bool(info['commit_index'] == idx)
+            if gt_ok:
+                return bool(info['commit_index'] >= idx)
+            else:
+                return bool(info['commit_index'] == idx)
         def raise_not_reached():
             info = self.raft_info()
             LOG.debug("------- last info before bail out: %s\n", info)
@@ -396,7 +399,7 @@ class Cluster(object):
         for _id, node in self.nodes.items():
             if exclude is not None and int(_id) in exclude:
                 continue
-            node.wait_for_commit_index(commit_idx)
+            node.wait_for_commit_index(commit_idx, gt_ok=True)
 
     def wait_for_replication(self, exclude=None):
         current_idx = self.node(self.leader).current_index()

@@ -121,7 +121,7 @@ def test_cfg_node_removed_from_snapshot(c):
     # bring back node 4
     c.node(4).start()
     c.node(4).wait_for_election()
-    eq_(5, c.node(4).raft_info()['num_nodes'])
+    eq_(4, c.node(4).raft_info()['num_nodes'])
 
 @with_setup_args(_setup, _teardown)
 def test_all_committed_log_rewrite(c):
