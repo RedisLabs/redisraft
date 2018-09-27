@@ -270,6 +270,17 @@ typedef struct RaftLog {
 
 #define RAFTLOG_VERSION     1
 
+#define SNAPSHOT_RESULT_MAGIC    0x70616e73  /* "snap" */
+typedef struct SnapshotResult {
+    int magic;
+    int success;
+    long long int num_entries;
+    char rdb_filename[256];
+    char log_filename[256];
+    char err[256];
+} SnapshotResult;
+
+
 /* node.c */
 void NodeFree(Node *node);
 void NodeUnlink(Node *node);
@@ -335,10 +346,10 @@ void initializeSnapshotInfo(RedisRaftCtx *rr);
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
 RedisRaftResult initiateSnapshot(RedisRaftCtx *rr);
-RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr);
-void cancelSnapshot(RedisRaftCtx *rr);
+RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
+void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void handleCompact(RedisRaftCtx *rr, RaftReq *req);
-int pollSnapshotStatus(RedisRaftCtx *rr);
+int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 
 #endif  /* _REDISRAFT_H */

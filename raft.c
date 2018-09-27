@@ -877,13 +877,15 @@ static void callRaftPeriodic(uv_timer_t *handle)
 
     /* If we're creating a persistent snapshot, check if we're done */
     if (rr->snapshot_in_progress) {
-        ret = pollSnapshotStatus(rr);
+        SnapshotResult sr;
+
+        ret = pollSnapshotStatus(rr, &sr);
         if (ret == -1) {
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
-            cancelSnapshot(rr);
+            cancelSnapshot(rr, &sr);
         }  else if (ret) {
             LOG_DEBUG("Snapshot operation completed successfuly.\n");
-            finalizeSnapshot(rr);
+            finalizeSnapshot(rr, &sr);
         } /* else we're still in progress */
     }
 
