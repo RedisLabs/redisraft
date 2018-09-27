@@ -40,6 +40,8 @@ class RawEntry(object):
 
         if str(args[0], encoding='ascii') == cls.ENTRY:
             return LogEntry(args)
+        elif str(args[0], encoding='ascii') == cls.RAFTLOG:
+            return LogHeader(args)
         else:
             return RawEntry(args)
 
@@ -49,6 +51,16 @@ class RawEntry(object):
     def __repr__(self):
         return '<RawEntry:%s>' % ','.join(str(x, encoding='ascii')
                                           for x in self.args)
+
+class LogHeader(RawEntry):
+    def version(self):
+        return int(self.args[1])
+    def dbid(self):
+        return self.args[2]
+    def snapshot_term(self):
+        return int(self.args[3])
+    def snapshot_index(self):
+        return int(self.args[4])
 
 class LogEntry(RawEntry):
     class LogType(Enum):
@@ -84,6 +96,9 @@ class RaftLog(object):
                 break
             self.entries.append(entry)
         self.dump()
+
+    def header(self):
+        return self.entries[0]
 
     def entry_count(self, type=None):
         count = 0

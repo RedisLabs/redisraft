@@ -45,6 +45,35 @@ def test_simple_snapshot_delivery(c):
     eq_(r2.client.get('testkey'), b'3')
 
 @with_setup_args(_setup, _teardown)
+def test_log_fixup_after_snapshot_delivery(c):
+    """
+    Log must be restarted when loading a snapshot.
+    """
+
+    c.create(3, persist_log=True)
+    c.node(1).raft_exec('INCR', 'key')
+    c.node(1).raft_exec('INCR', 'key')
+
+    c.node(2).terminate()
+    c.node(1).raft_exec('INCR', 'key')
+    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
+
+    # Confirm node 2's log starts from 1
+    log = RaftLog(c.node(2).raftlog)
+    log.read()
+    eq_(log.header().snapshot_index(), 0)
+
+    c.node(2).start()
+    c.node(2).wait_for_info_param('state', 'up')
+
+    # node 2 must get a snapshot to sync, make sure this happens and that
+    # the log is ok.
+    c.node(2).wait_for_current_index(8)
+    log = RaftLog(c.node(2).raftlog)
+    log.read()
+    eq_(log.header().snapshot_index(), 8)
+
+@with_setup_args(_setup, _teardown)
 def test_cfg_node_added_from_snapshot(c):
     """
     Node able to join cluster and read cfg and data from snapshot.

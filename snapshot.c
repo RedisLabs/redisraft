@@ -491,6 +491,8 @@ static int loadSnapshot(RedisRaftCtx *rr)
     configRaftFromSnapshotInfo(rr);
 
     raft_end_load_snapshot(rr->raft);
+    raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
     return 0;
 }
 
@@ -567,6 +569,15 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_ReplyWithError(req->ctx, "ERR failed to load snapshot");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
         goto exit;
+    }
+
+    /* Restart the log where the snapshot ends */
+    if (rr->log) {
+        RaftLogClose(rr->log);
+        rr->log = RaftLogCreate(rr->config->raftlog,
+                rr->snapshot_info.dbid,
+                rr->snapshot_info.last_applied_term,
+                rr->snapshot_info.last_applied_idx);
     }
 
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
