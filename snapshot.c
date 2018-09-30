@@ -721,3 +721,134 @@ RedisModuleTypeMethods RedisRaftTypeMethods = {
     .free = clearSnapshotInfo
 };
 
+static char *loadSnapshotFile(const char *filename, size_t *size)
+{
+    int fd = open(filename, O_RDONLY);
+    struct stat st;
+    char *buf = NULL;
+
+    if (fd < 0 || fstat(fd, &st) < 0) {
+        LOG_ERROR("Failed to load snapshot file: %s: %s\n",
+                filename, strerror(errno));
+        goto exit;
+    }
+
+    buf = RedisModule_Alloc(st.st_size);
+    assert(buf != NULL);
+
+    if (read(fd, buf, st.st_size) != st.st_size) {
+        LOG_ERROR("Failed to read snapshot file: %s: %s\n",
+                filename, strerror(errno));
+        RedisModule_Free(buf);
+        buf = NULL;
+        goto exit;
+    }
+
+    *size = st.st_size;
+
+exit:
+    if (fd != -1) {
+        close(fd);
+    }
+    return buf;
+}
+
+/* TODO -- move this to Raft library header file */
+void raft_node_set_next_idx(raft_node_t* me_, raft_index_t nextIdx);
+
+static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    Node *node = privdata;
+    RedisRaftCtx *rr = node->rr;
+
+    redisReply *reply = r;
+
+    node->load_snapshot_in_progress = false;
+
+    if (!reply || reply->type == REDIS_REPLY_ERROR) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: %s\n",
+                reply ? reply->str : "connection dropped.");
+    } else if (reply->type != REDIS_REPLY_INTEGER) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT invalid response type\n");
+    } else {
+        NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld\n",
+                reply->integer);
+        raft_node_t *n = raft_get_node(rr->raft, node->id);
+        raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
+    }
+}
+
+
+int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
+{
+    RedisRaftCtx *rr = user_data;
+    Node *node = (Node *) raft_node_get_udata(raft_node);
+    time_t now = time(NULL);
+
+    /* Don't attempt to send a snapshot if we're in the process of creating one */
+    if (rr->snapshot_in_progress) {
+        NODE_LOG_DEBUG(node, "not sending snapshot, snapshot_in_progress\n");
+        return 0;
+    }
+
+    /* We don't attempt to load a snapshot before we receive a response.
+     *
+     * Note: a response in this case only lets us know the operation begun,
+     * but it's not a blocking operation.  See RAFT.LOADSNAPSHOT for more info.
+     */
+    if (node->load_snapshot_in_progress) {
+        return 0;
+    }
+
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %ld, node idx %ld\n",
+            raft_get_snapshot_last_idx(raft),
+            raft_node_get_next_idx(raft_node));
+
+    if (node->state != NODE_CONNECTED) {
+        NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
+        return -1;
+    }
+
+    /* Load snapshot data */
+    char last_term[30];
+    snprintf(last_term, sizeof(last_term) - 1, "%lu", raft_get_snapshot_last_term(raft));
+    char last_idx[30];
+    snprintf(last_idx, sizeof(last_idx) - 1, "%lu", raft_get_snapshot_last_idx(raft));
+    size_t snapshot_size;
+    char *snapshot_data = loadSnapshotFile(rr->config->rdb_filename, &snapshot_size);
+    if (!snapshot_data) {
+        return -1;
+    }
+
+    LOG_DEBUG("Loaded snapshot: %s: %lu bytes\n",
+            rr->config->rdb_filename, snapshot_size);
+
+    const char *args[4] = {
+        "RAFT.LOADSNAPSHOT",
+        last_term,
+        last_idx,
+        snapshot_data
+    };
+    size_t args_len[4] = {
+        strlen(args[0]),
+        strlen(args[1]),
+        strlen(args[2]),
+        snapshot_size
+    };
+
+    node->load_snapshot_idx = raft_get_snapshot_last_idx(raft);
+    node->load_snapshot_in_progress = true;
+    node->load_snapshot_last_time = now;
+
+    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
+        node->state = NODE_CONNECT_ERROR;
+        node->load_snapshot_in_progress = false;
+        RedisModule_Free(snapshot_data);
+        return -1;
+    }
+
+    RedisModule_Free(snapshot_data);
+
+    return 0;
+}
+

@@ -351,5 +351,6 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
+int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node);
 
 #endif  /* _REDISRAFT_H */
