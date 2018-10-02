@@ -778,6 +778,112 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
     }
 }
 
+static int snapshotSendData(Node *node)
+{
+    RedisRaftCtx *rr = node->rr;
+    time_t now = time(NULL);
+
+    /* Load snapshot data */
+    char last_term[30];
+    snprintf(last_term, sizeof(last_term) - 1, "%lu", raft_get_snapshot_last_term(rr->raft));
+    char last_idx[30];
+    snprintf(last_idx, sizeof(last_idx) - 1, "%lu", raft_get_snapshot_last_idx(rr->raft));
+
+    const char *args[4] = {
+        "RAFT.LOADSNAPSHOT",
+        last_term,
+        last_idx,
+        node->snapshot_buf
+    };
+    size_t args_len[4] = {
+        strlen(args[0]),
+        strlen(args[1]),
+        strlen(args[2]),
+        node->snapshot_size
+    };
+
+    node->load_snapshot_idx = raft_get_snapshot_last_idx(rr->raft);
+    node->load_snapshot_in_progress = true;
+    node->load_snapshot_last_time = now;
+
+    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
+        node->state = NODE_CONNECT_ERROR;
+        node->load_snapshot_in_progress = false;
+        return -1;
+    }
+
+    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes\n",
+                node->snapshot_size);
+    return 0;
+}
+
+static void cleanSnapshotDelivery(Node *node)
+{
+    if (node->snapshot_buf != NULL) {
+        RedisModule_Free(node->snapshot_buf);
+        node->snapshot_buf = NULL;
+    }
+
+    uv_fs_t close_req;
+    int ret = uv_fs_close(node->rr->loop, &close_req, node->uv_snapshot_file, NULL);
+    assert(ret == 0);
+}
+
+static void snapshotOnRead(uv_fs_t *req)
+{
+    Node *node = uv_req_get_data((uv_req_t *) req);
+    RedisRaftCtx *rr = node->rr;
+
+    uv_fs_req_cleanup(req);
+
+    if (req->result == node->snapshot_size && snapshotSendData(node) == 0) {
+        NODE_LOG_DEBUG(node, "Loaded snapshot: %s: %lu bytes\n",
+                rr->config->rdb_filename, node->snapshot_size);
+    }
+
+    cleanSnapshotDelivery(node);
+}
+
+static void snapshotOnOpen(uv_fs_t *req)
+{
+    Node *node = uv_req_get_data((uv_req_t *) req);
+    uv_fs_t stat_req;
+    uv_fs_t close_req;
+
+    uv_fs_req_cleanup(req);
+
+    if (req->result < 0) {
+        NODE_LOG_DEBUG(node, "Failed to deliver snapshot: open: %s\n",
+                uv_strerror(req->result));
+        node->load_snapshot_in_progress = false;
+        return;
+    }
+
+    node->uv_snapshot_file = req->result;
+    if (uv_fs_fstat(req->loop, (uv_fs_t *) &stat_req, node->uv_snapshot_file, NULL) < 0) {
+        NODE_LOG_DEBUG(node, "Failed to delivery snapshot: open: %s\n",
+                uv_strerror(req->result));
+        cleanSnapshotDelivery(node);
+        return;
+    }
+
+    /* prepare buffer and read */
+    node->snapshot_size = uv_fs_get_statbuf(&stat_req)->st_size;
+    node->snapshot_buf = RedisModule_Alloc(node->snapshot_size);
+    node->uv_snapshot_buf = uv_buf_init(node->snapshot_buf, node->snapshot_size);
+    int ret = uv_fs_read(node->rr->loop, &node->uv_snapshot_req, node->uv_snapshot_file,
+            &node->uv_snapshot_buf, 1, 0, snapshotOnRead);
+    assert(ret == 0);
+}
+
+static int snapshotInitiateRead(RedisRaftCtx *rr, Node *node, const char *filename)
+{
+    uv_req_set_data((uv_req_t *) &node->uv_snapshot_req, node);
+    int ret = uv_fs_open(rr->loop, &node->uv_snapshot_req, filename, 0, O_RDONLY, snapshotOnOpen);
+    assert(ret == 0);
+
+    return 0;
+}
 
 int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
 {
@@ -809,45 +915,14 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
         return -1;
     }
 
-    /* Load snapshot data */
-    char last_term[30];
-    snprintf(last_term, sizeof(last_term) - 1, "%lu", raft_get_snapshot_last_term(raft));
-    char last_idx[30];
-    snprintf(last_idx, sizeof(last_idx) - 1, "%lu", raft_get_snapshot_last_idx(raft));
-    size_t snapshot_size;
-    char *snapshot_data = loadSnapshotFile(rr->config->rdb_filename, &snapshot_size);
-    if (!snapshot_data) {
-        return -1;
-    }
-
-    LOG_DEBUG("Loaded snapshot: %s: %lu bytes\n",
-            rr->config->rdb_filename, snapshot_size);
-
-    const char *args[4] = {
-        "RAFT.LOADSNAPSHOT",
-        last_term,
-        last_idx,
-        snapshot_data
-    };
-    size_t args_len[4] = {
-        strlen(args[0]),
-        strlen(args[1]),
-        strlen(args[2]),
-        snapshot_size
-    };
-
-    node->load_snapshot_idx = raft_get_snapshot_last_idx(raft);
+    /* Initiate loading of snapshot.  We use libuv to handle loading in the background
+     * and avoid blocking the Raft thread.
+     *
+     * TODO: Refactor hiredis so we can actually stream this directly to the socket
+     * instead of buffering the entire file in memory.
+     */
     node->load_snapshot_in_progress = true;
-    node->load_snapshot_last_time = now;
-
-    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
-        node->state = NODE_CONNECT_ERROR;
-        node->load_snapshot_in_progress = false;
-        RedisModule_Free(snapshot_data);
-        return -1;
-    }
-
-    RedisModule_Free(snapshot_data);
+    snapshotInitiateRead(rr, node, rr->config->rdb_filename);
 
     return 0;
 }

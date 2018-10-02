@@ -26,7 +26,7 @@ def test_compaction_thresholds(c):
     assert_greater(5, r1.raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
-def test_simple_snapshot_delivery(c):
+def test_snapshot_delivery(c):
     """
     Ability to properly deliver and load a snapshot.
     """
@@ -35,14 +35,16 @@ def test_simple_snapshot_delivery(c):
     r1.raft_exec('INCR', 'testkey')
     r1.raft_exec('INCR', 'testkey')
     r1.raft_exec('INCR', 'testkey')
-    eq_(r1.client.get('testkey'), b'3')
+    r1.raft_exec('SETRANGE', 'bigkey', '104857600', 'x')
+    r1.raft_exec('INCR', 'testkey')
+    eq_(r1.client.get('testkey'), b'4')
 
     eq_(r1.client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
     eq_(0, r1.raft_info()['log_entries'])
 
     r2 = c.add_node()
     c.wait_for_unanimity()
-    eq_(r2.client.get('testkey'), b'3')
+    eq_(r2.client.get('testkey'), b'4')
 
 @with_setup_args(_setup, _teardown)
 def test_log_fixup_after_snapshot_delivery(c):

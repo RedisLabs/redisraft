@@ -198,6 +198,11 @@ typedef struct Node {
     bool unlinked;
     raft_index_t load_snapshot_idx;
     time_t load_snapshot_last_time;
+    uv_fs_t uv_snapshot_req;
+    uv_file uv_snapshot_file;
+    size_t snapshot_size;
+    char *snapshot_buf;
+    uv_buf_t uv_snapshot_buf;
     LIST_ENTRY(Node) entries;
 } Node;
 
