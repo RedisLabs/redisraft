@@ -531,6 +531,8 @@ int rdbLoad(const char *filename, void *info);
 
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
+    RedisModuleCallReply *reply = NULL;
+
     /* Ignore load snapshot request if we are leader, or if we already have
      * what we are looking for.
      */
@@ -553,7 +555,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     }
 
     RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "FLUSHALL", "");
+    reply = RedisModule_Call(rr->ctx, "FLUSHALL", "");
     if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to flush db before loading snapshot");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
