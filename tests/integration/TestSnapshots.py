@@ -123,6 +123,7 @@ def test_cfg_node_removed_from_snapshot(c):
     # bring back node 4
     c.node(4).start()
     c.node(4).wait_for_election()
+    c.node(4).wait_for_log_applied()
     eq_(4, c.node(4).raft_info()['num_nodes'])
 
 @with_setup_args(_setup, _teardown)
