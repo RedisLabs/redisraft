@@ -3,7 +3,7 @@
 	url = https://github.com/libuv/libuv
 [submodule "deps/hiredis"]
 	path = deps/hiredis
-	url = https://github.com/yossigo/hiredis
+	url = https://github.com/redis/hiredis
 [submodule "deps/raft"]
 	path = deps/raft
 	url = https://github.com/yossigo/raft
