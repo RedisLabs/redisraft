@@ -538,8 +538,13 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
      */
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
-        LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT as I am the leader.");
+        LOG_INFO("Skipping RAFT.LOADSNAPSHOT as I am the leader.");
         RedisModule_ReplyWithError(req->ctx, "ERR leader does not accept snapshots");
+        goto exit;
+    }
+
+    if (rr->loading_snapshot) {
+        RedisModule_ReplyWithError(req->ctx, "LOADING load snapshot in progress");
         goto exit;
     }
 
