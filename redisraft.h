@@ -288,7 +288,6 @@ typedef struct SnapshotResult {
 
 /* node.c */
 void NodeFree(Node *node);
-void NodeUnlink(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);

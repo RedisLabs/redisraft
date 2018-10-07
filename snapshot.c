@@ -118,30 +118,6 @@ long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_inde
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
-const char *getTempLogFilename(RedisRaftCtx *rr)
-{
-    static char filename[PATH_MAX];
-
-    if (!rr->config->raftlog) {
-        return NULL;
-    }
-
-    snprintf(filename, sizeof(filename) - 1, "%s.templog", rr->config->raftlog);
-    return filename;
-}
-
-const char *getTempDbFilename(RedisRaftCtx *rr, const char *suffix)
-{
-    static char filename[PATH_MAX];
-
-    if (!rr->config->raftlog) {
-        return NULL;
-    }
-
-    snprintf(filename, sizeof(filename) - 1, "%s.suffix", rr->config->raftlog);
-    return filename;
-}
-
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     assert(rr->snapshot_in_progress);
@@ -727,38 +703,6 @@ RedisModuleTypeMethods RedisRaftTypeMethods = {
     .rdb_save = rdbSaveSnapshotInfo,
     .free = clearSnapshotInfo
 };
-
-static char *loadSnapshotFile(const char *filename, size_t *size)
-{
-    int fd = open(filename, O_RDONLY);
-    struct stat st;
-    char *buf = NULL;
-
-    if (fd < 0 || fstat(fd, &st) < 0) {
-        LOG_ERROR("Failed to load snapshot file: %s: %s\n",
-                filename, strerror(errno));
-        goto exit;
-    }
-
-    buf = RedisModule_Alloc(st.st_size);
-    assert(buf != NULL);
-
-    if (read(fd, buf, st.st_size) != st.st_size) {
-        LOG_ERROR("Failed to read snapshot file: %s: %s\n",
-                filename, strerror(errno));
-        RedisModule_Free(buf);
-        buf = NULL;
-        goto exit;
-    }
-
-    *size = st.st_size;
-
-exit:
-    if (fd != -1) {
-        close(fd);
-    }
-    return buf;
-}
 
 /* TODO -- move this to Raft library header file */
 void raft_node_set_next_idx(raft_node_t* me_, raft_index_t nextIdx);

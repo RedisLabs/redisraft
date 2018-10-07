@@ -202,28 +202,6 @@ void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
     } while (1);
 }
 
-void NodeUnlink(Node *n)
-{
-    if (!n) {
-        return;
-    }
-
-    if (n != NULL) {
-        if (n->rc) {
-            n->rc->data = NULL;
-        }
-
-        if (n->state == NODE_RESOLVING) {
-            uv_cancel((uv_req_t *) &n->uv_resolver);
-        } else if (n->state == NODE_CONNECTED || n->state == NODE_CONNECTING) {
-            n->unlinked = true;
-            redisAsyncDisconnect(n->rc);
-        } else {
-            NodeFree(n);
-        }
-    }
-}
-
 void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
 {
     Node *node = privdata;
