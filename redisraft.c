@@ -436,6 +436,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     }
 #endif
 
+    return REDISMODULE_OK;
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
