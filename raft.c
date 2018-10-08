@@ -1066,7 +1066,7 @@ void RaftReqFree(RaftReq *req)
             req->r.redis.cmd.argv = NULL;
             break;
         case RR_LOADSNAPSHOT:
-            RedisModule_Free(req->r.loadsnapshot.snapshot);
+            RedisModule_FreeString(req->ctx, req->r.loadsnapshot.snapshot);
             break;
     }
     if (req->ctx) {

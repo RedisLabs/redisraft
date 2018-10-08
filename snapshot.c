@@ -626,6 +626,7 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
         memcpy(info->dbid, buf, len);
     }
     info->dbid[len] = '\0';
+    RedisModule_Free(buf);
 
     /* Load term/index */
     info->last_applied_term = RedisModule_LoadUnsigned(rdb);
