@@ -22,7 +22,6 @@ int processConfigParam(const char *keyword, const char *value,
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, "id") || !strcmp(keyword, "join") ||
                 !strcmp(keyword, "addr") || !strcmp(keyword, "init") ||
-                !strcmp(keyword, "persist") ||
                 !strcmp(keyword, "raftlog"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return REDISMODULE_ERR;
@@ -66,11 +65,6 @@ int processConfigParam(const char *keyword, const char *value,
             RedisModule_Free(target->raftlog);
         }
         target->raftlog = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, "persist")) {
-        if (parseBool(value, &target->persist) == REDISMODULE_ERR)  {
-            snprintf(errbuf, errbuflen-1, "invalid persist value '%s'", value);
-            return REDISMODULE_ERR;
-        }
     } else if (!strcmp(keyword, "raft_interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -170,10 +164,6 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
         len++;
         replyConfigStr(ctx, "raftlog", config->raftlog ? config->raftlog : "");
     }
-    if (stringmatch(pattern, "persist", 1)) {
-        len++;
-        replyConfigStr(ctx, "persist", config->persist ? "yes" : "no");
-    }
     if (stringmatch(pattern, "raft_interval", 1)) {
         len++;
         replyConfigInt(ctx, "raft_interval", config->raft_interval);
@@ -208,11 +198,9 @@ int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
     config->max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
-    config->persist = true;
 }
 
-/* TODO: Remove the hard coded naming mechanism */
-int ConfigSetupFilenames(RedisRaftCtx *rr)
+int ConfigReadFromRedis(RedisRaftCtx *rr)
 {
     /* Query RDB filename */
     size_t len;
@@ -231,37 +219,6 @@ int ConfigSetupFilenames(RedisRaftCtx *rr)
     rr->config->rdb_filename[len] = '\0';
     RedisModule_FreeCallReply(reply_name);
     RedisModule_FreeCallReply(reply);
-
-    /* Compute derived filenames */
-    len += 64;
-    rr->config->raftlog = RedisModule_Alloc(len);
-    snprintf(rr->config->raftlog, len-1, "%s.raftlog",
-            rr->config->rdb_filename);
-
-    /* Rename Redis's own dbfilename to protect our snapshots:
-     * 1. When doing replication;
-     * 2. When shutting down and saving.
-     */
-    int filename_size = strlen(rr->config->rdb_filename) + 20;
-    char filename[filename_size];
-
-#if 0
-    snprintf(filename, filename_size - 1, "%s.tmp",
-            rr->config->rdb_filename);
-
-    reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename", filename);
-    assert(reply != NULL);
-    assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
-    RedisModule_FreeCallReply(reply);
-#endif
-
-    LOG_INFO("Raft: Log file: %s\n", rr->config->raftlog);
-    LOG_INFO("Raft: Snapshot file: %s\n", rr->config->rdb_filename);
-
-    /* Configure snapshot filename */
-    rr->config->snapshot_filename = RedisModule_Alloc(filename_size);
-    snprintf(rr->config->snapshot_filename, filename_size - 1,
-            "%s.snapshot", rr->config->rdb_filename);
 
     return REDISMODULE_OK;
 }
@@ -317,30 +274,6 @@ int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
             RedisModule_Log(ctx, REDIS_WARNING, "'join' specified without an 'addr'");
             return REDISMODULE_ERR;
         }
-    }
-
-    return REDISMODULE_OK;
-}
-
-int ValidateRedisConfig(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    if (!rr->config->persist) {
-        size_t len;
-        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "cc", "GET", "save");
-        assert(reply != NULL);
-        assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-
-        RedisModuleCallReply *reply_save = RedisModule_CallReplyArrayElement(reply, 1);
-        assert(RedisModule_CallReplyType(reply_save) == REDISMODULE_REPLY_STRING);
-
-        RedisModule_CallReplyStringPtr(reply_save, &len);
-        if (len != 0) {
-            RedisModule_Log(ctx, REDIS_WARNING, "Redis is configured with 'save' but Redis Raft expects no persistence.");
-            return REDISMODULE_ERR;
-        }
-
-        RedisModule_FreeCallReply(reply_save);
-        RedisModule_FreeCallReply(reply);
     }
 
     return REDISMODULE_OK;

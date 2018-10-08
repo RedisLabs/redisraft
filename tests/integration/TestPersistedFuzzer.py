@@ -47,7 +47,7 @@ def test_basic_persisted_fuzzer(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, raft_args={'persist': 'yes'})
+    c.create(nodes, persist_log=True)
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         if i % 7 == 0:

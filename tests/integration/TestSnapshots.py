@@ -80,7 +80,7 @@ def test_cfg_node_added_from_snapshot(c):
     """
     Node able to join cluster and read cfg and data from snapshot.
     """
-    c.create(2, raft_args={'persist': 'no'})
+    c.create(2, persist_log=False)
     for i in range(100):
         c.node(1).raft_exec('SET', 'key%s' % i, 'val%s' % i)
         c.node(1).raft_exec('INCR', 'counter')
@@ -103,7 +103,7 @@ def test_cfg_node_removed_from_snapshot(c):
     """
     Node able to learn that another node left by reading the snapshot metadata.
     """
-    c.create(5, raft_args={'persist': 'yes'})
+    c.create(5, persist_log=True)
     c.node(1).raft_exec('SET', 'key', 'value')
     c.wait_for_unanimity()
 
@@ -132,7 +132,7 @@ def test_all_committed_log_rewrite(c):
     Log rewrite operation when all entries are committed, so we expect an
     empty log.
     """
-    c.create(3, raft_args={'persist': 'yes'})
+    c.create(3, persist_log=True)
     c.node(1).raft_exec('SET', 'key1', 'value')
     c.node(1).raft_exec('SET', 'key2', 'value')
     c.node(1).raft_exec('SET', 'key3', 'value')
@@ -148,7 +148,7 @@ def test_all_committed_log_rewrite(c):
 
 @with_setup_args(_setup, _teardown)
 def test_uncommitted_log_rewrite(c):
-    c.create(3, raft_args={'persist': 'yes'})
+    c.create(3, persist_log=True)
 
     # Log contains 5 config entries
 
@@ -177,7 +177,7 @@ def test_uncommitted_log_rewrite(c):
 
 @with_setup_args(_setup, _teardown)
 def test_new_uncommitted_during_rewrite(c):
-    c.create(3, raft_args={'persist': 'yes'})
+    c.create(3, persist_log=True)
 
     # Take down majority to create uncommitted entries and check rewrite
     c.node(1).raft_exec('SET', 'key', '1')
@@ -226,7 +226,7 @@ def test_new_uncommitted_during_rewrite(c):
 
 @with_setup_args(_setup, _teardown)
 def test_identical_snapshot_and_log(c):
-    r1 = c.add_node(raft_args={'persist': 'yes'})
+    r1 = c.add_node(persist_log=True)
     ok_(r1.raft_exec('INCR', 'testkey'))
     ok_(r1.raft_exec('INCR', 'testkey'))
     r1.terminate()
@@ -238,7 +238,7 @@ def test_identical_snapshot_and_log(c):
 
 @with_setup_args(_setup, _teardown)
 def test_loading_log_tail(c):
-    r1 = c.add_node(raft_args={'persist': 'yes'})
+    r1 = c.add_node(persist_log=True)
     ok_(r1.raft_exec('INCR', 'testkey'))
     ok_(r1.raft_exec('INCR', 'testkey'))
     ok_(r1.raft_exec('INCR', 'testkey'))
@@ -256,7 +256,7 @@ def test_loading_log_tail(c):
 
 @with_setup_args(_setup, _teardown)
 def test_loading_log_tail_after_rewrite(c):
-    r1 = c.add_node(raft_args={'persist': 'yes'})
+    r1 = c.add_node(persist_log=True)
     ok_(r1.raft_exec('INCR', 'testkey'))
     ok_(r1.raft_exec('INCR', 'testkey'))
     ok_(r1.raft_exec('INCR', 'testkey'))

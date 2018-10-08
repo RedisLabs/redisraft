@@ -91,10 +91,8 @@ class RedisRaft(object):
         self.port = port
         self.executable = config.executable
         self.process = None
-        #TODO: fix this when changing file naming in module
-        #self.raftlog = 'raftlog{}.db'.format(self.id)
+        self.raftlog = 'redis{}.raftlog'.format(self.id)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
-        self.raftlog = self.dbfilename + '.raftlog'
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
         if not persist_log:
@@ -103,11 +101,10 @@ class RedisRaft(object):
         self.args += ['--port', str(port),
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
-
-        raft_args['persist'] = 'yes' if persist_log else 'no'
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
-        raft_args['raftlog'] = self.raftlog
+        if persist_log:
+            raft_args['raftlog'] = self.raftlog
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)

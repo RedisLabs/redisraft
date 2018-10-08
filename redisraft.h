@@ -139,8 +139,6 @@ typedef struct {
     RaftSnapshotInfo snapshot_info;
 } RedisRaftCtx;
 
-#define REDIS_RAFT_DEFAULT_RAFTLOG  "redisraft.db"
-
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
 #define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
@@ -153,8 +151,6 @@ typedef struct RedisRaftConfig {
     NodeAddrListElement *join;
     char *rdb_filename;         /* Original Redis dbfilename */
     char *raftlog;              /* Raft log file name, derived from dbfilename */
-    char *snapshot_filename;    /* Name used when creating a snapshot */
-    bool persist;               /* Should log be persisted */
     /* Tuning */
     int raft_interval;
     int request_timeout;
@@ -340,8 +336,7 @@ int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Red
 int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
 int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
-int ConfigSetupFilenames(RedisRaftCtx *rr);
-int ValidateRedisConfig(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+int ConfigReadFromRedis(RedisRaftCtx *rr);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

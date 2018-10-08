@@ -723,12 +723,12 @@ static void callRaftPeriodic(uv_timer_t *handle)
                 }
             }
 
-            if (loadRaftLog(rr) < 0) {
-                LOG_ERROR("Failed to read Raft log, aborting.\n");
-                exit(1);
-            }
+            if (rr->config->raftlog) {
+                if (loadRaftLog(rr) < 0) {
+                    LOG_ERROR("Failed to read Raft log, aborting.\n");
+                    exit(1);
+                }
 
-            if (rr->log) {
                 if (rr->log->snapshot_last_term) {
                     LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
                             rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
@@ -827,15 +827,12 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 
 int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
-    if (rr->config->persist) {
-        rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG,
-                rr->snapshot_info.dbid,
-                1, 0);
-        if (!rr->log) {
-            RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
-            return REDISMODULE_ERR;
-        }
+    rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid, 1, 0);
+    if (!rr->log) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
+        return REDISMODULE_ERR;
     }
+
     return REDISMODULE_OK;
 }
 
@@ -853,8 +850,10 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     }
 
     /* Initialize log */
-    if (initRaftLog(ctx, rr) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
+    if (rr->config->raftlog) {
+        if (initRaftLog(ctx, rr) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+        }
     }
 
     /* Become leader and create initial entry */
@@ -927,12 +926,10 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
 
 int loadRaftLog(RedisRaftCtx *rr)
 {
-    const char *filename = rr->config->raftlog ? rr->config->raftlog : REDIS_RAFT_DEFAULT_RAFTLOG;
-
     rr->state = REDIS_RAFT_LOADING;
-    rr->log = RaftLogOpen(filename);
+    rr->log = RaftLogOpen(rr->config->raftlog);
     if (!rr->log)  {
-        LOG_ERROR("Failed to open Raft log: %s\n", filename);
+        LOG_ERROR("Failed to open Raft log: %s\n", rr->config->raftlog);
         return REDISMODULE_ERR;
     }
 
@@ -973,8 +970,8 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
     rr->config = config;
 
-    /* Configure file names */
-    ConfigSetupFilenames(rr);
+    /* Read configuration from Redis */
+    ConfigReadFromRedis(rr);
 
     /* Initialize raft library */
     rr->raft = raft_new();
@@ -995,13 +992,9 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
     rr->callbacks_set = true;
 
-    if (ValidateRedisConfig(rr, ctx) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-    }
-
     if (!config->init && !config->join) {
-        if (!config->persist) {
-            RedisModule_Log(ctx, REDIS_WARNING, "No persist, init or join");
+        if (!config->raftlog) {
+            RedisModule_Log(ctx, REDIS_WARNING, "No init or join, and no raftlog configured.");
             return REDISMODULE_ERR;
         }
 

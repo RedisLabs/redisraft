@@ -236,9 +236,8 @@ void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
         /* Initialize Raft log.  We delay this operation as we want to create the log
          * with the proper dbid which is only received now.
          */
-        if (rr->config->persist) {
-            rr->log = RaftLogCreate(rr->config->raftlog ? rr->config->raftlog :
-                    REDIS_RAFT_DEFAULT_RAFTLOG, rr->snapshot_info.dbid,
+        if (rr->config->raftlog) {
+            rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid,
                     rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx);
             if (!rr->log) {
                 PANIC("Failed to initialize Raft log");
