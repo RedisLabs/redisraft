@@ -4,9 +4,8 @@ This is an **experimental, work-inprogress** Redis module that implements the
 [Raft Consensus Algorithm](https://raft.github.io/) as a Redis module.
 
 Using this module it is possible to form a cluster of Redis servers which
-provides the fault tolerance properties of Raft.
+provides the fault tolerance properties of Raft:
 
-The main capabilities are:
 1. Leader election.  The servers elect a single leader at a time, and only the
    leader is willing to accept user requests.  Other members of the cluster
    will reply with a redirect message.
@@ -153,26 +152,32 @@ Most implementations of Raft assume a disk based crash recovery model.  This
 means that a crashed process can re-start, load its state (log and snapshots)
 from disk and resume.
 
-The Raft module has a `persist` parameter which controls the persistence mode:
-1. In non-persistent mode, a crashed process is equivalent to a total node
-   failure (i.e. a raft node crashed and lost its disk).  If this happens, the
-   process needs to re-join the cluster with a new ID when it's back up and
-   receive the full log (or snapshot).  *This may not be entirely true, a Raft
-   node may crash recover and still maintain it's ID*.
-2. In persistent mode, the Raft log is persisted to disk and can be read in
-   case of a process crash.
+The Raft module can work in either persistent or non-persistent mode.  In
+persistent mode: 
+1. A `raftlog=` parameter is required and specifies the name of the Raft log
+   file to use.
+2. On startup, Raft log is read and applied on top of the latest snapshot (i.e.
+   RDB file as loaded by Redis).
+
+If no Raft log is specified, the module assumes it operates in non-persistent
+mode:
+1. If the process crashes, it is equivalent to a total node failure (e.g. as if
+   a persistent Raft node crashed and lost its files).
+2. On start, the process will need to re-join the cluster as a new node (require
+   a new ID), and the operator will need to explicitly delete the old node ID.
 
 ### Log Compaction
-
-#### Strategies
 
 Raft defines a mechanism for compaction of logs by storing and exchanging
 snapshots.  The snapshot is expected to be persisted just like the log, and
 include information that was removed from the log during compaction.
 
+#### Live Snapshot
 In the context of Redis, we can think about the Redis dataset as a constantly
 updated snapshot.  If persistence is required, then our snapshot is version of
 the data that was last saved to RDB or AOF.
+
+#### Compaction Threshold
 
 **If persistence is not required**: we may be able to continuously compact the
 Raft log and remove entries that have been received by *all* cluster members.
@@ -184,30 +189,46 @@ strategy above, but make sure we only compact entries that have been persisted
 by Redis.
 
 *NOTE: The Redis Module API currently does not offer a way to implement these
-strategies.*
+strategies.  Currently compaction can be done explicitly or automatically by
+configuring specific thresholds.*
+
+#### Compaction & Snapshot Creation
+
+When the Raft modules determines it needs to perform log compaction, it does the
+following:
+
+First, a child process is forked and:
+1. Performs a Redis `SAVE` operation after modifying the `dbfilename`
+   configuration, so a temporary file is created.
+2. Iterates the Raft log and creates a new temporary Raft log with
+   only the entries that follow the snapshot.
+3. Exits and reports success to the parent.
+
+The parent detects that the child has completed and:
+1. Renames the temporary snapshot (rdb) file so it overwrites the
+   existing one.
+2. Appends all Raft log entries that have been received since the
+   child was forked to the temporary Raft log file.
+3. Renames the temporary Raft log so it overwrites the existing one.
 
 #### Snapshot Delivery
 
-The current implementation of snapshot delivery is constrained by the existing
-Redis Module API and operates this way:
+When a Raft follower node lags behind and requires log entries that have been
+compacted, a snapshot needs to be delivered instead:
 
 1. Leader decides it needs to send a snapshot to a remote node.
-2. Leader sends a `RAFT.LOADSNAPSHOT` command.  The command includes the
-   *last-included-term* and *last-included-index* of the snapshot (local
-   dataset) so the remote node can quickly refuse it if it was already loaded.
-3. The remote node's load snapshot implementation uses `SLAVEOF` to
-   temporarily become a Redis Replication Slave and fetch the snapshot from
-   the leader.
-4. When the replication is complete, the Raft module reconfigures Redis to be
-   a master again.
+2. Leader sends a `RAFT.LOADSNAPSHOT` command, which includes the
+   snapshot (RDB file) as well as *last-included-term* and
+   *last-included-index*.
+3. Follower may respond in different ways:
+   * `1` indicates snapshot was successfully loaded.
+   * `0` indicates the local index already matches the required snapshot index so
+     nothing needs to be done.
+   * `-LOADING` indicates snapshot loading is already in progress.
 
-`RAFT.LOADSNAPSHOT` operates in the background and responds immediately, as it
-is not possible to maintain a blocked client across role changes.  Possible
-responses are:
-* `1` indicates snapshot loading is started.
-* `0` indicates the local index already matches the required snapshot index so
-  nothing needs to be done.
-* `-LOADING` indicates snapshot loading is already in progress.
+*NOTE: Because of the store-and-forward implementation in Redis, this is not
+very efficient and will fail on very large datasets. In the future this should
+be optimized*.
 
 #### Read request handling
 
@@ -223,3 +244,18 @@ This has two limitations:
 
 A better approach, which needs to be implemented at the Raft library level, is
 to synchronize reads with heartbeats received from the majority.
+
+## Roadmap
+
+- [ ] Decouple log implementation, to allow storing most of the log on disk and
+      only a recent cache in memory (Raft lib).
+- [ ] Optimize reads, so they are not added as log entries (Raft lib).
+- [ ] More friendly membership management through Redis commands, to avoid
+      changing process arguments.
+- [ ] Automatic proxying to leader.
+- [ ] Add NO-OP log entry when starting up, to force commit index computing.
+- [ ] Improve debug logging (Redis Module API).
+- [ ] Batch log operations (Raft lib).
+- [ ] Optimize memory management (Raft lib).
+- [ ] Cleaner snapshot RDB loading (Redis Module API).
+- [ ] Stream snapshot data on LOAD.SNAPSHOT (hiredis streaming support).
