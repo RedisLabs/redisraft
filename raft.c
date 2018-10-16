@@ -437,8 +437,8 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
 
     TRACE("raftLogPop: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
+    raftFreeEntry(entry);
     if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
-        raftFreeEntry(entry);
         return 0;
     }
 
@@ -446,7 +446,6 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
         return -1;
     }
 
-    raftFreeEntry(entry);
     return 0;
 }
 
@@ -456,8 +455,9 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
 
     TRACE("raftLogPoll: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
+    raftFreeEntry(entry);
+
     if (!rr->log || rr->state == REDIS_RAFT_LOADING || rr->snapshot_in_progress) {
-        raftFreeEntry(entry);
         return 0;
     }
 
@@ -466,6 +466,11 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
         return -1;
     }
 
+    return 0;
+}
+
+static int raftLogClear(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
+{
     raftFreeEntry(entry);
     return 0;
 }
@@ -596,6 +601,7 @@ raft_cbs_t redis_raft_callbacks = {
     .log_offer = raftLogOffer,
     .log_pop = raftLogPop,
     .log_poll = raftLogPoll,
+    .log_clear = raftLogClear,
     .log = raftLog,
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
