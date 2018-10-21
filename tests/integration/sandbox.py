@@ -115,12 +115,31 @@ class RedisRaft(object):
         self.stderr = None
         self.cleanup()
 
+    def cluster(self, *args):
+        retries = self.up_timeout
+        if retries is not None:
+            retries *= 100
+        while True:
+            try:
+                return self.client.execute_command('RAFT.CLUSTER', *args)
+            except redis.exceptions.RedisError as err:
+                LOG.info(err)
+                if retries is not None:
+                    retries -= 1
+                    if not retries:
+                        LOG.fatal('RAFT.CLUSTER {} failed'.format(*args))
+                time.sleep(0.01)
+
     def init(self):
-        self.start(['init'])
+        self.cleanup()
+        self.start()
+        dbid = self.cluster('init')
+        LOG.info('Cluster created: {}'.format(dbid))
         return self
 
     def join(self, ports):
-        self.start(['join=localhost:{}'.format(port) for port in ports])
+        self.start()
+        self.cluster('join', 'localhost:{}'.format(ports[0]))
         return self
 
     def start(self, extra_raft_args=None):
@@ -364,8 +383,8 @@ class Cluster(object):
 
     def remove_node(self, _id):
         def _func():
-            self.node(self.leader).client.execute_command('RAFT.REMOVENODE',
-                                                          _id)
+            self.node(self.leader).client.execute_command(
+                'RAFT.NODE', 'REMOVE', _id)
         self.raft_retry(_func)
         self.nodes[_id].destroy()
         del(self.nodes[_id])

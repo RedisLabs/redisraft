@@ -117,7 +117,6 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
 
     assert(NODE_STATE_IDLE(node->state));
 
-    //NODE_LOG_INFO(node, "Resolving '%s'...\n", node->addr.host);
     node->state = NODE_RESOLVING;
     node->rr = rr;
     node->connect_callback = connect_callback;
@@ -125,7 +124,6 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
     int r = uv_getaddrinfo(rr->loop, &node->uv_resolver, handleNodeResolved,
             node->addr.host, NULL, &hints);
     if (r) {
-        //NODE_LOG_INFO(node, "Resolver error: %s: %s\n", node->addr.host, uv_strerror(r));
         node->state = NODE_CONNECT_ERROR;
         return false;
     }
@@ -202,7 +200,7 @@ void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
     } while (1);
 }
 
-void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
+void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
 {
     Node *node = privdata;
     RedisRaftCtx *rr = node->rr;
@@ -211,24 +209,26 @@ void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
     assert(reply != NULL);
 
     if (!reply) {
-        NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: connection dropped.\n");
+        LOG_ERROR("RAFT.NODE ADD failed: connection dropped.\n");
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
             const char *addrstr = reply->str + 6;
             NodeAddr addr;
             if (!NodeAddrParse(addrstr, strlen(addrstr), &addr)) {
-                NODE_LOG_ERROR(node, "RAFT.ADDNODE failed: invalid MOVED response: %s\n", reply->str);
+                LOG_ERROR("RAFT.NODE ADD failed: invalid MOVED response: %s\n", reply->str);
             } else {
-                NODE_LOG_INFO(node, "Join redirected to leader: %s\n", addrstr);
-                NodeAddrListAddElement(rr->join_addr, &addr);
+                LOG_INFO("Join redirected to leader: %s\n", addrstr);
+                NodeAddrListAddElement(rr->join_state->addr, &addr);
             }
+        } else {
+            LOG_ERROR("RAFT.NODE ADD failed: %s\n", reply->str);
         }
     } else if (reply->type != REDIS_REPLY_STATUS || strlen(reply->str) < 4 ||
             strlen(reply->str) > 3 + RAFT_DBID_LEN || strncmp(reply->str, "OK", 2)) {
-        NODE_LOG_ERROR(node, "invalid RAFT.ADDNODE reply: %s\n", reply->str);
+        LOG_ERROR("RAFT.NODE ADD invalid reply: %s\n", reply->str);
     } else {
-        NODE_LOG_INFO(node, "Join RAFT.ADDNODE succeeded, dbid: %s\n", reply->str + 3);
+        LOG_INFO("RAFT.NODE ADD succeeded, dbid: %s\n", reply->str + 3);
         strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
         rr->state = REDIS_RAFT_UP;
@@ -246,14 +246,15 @@ void handleAddNodeResponse(redisAsyncContext *c, void *r, void *privdata)
     }
 
     if (rr->state != REDIS_RAFT_UP) {
-        rr->join_node->state = NODE_CONNECT_ERROR;
+        /* TODO: Throttle failed attempts, especially if server returned an error... */
+        node->state = NODE_CONNECT_ERROR;
     }
 
     redisAsyncDisconnect(c);
 }
 
 
-void sendAddNodeRequest(const redisAsyncContext *c, int status)
+void sendNodeAddRequest(const redisAsyncContext *c, int status)
 {
     Node *node = (Node *) c->data;
     RedisRaftCtx *rr = node->rr;
@@ -261,36 +262,39 @@ void sendAddNodeRequest(const redisAsyncContext *c, int status)
     /* Connection is not good?  Terminate and continue */
     if (status != REDIS_OK) {
         node->state = NODE_CONNECT_ERROR;
-    } else if (redisAsyncCommand(node->rc, handleAddNodeResponse, node,
-        "RAFT.ADDNODE %d %s:%u",
+    } else if (redisAsyncCommand(node->rc, handleNodeAddResponse, node,
+        "RAFT.NODE %s %d %s:%u",
+        "ADD",
         raft_get_nodeid(rr->raft),
-        rr->config->addr.host,
-        rr->config->addr.port) != REDIS_OK) {
+        rr->config->addr.host, rr->config->addr.port) != REDIS_OK) {
 
         node->state = NODE_CONNECT_ERROR;
     }
 }
 
-static void initiateAddNode(RedisRaftCtx *rr)
+static void initiateNodeAdd(RedisRaftCtx *rr)
 {
-    if (!rr->join_addr) {
-        rr->join_addr = rr->config->join;
-        rr->join_addr_iter = rr->join_addr;
+    assert(rr->join_state != NULL);
+    assert(rr->join_state->addr != NULL);
+
+    /* Reset address iterator */
+    if (!rr->join_state->addr_iter) {
+        rr->join_state->addr_iter = rr->join_state->addr;
     }
 
     /* Allocate a node and initiate connection */
-    if (!rr->join_node) {
-        rr->join_node = NodeInit(0, &rr->join_addr->addr);
+    if (!rr->join_state->node) {
+        rr->join_state->node = NodeInit(0, &rr->join_state->addr->addr);
     } else {
         /* Try next address we have */
-        rr->join_addr_iter = rr->join_addr_iter->next;
-        if (!rr->join_addr_iter) {
-            rr->join_addr_iter = rr->join_addr;
+        rr->join_state->addr_iter = rr->join_state->addr_iter->next;
+        if (!rr->join_state->addr_iter) {
+            rr->join_state->addr_iter = rr->join_state->addr;
         }
-        rr->join_node->addr = rr->join_addr_iter->addr;
+        rr->join_state->node->addr = rr->join_state->addr_iter->addr;
     }
 
-    NodeConnect(rr->join_node, rr, sendAddNodeRequest);
+    NodeConnect(rr->join_state->node, rr, sendNodeAddRequest);
 }
 
 void HandleNodeStates(RedisRaftCtx *rr)
@@ -300,8 +304,9 @@ void HandleNodeStates(RedisRaftCtx *rr)
      * join_node synthetic node which establishes the initial connection.
      */
     if (rr->state == REDIS_RAFT_JOINING) {
-        if (!rr->join_node || NODE_STATE_IDLE(rr->join_node->state)) {
-            initiateAddNode(rr);
+        assert(rr->join_state != NULL);
+        if (!rr->join_state->node || NODE_STATE_IDLE(rr->join_state->node->state)) {
+            initiateNodeAdd(rr);
         }
         return;
     }

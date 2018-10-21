@@ -20,17 +20,9 @@ int processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
-    if (!on_init && (!strcmp(keyword, "id") || !strcmp(keyword, "join") ||
-                !strcmp(keyword, "addr") || !strcmp(keyword, "init") ||
-                !strcmp(keyword, "raftlog"))) {
+    if (!on_init && (!strcmp(keyword, "id"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return REDISMODULE_ERR;
-    }
-
-    /* Process flags without values */
-    if (!strcmp(keyword, "init")) {
-        target->init = true;
-        return REDISMODULE_OK;
     }
 
     if (!value) {
@@ -46,15 +38,6 @@ int processConfigParam(const char *keyword, const char *value,
             return REDISMODULE_ERR;
         }
         target->id = idval;
-    } else if (!strcmp(keyword, "join")) {
-        NodeAddrListElement *n = RedisModule_Alloc(sizeof(NodeAddrListElement));
-        if (!NodeAddrParse(value, strlen(value), &n->addr)) {
-            RedisModule_Free(n);
-            snprintf(errbuf, errbuflen-1, "invalid join address '%s'", value);
-            return REDISMODULE_ERR;
-        }
-        n->next = target->join;
-        target->join = n;
     } else if (!strcmp(keyword, "addr")) {
         if (!NodeAddrParse(value, strlen(value), &target->addr)) {
             snprintf(errbuf, errbuflen-1, "invalid addr '%s'", value);
@@ -184,6 +167,12 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
         len++;
         replyConfigInt(ctx, "max_log_entries", config->max_log_entries);
     }
+    if (stringmatch(pattern, "addr", 1)) {
+        len++;
+        char buf[300];
+        snprintf(buf, sizeof(buf)-1, "%s:%u", config->addr.host, config->addr.port);
+        replyConfigStr(ctx, "addr", buf);
+    }
 
     RedisModule_ReplySetArrayLength(ctx, len * 2);
     return REDISMODULE_OK;
@@ -200,25 +189,94 @@ int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
 }
 
-int ConfigReadFromRedis(RedisRaftCtx *rr)
+static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
 {
-    /* Query RDB filename */
     size_t len;
     const char *str;
-    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "cc", "GET", "dbfilename");
-    assert(reply != NULL);
-    assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+    char *buf = NULL;
+    RedisModuleCallReply *reply = NULL, *reply_name = NULL;
 
-    RedisModuleCallReply *reply_name = RedisModule_CallReplyArrayElement(reply, 1);
-    assert(RedisModule_CallReplyType(reply_name) == REDISMODULE_REPLY_STRING);
+    if (!(reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name))) {
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY ||
+            RedisModule_CallReplyLength(reply) < 2) {
+        goto exit;
+    }
+
+    reply_name = RedisModule_CallReplyArrayElement(reply, 1);
+    if (!reply_name || RedisModule_CallReplyType(reply_name) != REDISMODULE_REPLY_STRING) {
+        goto exit;
+    }
 
     str = RedisModule_CallReplyStringPtr(reply_name, &len);
-    assert(len>1);
-    rr->config->rdb_filename = RedisModule_Alloc(len+1);
-    memcpy(rr->config->rdb_filename, str, len);
-    rr->config->rdb_filename[len] = '\0';
-    RedisModule_FreeCallReply(reply_name);
-    RedisModule_FreeCallReply(reply);
+    buf = RedisModule_Alloc(len + 1);
+    memcpy(buf, str, len);
+    buf[len] = '\0';
+
+exit:
+    if (reply_name) {
+        RedisModule_FreeCallReply(reply_name);
+    }
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return buf;
+}
+
+static int getInterfaceAddr(NodeAddr *addr)
+{
+    struct sockaddr *sa = NULL;
+    uv_interface_address_t *ifaddr = NULL;
+    int ifaddr_count, i, ret;
+
+    if (uv_interface_addresses(&ifaddr, &ifaddr_count) < 0 || !ifaddr_count) {
+        if (ifaddr) {
+            uv_free_interface_addresses(ifaddr, ifaddr_count);
+        }
+        return REDISMODULE_ERR;
+    }
+
+    /* Try to find a non-internal one, otherwise return just the first one */
+    sa = (struct sockaddr *) &ifaddr[0].address;
+    for (i = 0; i < ifaddr_count; i++) {
+        if (!ifaddr[i].is_internal) {
+            sa = (struct sockaddr *) &ifaddr[i].address;
+            break;
+        }
+    }
+
+    ret = getnameinfo(sa,
+            sa->sa_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
+            addr->host, sizeof(addr->host), NULL, 0, NI_NUMERICHOST);
+    uv_free_interface_addresses(ifaddr, ifaddr_count);
+
+    return ret < 0 ? REDISMODULE_ERR : REDISMODULE_OK;
+}
+
+int ConfigReadFromRedis(RedisRaftCtx *rr)
+{
+    int r;
+
+    rr->config->rdb_filename = getRedisConfig(rr->ctx, "dbfilename");
+    assert(rr->config->rdb_filename != NULL);
+
+    /* If 'addr' was not set explicitly, try to guess it */
+    if (!rr->config->addr.host[0]) {
+        /* Get port from Redis */
+        char *port_str = getRedisConfig(rr->ctx, "port");
+        assert(port_str != NULL);
+
+        rr->config->addr.port = strtoul(port_str, NULL, 10);
+        RedisModule_Free(port_str);
+
+        /* Get address from first non-internal interface */
+        if (getInterfaceAddr(&rr->config->addr) == REDISMODULE_ERR) {
+            PANIC("Failed to determine local address, please use addr=.");
+        }
+    }
 
     return REDISMODULE_OK;
 }
@@ -255,25 +313,8 @@ int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Red
 
 int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
-    if (config->init && config->join) {
-        RedisModule_Log(ctx, REDIS_WARNING, "'init' and 'join' are mutually exclusive");
-        return REDISMODULE_ERR;
-    }
-    if (config->init) {
-        if (!config->addr.port) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'init' specified without an 'addr'");
-            return REDISMODULE_ERR;
-        }
-        if (!config->id) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'init' requires an 'id'");
-            return REDISMODULE_ERR;
-        }
-    }
-    if (config->join) {
-        if (!config->addr.port) {
-            RedisModule_Log(ctx, REDIS_WARNING, "'join' specified without an 'addr'");
-            return REDISMODULE_ERR;
-        }
+    if (!config->id) {
+        RedisModule_Log(ctx, REDIS_WARNING, "'id' is required");
     }
 
     return REDISMODULE_OK;

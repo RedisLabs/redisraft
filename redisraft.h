@@ -89,6 +89,7 @@ typedef struct NodeAddrListElement {
 } NodeAddrListElement;
 
 typedef enum RedisRaftState {
+    REDIS_RAFT_UNINITIALIZED,
     REDIS_RAFT_UP,
     REDIS_RAFT_LOADING,
     REDIS_RAFT_JOINING
@@ -112,6 +113,12 @@ typedef struct RaftSnapshotInfo {
     SnapshotCfgEntry *cfg;
 } RaftSnapshotInfo;
 
+typedef struct RaftJoinState {
+    NodeAddrListElement *addr;
+    NodeAddrListElement *addr_iter;
+    struct Node *node;
+} RaftJoinState;
+
 typedef struct {
     void *raft;                 /* Raft library context */
     RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
@@ -126,9 +133,7 @@ typedef struct {
     STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
     struct RaftLog *log;
     struct RedisRaftConfig *config;
-    NodeAddrListElement *join_addr;
-    NodeAddrListElement *join_addr_iter;
-    struct Node *join_node;
+    RaftJoinState *join_state;  /* Tracks state while we're in REDIS_RAFT_JOINING */
     bool snapshot_in_progress;
     bool loading_snapshot;
     raft_index_t snapshot_rewrite_last_idx;
@@ -148,7 +153,6 @@ typedef struct {
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
-    NodeAddrListElement *join;
     char *rdb_filename;         /* Original Redis dbfilename */
     char *raftlog;              /* Raft log file name, derived from dbfilename */
     /* Tuning */
@@ -157,8 +161,6 @@ typedef struct RedisRaftConfig {
     int election_timeout;
     int reconnect_interval;
     int max_log_entries;
-    /* Flags */
-    bool init;
     /* Debug options */
     int compact_delay;
 } RedisRaftConfig;
@@ -209,8 +211,11 @@ typedef enum RedisRaftResult {
     RR_ERROR
 } RedisRaftResult;
 
+/* Request types.  Note that these must match the order in RaftReqHandlers! */
 enum RaftReqType {
-    RR_CFGCHANGE_ADDNODE = 1,
+    RR_CLUSTER_INIT = 1,
+    RR_CLUSTER_JOIN,
+    RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_APPENDENTRIES,
     RR_REQUESTVOTE,
@@ -236,6 +241,9 @@ typedef struct RaftReq {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
+        struct {
+            NodeAddr addr;
+        } cluster_join;
         RaftCfgChange cfgchange;
         struct {
             raft_node_id_t src_node_id;

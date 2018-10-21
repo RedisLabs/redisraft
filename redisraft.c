@@ -40,67 +40,81 @@ void *__dso_handle;
 
 #define VALID_NODE_ID(x)    ((x) > 0)
 
-static int cmdRaftAddNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+static int getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
 {
-    RedisRaftCtx *rr = &redis_raft;
-
-    if (argc != 3) {
-        RedisModule_WrongArity(ctx);
-        return REDISMODULE_OK;
-    }
-
-    /* Validate node id */
-    long long node_id;
-    if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
-        !VALID_NODE_ID(node_id)) {
-            RedisModule_ReplyWithError(ctx, "invalid node id");
-            return REDISMODULE_OK;
-    }
-
-    /* Parse address */
-    NodeAddr node_addr = { 0 };
     size_t node_addr_len;
-    const char *node_addr_str = RedisModule_StringPtrLen(argv[2], &node_addr_len);
-    if (!NodeAddrParse(node_addr_str, node_addr_len, &node_addr)) {
+    const char *node_addr_str = RedisModule_StringPtrLen(arg, &node_addr_len);
+    if (!NodeAddrParse(node_addr_str, node_addr_len, addr)) {
         RedisModule_ReplyWithError(ctx, "invalid node address");
-        return REDISMODULE_OK;
+        return REDISMODULE_ERR;
     }
-
-    RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
-    req->r.cfgchange.id = node_id;
-    req->r.cfgchange.addr = node_addr;
-    RaftReqSubmit(rr, req);
 
     return REDISMODULE_OK;
 }
 
-static int cmdRaftRemoveNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisRaftCtx *rr = &redis_raft;
-
-    if (argc != 2) {
+    if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    /* Validate node id */
-    long long node_id;
-    if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
-        !VALID_NODE_ID(node_id)) {
-            RedisModule_ReplyWithError(ctx, "invalid node id");
-            return REDISMODULE_OK;
-    }
+    RedisRaftCtx *rr = &redis_raft;
+    RaftReq *req = NULL;
+    size_t cmd_len;
 
-    /* Also validate it exists */
-    if (!raft_get_node(rr->raft, node_id)) {
-        RedisModule_ReplyWithError(ctx, "node id does not exist");
+    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+    if (!strcasecmp(cmd, "ADD")) {
+        if (argc != 4) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        /* Validate node id */
+        long long node_id;
+        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
+            !VALID_NODE_ID(node_id)) {
+                RedisModule_ReplyWithError(ctx, "invalid node id");
+                return REDISMODULE_OK;
+        }
+
+        /* Parse address */
+        NodeAddr node_addr = { 0 };
+        if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == REDISMODULE_ERR) {
+            /* Error already produced */
+            return REDISMODULE_OK;
+        }
+
+        req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
+        req->r.cfgchange.id = node_id;
+        req->r.cfgchange.addr = node_addr;
+    } else if (!strcasecmp(cmd, "REMOVE")) {
+        if (argc != 3) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        long long node_id;
+        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
+            !VALID_NODE_ID(node_id)) {
+                RedisModule_ReplyWithError(ctx, "invalid node id");
+                return REDISMODULE_OK;
+        }
+
+        /* Also validate it exists */
+        if (!raft_get_node(rr->raft, node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id does not exist");
+            return REDISMODULE_OK;
+        }
+
+        req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
+        req->r.cfgchange.id = node_id;
+    } else {
+        RedisModule_ReplyWithError(ctx, "RAFT.NODE supports ADD / REMOVE only");
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
-    req->r.cfgchange.id = node_id;
     RaftReqSubmit(rr, req);
-
     return REDISMODULE_OK;
 }
 
@@ -299,6 +313,38 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = NULL;
+    size_t cmd_len;
+    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+    if (!strcasecmp(cmd, "INIT") && argc == 2) {
+        req = RaftReqInit(ctx, RR_CLUSTER_INIT);
+    } else if (!strcasecmp(cmd, "JOIN") && argc == 3) {
+        NodeAddr addr;
+        if (getNodeAddrFromArg(ctx, argv[2], &addr) == REDISMODULE_ERR) {
+            /* Error already produced */
+            return REDISMODULE_OK;
+        }
+
+        req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
+        req->r.cluster_join.addr = addr;
+    } else {
+        RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
+        return REDISMODULE_OK;
+    }
+
+    RaftReqSubmit(rr, req);
+    return REDISMODULE_OK;
+}
+
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -395,13 +441,13 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.addnode",
-                cmdRaftAddNode, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+    if (RedisModule_CreateCommand(ctx, "raft.cluster",
+                cmdRaftCluster, "admin",0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.removenode",
-                cmdRaftRemoveNode, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+    if (RedisModule_CreateCommand(ctx, "raft.node",
+                cmdRaftNode, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
