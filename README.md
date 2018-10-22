@@ -59,24 +59,30 @@ cluster:
 
 ```
 redis-server \
-    --port 5001 --loadmodule <path-to>/redisraft.so \
-        id=1 raftlog=raftlog1.db init addr=localhost:5001
+    --port 5001 --dbfilename raft1.rdb \
+    --loadmodule <path-to>/redisraft.so \
+        id=1 raftlog=raftlog1.db addr=localhost:5001
+redis-cli -p 5001 raft.cluster init
 ```
 
 Then start the second node and make it join the cluster:
 
 ```
 redis-server \
-    --port 5002 --loadmodule <path-to>/redisraft.so \
-        id=2 raftlog=raftlog2.db join=localhost:5001 addr=localhost:5002
+    --port 5002 --dbfilename raft2.rdb \
+    --loadmodule <path-to>/redisraft.so \
+        id=2 raftlog=raftlog2.db addr=localhost:5002
+redis-cli -p 5002 raft.cluster join localhost:5001
 ```
 
 And the third node:
 
 ```
 redis-server \
-    --port 5003 --loadmodule <path-to>/redisraft.so \
-        id=3 raftlog=raftlog3.db join=localhost:5001 addr=localhost:5003
+    --port 5003 --dbfilename raft3.rdb \
+    --loadmodule <path-to>/redisraft.so \
+        id=3 raftlog=raftlog3.db addr=localhost:5003
+redis-cli -p 5003 raft.cluster join localhost:5001
 ```
 
 To query the cluster state:
@@ -136,15 +142,16 @@ When a new node starts up, it can follow one of the following flows:
 Configuration changes are propagated as special Raft log entries, as described
 in the Raft paper.
 
-The trigger for configuration changes is provided by `RAFT.ADDNODE` and
-`RAFT.REMOVENODE` commands.
+The trigger for configuration changes is provided by `RAFT.NODE ADD` and
+`RAFT.NODE REMOVE` commands.
 
 *NOTE: Currently membership operations are node-centric. That is, a node is
-started with module arguments that describe how it should behave.  For
-example, a joined node will have a `join=<leader-addr>` argument telling it to
-connect to the leader and execute a `RAFT.ADDNODE` command.  While there are
-some benefits to this approach, it may make more sense to change to a
-cluster-centric approach which is the way Redis Cluster does things.*
+started with module arguments that describe how it should behave.  For example,
+a `RAFT.CLUSTER JOIN` is invoked on a new node in order to initiate a connection
+to the leader and execute a `RAFT.NODE ADD` command.
+
+While there are some benefits to this approach, it may make more sense to change
+to a cluster-centric approach which is the way Redis Cluster does things.*
 
 ### Persistence
 
