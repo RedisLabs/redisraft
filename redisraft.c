@@ -325,17 +325,29 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     RaftReq *req = NULL;
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    if (!strcasecmp(cmd, "INIT") && argc == 2) {
+    if (!strcasecmp(cmd, "INIT")) {
+        if (argc != 2) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
         req = RaftReqInit(ctx, RR_CLUSTER_INIT);
-    } else if (!strcasecmp(cmd, "JOIN") && argc == 3) {
-        NodeAddr addr;
-        if (getNodeAddrFromArg(ctx, argv[2], &addr) == REDISMODULE_ERR) {
-            /* Error already produced */
+    } else if (!strcasecmp(cmd, "JOIN")) {
+        if (argc < 3) {
+            RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
 
+        int i;
         req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
-        req->r.cluster_join.addr = addr;
+
+        for (i = 2; i < argc; i++) {
+            NodeAddr addr;
+            if (getNodeAddrFromArg(ctx, argv[i], &addr) == REDISMODULE_ERR) {
+                /* Error already produced */
+                return REDISMODULE_OK;
+            }
+            NodeAddrListAddElement(&req->r.cluster_join.addr, &addr);
+        }
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
         return REDISMODULE_OK;

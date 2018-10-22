@@ -74,6 +74,27 @@ static void replyRaftError(RedisModuleCtx *ctx, int error)
     }
 }
 
+static int checkLeader(RedisRaftCtx *rr, RaftReq *req)
+{
+    raft_node_t *leader = raft_get_current_leader_node(rr->raft);
+    if (!leader) {
+        RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
+        return REDISMODULE_ERR;
+    }
+    if (raft_node_get_id(leader) != raft_get_nodeid(rr->raft)) {
+        Node *l = raft_node_get_udata(leader);
+        char *reply;
+
+        asprintf(&reply, "MOVED %s:%u", l->addr.host, l->addr.port);
+
+        RedisModule_ReplyWithError(req->ctx, reply);
+        free(reply);
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
 static int checkNotLoading(RedisRaftCtx *rr, RaftReq *req)
 {
     if (rr->state == REDIS_RAFT_LOADING) {
@@ -1097,6 +1118,9 @@ void RaftReqFree(RaftReq *req)
         case RR_LOADSNAPSHOT:
             RedisModule_FreeString(req->ctx, req->r.loadsnapshot.snapshot);
             break;
+        case RR_CLUSTER_JOIN:
+            NodeAddrListFree(req->r.cluster_join.addr);
+            break;
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -1226,6 +1250,11 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t entry;
 
+    if (checkNotLoading(rr, req) == REDISMODULE_ERR ||
+        checkLeader(rr, req) == REDISMODULE_ERR) {
+        goto exit;
+    }
+
     memset(&entry, 0, sizeof(entry));
     entry.id = rand();
 
@@ -1257,6 +1286,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
         replyRaftError(req->ctx, e);
     }
 
+exit:
     RaftReqFree(req);
 }
 
@@ -1454,9 +1484,9 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     assert(!rr->join_state);
     rr->join_state = RedisModule_Calloc(1, sizeof(RaftJoinState));
 
-    /* TODO func */
-    rr->join_state->addr = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
-    rr->join_state->addr->addr = req->r.cluster_join.addr;
+    rr->join_state->addr = req->r.cluster_join.addr;
+    req->r.cluster_join.addr = NULL;    /* We now own it in join_state! */
+
     if (joinCluster(rr) == REDISMODULE_ERR) {
         /* TODO error message */
         RedisModule_ReplyWithError(req->ctx, "Failed to join");

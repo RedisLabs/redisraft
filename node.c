@@ -180,24 +180,29 @@ bool NodeAddrEqual(NodeAddr *a1, NodeAddr *a2)
  * address already exists, nothing is done.  The addr pointer provided is copied into newly
  * allocated memory, caller should free addr if necessary.
  */
-void NodeAddrListAddElement(NodeAddrListElement *head, NodeAddr *addr)
+void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr)
 {
-    assert(head != NULL);
-    do {
-        if (NodeAddrEqual(&head->addr, addr)) {
+    while (*head != NULL) {
+        if (NodeAddrEqual(&(*head)->addr, addr)) {
             return;
         }
 
-        if (head->next) {
-            head = head->next;
-        } else {
-            NodeAddrListElement *new = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
-            head->next = new;
-            new->addr.port = addr->port;
-            strcpy(new->addr.host, addr->host);
-            return;
-        }
-    } while (1);
+        head = &(*head)->next;
+    }
+
+    *head = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
+    (*head)->addr = *addr;
+}
+
+void NodeAddrListFree(NodeAddrListElement *head)
+{
+    NodeAddrListElement *t;
+
+    while (head != NULL) {
+        t = head->next;
+        RedisModule_Free(head);
+        head = t;
+    }
 }
 
 void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
@@ -219,7 +224,7 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_ERROR("RAFT.NODE ADD failed: invalid MOVED response: %s\n", reply->str);
             } else {
                 LOG_INFO("Join redirected to leader: %s\n", addrstr);
-                NodeAddrListAddElement(rr->join_state->addr, &addr);
+                NodeAddrListAddElement(&rr->join_state->addr, &addr);
             }
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s\n", reply->str);

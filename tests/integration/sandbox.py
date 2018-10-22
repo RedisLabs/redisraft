@@ -128,6 +128,7 @@ class RedisRaft(object):
                     retries -= 1
                     if not retries:
                         LOG.fatal('RAFT.CLUSTER {} failed'.format(*args))
+                        break
                 time.sleep(0.01)
 
     def init(self):
@@ -137,9 +138,9 @@ class RedisRaft(object):
         LOG.info('Cluster created: {}'.format(dbid))
         return self
 
-    def join(self, ports):
+    def join(self, addresses):
         self.start()
-        self.cluster('join', 'localhost:{}'.format(ports[0]))
+        self.cluster('join', *addresses)
         return self
 
     def start(self, extra_raft_args=None):
@@ -345,7 +346,10 @@ class Cluster(object):
         return len(self.nodes)
 
     def node_ports(self):
-        return [self.base_port + p for p in self.nodes.keys()]
+        return [n.port for n in self.nodes.values()]
+
+    def node_addresses(self):
+        return ['localhost:{}'.format(n.port) for n in self.nodes.values()]
 
     def create(self, node_count, persist_log=True, raft_args=None):
         if raft_args is None:
@@ -360,21 +364,22 @@ class Cluster(object):
             if _id == 1:
                 node.init()
             else:
-                node.join([self.base_port + 1])
+                node.join(['localhost:{}'.format(self.base_port + 1)])
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
 
-    def add_node(self, persist_log=True, raft_args=None):
+    def add_node(self, persist_log=True, raft_args=None, cluster_setup=True):
         _id = self.next_id
         self.next_id += 1
         node = RedisRaft(_id, self.base_port + _id, persist_log=persist_log,
                          raft_args=raft_args)
-        if len(self.nodes) > 0:
-            node.join(self.node_ports())
-        else:
-            node.init()
-            self.leader = _id
+        if cluster_setup:
+            if len(self.nodes) > 0:
+                node.join(self.node_addresses())
+            else:
+                node.init()
+                self.leader = _id
         self.nodes[_id] = node
         return node
 
