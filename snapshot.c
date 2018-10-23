@@ -57,6 +57,11 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
     }
 }
 
+/* Rewrite the current log state into a new file:
+ * 1. Latest snapshot info
+ * 2. All entries
+ * 3. Current term and vote
+ */
 long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
 {
     RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
@@ -88,7 +93,9 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
     return num_entries;
 }
 
-
+/* Append to the specified Raft log entries from the in-memory log, starting from
+ * a specific index.
+ */
 long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
 {
     long long int num_entries = 0;
@@ -140,7 +147,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     }
 }
 
-RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
+RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     RaftLog *new_log = NULL;
 
@@ -254,20 +261,7 @@ exit:
     return ret;
 }
 
-/* Create a snapshot.
- *
- * 1. raft_begin_snapshot() determines which part of the log can be compacted
- *    and applies any unapplied entry.
- * 2. storeSnapshotInfo() updates the metadata which is part of the snapshot.
- * 3. raft_end_snapshot() does the actual compaction of the log.
- *
- * TODO: We currently don't properly deal with snapshot persistence.  We need to either
- * (a) BGSAVE; or (b) make sure we're covered by AOF.  In the case of RDB, a better
- * approach may be to trigger snapshot generation on BGSAVE, but it requires better
- * synchronization so we can determine how far the log should be compacted.
- */
-
-RedisRaftResult initiateSnapshot(RedisRaftCtx *rr)
+RRStatus initiateSnapshot(RedisRaftCtx *rr)
 {
     if (rr->snapshot_in_progress) {
        return RR_ERROR;
@@ -485,7 +479,7 @@ static int loadSnapshot(RedisRaftCtx *rr)
     return 0;
 }
 
-static int storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
+static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
 {
     size_t data_len;
     const char *data = RedisModule_StringPtrLen(data_str, &data_len);
@@ -494,7 +488,7 @@ static int storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     if (fd < 0) {
         LOG_ERROR("Failed to open snapshot file: %s: %s",
                 rr->config->rdb_filename, strerror(errno));
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     int r = write(fd, data, data_len);
@@ -507,13 +501,13 @@ static int storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
         }
         close(fd);
 
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     LOG_DEBUG("Saved received snapshot to file: %s, %lu bytes\n",
             rr->config->rdb_filename, data_len);
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 int rdbLoad(const char *filename, void *info);
@@ -538,7 +532,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (storeSnapshotData(rr, req->r.loadsnapshot.snapshot) != REDISMODULE_OK) {
+    if (storeSnapshotData(rr, req->r.loadsnapshot.snapshot) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to store snapshot");
         goto exit;
     }

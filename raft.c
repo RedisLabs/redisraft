@@ -79,12 +79,12 @@ static void replyRaftError(RedisModuleCtx *ctx, int error)
 /* Check that this node is a Raft leader.  If not, reply with -MOVED and
  * return an error.
  */
-static int checkLeader(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (!leader) {
         RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
     if (raft_node_get_id(leader) != raft_get_nodeid(rr->raft)) {
         Node *l = raft_node_get_udata(leader);
@@ -94,41 +94,41 @@ static int checkLeader(RedisRaftCtx *rr, RaftReq *req)
 
         RedisModule_ReplyWithError(req->ctx, reply);
         free(reply);
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING
  * and return an error.
  */
-static int checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req)
 {
     if (rr->state == REDIS_RAFT_LOADING) {
         RedisModule_ReplyWithError(req->ctx, "LOADING Raft module is loading data");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 /* Check that we're in a REDIS_RAFT_UP state.  If not, reply with an appropriate
  * error code and return an error.
  */
-static int checkRaftState(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
 {
     switch (rr->state) {
         case REDIS_RAFT_UNINITIALIZED:
             RedisModule_ReplyWithError(req->ctx, "NOCLUSTER No Raft Cluster");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         case REDIS_RAFT_JOINING:
             RedisModule_ReplyWithError(req->ctx, "NOCLUSTER No Raft Cluster (joining now)");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         case REDIS_RAFT_LOADING:
             RedisModule_ReplyWithError(req->ctx, "LOADING Raft module is loading data");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
     }
-    return REDISMODULE_OK;
+    return RR_OK;
 
 }
 
@@ -675,7 +675,7 @@ raft_cbs_t redis_raft_callbacks = {
  * async I/O loop.
  */
 
-int applyLoadedRaftLog(RedisRaftCtx *rr)
+RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 {
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
@@ -724,7 +724,7 @@ int applyLoadedRaftLog(RedisRaftCtx *rr)
             raft_get_last_applied_idx(rr->raft));
 
     initializeSnapshotInfo(rr);
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 int raft_get_num_snapshottable_logs(raft_server_t *);
@@ -740,7 +740,7 @@ static bool checkRedisLoading(RedisRaftCtx *rr)
     return loading;
 }
 
-int loadRaftLog(RedisRaftCtx *rr);
+RRStatus loadRaftLog(RedisRaftCtx *rr);
 
 static void callRaftPeriodic(uv_timer_t *handle)
 {
@@ -779,7 +779,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
                 }
             }
 
-            if (rr->config->raftlog && loadRaftLog(rr) == REDISMODULE_OK) {
+            if (rr->config->raftlog && loadRaftLog(rr) == RR_OK) {
                 if (rr->log->snapshot_last_term) {
                     LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
                             rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
@@ -890,18 +890,18 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
     return raft_recv_entry(rr->raft, &msg, &response);
 }
 
-int initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid, 1, 0);
     if (!rr->log) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
+RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
     /* Initialize dbid */
     RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
@@ -911,13 +911,13 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     raft_node_t *self = raft_add_node(rr->raft, NULL, config->id, 1);
     if (!self) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize raft_node");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     /* Initialize log */
     if (rr->config->raftlog) {
-        if (initRaftLog(ctx, rr) == REDISMODULE_ERR) {
-            return REDISMODULE_ERR;
+        if (initRaftLog(ctx, rr) == RR_ERROR) {
+            return RR_ERROR;
         }
     }
 
@@ -939,7 +939,7 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 
     if (appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) != 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to append initial configuration entry");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     if (rr->log) {
@@ -951,10 +951,10 @@ int initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
     rr->callbacks_set = true;
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int joinCluster(RedisRaftCtx *rr)
+RRStatus joinCluster(RedisRaftCtx *rr)
 {
     /* Create a Snapshot Info meta-key */
     initializeSnapshotInfo(rr);
@@ -963,7 +963,7 @@ int joinCluster(RedisRaftCtx *rr)
     raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
     if (!self) {
         LOG_ERROR("Failed to initialize raft_node\n");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
     rr->state = REDIS_RAFT_JOINING;
 
@@ -971,7 +971,7 @@ int joinCluster(RedisRaftCtx *rr)
     rr->callbacks_set = true;
 
     /* We don't yet initialize the log, as we're waiting for dbid */
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *entry)
@@ -995,21 +995,21 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
     }
 }
 
-int loadRaftLog(RedisRaftCtx *rr)
+RRStatus loadRaftLog(RedisRaftCtx *rr)
 {
     int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr);
     if (entries < 0) {
         LOG_ERROR("Failed to read Raft log\n");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     } else {
         LOG_INFO("Loading: Log loaded, %d entries, snapshot last term=%lu, index=%lu\n",
                entries, rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
+RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
     memset(rr, 0, sizeof(RedisRaftCtx));
     STAILQ_INIT(&rr->rqueue);
@@ -1035,7 +1035,9 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
     rr->config = config;
 
     /* Read configuration from Redis */
-    ConfigReadFromRedis(rr);
+    if (ConfigReadFromRedis(rr) == RR_ERROR) {
+        PANIC("Raft initialization failed: invalid Redis configuration!");
+    }
 
     /* Initialize raft library */
     rr->raft = raft_new();
@@ -1058,24 +1060,24 @@ int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config
         raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
         if (!self) {
             LOG_ERROR("Failed to create local Raft node [id %d]\n", rr->config->id);
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
     } else {
         rr->state = REDIS_RAFT_UNINITIALIZED;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     /* Start Raft thread */
     if (uv_thread_create(&rr->thread, RedisRaftThread, rr) < 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize redis_raft thread");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 /* ------------------------------------ RaftReq ------------------------------------ */
@@ -1183,7 +1185,7 @@ static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
 
-    if (checkRaftState(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftState(rr, req) == RR_ERROR) {
         goto exit;
     }
 
@@ -1209,7 +1211,7 @@ static void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
     msg_appendentries_response_t response;
     int err;
 
-    if (checkRaftState(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftState(rr, req) == RR_ERROR) {
         goto exit;
     }
 
@@ -1237,8 +1239,8 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t entry;
 
-    if (checkRaftState(rr, req) == REDISMODULE_ERR ||
-        checkLeader(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req) == RR_ERROR) {
         goto exit;
     }
 
@@ -1281,8 +1283,8 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
 
-    if (checkRaftState(rr, req) == REDISMODULE_ERR ||
-        checkLeader(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req) == RR_ERROR) {
         goto exit;
     }
 
@@ -1420,7 +1422,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
 static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftNotLoading(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
     }
 
@@ -1429,7 +1431,7 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (initCluster(req->ctx, rr, rr->config) == REDISMODULE_ERR) {
+    if (initCluster(req->ctx, rr, rr->config) == RR_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "Failed to initialize, check logs");
         goto exit;
     }
@@ -1442,7 +1444,7 @@ exit:
 
 static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftNotLoading(rr, req) == REDISMODULE_ERR) {
+    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
     }
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
@@ -1456,7 +1458,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     rr->join_state->addr = req->r.cluster_join.addr;
     req->r.cluster_join.addr = NULL;    /* We now own it in join_state! */
 
-    if (joinCluster(rr) == REDISMODULE_ERR) {
+    if (joinCluster(rr) == RR_ERROR) {
         /* TODO error message */
         RedisModule_ReplyWithError(req->ctx, "Failed to join");
         goto exit;

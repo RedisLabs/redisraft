@@ -41,16 +41,16 @@ void *__dso_handle;
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 /* Parse a node address from a RedisModuleString */
-static int getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
+static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
 {
     size_t node_addr_len;
     const char *node_addr_str = RedisModule_StringPtrLen(arg, &node_addr_len);
     if (!NodeAddrParse(node_addr_str, node_addr_len, addr)) {
         RedisModule_ReplyWithError(ctx, "invalid node address");
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
 /* RAFT.NODE ADD [id] [address:port]
@@ -100,7 +100,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         /* Parse address */
         NodeAddr node_addr = { 0 };
-        if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == REDISMODULE_ERR) {
+        if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == RR_ERROR) {
             /* Error already produced */
             return REDISMODULE_OK;
         }
@@ -335,9 +335,11 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strcasecmp(cmd, "SET") && argc >= 4) {
-        return handleConfigSet(ctx, rr->config, argv, argc);
+        handleConfigSet(ctx, rr->config, argv, argc);
+        return REDISMODULE_OK;
     } else if (!strcasecmp(cmd, "GET") && argc == 3) {
-        return handleConfigGet(ctx, rr->config, argv, argc);
+        handleConfigGet(ctx, rr->config, argv, argc);
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
     }
@@ -429,7 +431,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
         for (i = 2; i < argc; i++) {
             NodeAddr addr;
-            if (getNodeAddrFromArg(ctx, argv[i], &addr) == REDISMODULE_ERR) {
+            if (getNodeAddrFromArg(ctx, argv[i], &addr) == RR_ERROR) {
                 /* Error already produced */
                 return REDISMODULE_OK;
             }
@@ -613,19 +615,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_Free(str);
 
     /* Initialize and validate configuration */
-    if (ConfigInit(ctx, &config) == REDISMODULE_ERR) {
+    ConfigInit(ctx, &config);
+    if (ConfigParseArgs(ctx, argv, argc, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 
-    if (ConfigParseArgs(ctx, argv, argc, &config) == REDISMODULE_ERR) {
+    if (ConfigValidate(ctx, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 
-    if (ConfigValidate(ctx, &config) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    if (registerRaftCommands(ctx) == REDISMODULE_ERR) {
+    if (registerRaftCommands(ctx) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 
@@ -638,12 +637,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                          RedisModule_Calloc,
                          RedisModule_Free);
 
-    if (RedisRaftInit(ctx, &redis_raft, &config) == REDISMODULE_ERR) {
+    if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 
     /* Start Raft thread */
-    if (RedisRaftStart(ctx, &redis_raft) == REDISMODULE_ERR) {
+    if (RedisRaftStart(ctx, &redis_raft) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 

@@ -4,30 +4,30 @@
 
 #include "redisraft.h"
 
-static int parseBool(const char *value, bool *result)
+static RRStatus parseBool(const char *value, bool *result)
 {
     if (!strcmp(value, "yes")) {
         *result = true;
     } else if (!strcmp(value, "no")) {
         *result = false;
     } else {
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int processConfigParam(const char *keyword, const char *value,
+static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, "id"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     if (!value) {
         snprintf(errbuf, errbuflen-1, "'%s' requires a value", keyword);
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     if (!strcmp(keyword, "id")) {
@@ -35,13 +35,13 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long idval = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || !idval) {
             snprintf(errbuf, errbuflen-1, "invalid 'id' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->id = idval;
     } else if (!strcmp(keyword, "addr")) {
         if (!NodeAddrParse(value, strlen(value), &target->addr)) {
             snprintf(errbuf, errbuflen-1, "invalid addr '%s'", value);
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
     } else if (!strcmp(keyword, "raftlog")) {
         if (target->raftlog) {
@@ -53,7 +53,7 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || !val) {
             snprintf(errbuf, errbuflen-1, "invalid 'raft_interval' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->raft_interval = val;
     } else if (!strcmp(keyword, "request_timeout")) {
@@ -61,7 +61,7 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
             snprintf(errbuf, errbuflen-1, "invalid 'request_timeout' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->request_timeout = val;
     } else if (!strcmp(keyword, "election_timeout")) {
@@ -69,7 +69,7 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
             snprintf(errbuf, errbuflen-1, "invalid 'election_timeout' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->election_timeout = val;
     } else if (!strcmp(keyword, "reconnect_interval")) {
@@ -77,7 +77,7 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
             snprintf(errbuf, errbuflen-1, "invalid 'reconnect_interval' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->reconnect_interval = val;
     } else if (!strcmp(keyword, "max_log_entries")) {
@@ -85,18 +85,18 @@ int processConfigParam(const char *keyword, const char *value,
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
             snprintf(errbuf, errbuflen-1, "invalid 'max_log_entries' value");
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
         target->max_log_entries = val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
+void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
 {
     size_t key_len;
     const char *key = RedisModule_StringPtrLen(argv[2], &key_len);
@@ -112,13 +112,11 @@ int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
 
     char errbuf[256] = "ERR ";
     if (processConfigParam(keybuf, valuebuf, config, false,
-                errbuf + strlen(errbuf), sizeof(errbuf) - strlen(errbuf)) == REDISMODULE_OK) {
+                errbuf + strlen(errbuf), sizeof(errbuf) - strlen(errbuf)) == RR_OK) {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, errbuf);
     }
-
-    return REDISMODULE_OK;
 }
 
 static void replyConfigStr(RedisModuleCtx *ctx, const char *name, const char *str)
@@ -136,7 +134,7 @@ static void replyConfigInt(RedisModuleCtx *ctx, const char *name, int val)
     RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
 }
 
-int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
+void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
 {
     int len = 0;
     size_t pattern_len;
@@ -175,10 +173,9 @@ int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleStr
     }
 
     RedisModule_ReplySetArrayLength(ctx, len * 2);
-    return REDISMODULE_OK;
 }
 
-int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
+void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
     memset(config, 0, sizeof(RedisRaftConfig));
 
@@ -226,7 +223,7 @@ exit:
     return buf;
 }
 
-static int getInterfaceAddr(NodeAddr *addr)
+static RRStatus getInterfaceAddr(NodeAddr *addr)
 {
     struct sockaddr *sa = NULL;
     uv_interface_address_t *ifaddr = NULL;
@@ -236,7 +233,7 @@ static int getInterfaceAddr(NodeAddr *addr)
         if (ifaddr) {
             uv_free_interface_addresses(ifaddr, ifaddr_count);
         }
-        return REDISMODULE_ERR;
+        return RR_ERROR;
     }
 
     /* Try to find a non-internal one, otherwise return just the first one */
@@ -253,10 +250,10 @@ static int getInterfaceAddr(NodeAddr *addr)
             addr->host, sizeof(addr->host), NULL, 0, NI_NUMERICHOST);
     uv_free_interface_addresses(ifaddr, ifaddr_count);
 
-    return ret < 0 ? REDISMODULE_ERR : REDISMODULE_OK;
+    return ret < 0 ? RR_ERROR : RR_OK;
 }
 
-int ConfigReadFromRedis(RedisRaftCtx *rr)
+RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)
 {
     int r;
 
@@ -273,15 +270,16 @@ int ConfigReadFromRedis(RedisRaftCtx *rr)
         RedisModule_Free(port_str);
 
         /* Get address from first non-internal interface */
-        if (getInterfaceAddr(&rr->config->addr) == REDISMODULE_ERR) {
+        if (getInterfaceAddr(&rr->config->addr) == RR_ERROR) {
             PANIC("Failed to determine local address, please use addr=.");
+            return RR_ERROR;
         }
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
+RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
 {
     int i;
 
@@ -302,21 +300,22 @@ int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Red
 
         char errbuf[256];
         if (processConfigParam(argbuf, val, target, true,
-                    errbuf, sizeof(errbuf)) != REDISMODULE_OK) {
+                    errbuf, sizeof(errbuf)) != RR_OK) {
             RedisModule_Log(ctx, REDIS_WARNING, errbuf);
-            return REDISMODULE_ERR;
+            return RR_ERROR;
         }
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 
-int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
+RRStatus ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
     if (!config->id) {
         RedisModule_Log(ctx, REDIS_WARNING, "'id' is required");
+        return RR_ERROR;
     }
 
-    return REDISMODULE_OK;
+    return RR_OK;
 }
 

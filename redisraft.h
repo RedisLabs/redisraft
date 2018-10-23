@@ -229,12 +229,12 @@ typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
 /* General purpose status code.  Convention is this:
  * In redisraft.c (Redis Module wrapper) we generally use REDISMODULE_OK/REDISMODULE_ERR.
- * Elsewhere we stick to RedisRaftResult.
+ * Elsewhere we stick to it.
  */
-typedef enum RedisRaftResult {
+typedef enum RRStatus {
     RR_OK       = 0,
     RR_ERROR
-} RedisRaftResult;
+} RRStatus;
 
 /* Request types.  Note that these must match the order in RaftReqHandlers! */
 enum RaftReqType {
@@ -329,8 +329,8 @@ const char *getStateStr(RedisRaftCtx *rr);
 void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);
 bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, raft_entry_data_t *source);
 void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
-int RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
-int RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
+RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
+RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
@@ -365,12 +365,12 @@ bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 bool RaftLogSync(RaftLog *log);
 
 /* config.c */
-int ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
-int ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
-int ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
-int handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
-int handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
-int ConfigReadFromRedis(RedisRaftCtx *rr);
+void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
+RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
+RRStatus ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
+void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
@@ -378,8 +378,8 @@ extern RedisModuleType *RedisRaftType;
 void initializeSnapshotInfo(RedisRaftCtx *rr);
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
-RedisRaftResult initiateSnapshot(RedisRaftCtx *rr);
-RedisRaftResult finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
+RRStatus initiateSnapshot(RedisRaftCtx *rr);
+RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
