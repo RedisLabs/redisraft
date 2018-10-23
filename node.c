@@ -211,7 +211,6 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     RedisRaftCtx *rr = node->rr;
 
     redisReply *reply = r;
-    assert(reply != NULL);
 
     if (!reply) {
         LOG_ERROR("RAFT.NODE ADD failed: connection dropped.\n");

@@ -532,11 +532,6 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (rr->loading_snapshot) {
-        RedisModule_ReplyWithError(req->ctx, "LOADING load snapshot in progress");
-        goto exit;
-    }
-
     if (rr->snapshot_in_progress) {
         LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
         RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");

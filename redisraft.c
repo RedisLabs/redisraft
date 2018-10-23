@@ -40,6 +40,7 @@ void *__dso_handle;
 
 #define VALID_NODE_ID(x)    ((x) > 0)
 
+/* Parse a node address from a RedisModuleString */
 static int getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
 {
     size_t node_addr_len;
@@ -51,6 +52,25 @@ static int getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeA
 
     return REDISMODULE_OK;
 }
+
+/* RAFT.NODE ADD [id] [address:port]
+ *   Add a new node to the cluster.
+ * Reply:
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   -NOLEADER ||
+ *   -MOVED <addr> ||
+ *   +OK <dbid>
+ *
+ * RAFT.NODE REMOVE [id]
+ *   Remove an existing node from the cluster.
+ * Reply:
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   -NOLEADER ||
+ *   -MOVED <addr> ||
+ *   +OK
+ */
 
 static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -118,11 +138,20 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* RAFT.REQUESTVOTE [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+ *   Request a node's vote (per Raft paper).
+ * Reply:
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   *2
+ *   :<term>
+ *   :<granted> (0 or 1)
+ */
+
 static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    /* RAFT.REQUESTVOTE <src_node_id> <term>:<candidate_id>:<last_log_idx>:<last_log_term> */
     if (argc != 3) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
@@ -153,6 +182,18 @@ error_cleanup:
     return REDISMODULE_OK;
 }
 
+/* RAFT [Redis command to execute]
+ *   Submit a Redis command to be appended to the Raft log and applied.
+ *   The command blocks until it has been committed to the log by the majority
+ *   and applied locally.
+ * Reply:
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   -NOLEADER ||
+ *   -MOVED <addr> ||
+ *   Any standard Redis reply, depending on the command.
+ */
+
 static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc < 2) {
@@ -174,6 +215,11 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* RAFT.INFO
+ *   Display Raft module specific info.
+ * Reply:
+ *   Raw text output, formatted like INFO.
+ */
 static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RaftReq *req = RaftReqInit(ctx, RR_INFO);
@@ -183,13 +229,22 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
+/* RAFT.APPENDENTRIES [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
+ *      [n_entries] [<term>:<id>:<type> <entry>]...
+ *   A leader request to append entries to the Raft log (per Raft paper).
+ * Reply:
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   *4
+ *   :<term>
+ *   :<success> (0 or 1)
+ *   :<current_idx>
+ *   :<first_idx>
+ */
+
 static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
-
-    /* RAFT.APPENDENTRIES <src_node_id> <term>:<prev_log_idx>:<prev_log_term>:<leader_commit>
-     *      <n_entries> {<term>:<id>:<type> <entry>}...
-     */
 
     if (argc < 4) {
         RedisModule_WrongArity(ctx);
@@ -258,6 +313,16 @@ error_cleanup:
     return REDISMODULE_OK;
 }
 
+/* RAFT.CONFIG GET [wildcard]
+ *   Query Raft configuration parameters.
+ *
+ * RAFT.CONFIG SET [param] [value]
+ *   Set a Raft configuration parameter.
+ *
+ * This is basically identical to Redis CONFIG GET / CONFIG SET, for
+ * Raft specific configuration.
+ */
+
 static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -279,6 +344,15 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     return REDISMODULE_OK;
 }
+
+/* RAFT.LOADSNAPSHOT [snapshot-last-term] [snapshot-last-index] [data]
+ *   Load the specified snapshot (e.g. Raft paper's InstallSnapshot RPC).
+ *
+ *  Reply:
+ *    -LEADER ||
+ *    :0 (already have snapshot or newer)
+ *    :1 (loaded)
+ */
 
 static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -312,6 +386,19 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
     return REDISMODULE_OK;
 }
+
+/* RAFT.CLUSTER INIT
+ *   Initializes a new Raft cluster.
+ * Reply:
+ *   +OK [dbid]
+ *
+ * RAFT.CLUSTER JOIN [addr:port]
+ *   Join an existing cluster.
+ *   The operation is asynchronous and may take place/retry in the background.
+ * Reply:
+ *   +OK
+ */
+
 
 static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -357,6 +444,13 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
 }
 
+/* RAFT.DEBUG COMPACT [delay]
+ *   Initiate an immediate rewrite of the Raft log + snapshot.
+ *   If [delay] is specified, introduce an artificial delay of [delay] seconds in
+ *   the background rewrite child process.
+ * Reply:
+ *   +OK
+ */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;

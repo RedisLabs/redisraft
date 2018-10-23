@@ -83,18 +83,23 @@ typedef struct node_addr {
     char host[256];             /* Hostname or IP address */
 } NodeAddr;
 
+/* A singly linked list of NodeAddr elements */
 typedef struct NodeAddrListElement {
     NodeAddr addr;
     struct NodeAddrListElement *next;
 } NodeAddrListElement;
 
+/* General state of the module */
 typedef enum RedisRaftState {
-    REDIS_RAFT_UNINITIALIZED,
-    REDIS_RAFT_UP,
-    REDIS_RAFT_LOADING,
-    REDIS_RAFT_JOINING
+    REDIS_RAFT_UNINITIALIZED,       /* Waiting for RAFT.CLUSTER command */
+    REDIS_RAFT_UP,                  /* Up and running */
+    REDIS_RAFT_LOADING,             /* Loading (or attempting) RDB/Raft Log on startup */
+    REDIS_RAFT_JOINING              /* Processing a RAFT.CLUSTER JOIN command */
 } RedisRaftState;
 
+/* A node configuration entry that describe the known configuration of a specific
+ * node at the time of snapshot.
+ */
 typedef struct SnapshotCfgEntry {
     raft_node_id_t  id;
     int             active;
@@ -105,6 +110,15 @@ typedef struct SnapshotCfgEntry {
 
 #define RAFT_DBID_LEN   32
 
+/* Snapshot metadata.  There is a single instnace of this struct available at all times,
+ * which is accessed as follows:
+ * 1. During cluster setup, it is initialized (e.g. with a unique dbid).
+ * 2. The last applied term and index fields are updated every time we apply a log entry
+ *    into the dataset, to reflect the real-time state of the snapshot.
+ * 3. On rdbsave, the record gets serialized (using a dummy key for now; TODO use a global
+ *    state mechanism when Redis Module API supports it).
+ * 4. On rdbload, the record gets loaded and the loaded flag is set.
+ */
 typedef struct RaftSnapshotInfo {
     bool loaded;
     char dbid[RAFT_DBID_LEN+1];
@@ -113,12 +127,20 @@ typedef struct RaftSnapshotInfo {
     SnapshotCfgEntry *cfg;
 } RaftSnapshotInfo;
 
+/* State of the RAFT.CLUSTER JOIN operation.
+ *
+ * The address list is initialized by RAFT.CLUSTER JOIN, but it may grow if RAFT.NODE ADD
+ * requests are sent to follower nodes that reply -MOVED.
+ *
+ * We use a fake Node structure to simplify and reuse connection management code.
+ */
 typedef struct RaftJoinState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     struct Node *node;
 } RaftJoinState;
 
+/* Global Raft context */
 typedef struct {
     void *raft;                 /* Raft library context */
     RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
@@ -130,18 +152,16 @@ typedef struct {
     uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
     uv_timer_t node_reconnect_timer;    /* Handle connection issues */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
-    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (from Redis) */
-    struct RaftLog *log;
-    struct RedisRaftConfig *config;
+    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (Redis thread -> Raft thread) */
+    struct RaftLog *log;        /* Raft persistent log; May be NULL if not used */
+    struct RedisRaftConfig *config;     /* User provided configuration */
     RaftJoinState *join_state;  /* Tracks state while we're in REDIS_RAFT_JOINING */
-    bool snapshot_in_progress;
-    bool loading_snapshot;
-    raft_index_t snapshot_rewrite_last_idx;
-    struct RaftReq *compact_req;
-    bool callbacks_set;
-    int snapshot_child_fd;
-    /* Tracking of applied entries */
-    RaftSnapshotInfo snapshot_info;
+    bool snapshot_in_progress;  /* Indicates we're creating a snapshot in the background */
+    raft_index_t snapshot_rewrite_last_idx; /* TODO: Needed? */
+    struct RaftReq *compact_req;    /* Current RAFT.DEBUG COMPACT request */
+    bool callbacks_set;         /* TODO: Needed? */
+    int snapshot_child_fd;      /* Pipe connected to snapshot child process */
+    RaftSnapshotInfo snapshot_info; /* Current snapshot info */
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
@@ -183,29 +203,34 @@ typedef enum NodeFlags {
     ((x) == NODE_DISCONNECTED || \
      (x) == NODE_CONNECT_ERROR)
 
+/* Maintains all state about peer nodes */
 typedef struct Node {
-    raft_node_id_t id;
-    NodeState state;
-    NodeFlags flags;
-    NodeAddr addr;
-    redisAsyncContext *rc;
-    uv_getaddrinfo_t uv_resolver;
-    RedisRaftCtx *rr;
-    NodeConnectCallbackFunc connect_callback;
-    bool load_snapshot_in_progress;
-    bool unlinked;
-    raft_index_t load_snapshot_idx;
-    time_t load_snapshot_last_time;
-    uv_fs_t uv_snapshot_req;
-    uv_file uv_snapshot_file;
-    size_t snapshot_size;
-    char *snapshot_buf;
-    uv_buf_t uv_snapshot_buf;
+    raft_node_id_t id;              /* Raft unique node ID */
+    NodeState state;                /* Node connection state */
+    NodeFlags flags;                /* See: enum NodeFlags */
+    NodeAddr addr;                  /* Node's address */
+    redisAsyncContext *rc;          /* hiredis async context */
+    uv_getaddrinfo_t uv_resolver;   /* libuv resolver context */
+    RedisRaftCtx *rr;               /* Pointer back to redis_raft */
+    NodeConnectCallbackFunc connect_callback;   /* Connection callback */
+    bool load_snapshot_in_progress; /* Are we currently pushing a snapshot? */
+    raft_index_t load_snapshot_idx; /* Index of snapshot we're pushing */
+    time_t load_snapshot_last_time; /* Last time we pushed a snapshot */
+    uv_fs_t uv_snapshot_req;        /* libuv handle managing snapshot loading from disk */
+    uv_file uv_snapshot_file;       /* libuv handle for snapshot file */
+    size_t snapshot_size;           /* Size of snapshot we're pushing */
+    char *snapshot_buf;             /* Snapshot buffer; TODO: Currently we buffer the entire RDB
+                                     * because hiredis will not stream it for us. */
+    uv_buf_t uv_snapshot_buf;       /* libuv wrapper for snapshot_buf */
     LIST_ENTRY(Node) entries;
 } Node;
 
 typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
 
+/* General purpose status code.  Convention is this:
+ * In redisraft.c (Redis Module wrapper) we generally use REDISMODULE_OK/REDISMODULE_ERR.
+ * Elsewhere we stick to RedisRaftResult.
+ */
 typedef enum RedisRaftResult {
     RR_OK       = 0,
     RR_ERROR
