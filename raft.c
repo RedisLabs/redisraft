@@ -87,13 +87,16 @@ static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req)
         return RR_ERROR;
     }
     if (raft_node_get_id(leader) != raft_get_nodeid(rr->raft)) {
-        Node *l = raft_node_get_udata(leader);
-        char *reply;
+        Node *leader_node = raft_node_get_udata(leader);
 
-        asprintf(&reply, "MOVED %s:%u", l->addr.host, l->addr.port);
-
-        RedisModule_ReplyWithError(req->ctx, reply);
-        free(reply);
+        if (leader_node) {
+            char *reply;
+            asprintf(&reply, "MOVED %s:%u", leader_node->addr.host, leader_node->addr.port);
+            RedisModule_ReplyWithError(req->ctx, reply);
+            free(reply);
+        } else {
+            RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
+        }
         return RR_ERROR;
     }
 
@@ -843,7 +846,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
 /* Main Raft thread, which handles:
  * 1. The libuv loop for managing all connections with other Raft nodes.
  * 2. All Raft periodics tasks.
- * 3. Processing of Raft request queue, for serving RAFT* commands issued 
+ * 3. Processing of Raft request queue, for serving RAFT* commands issued
  *    locally on the main Redis thread.
  */
 static void RedisRaftThread(void *arg)
