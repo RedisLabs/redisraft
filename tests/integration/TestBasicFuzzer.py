@@ -23,11 +23,17 @@ def test_counter_fuzzer_with_rewrites(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, persist_log=True, raft_args={'max_log_entries': 11})
+    c.create(nodes, persist_log=True)
+    # Randomize max log entries
+    for node in c.nodes.values():
+        node.client.execute_command(
+            'RAFT.CONFIG', 'SET', 'max_log_entries',
+            str(random.randint(10, 20)))
+
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         logging.info('---------- Executed INCRBY # %s', i)
-        if i % 7 == 0:
+        if random.randint(1, 7) == 1:
             r = random.randint(1, nodes)
             logging.info('********** Restarting node %s **********', r)
             c.node(r).restart()
@@ -49,7 +55,7 @@ def test_basic_fuzzer(c):
     c.create(nodes, persist_log=True)
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
-        if i % 7 == 0:
+        if random.randint(1, 7) == 1:
             c.node(random.randint(1, nodes)).restart()
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
@@ -67,7 +73,7 @@ def test_fuzzing_with_config_changes(c):
     c.create(nodes, persist_log=True)
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
-        if i % 7 == 0:
+        if random.randint(1, 7) == 1:
             try:
                 node_id = c.random_node_id()
                 c.remove_node(node_id)
