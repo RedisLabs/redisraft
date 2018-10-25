@@ -1,0 +1,21 @@
+version: '2'
+services:
+  node:
+    container_name: jepsen-node
+    build: ./node
+    env_file: ./secret/node.env
+    volumes:
+      - ./dist:/dist
+    privileged: true
+  n1:
+    extends: node
+    container_name: jepsen-n1
+    hostname: n1
+  n2:
+    extends: node
+    container_name: jepsen-n2
+    hostname: n2
+  n3:
+    extends: node
+    container_name: jepsen-n3
+    hostname: n3
