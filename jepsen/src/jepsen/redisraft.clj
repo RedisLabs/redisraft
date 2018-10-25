@@ -68,6 +68,7 @@
       :--port    port
       :--bind    "0.0.0.0"
       :--loadmodule modulename
+        "follower-proxy=yes"
         (str "id=" (redisraft-node-id test node))
         (str "raftlog=" raftlog))))
 
