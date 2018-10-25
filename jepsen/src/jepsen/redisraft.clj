@@ -8,10 +8,12 @@
                     [control :as c]
                     [db :as db]
                     [generator :as gen]
+                    [nemesis :as nemesis]
                     [tests :as tests]]
             [jepsen.control [util :as cu]
                             [net :as net]]
             [jepsen.os.debian :as debian]
+            [jepsen.checker.timeline :as timeline]
             [knossos.model :as model]
             [taoensso.carmine :as car]))
 
@@ -28,7 +30,8 @@
   "Returns a redis connection spec for node"
   [node]
   {:pool {}
-   :spec {:uri (str "redis://:@" node ":" port)}})
+   :spec {:host node
+          :port port}})
 
 (defn redisraft-node-ids
   "Returns a map of node names to node ids."
@@ -127,16 +130,13 @@
 
 (defn redis-cas
   [key old new]
-  (car/lua "local c = redis.call('get', _:key);
-            if (c == _:old-val) then
-                redis.call('set', _:key, _:new-val);
+  (car/redis-call [:raft :eval "local c = redis.call('get', KEYS[1]);
+            if (c == ARGV[1]) then
+                redis.call('SET', KEYS[1], ARGV[2]);
                 return 1
             else
                 return 0
-            end"
-           {:key key}
-           {:old-val old
-            :new-val new}))
+            end" 1 key old new]))
 
 (defrecord Client [conn]
   client/Client
@@ -147,8 +147,8 @@
 
   (invoke! [_ test op]
     (case (:f op)
-      :read (assoc op :type :ok, :value (car/wcar conn (car/get "foo")))
-      :write (do (car/wcar conn (car/set "foo" (:value op)))
+      :read (assoc op :type :ok, :value (car/wcar conn (car/redis-call [:raft :get "foo"])))
+      :write (do (car/wcar conn (car/redis-call [:raft :set "foo" (:value op)]))
                  (assoc op :type, :ok))
       :cas (let [[old new] (:value op)]
              (assoc op :type (if (= 1 (car/wcar conn (redis-cas "foo" old new)))
@@ -169,11 +169,20 @@
           :os   debian/os
           :db   (db "1.0")
           :client (Client. nil)
-          :checker (checker/linearizable)
+          :nemesis (nemesis/partition-random-halves)
+          :model (model/cas-register)
+          :checker (checker/compose
+                     {:perf (checker/perf)
+                      :linear (checker/linearizable)
+                      :timeline (timeline/html)})
           :generator (->> (gen/mix [r w cas])
                           (gen/stagger 1)
-                          (gen/nemesis nil)
-                          (gen/time-limit 15))}))
+                          (gen/nemesis
+                            (gen/seq (cycle [(gen/sleep 5)
+                                             {:type :info, :f :start}
+                                             (gen/sleep 5)
+                                             {:type :info, :f :stop}])))
+                          (gen/time-limit (:time-limit opts)))}))
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
