@@ -88,6 +88,13 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->max_log_entries = val;
+    } else if (!strcmp(keyword, "follower-proxy")) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK) {
+            snprintf(errbuf, errbuflen-1, "invalid 'follower-proxy' value");
+            return RR_ERROR;
+        }
+        target->follower_proxy = val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -134,6 +141,11 @@ static void replyConfigInt(RedisModuleCtx *ctx, const char *name, int val)
     RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
 }
 
+static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
+{
+    replyConfigStr(ctx, name, val ? "yes" : "no");
+}
+
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
 {
     int len = 0;
@@ -164,6 +176,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     if (stringmatch(pattern, "max_log_entries", 1)) {
         len++;
         replyConfigInt(ctx, "max_log_entries", config->max_log_entries);
+    }
+    if (stringmatch(pattern, "follower-proxy", 1)) {
+        len++;
+        replyConfigBool(ctx, "follower-proxy", config->follower_proxy);
     }
     if (stringmatch(pattern, "addr", 1)) {
         len++;

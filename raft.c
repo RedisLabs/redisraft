@@ -79,7 +79,7 @@ static void replyRaftError(RedisModuleCtx *ctx, int error)
 /* Check that this node is a Raft leader.  If not, reply with -MOVED and
  * return an error.
  */
-static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (!leader) {
@@ -90,6 +90,11 @@ static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req)
         Node *leader_node = raft_node_get_udata(leader);
 
         if (leader_node) {
+            if (ret_leader) {
+                *ret_leader = leader_node;
+                return RR_OK;
+            }
+
             char *reply;
             asprintf(&reply, "MOVED %s:%u", leader_node->addr.host, leader_node->addr.port);
             RedisModule_ReplyWithError(req->ctx, reply);
@@ -1243,7 +1248,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     raft_entry_t entry;
 
     if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req) == RR_ERROR) {
+        checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -1282,13 +1287,54 @@ exit:
     RaftReqFree(req);
 }
 
+static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    RaftReq *req = privdata;
+
+    // TODO Relay reply from hiredis to redismodule
+    redisReply *reply = r;
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    RaftReqFree(req);
+}
+
+static RRStatus proxyCommandToLeader(RedisRaftCtx *rr, RaftReq *req, Node *leader)
+{
+    int argc = req->r.redis.cmd.argc + 1;
+    const char *argv[argc];
+    size_t argvlen[argc];
+    int i;
+
+    argv[0] = "RAFT";
+    argvlen[0] = 4;
+
+    for (i = 1; i < argc; i++) {
+        argv[i] = RedisModule_StringPtrLen(req->r.redis.cmd.argv[i-1], &argvlen[i]);
+    }
+
+    if (redisAsyncCommandArgv(leader->rc, handleProxiedCommandResponse,
+                req, req->r.redis.cmd.argc + 1, argv, argvlen) != REDIS_OK) {
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
-    raft_node_t *leader = raft_get_current_leader_node(rr->raft);
+    Node *leader_proxy = NULL;
 
     if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req) == RR_ERROR) {
+        checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
+    }
+
+    /* Proxy */
+    if (leader_proxy) {
+        if (proxyCommandToLeader(rr, req, leader_proxy) != RR_OK) {
+            RedisModule_ReplyWithError(rr->ctx, "NOTLEADER Failed to proxy command");
+            goto exit;
+        }
+        return;
     }
 
     raft_entry_t entry = {

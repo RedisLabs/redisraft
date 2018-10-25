@@ -175,6 +175,7 @@ typedef struct RedisRaftConfig {
     NodeAddr addr;              /* Address of local node, if specified */
     char *rdb_filename;         /* Original Redis dbfilename */
     char *raftlog;              /* Raft log file name, derived from dbfilename */
+    bool follower_proxy;        /* Do follower nodes proxy requests to leader? */
     /* Tuning */
     int raft_interval;
     int request_timeout;

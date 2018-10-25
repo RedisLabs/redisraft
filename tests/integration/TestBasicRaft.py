@@ -87,3 +87,17 @@ def test_reelection_basic_flow(c):
     c.node(2).wait_for_election()
     eq_(c.raft_exec('SET', 'key2', 'value2'), b'OK')
     res = c.exec_all('GET', 'key2')
+
+@with_setup_args(_setup, _teardown)
+def test_proxying(c):
+    """
+    Command proxying from follower to leader works
+    """
+    c.create(3)
+    eq_(c.leader, 1)
+    with assert_raises_regex(redis.ResponseError, 'MOVED'):
+        eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
+    c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
+                                     'follower-proxy', 'yes')
+    eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
+    eq_(c.raft_exec('GET', 'key'), b'value')

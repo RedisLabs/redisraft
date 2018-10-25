@@ -259,8 +259,8 @@ to synchronize reads with heartbeats received from the majority.
 - [ ] Optimize reads, so they are not added as log entries (Raft lib).
 - [ ] More friendly membership management through Redis commands, to avoid
       changing process arguments.
-- [ ] Automatic proxying to leader.
 - [ ] Add NO-OP log entry when starting up, to force commit index computing.
+- [ ] Improve automatic proxying performance.
 - [ ] Improve debug logging (Redis Module API).
 - [ ] Batch log operations (Raft lib).
 - [ ] Optimize memory management (Raft lib).
