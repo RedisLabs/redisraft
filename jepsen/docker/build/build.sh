@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if [ -z "$VERSION" ]; then
+    echo "Missing VERSION environment variable!"
+    exit 1
+fi
+
 git clone --recursive https://github.com/yossigo/redisraft
 git clone https://github.com/antirez/redis
 
