@@ -99,5 +99,19 @@ def test_proxying(c):
         eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
     c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
                                      'follower-proxy', 'yes')
+
+    # Basic sanity
     eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
     eq_(c.raft_exec('GET', 'key'), b'value')
+
+    # Numeric values
+    eq_(c.node(2).raft_exec('SADD', 'myset', 'a'), 1)
+    eq_(c.node(2).raft_exec('SADD', 'myset', 'b'), 1)
+    # Multibulk
+    eq_(set(c.node(2).raft_exec('SMEMBERS', 'myset')), set([b'a', b'b']))
+    # Nested multibulk
+    eq_(set(c.node(2).raft_exec('EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]),
+        set([b'a', b'b', b'c']))
+    # Error
+    with assert_raises_regex(redis.ResponseError, 'WRONGTYPE'):
+        c.node(2).raft_exec('INCR', 'myset')
