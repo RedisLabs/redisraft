@@ -31,7 +31,8 @@
   [node]
   {:pool {}
    :spec {:host node
-          :port port}})
+          :port port
+          :timeout-ms 1000}})
 
 (defn redisraft-node-ids
   "Returns a map of node names to node ids."
@@ -129,9 +130,14 @@
 (defn w   [_ _] {:type :invoke, :f :write, :value (rand-int 5)})
 (defn cas [_ _] {:type :invoke, :f :cas, :value [(rand-int 5) (rand-int 5)]})
 
+(defn parse-long
+  [s]
+  (when s (Long/parseLong s)))
+
 (defn redis-cas
   [key old new]
-  (car/redis-call [:raft :eval "local c = redis.call('get', KEYS[1]);
+  (car/redis-call [:raft :eval "
+            local c = redis.call('get', KEYS[1]);
             if (c == ARGV[1]) then
                 redis.call('SET', KEYS[1], ARGV[2]);
                 return 1
@@ -147,14 +153,19 @@
   (setup! [this test])
 
   (invoke! [_ test op]
-    (case (:f op)
-      :read (assoc op :type :ok, :value (car/wcar conn (car/redis-call [:raft :get "foo"])))
-      :write (do (car/wcar conn (car/redis-call [:raft :set "foo" (:value op)]))
-                 (assoc op :type, :ok))
-      :cas (let [[old new] (:value op)]
-             (assoc op :type (if (= 1 (car/wcar conn (redis-cas "foo" old new)))
-                               :ok
-                               :fail)))))
+    (try
+      (case (:f op)
+        :read (assoc op :type :ok, :value (parse-long (car/wcar conn (car/redis-call [:raft :get "foo"]))))
+        :write (do (car/wcar conn (car/redis-call [:raft :set "foo" (:value op)]))
+                   (assoc op :type, :ok))
+        :cas (let [[old new] (:value op)]
+               (assoc op :type (if (= 1 (car/wcar conn (redis-cas "foo" old new)))
+                                 :ok
+                                 :fail))))
+      (catch Exception e
+        (if (re-find #"^NOLEADER" (.getMessage e))
+          (assoc op :type :fail)
+          (throw e)))))
 
   (teardown! [this test])
 
