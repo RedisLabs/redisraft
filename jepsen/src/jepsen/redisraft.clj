@@ -70,9 +70,9 @@
       :--port    port
       :--bind    "0.0.0.0"
       :--loadmodule modulename
-        "follower-proxy=yes"
         (str "id=" (redisraft-node-id test node))
-        (str "raftlog=" raftlog))))
+        (when-not (:disable-proxy test) "follower-proxy=yes")
+        (when (:persistence test) (str "raftlog=" raftlog)))))
 
 (defn create!
   "Create the redisraft cluster."
@@ -168,11 +168,11 @@
                                    :fail))))
         (catch Exception e
           (let [error (.getMessage e)]
-            (if (re-find #"^NOLEADER" error)
-              (assoc op :type :fail, :error :no-leader)
-              (if (re-find #"^Read timed out" error)
-                (assoc op :type :fail, :error :timeout)
-                (throw e))))))))
+            (cond
+              (re-find #"^NOLEADER" error) (assoc op :type :fail, :error :no-leader-elected)
+              (re-find #"^MOVED" error) (assoc op :type :fail, :error :not-a-leader)
+              (re-find #"^Read timed out" error) (assoc op :type :fail, :error :timeout)
+              :else (throw e)))))))
 
   (teardown! [this test])
 
@@ -184,12 +184,14 @@
   [opts]
   (merge tests/noop-test
          opts
-         {:name "redisraft"
-          :os   debian/os
-          :db   (db "1.0")
-          :client (Client. nil)
-          :nemesis (nemesis/partition-random-halves)
-          :model (model/cas-register)
+         {:name         (str "redisraft"
+                             (when (:persistence opts) "+persistence")
+                             (when (:disable-proxy opts) "+disable-proxy"))
+          :os           debian/os
+          :db           (db "1.0")
+          :client       (Client. nil)
+          :nemesis      (nemesis/partition-random-halves)
+          :model        (model/cas-register)
           :checker (checker/compose
                      {:perf (checker/perf)
                       :indep (independent/checker
@@ -210,11 +212,20 @@
                                              {:type :info, :f :stop}])))
                           (gen/time-limit (:time-limit opts)))}))
 
+(def cli-opts
+  "Additional command line options."
+  [["-p" "--persistence" "Use a persistent disk-based Raft log."
+    :default false]
+   [nil "--disable-proxy" "Do not Use request proxying from follower to leader."
+    :default false]
+   ])
+
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
   browsing results."
   [& args]
-  (cli/run! (merge (cli/single-test-cmd {:test-fn redisraft-test})
+  (cli/run! (merge (cli/single-test-cmd {:test-fn redisraft-test
+                                         :opt-spec cli-opts})
                    (cli/serve-cmd))
             args))
 
