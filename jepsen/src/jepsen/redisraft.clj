@@ -8,6 +8,7 @@
                     [control :as c]
                     [db :as db]
                     [generator :as gen]
+                    [independent :as independent]
                     [nemesis :as nemesis]
                     [tests :as tests]]
             [jepsen.control [util :as cu]
@@ -153,22 +154,25 @@
   (setup! [this test])
 
   (invoke! [_ test op]
-    (try
-      (case (:f op)
-        :read (assoc op :type :ok, :value (parse-long (car/wcar conn (car/redis-call [:raft :get "foo"]))))
-        :write (do (car/wcar conn (car/redis-call [:raft :set "foo" (:value op)]))
-                   (assoc op :type, :ok))
-        :cas (let [[old new] (:value op)]
-               (assoc op :type (if (= 1 (car/wcar conn (redis-cas "foo" old new)))
-                                 :ok
-                                 :fail))))
-      (catch Exception e
-        (let [error (.getMessage e)]
-          (if (re-find #"^NOLEADER" error)
-            (assoc op :type :fail, :error :no-leader)
-            (if (re-find #"^Read timed out" error)
-              (assoc op :type :fail, :error :timeout)
-              (throw e)))))))
+    (let [[k, v] (:value op)]
+      (try
+        (case (:f op)
+          :read (let [value (-> (car/wcar conn (car/redis-call [:raft :get k]))
+                                parse-long)]
+                  (assoc op :type :ok, :value (independent/tuple k value)))
+          :write (do (car/wcar conn (car/redis-call [:raft :set k v]))
+                     (assoc op :type, :ok))
+          :cas (let [[old new] v]
+                 (assoc op :type (if (= 1 (car/wcar conn (redis-cas k old new)))
+                                   :ok
+                                   :fail))))
+        (catch Exception e
+          (let [error (.getMessage e)]
+            (if (re-find #"^NOLEADER" error)
+              (assoc op :type :fail, :error :no-leader)
+              (if (re-find #"^Read timed out" error)
+                (assoc op :type :fail, :error :timeout)
+                (throw e))))))))
 
   (teardown! [this test])
 
@@ -188,10 +192,17 @@
           :model (model/cas-register)
           :checker (checker/compose
                      {:perf (checker/perf)
-                      :linear (checker/linearizable)
-                      :timeline (timeline/html)})
-          :generator (->> (gen/mix [r w cas])
-                          (gen/stagger 1)
+                      :indep (independent/checker
+                               (checker/compose
+                                 {:timeline (timeline/html)
+                                  :linear (checker/linearizable)}))})
+          :generator (->> (independent/concurrent-generator
+                            10
+                            (range)
+                            (fn [k]
+                              (->> (gen/mix [r w cas])
+                                   (gen/stagger 1/10)
+                                   (gen/limit 100))))
                           (gen/nemesis
                             (gen/seq (cycle [(gen/sleep 5)
                                              {:type :info, :f :start}
