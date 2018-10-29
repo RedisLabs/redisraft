@@ -82,13 +82,11 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
         return;
     }
 
-    char addr[17] = { 0 };
-    uv_ip4_name((struct sockaddr_in *) res->ai_addr, addr, 16);
+    uv_ip4_name((struct sockaddr_in *) res->ai_addr, node->ipaddr, sizeof(node->ipaddr)-1);
     uv_freeaddrinfo(res);
-    //NODE_LOG_INFO(node, "connecting at %s:%u...\n", addr, node->addr.port);
 
     /* Initiate connection */
-    node->rc = redisAsyncConnect(addr, node->addr.port);
+    node->rc = redisAsyncConnect(node->ipaddr, node->addr.port);
     if (node->rc->err) {
         //NODE_LOG_ERROR(node, "Failed to initiate connection\n");
         node->state = NODE_CONNECT_ERROR;

@@ -27,7 +27,8 @@ OBJECTS = \
 	  config.o \
 	  raft.o \
 	  snapshot.o \
-	  log.o
+	  log.o \
+	  proxy.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage

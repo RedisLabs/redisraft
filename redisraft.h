@@ -206,13 +206,14 @@ typedef enum NodeFlags {
 
 /* Maintains all state about peer nodes */
 typedef struct Node {
-    raft_node_id_t id;              /* Raft unique node ID */
-    NodeState state;                /* Node connection state */
-    NodeFlags flags;                /* See: enum NodeFlags */
-    NodeAddr addr;                  /* Node's address */
-    redisAsyncContext *rc;          /* hiredis async context */
-    uv_getaddrinfo_t uv_resolver;   /* libuv resolver context */
-    RedisRaftCtx *rr;               /* Pointer back to redis_raft */
+    raft_node_id_t id;                  /* Raft unique node ID */
+    NodeState state;                    /* Node connection state */
+    NodeFlags flags;                    /* See: enum NodeFlags */
+    NodeAddr addr;                      /* Node's address */
+    char ipaddr[INET6_ADDRSTRLEN+1];    /* Node's resolved IP */
+    redisAsyncContext *rc;              /* hiredis async context */
+    uv_getaddrinfo_t uv_resolver;       /* libuv resolver context */
+    RedisRaftCtx *rr;                   /* Pointer back to redis_raft */
     NodeConnectCallbackFunc connect_callback;   /* Connection callback */
     bool load_snapshot_in_progress; /* Are we currently pushing a snapshot? */
     raft_index_t load_snapshot_idx; /* Index of snapshot we're pushing */
@@ -280,6 +281,7 @@ typedef struct RaftReq {
             msg_requestvote_t msg;
         } requestvote;
         struct {
+            redisAsyncContext *proxy_conn;
             RaftRedisCommand cmd;
             msg_entry_response_t response;
         } redis;
@@ -386,5 +388,8 @@ void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node);
+
+/* proxy.c */
+RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);
 
 #endif  /* _REDISRAFT_H */
