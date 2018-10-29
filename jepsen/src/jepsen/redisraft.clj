@@ -163,9 +163,12 @@
                                  :ok
                                  :fail))))
       (catch Exception e
-        (if (re-find #"^NOLEADER" (.getMessage e))
-          (assoc op :type :fail)
-          (throw e)))))
+        (let [error (.getMessage e)]
+          (if (re-find #"^NOLEADER" error)
+            (assoc op :type :fail, :error :no-leader)
+            (if (re-find #"^Read timed out" error)
+              (assoc op :type :fail, :error :timeout)
+              (throw e)))))))
 
   (teardown! [this test])
 
