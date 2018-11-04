@@ -171,7 +171,7 @@
             (cond
               (re-find #"^NOLEADER" error) (assoc op :type :fail, :error :no-leader-elected)
               (re-find #"^MOVED" error) (assoc op :type :fail, :error :not-a-leader)
-              (re-find #"^Read timed out" error) (assoc op :type :fail, :error :timeout)
+              (re-find #"^Read timed out" error) (assoc op :type :info, :error :timeout)
               :else (throw e)))))))
 
   (teardown! [this test])
