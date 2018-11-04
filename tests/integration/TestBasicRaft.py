@@ -46,8 +46,8 @@ def test_node_join_iterates_all_addrs(c):
     eq_(r1.raft_exec('SET', 'key', 'value'), b'OK')
     r2 = c.add_node(cluster_setup=False)
     r2.start()
-    result = r2.cluster('join', 'localhost:1', 'localhost:2',
-                        'localhost:{}'.format(c.node_ports()[0]))
+    eq_(r2.cluster('join', 'localhost:1', 'localhost:2',
+                        'localhost:{}'.format(c.node_ports()[0])), b'OK')
     r2.wait_for_election()
 
 @with_setup_args(_setup, _teardown)
@@ -97,8 +97,8 @@ def test_proxying(c):
     eq_(c.leader, 1)
     with assert_raises_regex(redis.ResponseError, 'MOVED'):
         eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
-    c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
-                                     'follower-proxy', 'yes')
+    eq_(c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
+                                         'follower-proxy', 'yes'), b'OK')
 
     # Basic sanity
     eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
