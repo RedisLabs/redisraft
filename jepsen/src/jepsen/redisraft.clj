@@ -170,6 +170,7 @@
           (let [error (.getMessage e)]
             (cond
               (re-find #"^NOLEADER" error) (assoc op :type :fail, :error :no-leader-elected)
+              (re-find #"^TIMEOUT" error) (assoc op :type :info, :error :leader-timeout)
               (re-find #"^MOVED" error) (assoc op :type :fail, :error :not-a-leader)
               (re-find #"^Read timed out" error) (assoc op :type :info, :error :timeout)
               :else (throw e)))))))

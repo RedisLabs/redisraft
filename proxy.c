@@ -41,8 +41,12 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
     redisReply *reply = r;
 
     if (!reply) {
-        /* Connection have dropped */
-        RedisModule_ReplyWithError(req->ctx, "NOLEADER lost leader connection");
+        /* Connection have dropped.  The state of the request is unknown at this point
+         * and this must be reflected to the user.
+         *
+         * Ideally the connection should be dropped but Module API does not provide for that.
+         */
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no reply from leader");
         goto exit;
     }
 
@@ -60,6 +64,10 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
     const char *argv[argc];
     size_t argvlen[argc];
     int i;
+
+    if (!leader->rc || leader->state != NODE_CONNECTED) {
+        return RR_ERROR;
+    }
 
     argv[0] = "RAFT";
     argvlen[0] = 4;
