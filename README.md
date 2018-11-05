@@ -52,6 +52,37 @@ no logging capture, so output is printed in runtime:
 NOSE_OPTS="-v --nologcapture --logging-config=tests/integration/logging.ini --tests tests/integration/TestSnapshots.py:test_new_snapshot_with_old_log" make integration-tests
 ```
 
+### Jepsen
+
+The module ships with a basic Jepsen test to verify its safety.  It is set up to
+execute a 5-node cluster + a Jepsen control node, based on the Jepsen Docker
+Compose setup.
+
+First, you'll need to build a tarball that contains Redis + the module, compiled
+for a debian image used for Jepsen.  To do that, run:
+
+```
+./jepsen/docker/build_dist.sh
+```
+
+This should result with a `jepsen/docker/dist` directory being created with a
+single tarball.
+
+To start Jepsen:
+
+```
+cd jepsen/docker
+./up.sh
+```
+
+This will launch Jepsen's built-in web server on `http://localhost:8080`, but do
+nothing else.  To start an actual test, use a command such as:
+
+```
+docker exec -ti jepsen-control bash
+lein run test --time-limit 60 --concurrency 200
+```
+
 ### Starting a cluster
 
 To create a three node cluster, start the first node and initialize the
@@ -96,6 +127,14 @@ And to submit a Raft operation:
 ```
 redis-cli -p 5001 RAFT SET mykey myvalue
 ```
+
+## Using the module
+
+TBD: multi/exec, consensus vs stale reads
+
+## Configuration
+
+TBD: Specify all config parameters
 
 ## Module Architecture
 
