@@ -20,6 +20,9 @@ cd /work
 curl -L https://github.com/antirez/redis/archive/${REDIS_VERSION}.tar.gz | tar xfz -
 mv redis-${REDIS_VERSION} redis
 
+# Avoid core dump corruption:
+sed -i '/^#define HAVE_PROC_MAPS/ d' redis/src/config.h
+
 make -C redis
 make -C redisraft
 
