@@ -128,18 +128,112 @@ And to submit a Raft operation:
 redis-cli -p 5001 RAFT SET mykey myvalue
 ```
 
-## Using the module
+## Issues and Limitations
 
-TBD: multi/exec, consensus vs stale reads
+### Transparency
+
+Currently the module is not transparent, as all Redis commands need to be
+prefixed with `RAFT` to be processed properly.
+
+This will change when the Redis Module API has support for command hooking and
+make it possible to intercept built-in commands.
+
+For now it is possible to use an [experimental patch that offers a command
+filtering
+API](https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a)
+and enable it on the module side by un-commenting `-DUSE_COMMAND_FILTER` in the
+Makefile.
+
+### Follower Proxy
+
+By default, an attempt to send a `RAFT` command to a follower node will result
+with a `-MOVED` response that includes the address and port of the leader.
+
+It is possible to enable the `follower-proxy` configuration setting (see below),
+so followers will instead attempt to deliver the command to the leader over an
+established connection.  If successful, the response is then proxied back to the
+user when received from the leader.  If no response is received and the
+connection is dropped, a `-TIMEOUT` error is returned instead, indicating the
+status of the request is unknown (it may or may not have been received).
+
+**NOTE: The Proxy mechanism is quite limited, as it reuses existing connections
+and does not maintain a connection pool, etc.  It is mainly used as an easier
+way to run safety tests against the cluster.**
+
+### Supported Commands
+
+Commands passed to the `RAFT` command are naively added to the Raft log and
+later passed to Redis when committed.
+
+This works well for most simple commands manipulating data types, but may result
+with unexpected/undesired results in other cases.  For example:
+
+- `MUTLI`/`EXEC` cannot be passed to `RAFT`, and will fail to offer atomic
+  execution.
+- Blocking commands are not supported, as they cannot be relayed by the module
+  to Redis (they will not block).
+- Streams are not supported.
+- Pubsub are not supported.
+
+### Read Safety
+
+In a Raft cluster, reads may be fulfilled in different levels of safety:
+1. Consensus reads, only processed by the leader after confirming a majority
+   still considers it a leader (i.e. not stale).
+2. Potentially stale reads, processed by the leader without the above
+   confirmation.  The risk here is that another leader may have **recently**
+   been elected and the read would be stale.
+3. Unsafe reads, which may be fulfilled from any node.
+
+Currently the `RAFT` command makes no distinction between read or writes.
+Sending `RAFT GET keyname` would result with:
+
+1. A new Raft log entry created, with the above Redis command.
+2. Replication of the log entry to cluster nodes.
+3. Execution of the entry and reply once it was acknowledged by the majority.
+
+This corresponds to consensus reads, offering the highest level of safety but
+very inefficiently.  An optimization that would result with the same level of
+safety would replicate an empty entry, as a way to ensure the leader is not
+stale.
+
+In the future we may also wish to support the potentially stale reads, either by
+creating an alternative `RAFT` command or by inspecting the encapsulated command
+and following a different path if it's a read-only command.
+
+Unsafe reads are possible by simply sending Redis read commands unwrapped by
+`RAFT`.
 
 ## Configuration
 
-TBD: Specify all config parameters
+The Raft module has its own set of configuration parameters, which can be
+controlled in different ways:
 
-## Module Architecture
+1. Passed as `param`=`value` pairs as module arguments.
+2. Using `RAFT.CONFIG SET` and `RAFT.CONFIG GET`, which behave the same as as
+   Redis `CONFIG` commands.
 
-The module uses [Standalone C library implementation of
-Raft](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
+The following configuration parameters are supported:
+
+| Parameter          | Description |
+| ---------          | ----------- |
+| id                 | A unique numeric ID of the node in the cluster. *Default: none, required.* |
+| addr               | Address and port the node advertises itself on. *Default: non-local interfce address and the Redis port.* |
+| raftlog            | Raft log filename. *Default: none, log is not persisted.* |
+| raft-interval      | Interval (in ms) in which Raft wakes up and handles chores (e.g. send heartbeat AppendEntries to nodes, etc.). *Default: 100*. |
+| request-timeout    | Amount of time (in ms) before an AppendEntries request is resent. *Default: 250*. |
+| election-timeout   | Amount of time (in ms) after the last AppendEntries, before we assume a leader is down. *Default: 500*. |
+| reconnect-interval | Amount of time (in ms) to wait before retrying to establish a connection with another node. *Default: 100*. |
+| max-log-entries    | Maximal length of Raft log before triggering a log rewrite (generating a local snapshot). *Default: 10000*. |
+| follower-proxy     | If `yes`, follower nodes proxy commands to the leader.  Otherwise, a `-MOVED` response is returned with the address and port of the leader. *Default: no.* |
+
+# Implementation Details
+
+## Overview
+
+The module uses a [standalone C library implementation of
+Raft](https://github.com/willemt/raft) by Willem-Hendrik Thiart for all Raft
+algorithm related work.
 
 A single `RAFT` command is implemented as a prefix command for users to submit
 requests to the Raft log.  This triggers the following series of events:
@@ -153,8 +247,8 @@ requests to the Raft log.  This triggers the following series of events:
    committed, it is executed locally as a regular Redis command and the
    response is sent to the user.
 
-Raft communication between cluster members is handled by `RAFT.APPENDENTRIES`
-and `RAFT.REQUESTVOTE` commands which are also implemented by the module.
+Raft communication between cluster members is handled by `RAFT.AE` and
+`RAFT.REQUESTVOTE` commands which are also implemented by the module.
 
 The module starts a background thread which handles all Raft related tasks,
 such as:
@@ -166,9 +260,7 @@ such as:
 All received Raft commands are placed on a queue and handled by the Raft
 thread itself, using the blocking API and a thread safe context.
 
-## Raft Cluster Design
-
-### Node Membership
+## Node Membership
 
 When a new node starts up, it can follow one of the following flows:
 
@@ -192,14 +284,14 @@ to the leader and execute a `RAFT.NODE ADD` command.
 While there are some benefits to this approach, it may make more sense to change
 to a cluster-centric approach which is the way Redis Cluster does things.*
 
-### Persistence
+## Persistence
 
 Most implementations of Raft assume a disk based crash recovery model.  This
 means that a crashed process can re-start, load its state (log and snapshots)
 from disk and resume.
 
 The Raft module can work in either persistent or non-persistent mode.  In
-persistent mode: 
+persistent mode:
 1. A `raftlog=` parameter is required and specifies the name of the Raft log
    file to use.
 2. On startup, Raft log is read and applied on top of the latest snapshot (i.e.
@@ -212,18 +304,18 @@ mode:
 2. On start, the process will need to re-join the cluster as a new node (require
    a new ID), and the operator will need to explicitly delete the old node ID.
 
-### Log Compaction
+## Log Compaction
 
 Raft defines a mechanism for compaction of logs by storing and exchanging
 snapshots.  The snapshot is expected to be persisted just like the log, and
 include information that was removed from the log during compaction.
 
-#### Live Snapshot
+### Live Snapshot
 In the context of Redis, we can think about the Redis dataset as a constantly
 updated snapshot.  If persistence is required, then our snapshot is version of
 the data that was last saved to RDB or AOF.
 
-#### Compaction Threshold
+### Compaction Threshold
 
 **If persistence is not required**: we may be able to continuously compact the
 Raft log and remove entries that have been received by *all* cluster members.
@@ -238,7 +330,7 @@ by Redis.
 strategies.  Currently compaction can be done explicitly or automatically by
 configuring specific thresholds.*
 
-#### Compaction & Snapshot Creation
+### Compaction & Snapshot Creation
 
 When the Raft modules determines it needs to perform log compaction, it does the
 following:
@@ -257,7 +349,7 @@ The parent detects that the child has completed and:
    child was forked to the temporary Raft log file.
 3. Renames the temporary Raft log so it overwrites the existing one.
 
-#### Snapshot Delivery
+### Snapshot Delivery
 
 When a Raft follower node lags behind and requires log entries that have been
 compacted, a snapshot needs to be delivered instead:
@@ -276,7 +368,7 @@ compacted, a snapshot needs to be delivered instead:
 very efficient and will fail on very large datasets. In the future this should
 be optimized*.
 
-#### Read request handling
+### Read request handling
 
 The naive implementation of reads is identical to writes.  Reads are prefixed
 by the `RAFT` command which places the read command in the Raft log and only
