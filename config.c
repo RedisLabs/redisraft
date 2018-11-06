@@ -48,43 +48,43 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             RedisModule_Free(target->raftlog);
         }
         target->raftlog = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, "raft_interval")) {
+    } else if (!strcmp(keyword, "raft-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || !val) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft_interval' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'raft-interval' value");
             return RR_ERROR;
         }
         target->raft_interval = val;
-    } else if (!strcmp(keyword, "request_timeout")) {
+    } else if (!strcmp(keyword, "request-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'request_timeout' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'request-timeout' value");
             return RR_ERROR;
         }
         target->request_timeout = val;
-    } else if (!strcmp(keyword, "election_timeout")) {
+    } else if (!strcmp(keyword, "election-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'election_timeout' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'election-timeout' value");
             return RR_ERROR;
         }
         target->election_timeout = val;
-    } else if (!strcmp(keyword, "reconnect_interval")) {
+    } else if (!strcmp(keyword, "reconnect-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'reconnect_interval' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'reconnect-interval' value");
             return RR_ERROR;
         }
         target->reconnect_interval = val;
-    } else if (!strcmp(keyword, "max_log_entries")) {
+    } else if (!strcmp(keyword, "max-log-entries")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'max_log_entries' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'max-log-entries' value");
             return RR_ERROR;
         }
         target->max_log_entries = val;
@@ -153,29 +153,33 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     const char *pattern = RedisModule_StringPtrLen(argv[2], &pattern_len);
 
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    if (stringmatch(pattern, "id", 1)) {
+        len++;
+        replyConfigInt(ctx, "id", config->id);
+    }
     if (stringmatch(pattern, "raftlog", 1)) {
         len++;
         replyConfigStr(ctx, "raftlog", config->raftlog ? config->raftlog : "");
     }
-    if (stringmatch(pattern, "raft_interval", 1)) {
+    if (stringmatch(pattern, "raft-interval", 1)) {
         len++;
-        replyConfigInt(ctx, "raft_interval", config->raft_interval);
+        replyConfigInt(ctx, "raft-interval", config->raft_interval);
     }
-    if (stringmatch(pattern, "request_timeout", 1)) {
+    if (stringmatch(pattern, "request-timeout", 1)) {
         len++;
-        replyConfigInt(ctx, "request_timeout", config->request_timeout);
+        replyConfigInt(ctx, "request-timeout", config->request_timeout);
     }
-    if (stringmatch(pattern, "election_timeout", 1)) {
+    if (stringmatch(pattern, "election-timeout", 1)) {
         len++;
-        replyConfigInt(ctx, "election_timeout", config->election_timeout);
+        replyConfigInt(ctx, "election-timeout", config->election_timeout);
     }
-    if (stringmatch(pattern, "reconnect_interval", 1)) {
+    if (stringmatch(pattern, "reconnect-interval", 1)) {
         len++;
-        replyConfigInt(ctx, "reconnect_interval", config->reconnect_interval);
+        replyConfigInt(ctx, "reconnect-interval", config->reconnect_interval);
     }
-    if (stringmatch(pattern, "max_log_entries", 1)) {
+    if (stringmatch(pattern, "max-log-entries", 1)) {
         len++;
-        replyConfigInt(ctx, "max_log_entries", config->max_log_entries);
+        replyConfigInt(ctx, "max-log-entries", config->max_log_entries);
     }
     if (stringmatch(pattern, "follower-proxy", 1)) {
         len++;

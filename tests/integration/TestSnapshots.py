@@ -19,7 +19,7 @@ def test_compaction_thresholds(c):
 
     r1 = c.add_node()
     eq_(r1.raft_info()['log_entries'], 1)
-    ok_(r1.raft_config_set('max_log_entries', 5))
+    ok_(r1.raft_config_set('max-log-entries', 5))
     for x in range(10):
         ok_(r1.raft_exec('SET', 'testkey', x))
     time.sleep(1)

@@ -27,7 +27,7 @@ def test_counter_fuzzer_with_rewrites(c):
     # Randomize max log entries
     for node in c.nodes.values():
         node.client.execute_command(
-            'RAFT.CONFIG', 'SET', 'max_log_entries',
+            'RAFT.CONFIG', 'SET', 'max-log-entries',
             str(random.randint(10, 20)))
 
     for i in range(cycles):

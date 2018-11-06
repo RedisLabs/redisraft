@@ -329,7 +329,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 
     redisReply *reply = r;
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        NODE_LOG_ERROR(node, "RAFT.APPENDENTRIES failed: %s\n", reply ? reply->str : "connection dropped.");
+        NODE_LOG_ERROR(node, "RAFT.AE failed: %s\n", reply ? reply->str : "connection dropped.");
         return;
     }
 
@@ -338,7 +338,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
             reply->element[1]->type != REDIS_REPLY_INTEGER ||
             reply->element[2]->type != REDIS_REPLY_INTEGER ||
             reply->element[3]->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_ERROR(node, "invalid RAFT.APPENDENTRIES reply\n");
+        NODE_LOG_ERROR(node, "invalid RAFT.AE reply\n");
         return;
     }
 
@@ -381,7 +381,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     char argv1_buf[12];
     char argv2_buf[50];
     char argv3_buf[12];
-    argv[0] = "RAFT.APPENDENTRIES";
+    argv[0] = "RAFT.AE";
     argvlen[0] = strlen(argv[0]);
     argv[1] = argv1_buf;
     argvlen[1] = snprintf(argv1_buf, sizeof(argv1_buf)-1, "%d", raft_get_nodeid(raft));
@@ -1452,8 +1452,11 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    char reply[RAFT_DBID_LEN+5];
+    snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
+
     rr->state = REDIS_RAFT_UP;
-    RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
+    RedisModule_ReplyWithSimpleString(req->ctx, reply);
 exit:
     RaftReqFree(req);
 }

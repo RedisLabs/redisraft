@@ -23,7 +23,7 @@ def test_counter_fuzzer_with_rewrites(c):
     nodes = 3
     cycles = 100
 
-    c.create(nodes, persist_log=True, raft_args={'max_log_entries': '11'})
+    c.create(nodes, persist_log=True, raft_args={'max-log-entries': '11'})
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)
         logging.info('---------- Executed INCRBY # %s', i)

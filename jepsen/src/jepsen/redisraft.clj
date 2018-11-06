@@ -81,7 +81,7 @@
     (when (= node p)
       (info node "creating redisraft cluster.")
       (let [res (c/exec control "-p" port :raft.cluster :init)]
-       (assert (re-find #"^[0-9a-f]" res))))))
+       (assert (re-find #"^OK" res))))))
 
 (defn join!
   "Joins DB nodes."

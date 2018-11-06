@@ -229,7 +229,7 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
-/* RAFT.APPENDENTRIES [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
+/* RAFT.AE [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
  *      [n_entries] [<term>:<id>:<type> <entry>]...
  *   A leader request to append entries to the Raft log (per Raft paper).
  * Reply:
@@ -559,7 +559,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.appendentries",
+    if (RedisModule_CreateCommand(ctx, "raft.ae",
                 cmdRaftAppendEntries, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
