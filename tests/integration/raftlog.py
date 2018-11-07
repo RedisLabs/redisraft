@@ -1,3 +1,4 @@
+import os
 import logging
 from enum import Enum
 
@@ -14,7 +15,7 @@ class RawEntry(object):
         self.args = args.copy()
 
     def kind(self):
-        return self.args[0]
+        return str(self.args[0], encoding='ascii')
 
     @classmethod
     def from_file(cls, f):
@@ -88,6 +89,10 @@ class RaftLog(object):
         self.logfile = open(filename, 'rb')
         self.entries = []
 
+    def reset(self):
+        self.entries = []
+        self.logfile.seek(0, os.SEEK_SET)
+
     def read(self):
         while True:
             try:
@@ -99,6 +104,9 @@ class RaftLog(object):
 
     def header(self):
         return self.entries[0]
+
+    def last_entry(self):
+        return self.entries[-1]
 
     def entry_count(self, type=None):
         count = 0

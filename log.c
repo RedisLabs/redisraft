@@ -486,7 +486,7 @@ bool RaftLogRemoveTail(RaftLog *log)
         return false;
     }
     if (writeBegin(log, 1) < 0 ||
-        writeBuffer(log, "REMHEAD", 7) < 0 ||
+        writeBuffer(log, "REMTAIL", 7) < 0 ||
         writeEnd(log) < 0) {
         return false;
     }
