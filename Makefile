@@ -5,7 +5,7 @@ ifeq ($(OS),Linux)
     ARCH_CFLAGS := -fPIC
     ARCH_LDFLAGS := -shared -Wl,-Bsymbolic-functions
 else
-    ARCH_CFLAGS := -dynamic
+    ARCH_CFLAGS := -dynamic -DHAVE_SYS_QUEUE
     ARCH_LDFLAGS := -bundle -undefined dynamic_lookup
 endif
 

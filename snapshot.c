@@ -73,18 +73,18 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
     for (i = raft_get_first_entry_idx(rr->raft) + 1; i <= raft_get_current_idx(rr->raft); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(log, ety) < 0) {
+        if (RaftLogWriteEntry(log, ety) != RR_OK) {
             RaftLogClose(log);
             return -1;
         }
     }
 
-    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) < 0) {
+    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) != RR_OK) {
         RaftLogClose(log);
         return -1;
     }
 
-    if (!RaftLogSync(log)) {
+    if (RaftLogSync(log) != RR_OK) {
         RaftLogClose(log);
         return -1;
     }
@@ -109,13 +109,13 @@ long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_inde
     for (i = from_idx; i <= raft_get_current_idx(rr->raft); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(log, ety) < 0) {
+        if (RaftLogWriteEntry(log, ety) != RR_OK) {
             num_entries = -1;
             goto exit;
         }
     }
 
-    if (!RaftLogSync(log)) {
+    if (RaftLogSync(log) != RR_OK) {
         num_entries = -1;
     }
 
@@ -292,8 +292,15 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
      */
 
     int snapshot_fds[2];    /* [0] our side, [1] child's side */
-    if (pipe2(snapshot_fds, O_NONBLOCK) < 0) {
+    if (pipe(snapshot_fds) < 0) {
         LOG_ERROR("Failed to create snapshot child pipe: %s\n", strerror(errno));
+        cancelSnapshot(rr, NULL);
+        return RR_ERROR;
+    }
+
+    rr->snapshot_child_fd = snapshot_fds[0];
+    if (fcntl(rr->snapshot_child_fd, F_SETFL, O_NONBLOCK) < 0) {
+        LOG_ERROR("Failed to prepare child pipe: %s\n", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     }
@@ -304,7 +311,6 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         RaftLogSync(rr->log);
     }
 
-    rr->snapshot_child_fd = snapshot_fds[0];
     pid_t child = fork();
     if (child < 0) {
         LOG_ERROR("Failed to fork snapshot child: %s\n", strerror(errno));

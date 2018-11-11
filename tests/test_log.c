@@ -88,8 +88,8 @@ static void test_basic_log_read_write(void **state)
     };
 
     /* Write entries */
-    assert_true(RaftLogAppend(log, &entry1));
-    assert_true(RaftLogAppend(log, &entry2));
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
 
     /* Load entries */
     will_return_always(read_callback, 0);
@@ -115,11 +115,11 @@ static void test_log_remove_head(void **state)
     };
 
     /* Create log */
-    assert_true(RaftLogAppend(log, &entry1));
-    assert_true(RaftLogAppend(log, &entry2));
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
 
     /* Remove first */
-    assert_true(RaftLogRemoveHead(log));
+    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
     will_return_always(read_callback, 0);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, &fl), 1);
     assert_int_equal(fakelog_entries(&fl), 1);
@@ -127,12 +127,12 @@ static void test_log_remove_head(void **state)
 
     /* Remove last */
     fakelog_clear(&fl);
-    assert_true(RaftLogRemoveHead(log));
+    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
     assert_int_equal(fakelog_entries(&fl), 0);
 
     /* No more */
-    assert_false(RaftLogRemoveHead(log));
+    assert_int_equal(RaftLogRemoveHead(log), RR_ERROR);
 }
 
 static void test_log_remove_tail(void **state)
@@ -151,11 +151,11 @@ static void test_log_remove_tail(void **state)
     };
 
     /* Create log */
-    assert_true(RaftLogAppend(log, &entry1));
-    assert_true(RaftLogAppend(log, &entry2));
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
 
     /* Remove tail */
-    assert_true(RaftLogRemoveTail(log));
+    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
     will_return_always(read_callback, 0);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
     assert_int_equal(fakelog_entries(&fl), 1);
@@ -163,12 +163,12 @@ static void test_log_remove_tail(void **state)
 
     /* Remove last entry */
     fakelog_clear(&fl);
-    assert_true(RaftLogRemoveTail(log));
+    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
     assert_int_equal(fakelog_entries(&fl), 0);
 
     /* No more */
-    assert_false(RaftLogRemoveTail(log));
+    assert_int_equal(RaftLogRemoveTail(log), RR_ERROR);
 }
 
 static void test_log_remove_head_and_tail(void **state)
@@ -192,13 +192,13 @@ static void test_log_remove_head_and_tail(void **state)
     };
 
     /* Create log */
-    assert_true(RaftLogAppend(log, &entry1));
-    assert_true(RaftLogAppend(log, &entry2));
-    assert_true(RaftLogAppend(log, &entry3));
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
 
     /* Remove head and tail */
-    assert_true(RaftLogRemoveHead(log));
-    assert_true(RaftLogRemoveTail(log));
+    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
+    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
     will_return_always(read_callback, 0);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
     assert_int_equal(fakelog_entries(&fl), 1);
@@ -206,7 +206,7 @@ static void test_log_remove_head_and_tail(void **state)
 
     /* Remove tail */
     fakelog_clear(&fl);
-    assert_true(RaftLogRemoveTail(log));
+    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
     assert_int_equal(fakelog_entries(&fl), 0);
 }

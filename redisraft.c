@@ -36,7 +36,9 @@ RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
 
 /* This is needed for newer pthread versions to properly link and work */
+#ifdef LINUX
 void *__dso_handle;
+#endif
 
 #define VALID_NODE_ID(x)    ((x) > 0)
 

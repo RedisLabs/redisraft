@@ -90,7 +90,7 @@ static int readEncodedLength(RaftLog *log, char type, unsigned long *length)
     char *eptr;
 
     if (!fgets(buf, sizeof(buf), log->file)) {
-            return -1;
+        return -1;
     }
 
     if (buf[0] != type) {
@@ -325,6 +325,8 @@ RaftLog *RaftLogOpen(const char *filename)
     log->file = file;
 
     /* Read start */
+    fseek(log->file, 0L, SEEK_SET);
+
     RawLogEntry *e = NULL;
     if (readRawLogEntry(log, &e) < 0) {
         LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
@@ -432,7 +434,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
     return ret;
 }
 
-bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
+RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 {
     if (writeBegin(log, 5) < 0 ||
         writeBuffer(log, "ENTRY", 5) < 0 ||
@@ -440,62 +442,62 @@ bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
         writeUnsignedInteger(log, entry->id) < 0 ||
         writeUnsignedInteger(log, entry->type) < 0 ||
         writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
-        return false;
+        return RR_ERROR;
     }
 
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogSync(RaftLog *log)
+RRStatus RaftLogSync(RaftLog *log)
 {
     if (writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogAppend(RaftLog *log, raft_entry_t *entry)
+RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
-    if (!RaftLogWriteEntry(log, entry) ||
+    if (RaftLogWriteEntry(log, entry) != RR_OK ||
             writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
 
     log->num_entries++;
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogRemoveHead(RaftLog *log)
+RRStatus RaftLogRemoveHead(RaftLog *log)
 {
     if (!log->num_entries) {
-        return false;
+        return RR_ERROR;
     }
     if (writeBegin(log, 1) < 0 ||
         writeBuffer(log, "REMHEAD", 7) < 0 ||
         writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
     log->num_entries--;
 
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogRemoveTail(RaftLog *log)
+RRStatus RaftLogRemoveTail(RaftLog *log)
 {
     if (!log->num_entries) {
-        return false;
+        return RR_ERROR;
     }
     if (writeBegin(log, 1) < 0 ||
         writeBuffer(log, "REMTAIL", 7) < 0 ||
         writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
     log->num_entries--;
 
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
+RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
 {
     log->vote = vote;
 
@@ -503,12 +505,12 @@ bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
         writeBuffer(log, "VOTE", 4) < 0 ||
         writeInteger(log, vote) < 0 ||
         writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
-    return true;
+    return RR_OK;
 }
 
-bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
+RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
 {
     log->term = term;
     log->vote = vote;
@@ -518,7 +520,7 @@ bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
         writeUnsignedInteger(log, term) < 0 ||
         writeInteger(log, vote) < 0 ||
         writeEnd(log) < 0) {
-        return false;
+        return RR_ERROR;
     }
-    return true;
+    return RR_OK;
 }

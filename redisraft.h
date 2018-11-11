@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#ifdef HAVE_SYS_QUEUE
+#include <sys/queue.h>
+#else
 #include <bsd/sys/queue.h>
+#endif
 #include <stdio.h>
 #include <unistd.h>
 
@@ -358,14 +362,14 @@ typedef enum LogEntryAction {
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
-bool RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-bool RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
-bool RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
+RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
+RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
+RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction action, raft_entry_t *), void *callback_arg);
-bool RaftLogRemoveHead(RaftLog *log);
-bool RaftLogRemoveTail(RaftLog *log);
-bool RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
-bool RaftLogSync(RaftLog *log);
+RRStatus RaftLogRemoveHead(RaftLog *log);
+RRStatus RaftLogRemoveTail(RaftLog *log);
+RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
+RRStatus RaftLogSync(RaftLog *log);
 
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);

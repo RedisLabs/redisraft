@@ -95,10 +95,11 @@ static RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
                 return RR_OK;
             }
 
-            char *reply;
-            asprintf(&reply, "MOVED %s:%u", leader_node->addr.host, leader_node->addr.port);
+            int reply_maxlen = strlen(leader_node->addr.host) + 15;
+            char *reply = RedisModule_Alloc(reply_maxlen);
+            snprintf(reply, reply_maxlen, "MOVED %s:%u", leader_node->addr.host, leader_node->addr.port);
             RedisModule_ReplyWithError(req->ctx, reply);
-            free(reply);
+            RedisModule_Free(reply);
         } else {
             RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
         }
@@ -135,6 +136,8 @@ static RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
         case REDIS_RAFT_LOADING:
             RedisModule_ReplyWithError(req->ctx, "LOADING Raft module is loading data");
             return RR_ERROR;
+        case REDIS_RAFT_UP:
+            break;
     }
     return RR_OK;
 
@@ -423,7 +426,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
         return 0;
     }
 
-    if (!RaftLogSetVote(rr->log, vote)) {
+    if (RaftLogSetVote(rr->log, vote) != RR_OK) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -437,7 +440,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
         return 0;
     }
 
-    if (!RaftLogSetTerm(rr->log, term, vote)) {
+    if (RaftLogSetTerm(rr->log, term, vote) != RR_OK) {
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -468,7 +471,7 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
      * the disk.
      */
     if (rr->log && rr->state != REDIS_RAFT_LOADING) {
-        if (!RaftLogAppend(rr->log, entry)) {
+        if (RaftLogAppend(rr->log, entry) != RR_OK) {
             return RAFT_ERR_SHUTDOWN;
         }
     }
@@ -508,7 +511,7 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
         return 0;
     }
 
-    if (!RaftLogRemoveTail(rr->log)) {
+    if (RaftLogRemoveTail(rr->log) != RR_OK) {
         return -1;
     }
 
@@ -527,7 +530,7 @@ static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry
         return 0;
     }
 
-    if (!RaftLogRemoveHead(rr->log)) {
+    if (RaftLogRemoveHead(rr->log) != RR_OK) {
         LOG_DEBUG("raftLogPoll: RaftLogRemoveHead() failed!\n");
         return -1;
     }
@@ -861,7 +864,7 @@ static void RedisRaftThread(void *arg)
     /* TODO: Properly handle the race condition here.  We need to be sure Redis
      * initialization has got to the point where RDB loading started.
      */
-    sleep(0.5);
+    usleep(500000);
 
     uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
             rr->config->raft_interval, rr->config->raft_interval);
@@ -953,7 +956,7 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     if (rr->log) {
         raft_entry_t *entry = raft_get_entry_from_idx(rr->raft, 1);
         assert(entry != NULL);
-        assert(RaftLogAppend(rr->log, entry) == true);
+        assert(RaftLogAppend(rr->log, entry) == RR_OK);
     }
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
