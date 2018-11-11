@@ -4,7 +4,7 @@
 
 #include "redisraft.h"
 
-int redis_raft_loglevel = 5;
+int redis_raft_loglevel = LOGLEVEL_INFO;
 FILE *redis_raft_logfile;
 
 void raft_module_log(const char *fmt, ...)

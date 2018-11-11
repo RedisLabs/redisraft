@@ -153,7 +153,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     assert(rr->snapshot_in_progress);
 
-    LOG_DEBUG("Finalizing snapshot.\n");
+    TRACE("Finalizing snapshot.\n");
 
     /* If a persistent log is in use, we now have to append any new
      * entries to the temporary log and switch.
@@ -166,7 +166,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
             return -1;
         }
 
-        LOG_INFO("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
+        LOG_VERBOSE("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
                 raft_get_snapshot_last_idx(rr->raft));
 
         new_log = RaftLogOpen(sr->log_filename);
@@ -206,7 +206,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         rr->log = new_log;
     }
 
-exit:
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
 
@@ -238,17 +237,17 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
         goto exit;
     }
 
-    LOG_INFO("Snapshot created, %lld log entries rewritten to log.\n", sr->num_entries);
+    LOG_VERBOSE("Snapshot created, %lld log entries rewritten to log.\n", sr->num_entries);
     ret = 1;
 
 exit:
     /* If this is a result of a RAFT.COMPACT request, we need to reply. */
     if (rr->compact_req) {
         if (ret == 1) {
-            LOG_VERBOSE("RAFT.DEBUG COMPACT completed successfully.\n");
+            LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.\n");
             RedisModule_ReplyWithSimpleString(rr->compact_req->ctx, "OK");
         } else {
-            LOG_VERBOSE("RAFT.DEBUG COMPACT failed: %s\n", sr->err);
+            LOG_DEBUG("RAFT.DEBUG COMPACT failed: %s\n", sr->err);
             RedisModule_ReplyWithError(rr->compact_req->ctx, sr->err);
         }
         RaftReqFree(rr->compact_req);
@@ -439,16 +438,16 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     removeAllNodes(rr);
     loadSnapshotNodes(rr, rr->snapshot_info.cfg);
 
-    LOG_INFO("Snapshot configuration loaded. Raft state:\n");
+    LOG_DEBUG("Snapshot configuration loaded. Raft state:\n");
     int i;
     for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
         Node *node = raft_node_get_udata(rnode);
 
         if (!node) {
-            LOG_INFO("  node <unknown?>\n", i);
+            LOG_DEBUG("  node <unknown?>\n", i);
         } else {
-            LOG_INFO("  node id=%d,addr=%s,port=%d\n",
+            LOG_DEBUG("  node id=%d,addr=%s,port=%d\n",
                     node->id, node->addr.host, node->addr.port);
         }
     }
@@ -466,7 +465,7 @@ static int loadSnapshot(RedisRaftCtx *rr)
         return -1;
     }
 
-    LOG_INFO("Begining snapshot load, term=%lu, last_included_index=%lu\n",
+    LOG_DEBUG("Begining snapshot load, term=%lu, last_included_index=%lu\n",
             rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
 
@@ -527,13 +526,13 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
      */
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
-        LOG_INFO("Skipping RAFT.LOADSNAPSHOT as I am the leader.");
+        LOG_VERBOSE("Skipping RAFT.LOADSNAPSHOT as I am the leader.");
         RedisModule_ReplyWithError(req->ctx, "ERR leader does not accept snapshots");
         goto exit;
     }
 
     if (rr->snapshot_in_progress) {
-        LOG_INFO("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
         RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");
         goto exit;
     }
@@ -802,7 +801,6 @@ static void snapshotOnOpen(uv_fs_t *req)
 {
     Node *node = uv_req_get_data((uv_req_t *) req);
     uv_fs_t stat_req;
-    uv_fs_t close_req;
 
     uv_fs_req_cleanup(req);
 
@@ -843,7 +841,6 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
 {
     RedisRaftCtx *rr = user_data;
     Node *node = (Node *) raft_node_get_udata(raft_node);
-    time_t now = time(NULL);
 
     /* Don't attempt to send a snapshot if we're in the process of creating one */
     if (rr->snapshot_in_progress) {

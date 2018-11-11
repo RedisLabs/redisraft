@@ -66,7 +66,12 @@ void raft_module_log(const char *fmt, ...);
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" \
                     fmt, ##__VA_ARGS__); exit(1); } while (0)
 
-#define TRACE(fmt, ...) LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+#define TRACE(fmt, ...) \
+    LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+
+#define NODE_TRACE(node, fmt, ...) \
+    NODE_LOG(LOGLEVEL_DEBUG, node, "%s:%d: " fmt, \
+            __FILE__, __LINE__, ##__VA_ARGS__)
 
 #define NODE_LOG(level, node, fmt, ...) \
     LOG(level, "node:%d: " fmt, (node)->id, ##__VA_ARGS__)
@@ -215,6 +220,9 @@ typedef struct Node {
     NodeFlags flags;                    /* See: enum NodeFlags */
     NodeAddr addr;                      /* Node's address */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Node's resolved IP */
+    time_t last_connected_time;         /* Last connection time */
+    unsigned int connect_oks;           /* Successful connects */
+    unsigned int connect_errors;        /* Connection errors since last connection */
     redisAsyncContext *rc;              /* hiredis async context */
     uv_getaddrinfo_t uv_resolver;       /* libuv resolver context */
     RedisRaftCtx *rr;                   /* Pointer back to redis_raft */

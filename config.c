@@ -16,6 +16,31 @@ static RRStatus parseBool(const char *value, bool *result)
     return RR_OK;
 }
 
+static char *loglevels[] = {
+    "error",
+    "info",
+    "verbose",
+    "debug",
+    NULL
+};
+
+static int parseLogLevel(const char *value)
+{
+    int i;
+    for (i = 0; loglevels[i] != NULL; i++) {
+        if (!strcmp(value, loglevels[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static const char *getLoglevelName(int level)
+{
+    assert(level >= 0 && level <= LOGLEVEL_DEBUG);
+    return loglevels[level];
+}
+
 static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
@@ -95,6 +120,13 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->follower_proxy = val;
+    } else if (!strcmp(keyword, "loglevel")) {
+        int loglevel = parseLogLevel(value);
+        if (loglevel < 0) {
+            snprintf(errbuf, errbuflen-1, "invalid 'loglevel', must be 'error', 'info', 'verbose', 'debug' or 'trace'");
+            return RR_ERROR;
+        }
+        redis_raft_loglevel = loglevel;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -191,7 +223,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         snprintf(buf, sizeof(buf)-1, "%s:%u", config->addr.host, config->addr.port);
         replyConfigStr(ctx, "addr", buf);
     }
-
+    if (stringmatch(pattern, "loglevel", 1)) {
+        len++;
+        replyConfigStr(ctx, "loglevel", getLoglevelName(redis_raft_loglevel));
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -275,8 +310,6 @@ static RRStatus getInterfaceAddr(NodeAddr *addr)
 
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)
 {
-    int r;
-
     rr->config->rdb_filename = getRedisConfig(rr->ctx, "dbfilename");
     assert(rr->config->rdb_filename != NULL);
 

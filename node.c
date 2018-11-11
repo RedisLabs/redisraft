@@ -33,11 +33,12 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
     Node *node = (Node *) c->data;
     if (status == REDIS_OK) {
         node->state = NODE_CONNECTED;
-        //NODE_LOG_INFO(node, "Connection established.\n");
+        node->connect_oks++;
+        node->last_connected_time = time(NULL);
     } else {
         node->state = NODE_CONNECT_ERROR;
         node->rc = NULL;
-        //NODE_LOG_ERROR(node, "Failed to connect, status = %d\n", status);
+        node->connect_errors++;
     }
 
     /* If we're terminating, abort now */
@@ -60,14 +61,11 @@ static void handleNodeDisconnect(const redisAsyncContext *c, int status)
     if (node) {
         node->rc = NULL;
         node->state = NODE_DISCONNECTED;
-        //NODE_LOG_INFO(node, "Connection dropped.\n");
     }
 }
 
 static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
-    int r;
-
     Node *node = uv_req_get_data((uv_req_t *)resolver);
     if (node->flags & NODE_TERMINATING) {
         node->state = NODE_DISCONNECTED;
@@ -78,6 +76,7 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     if (status < 0) {
         NODE_LOG_ERROR(node, "Failed to resolve '%s': %s\n", node->addr.host, uv_strerror(status));
         node->state = NODE_CONNECT_ERROR;
+        node->connect_errors++;
         uv_freeaddrinfo(res);
         return;
     }
@@ -88,8 +87,8 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     /* Initiate connection */
     node->rc = redisAsyncConnect(node->ipaddr, node->addr.port);
     if (node->rc->err) {
-        //NODE_LOG_ERROR(node, "Failed to initiate connection\n");
         node->state = NODE_CONNECT_ERROR;
+        node->connect_errors++;
 
         redisAsyncFree(node->rc);
         node->rc = NULL;
@@ -220,7 +219,7 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
             if (!NodeAddrParse(addrstr, strlen(addrstr), &addr)) {
                 LOG_ERROR("RAFT.NODE ADD failed: invalid MOVED response: %s\n", reply->str);
             } else {
-                LOG_INFO("Join redirected to leader: %s\n", addrstr);
+                LOG_VERBOSE("Join redirected to leader: %s\n", addrstr);
                 NodeAddrListAddElement(&rr->join_state->addr, &addr);
             }
         } else {
@@ -230,7 +229,7 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
             strlen(reply->str) > 3 + RAFT_DBID_LEN || strncmp(reply->str, "OK", 2)) {
         LOG_ERROR("RAFT.NODE ADD invalid reply: %s\n", reply->str);
     } else {
-        LOG_INFO("RAFT.NODE ADD succeeded, dbid: %s\n", reply->str + 3);
+        LOG_INFO("Joined Raft cluster, dbid: %s\n", reply->str + 3);
         strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
         rr->state = REDIS_RAFT_UP;
