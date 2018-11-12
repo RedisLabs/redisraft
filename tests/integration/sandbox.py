@@ -111,6 +111,8 @@ class RedisRaft(object):
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
         self.client.set_response_callback('raft.info', redis.client.parse_info)
+        self.client.set_response_callback('raft.config get',
+                                          redis.client.parse_config_get)
         self.stdout = None
         self.stderr = None
         self.cleanup()
@@ -227,6 +229,9 @@ class RedisRaft(object):
 
     def raft_config_set(self, key, val):
         return self.client.execute_command('raft.config', 'set', key, val)
+
+    def raft_config_get(self, key):
+        return self.client.execute_command('raft.config get', key)
 
     def raft_info(self):
         return self.client.execute_command('raft.info')
