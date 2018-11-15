@@ -91,11 +91,19 @@ int sender_requestvote_response(raft_server_t* raft,
 int sender_appendentries(raft_server_t* raft,
                          void* udata, raft_node_t* node, msg_appendentries_t* msg)
 {
-    msg_entry_t* entries = calloc(1, sizeof(msg_entry_t) * msg->n_entries);
-    memcpy(entries, msg->entries, sizeof(msg_entry_t) * msg->n_entries);
+    msg_entry_t** entries = calloc(1, sizeof(msg_entry_t *) * msg->n_entries);
+    int i;
+    for (i = 0; i < msg->n_entries; i++) {
+        entries[i] = msg->entries[i];
+        raft_entry_hold(entries[i]);
+    }
+
+    msg_entry_t** old_entries = msg->entries;
     msg->entries = entries;
-    return __append_msg(udata, msg, RAFT_MSG_APPENDENTRIES, sizeof(*msg), node,
+    int ret = __append_msg(udata, msg, RAFT_MSG_APPENDENTRIES, sizeof(*msg), node,
                         raft);
+    msg->entries = old_entries;
+    return ret;
 }
 
 int sender_appendentries_response(raft_server_t* raft,

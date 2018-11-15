@@ -204,7 +204,7 @@ def raft_logentry_pop(raft, udata, ety, ety_idx):
 
 
 def raft_logentry_get_node_id(raft, udata, ety, ety_idx):
-    change_entry = ffi.from_handle(ety.data.buf)
+    change_entry = ffi.from_handle(lib.raft_entry_getdata(ety))
     assert isinstance(change_entry, ChangeRaftEntry)
     return change_entry.node_id
 
@@ -264,6 +264,15 @@ class Network(object):
         self.num_compactions = 0
         self.latest_applied_log_idx = 0
 
+    def add_entry(self, etype, data):
+        data_handle = ffi.new_handle(data)
+        ety = lib.raft_entry_newdata(data_handle)
+        ety.term = 0
+        ety.id = self.new_entry_id()
+        ety.type = etype
+        self.entries.append((ety, data_handle, data))
+        return ety
+
     def add_server(self, server):
         self.server_id += 1
         server.id = self.server_id
@@ -274,14 +283,8 @@ class Network(object):
     def push_set_entry(self, k, v):
         for sv in self.active_servers:
             if lib.raft_is_leader(sv.raft):
-                ety = ffi.new('msg_entry_t*')
-                ety.term = 0
-                ety.id = self.new_entry_id()
-                ety.type = lib.RAFT_LOGTYPE_NORMAL
-                change = ffi.new_handle(SetRaftEntry(k, v))
-                ety.data.buf = change
-                ety.data.len = ffi.sizeof(ety.data.buf)
-                self.entries.append((ety, change))
+                ety = self.add_entry(lib.RAFT_LOGTYPE_NORMAL,
+                                     SetRaftEntry(k, v))
                 e = sv.recv_entry(ety)
                 assert e == 0
                 break
@@ -371,9 +374,7 @@ class Network(object):
         ffi.memmove(new_msg, msg, msg_size)
 
         if msg_type == 'msg_appendentries_t *':
-            size_of_entries = ffi.sizeof(ffi.getctype('msg_entry_t')) * new_msg.n_entries
-            new_msg.entries = ffi.cast('msg_entry_t*', lib.malloc(size_of_entries))
-            ffi.memmove(new_msg.entries, msg.entries, size_of_entries)
+            new_msg.entries = lib.raft_entry_array_deepcopy(msg.entries, msg.n_entries)
 
         self.messages.append(Message(new_msg, sendor, sendee))
 
@@ -487,14 +488,8 @@ class Network(object):
         lib.raft_become_leader(server.raft)
 
         # Configuration change entry to bootstrap other nodes
-        ety = ffi.new('msg_entry_t*')
-        ety.term = 0
-        ety.type = lib.RAFT_LOGTYPE_ADD_NODE
-        ety.id = self.new_entry_id()
-        change = ffi.new_handle(ChangeRaftEntry(server.id))
-        ety.data.buf = change
-        ety.data.len = ffi.sizeof(ety.data.buf)
-        self.entries.append((ety, change))
+        ety = self.add_entry(lib.RAFT_LOGTYPE_ADD_NODE,
+                             ChangeRaftEntry(server.id))
         e = server.recv_entry(ety)
         assert e == 0
 
@@ -534,16 +529,9 @@ class Network(object):
         server = RaftServer(self)
 
         # Create a new configuration entry to be processed by the leader
-        ety = ffi.new('msg_entry_t*')
-        ety.term = 0
-        ety.id = self.new_entry_id()
-        ety.type = lib.RAFT_LOGTYPE_ADD_NONVOTING_NODE
-        change = ffi.new_handle(ChangeRaftEntry(server.id))
-        ety.data.buf = change
-        ety.data.len = ffi.sizeof(ety.data.buf)
+        ety = self.add_entry(lib.RAFT_LOGTYPE_ADD_NONVOTING_NODE,
+                             ChangeRaftEntry(server.id))
         assert(lib.raft_entry_is_cfg_change(ety))
-
-        self.entries.append((ety, change))
 
         e = leader.recv_entry(ety)
         if 0 != e:
@@ -586,17 +574,10 @@ class Network(object):
             return
 
         # Create a new configuration entry to be processed by the leader
-        ety = ffi.new('msg_entry_t*')
-        ety.term = 0
-        ety.id = self.new_entry_id()
+        ety = self.add_entry(lib.RAFT_LOGTYPE_DEMOTE_NODE,
+                             ChangeRaftEntry(server.id))
         assert server.connection_status == NODE_CONNECTED
-        ety.type = lib.RAFT_LOGTYPE_DEMOTE_NODE
-        change = ffi.new_handle(ChangeRaftEntry(server.id))
-        ety.data.buf = change
-        ety.data.len = ffi.sizeof(ety.data.buf)
         assert(lib.raft_entry_is_cfg_change(ety))
-
-        self.entries.append((ety, change))
 
         e = leader.recv_entry(ety)
         if 0 != e:
@@ -659,16 +640,18 @@ class RaftServer(object):
         cbs.applylog = self.raft_applylog
         cbs.persist_vote = self.raft_persist_vote
         cbs.persist_term = self.raft_persist_term
-        cbs.log_offer = self.raft_logentry_offer
-        cbs.log_poll = self.raft_logentry_poll
-        cbs.log_pop = self.raft_logentry_pop
         cbs.log_get_node_id = self.raft_logentry_get_node_id
         cbs.node_has_sufficient_logs = self.raft_node_has_sufficient_logs
         cbs.notify_membership_event = self.raft_notify_membership_event
         cbs.log = self.raft_log
 
-        lib.raft_set_callbacks(self.raft, cbs, self.udata)
+        log_cbs = ffi.new('raft_log_cbs_t*')
+        log_cbs.log_offer = self.raft_logentry_offer
+        log_cbs.log_poll = self.raft_logentry_poll
+        log_cbs.log_pop = self.raft_logentry_pop
 
+        lib.raft_set_callbacks(self.raft, cbs, self.udata)
+        lib.log_set_callbacks(lib.raft_get_log(self.raft), log_cbs, self.raft)
         lib.raft_set_election_timeout(self.raft, 500)
 
         self.fsm_dict = {}
@@ -827,7 +810,7 @@ class RaftServer(object):
         if e is not None:
             return e
 
-        change = ffi.from_handle(ety.data.buf)
+        change = ffi.from_handle(lib.raft_entry_getdata(ety))
 
         if ety.type == lib.RAFT_LOGTYPE_NORMAL:
             self.fsm_dict[change.key] = change.val
@@ -839,12 +822,9 @@ class RaftServer(object):
 
             # Follow up by removing the node by receiving new entry
             elif lib.raft_is_leader(self.raft):
-                new_ety = ffi.new('msg_entry_t*')
-                new_ety.term = 0
-                new_ety.id = self.network.new_entry_id()
-                new_ety.type = lib.RAFT_LOGTYPE_REMOVE_NODE
-                new_ety.data.buf = ety.data.buf
-                new_ety.data.len = ffi.sizeof(ety.data.buf)
+                new_ety = self.network.add_entry(
+                    lib.RAFT_LOGTYPE_REMOVE_NODE,
+                    change)
                 assert(lib.raft_entry_is_cfg_change(new_ety))
                 e = self.recv_entry(new_ety)
                 assert e == 0
@@ -1035,7 +1015,7 @@ class RaftServer(object):
         self.fsm_log.pop()
         self.network.log_pops += 1
 
-        change = ffi.from_handle(ety.data.buf)
+        change = ffi.from_handle(lib.raft_entry_getdata(ety))
         if ety.type == lib.RAFT_LOGTYPE_DEMOTE_NODE:
             pass
 
@@ -1057,14 +1037,9 @@ class RaftServer(object):
     def node_has_sufficient_entries(self, node):
         assert(not lib.raft_node_is_voting(node))
 
-        ety = ffi.new('msg_entry_t*')
-        ety.term = 0
-        ety.id = self.network.new_entry_id()
-        ety.type = lib.RAFT_LOGTYPE_ADD_NODE
-        change = ffi.new_handle(ChangeRaftEntry(lib.raft_node_get_id(node)))
-        ety.data.buf = change
-        ety.data.len = ffi.sizeof(ety.data.buf)
-        self.network.entries.append((ety, change))
+        ety = self.network.add_entry(
+            lib.RAFT_LOGTYPE_ADD_NODE,
+            ChangeRaftEntry(lib.raft_node_get_id(node)))
         assert(lib.raft_entry_is_cfg_change(ety))
         # FIXME: leak
         e = self.recv_entry(ety)

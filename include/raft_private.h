@@ -19,6 +19,8 @@ enum {
     RAFT_NODE_STATUS_DISCONNECTING
 };
 
+struct raft_log_impl;
+
 typedef struct {
     /* Persistent state: */
 
@@ -30,8 +32,9 @@ typedef struct {
      * or Nil if it hasn't voted for any.  */
     raft_node_id_t voted_for;
 
-    /* the log which is replicated */
-    void* log;
+    /* log storage engine */
+    const struct raft_log_impl *log_impl;
+    void *log;
 
     /* Volatile state: */
 
@@ -135,9 +138,9 @@ void raft_node_set_has_sufficient_logs(raft_node_t* me_);
 
 int raft_votes_is_majority(const int nnodes, const int nvotes);
 
-void raft_offer_log(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
+void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
 
-void raft_pop_log(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
+void raft_handle_remove_cfg_change(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
 
 raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me_);
 

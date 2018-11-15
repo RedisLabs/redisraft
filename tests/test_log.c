@@ -12,6 +12,8 @@
 #include "raft_log.h"
 #include "raft_private.h"
 
+#include "helpers.h"
+
 static int __logentry_get_node_id(
     raft_server_t* raft,
     void *udata,
@@ -57,8 +59,11 @@ static int __log_pop_failing(
 }
 
 raft_cbs_t funcs = {
-    .log_pop = __log_pop,
     .log_get_node_id = __logentry_get_node_id
+};
+
+raft_log_cbs_t log_funcs = {
+    .log_pop = __log_pop
 };
 
 void* __set_up()
@@ -66,6 +71,7 @@ void* __set_up()
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_set_callbacks(r, &funcs, queue);
+    log_set_callbacks(raft_get_log(r), &log_funcs, r);
     return r;
 }
 
@@ -89,7 +95,7 @@ void TestLog_append_is_not_empty(CuTest * tc)
     e.id = 1;
 
     l = log_new();
-    raft_cbs_t funcs = {
+    raft_log_cbs_t funcs = {
         .log_offer = __log_offer
     };
     log_set_callbacks(l, &funcs, r);
@@ -143,13 +149,16 @@ void TestLog_delete(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
     };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
+    };
+
     raft_set_callbacks(r, &funcs, queue);
 
     l = log_new();
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     memset(&e1, 0, sizeof(raft_entry_t));
     memset(&e2, 0, sizeof(raft_entry_t));
@@ -184,8 +193,10 @@ void TestLog_delete_onwards(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
     };
     raft_set_callbacks(r, &funcs, queue);
 
@@ -197,7 +208,7 @@ void TestLog_delete_onwards(CuTest * tc)
     memset(&e3, 0, sizeof(raft_entry_t));
 
     l = log_new();
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
     e1.id = 1;
     CuAssertIntEquals(tc, 0, log_append_entry(l, &e1));
     e2.id = 2;
@@ -222,13 +233,15 @@ void TestLog_delete_handles_log_pop_failure(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop_failing,
         .log_get_node_id = __logentry_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop_failing
     };
     raft_set_callbacks(r, &funcs, queue);
 
     l = log_new();
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     memset(&e1, 0, sizeof(raft_entry_t));
     memset(&e2, 0, sizeof(raft_entry_t));
@@ -254,10 +267,13 @@ void TestLog_delete_fails_for_idx_zero(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
     };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
+    };
     raft_set_callbacks(r, &funcs, queue);
+    log_set_callbacks(raft_get_log(r), &log_funcs, r);
 
     void *l;
     raft_entry_t e1, e2, e3, e4;
@@ -273,7 +289,7 @@ void TestLog_delete_fails_for_idx_zero(CuTest * tc)
     e4.id = 4;
 
     l = log_alloc(1);
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
     CuAssertIntEquals(tc, 0, log_append_entry(l, &e1));
     CuAssertIntEquals(tc, 0, log_append_entry(l, &e2));
     CuAssertIntEquals(tc, 0, log_append_entry(l, &e3));
@@ -286,8 +302,10 @@ void TestLog_poll(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
     };
     raft_set_callbacks(r, &funcs, queue);
 
@@ -295,7 +313,7 @@ void TestLog_poll(CuTest * tc)
     raft_entry_t e1, e2, e3;
 
     l = log_new();
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     memset(&e1, 0, sizeof(raft_entry_t));
     memset(&e2, 0, sizeof(raft_entry_t));
@@ -428,25 +446,19 @@ void TestLog_front_pushes_across_boundary(CuTest * tc)
     void* r = __set_up();
 
     void *l;
-    raft_entry_t e1, e2, e3;
 
-    memset(&e1, 0, sizeof(raft_entry_t));
-    memset(&e2, 0, sizeof(raft_entry_t));
-    memset(&e3, 0, sizeof(raft_entry_t));
-
-    e1.id = 1;
-    e2.id = 2;
-    e3.id = 3;
+    raft_entry_t *e1 = __MAKE_ENTRY(1, 1, "aa");
+    raft_entry_t *e2 = __MAKE_ENTRY(2, 1, "aa");
 
     l = log_alloc(1);
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     raft_entry_t* ety;
 
-    CuAssertIntEquals(tc, 0, log_append_entry(l, &e1));
+    CuAssertIntEquals(tc, 0, log_append_entry(l, e1));
     CuAssertIntEquals(tc, log_poll(l, (void*)&ety), 0);
     CuAssertIntEquals(tc, ety->id, 1);
-    CuAssertIntEquals(tc, 0, log_append_entry(l, &e2));
+    CuAssertIntEquals(tc, 0, log_append_entry(l, e2));
     CuAssertIntEquals(tc, log_poll(l, (void*)&ety), 0);
     CuAssertIntEquals(tc, ety->id, 2);
 }
@@ -535,8 +547,10 @@ void TestLog_delete_after_polling_from_double_append(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
     };
     raft_set_callbacks(r, &funcs, queue);
 
@@ -554,7 +568,7 @@ void TestLog_delete_after_polling_from_double_append(CuTest * tc)
     e4.id = 4;
 
     l = log_alloc(1);
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     raft_entry_t* ety;
 
@@ -582,8 +596,10 @@ void TestLog_get_from_idx_with_base_off_by_one(CuTest * tc)
     void* queue = llqueue_new();
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_pop = __log_pop,
         .log_get_node_id = __logentry_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+        .log_pop = __log_pop
     };
     raft_set_callbacks(r, &funcs, queue);
 
@@ -597,7 +613,7 @@ void TestLog_get_from_idx_with_base_off_by_one(CuTest * tc)
     e2.id = 2;
 
     l = log_alloc(1);
-    log_set_callbacks(l, &funcs, r);
+    log_set_callbacks(l, &log_funcs, r);
 
     raft_entry_t* ety;
 
@@ -617,8 +633,9 @@ void TestLog_get_from_idx_with_base_off_by_one(CuTest * tc)
     CuAssertIntEquals(tc, n_etys, 0);
 
     /* now get the correct index */
-    ety = log_get_from_idx(l, 2, &n_etys);
-    CuAssertPtrNotNull(tc, ety);
+    raft_entry_t** e;
+    e = log_get_from_idx(l, 2, &n_etys);
+    CuAssertPtrNotNull(tc, e);
     CuAssertIntEquals(tc, n_etys, 1);
-    CuAssertIntEquals(tc, ety->id, 2);
+    CuAssertIntEquals(tc, e[0]->id, 2);
 }

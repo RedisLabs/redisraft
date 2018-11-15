@@ -98,12 +98,19 @@ typedef struct
     raft_entry_id_t id;
 
     /** type of entry */
-    int type;
+    short type;
+
+    /** number of references */
+    short refs;
 
     /** private local data */
     void *user_data;
 
-    raft_entry_data_t data;
+    /** data length */
+    unsigned int data_len;
+
+    /** data */
+    char data[0];
 } raft_entry_t;
 
 /** Message sent from client to server.
@@ -178,8 +185,8 @@ typedef struct
     /** number of entries within this message */
     int n_entries;
 
-    /** array of entries within this message */
-    msg_entry_t* entries;
+    /** array of pointers to entries within this message */
+    msg_entry_t** entries;
 } msg_appendentries_t;
 
 /** Appendentries response message.
@@ -392,30 +399,6 @@ typedef struct
      * disk atomically. */
     func_persist_term_f persist_term;
 
-    /** Callback for adding an entry to the log
-     * For safety reasons this callback MUST flush the change to disk.
-     * Return 0 on success.
-     * Return RAFT_ERR_SHUTDOWN if you want the server to shutdown. */
-    func_logentry_event_f log_offer;
-
-    /** Callback for removing the oldest entry from the log
-     * For safety reasons this callback MUST flush the change to disk.
-     * @note If memory was malloc'd in log_offer then this should be the right
-     *  time to free the memory. */
-    func_logentry_event_f log_poll;
-
-    /** Callback for removing the youngest entry from the log
-     * For safety reasons this callback MUST flush the change to disk.
-     * @note If memory was malloc'd in log_offer then this should be the right
-     *  time to free the memory. */
-    func_logentry_event_f log_pop;
-
-    /** Callback called for every existing log entry when clearing the log.
-     * If memory was malloc'd in log_offer and the entry doesn't get a chance
-     * to go through log_poll or log_pop, this is the last chance to free it.
-     */
-    func_logentry_event_f log_clear;
-
     /** Callback for determining which node this configuration log entry
      * affects. This call only applies to configuration change log entries.
      * @return the node ID of the node */
@@ -431,6 +414,165 @@ typedef struct
     func_log_f log;
 } raft_cbs_t;
 
+/** A generic notification callback used to allow Raft to notify caller
+ * on certain log operations.
+ *
+ * @param[in] arg Argument passed by Raft in the original call.
+ * @param[in] entry Entry for which notification is generated.
+ * @param[in] entry_idx Index of entry.
+ *
+ * The callback *must not* modify the entry or perform any preemptive
+ * log operation until it returns.
+ */
+typedef void (
+*func_entry_notify_f
+)   (
+    void* arg,
+    raft_entry_t *entry,
+    raft_index_t entry_idx
+    );
+
+/** Generic Raft Log implementation.
+ *
+ * This is an abstract interface that can be used to implement pluggable
+ * Raft Log implementations, unlike the built-in implementation which is
+ * more opinionated (e.g. is entirely in-memory, etc.).
+ *
+ * The log implementation is expected to be persistent, so it must avoid
+ * losing entries that have been appended to it.
+ */
+
+typedef struct raft_log_impl
+{
+    /** Log implementation construction, called exactly once when Raft
+     * initializes.
+     *
+     * @param[in] raft The Raft server using the log.
+     * @param[in] arg User-specified initialization argument, as passed to
+     *      raft_new().
+     * @return Initialized log handle.  This handle is passed as 'log' on
+     *      all subsequent calls.
+     *
+     * @note A common pattern may involve initializing the log engine
+     *      in advance and passing a handle to it as arg.  The init function
+     *      can then simply return arg.
+     */
+    void *(*init) (void *raft, void *arg);
+
+    /** Log implementation destruction, called exactly once when Raft
+     * shuts down.
+     *
+     * All memory and resources allocated since init() should be released.
+     *
+     * @param[in] log The log handle.
+     */
+    void (*free) (void *log);
+
+    /** Reset log.  All entries should be deleted, and the log is configured
+     * such that the next appended log entry would be assigned with the
+     * specified index.
+     *
+     * A log implementation that has been initialized for the first time and
+     * contains no persisted data should implicitly perform reset(1).
+     *
+     * A reset operation with a higher first_idx is expected when the log
+     * is compacted after a snapshot is taken.  In this case the log
+     * implementation is expected to persist the index and term.
+     *
+     * @param[in] first_idx Index to assign to the first entry in the log.
+     * @param[in] term Term of last applied entry, if reset is called after
+     *  a snapshot.
+     */
+    void (*reset) (void *log, raft_index_t first_idx, raft_term_t term);
+
+    /** Append an entry to the log.
+     * @param[in] entry Entry to append.
+     * @return
+     *  0 on success;
+     *  RAFT_ERR_SHUTDOWN server should shutdown;
+     *  RAFT_ERR_NOMEM memory allocation failure.
+     *
+     * @note
+     *  The passed raft_entry_t is expected to be allocated on the heap.
+     *  The log implementation shall call raft_entry_hold() in order to
+     *  maintain its reference count, and call raft_entry_release() when
+     *  the entry is no longer needed.
+     *
+     * @todo
+     * 1. Batch append of multiple entries.
+     * 2. Consider an async option to make it possible to implement
+     *    I/O in a background thread.
+     */
+    int (*append) (void *log, raft_entry_t *entry);
+
+    /** Remove entries from the start of the log, as necessary when compacting
+     * the log and deleting the oldest entries.
+     *
+     * @param[in] first_idx Index of first entry to be left in log.
+     * @return
+     *  0 on success;
+     *  -1 on error (e.g. log is empty).
+     */
+    int (*poll) (void *log, raft_index_t first_idx);
+
+    /** Remove entries from the end of the log, as necessary when rolling back
+     * append operations that have not been committed.
+     *
+     * @param[in] from_idx Index of first entry to be removed.  All entries
+     *  starting from and including this index shall be removed.
+     * @param[in] cb Optional callback to execute for every removed entry.
+     * @param[in] cb_arg Argument to pass to callback.
+     * @return
+     *  0 on success;
+     *  -1 on error.
+     */
+    int (*pop) (void *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg);
+
+    /** Get a single entry from the log.
+     *
+     * @param[in] idx Index of entry to fetch.
+     * @return
+     *  Pointer to entry on success;
+     *  NULL if no entry in specified index.
+     *
+     * @note
+     *  Returned entry memory is owned by the log and may be freed on next log
+     *  operation, so caller must make a copy if it is going to be retained beyond
+     *  this scope.
+     */
+    raft_entry_t* (*get) (void *log, raft_index_t idx);
+
+    /** Get a batch of entries from the log.
+     *
+     * @param[in] idx Index of first entry to fetch.
+     * @param[in] entries_n Length of entries (max. entries to fetch).
+     * @param[out] entries An initialized array of raft_entry_t*.
+     * @return
+     *  Number of entries fetched;
+     *  -1 on error.
+     */
+    int (*get_batch) (void *log, raft_index_t idx, int entries_n,
+            raft_entry_t **entries);
+
+    /** Get first entry's index.
+     * @return
+     *  Index of first entry.
+     */
+    raft_index_t (*first_idx) (void *log);
+
+    /** Get current (latest) entry's index.
+     * @return
+     *  Index of latest entry.
+     */
+    raft_index_t (*current_idx) (void *log);
+
+    /** Get number of entries in the log.
+     * @return
+     *  Number of entries.
+     */
+    raft_index_t (*count) (void *log);
+} raft_log_impl_t;
+
 typedef struct
 {
     /** User data pointer for addressing.
@@ -440,13 +582,22 @@ typedef struct
     void* udata_address;
 } raft_node_configuration_t;
 
-/** Initialise a new Raft server.
+/** Initialise a new Raft server, using the in-memory log implementation.
  *
  * Request timeout defaults to 200 milliseconds
  * Election timeout defaults to 1000 milliseconds
  *
  * @return newly initialised Raft server */
-raft_server_t* raft_new(void);
+raft_server_t* raft_new();
+
+/** Initializes a new Raft server with a custom Raft Log implementation.
+ *
+ * @param[in] log_impl Callbacks structure for the Log implementation to use.
+ * @param[in] log_arg Argument to pass to Log implementation's init().
+ *
+ * @return newly initialised Raft server
+ */
+raft_server_t* raft_new_with_log(const raft_log_impl_t *log_impl, void *log_arg);
 
 /** De-initialise Raft server.
  * Frees all memory */
@@ -873,7 +1024,7 @@ int raft_is_apply_allowed(raft_server_t* me_);
  * This should be used for compacting logs.
  * @return 0 on success
  **/
-int raft_poll_entry(raft_server_t* me_, raft_entry_t **ety);
+int raft_poll_entry(raft_server_t* me_);
 
 /** Get last applied entry
  **/
@@ -963,5 +1114,80 @@ void raft_node_set_addition_committed(raft_node_t* me_, int committed);
  * @param[in] raft The Raft server
  * @return 1 if a voting change is in progress */
 int raft_voting_change_is_in_progress(raft_server_t* me_);
+
+/** Get the log implementation handle in use.
+ */
+void *raft_get_log(raft_server_t* me_);
+
+/** Backward compatible callbacks for log events, implemented by the
+ * default in-memory log implementation.
+ *
+ */
+
+typedef struct {
+    /** Callback for adding an entry to the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * Return 0 on success.
+     * Return RAFT_ERR_SHUTDOWN if you want the server to shutdown. */
+
+    func_logentry_event_f log_offer;
+
+    /** Callback for removing the oldest entry from the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * @note If memory was malloc'd in log_offer then this should be the right
+     *  time to free the memory. */
+    func_logentry_event_f log_poll;
+
+    /** Callback for removing the youngest entry from the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * @note If memory was malloc'd in log_offer then this should be the right
+     *  time to free the memory. */
+    func_logentry_event_f log_pop;
+
+    /** Callback called for every existing log entry when clearing the log.
+     * If memory was malloc'd in log_offer and the entry doesn't get a chance
+     * to go through log_poll or log_pop, this is the last chance to free it.
+     */
+    func_logentry_event_f log_clear;
+} raft_log_cbs_t;
+
+/** Allocate a new Raft Log entry.
+ *
+ * @param[in] data_len Length of user-supplied data for which additional
+ *      memory should be allocated at the end of the entry.
+ * @returns
+ *  Entry pointer (heap allocated).
+ *
+ * @note All raft_entry_t elements are reference counted and created with an
+ *  initial refcount value of 1.  Calling raft_entry_release() immediately would
+ *  therefore result with deallocation.
+ */
+raft_entry_t *raft_entry_new(unsigned int data_len);
+
+/** Hold the raft_entry_t, i.e. increment refcount by one.
+ */
+void raft_entry_hold(raft_entry_t *ety);
+
+/** Release the raft_entry_t, i.e. decrement refcount by one and free
+ * if refcount reaches zero.
+ */
+void raft_entry_release(raft_entry_t *ety);
+
+/** Iterate an array of raft_entry_t* and release each element.
+ *
+ * @param[in] ety_list A pointer to a raft_entry_t* array.
+ * @param[in] len Number of entries in the array.
+ *
+ * @note The array itself is not freed.
+ */
+
+void raft_entry_release_list(raft_entry_t **ety_list, size_t len);
+
+/** Log Implementation callbacks structure for the default in-memory
+ * log implementation.
+ */
+extern const raft_log_impl_t raft_log_internal_impl;
+
+void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, raft_index_t idx);
 
 #endif /* RAFT_H_ */

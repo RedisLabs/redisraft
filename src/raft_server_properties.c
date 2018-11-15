@@ -73,7 +73,7 @@ int raft_get_timeout_elapsed(raft_server_t* me_)
 raft_index_t raft_get_log_count(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
-    return log_count(me->log);
+    return me->log_impl->count(me->log);
 }
 
 int raft_get_voted_for(raft_server_t* me_)
@@ -108,7 +108,7 @@ raft_term_t raft_get_current_term(raft_server_t* me_)
 raft_index_t raft_get_current_idx(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
-    return log_get_current_idx(me->log);
+    return me->log_impl->current_idx(me->log);
 }
 
 void raft_set_commit_idx(raft_server_t* me_, raft_index_t idx)
@@ -219,8 +219,10 @@ raft_term_t raft_get_last_log_term(raft_server_t* me_)
     if (0 < current_idx)
     {
         raft_entry_t* ety = raft_get_entry_from_idx(me_, current_idx);
-        if (ety)
-            return ety->term;
+        if (ety) {
+            raft_term_t term = ety->term;
+            return term;
+        }
     }
     return 0;
 }
@@ -246,7 +248,7 @@ raft_entry_t *raft_get_last_applied_entry(raft_server_t *me_)
     raft_server_private_t* me = (raft_server_private_t*)me_;
     if (raft_get_last_applied_idx(me_) == 0)
         return NULL;
-    return log_get_at_idx(me->log, raft_get_last_applied_idx(me_));
+    return me->log_impl->get(me->log, raft_get_last_applied_idx(me_));
 }
 
 raft_index_t raft_get_snapshot_last_idx(raft_server_t *me_)
@@ -262,6 +264,7 @@ raft_term_t raft_get_snapshot_last_term(raft_server_t *me_)
 void raft_set_snapshot_metadata(raft_server_t *me_, raft_term_t term, raft_index_t idx)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
+    me->last_applied_idx = idx;
     me->saved_snapshot_last_term = me->snapshot_last_term;
     me->saved_snapshot_last_idx = me->snapshot_last_idx;
     me->snapshot_last_term = term;
