@@ -448,6 +448,13 @@ static int raftLogOffer(raft_server_t *raft, void *user_data, raft_entry_t *entr
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
 
+    /* TODO: Remove all of this.  For now just ignore being called before setcallbacks
+     * have been called, i.e. loading load from disk.
+     */
+    if (!rr) {
+        return 0;
+    }
+
     TRACE("raftLogOffer: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
     /* Memory management policy: we always make a copy of the data here. In some cases
@@ -499,6 +506,13 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
 {
     RedisRaftCtx *rr = user_data;
 
+    /* TODO: Remove all of this.  For now just ignore being called before setcallbacks
+     * have been called, i.e. loading load from disk.
+     */
+    if (!rr) {
+        return 0;
+    }
+
     TRACE("raftLogPop: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
     raftFreeEntry(entry);
@@ -516,6 +530,13 @@ static int raftLogPop(raft_server_t *raft, void *user_data, raft_entry_t *entry,
 static int raftLogPoll(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
+
+    /* TODO: Remove all of this.  For now just ignore being called before setcallbacks
+     * have been called, i.e. loading load from disk.
+     */
+    if (!rr) {
+        return 0;
+    }
 
     TRACE("raftLogPoll: entry_idx=%ld, id=%d\n", entry_idx, entry->id);
 
@@ -661,16 +682,19 @@ raft_cbs_t redis_raft_callbacks = {
     .send_appendentries = raftSendAppendEntries,
     .persist_vote = raftPersistVote,
     .persist_term = raftPersistTerm,
-    .log_offer = raftLogOffer,
-    .log_pop = raftLogPop,
-    .log_poll = raftLogPoll,
-    .log_clear = raftLogClear,
     .log = raftLog,
     .log_get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
     .notify_membership_event = raftNotifyMembershipEvent
+};
+
+raft_log_cbs_t redis_raft_log_callbacks = {
+    .log_offer = raftLogOffer,
+    .log_pop = raftLogPop,
+    .log_poll = raftLogPoll,
+    .log_clear = raftLogClear
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
@@ -992,7 +1016,7 @@ static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *e
                 return 0;
             }
         case LA_REMOVE_HEAD:
-            return raft_poll_entry(rr->raft, &entry);
+            return raft_poll_entry(rr->raft);
         case LA_REMOVE_TAIL:
             return raft_pop_entry(rr->raft);
         default:
@@ -1045,7 +1069,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Initialize raft library */
-    rr->raft = raft_new();
+    rr->raft = raft_new_with_log(&raft_log_internal_impl, &redis_raft_log_callbacks);
     raft_set_election_timeout(rr->raft, rr->config->election_timeout);
     raft_set_request_timeout(rr->raft, rr->config->request_timeout);
 

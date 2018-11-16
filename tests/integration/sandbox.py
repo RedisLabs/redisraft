@@ -99,6 +99,7 @@ class RedisRaft(object):
             self.args += ['--save', '']
         self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
+                      '--bind', '0.0.0.0',
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         raft_args['id'] = str(_id)
