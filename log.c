@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <sys/uio.h>
 
+#include <assert.h>
+
 #include "redisraft.h"
 
 #define INITIAL_LOG_OFFSET  sizeof(RaftLogHeader)
@@ -10,6 +12,7 @@
 void RaftLogClose(RaftLog *log)
 {
     fclose(log->file);
+    fclose(log->idxfile);
     RedisModule_Free(log);
 }
 
@@ -156,16 +159,54 @@ error:
     return -1;
 }
 
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index)
+static int updateIndex(RaftLog *log, raft_index_t index, off64_t offset)
 {
-    FILE *file = fopen(filename, "w+");
+    long relidx = index - log->snapshot_last_idx;
+
+    if (fseek(log->idxfile, sizeof(off64_t) * relidx, SEEK_SET) < 0 ||
+            fwrite(&offset, sizeof(off64_t), 1, log->idxfile) != 1) {
+        return -1;
+    }
+
+    return 0;
+}
+
+RaftLog *prepareLog(const char *filename)
+{
+    FILE *file = fopen(filename, "a+");
     if (!file) {
-        LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
+        LOG_ERROR("Raft Log: %s: %s\n", filename, strerror(errno));
+        return NULL;
+    }
+
+    int idx_filename_len = strlen(filename) + 10;
+    char idx_filename[idx_filename_len];
+    snprintf(idx_filename, idx_filename_len - 1, "%s.idx", filename);
+    FILE *idxfile = fopen(idx_filename, "w+");
+    if (!file) {
+        LOG_ERROR("Raft Log: %s: %s\n", idx_filename, strerror(errno));
+        fclose(file);
         return NULL;
     }
 
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
     log->file = file;
+    log->idxfile = idxfile;
+
+    return log;
+}
+
+
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
+        raft_index_t index)
+{
+    RaftLog *log = prepareLog(filename);
+    if (!log) {
+        return NULL;
+    }
+
+    log->index = log->snapshot_last_idx = index;
+    log->snapshot_last_term = term;
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
@@ -181,8 +222,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
 
         LOG_ERROR("Failed to create Raft log: %s: %s\n", filename, strerror(errno));
 
-        RedisModule_Free(log);
-
+        RaftLogClose(log);
         log = NULL;
     }
 
@@ -237,6 +277,19 @@ static int parseRaftLogEntry(RawLogEntry *re, raft_entry_t *e)
     e->data.len = re->elements[4].len;
     e->data.buf = re->elements[4].ptr;
     return 0;
+}
+
+raft_entry_t *copyFromRawEntry(raft_entry_t *target, RawLogEntry *re)
+{
+    if (parseRaftLogEntry(re, target) < 0) {
+        return NULL;
+    }
+
+    /* Unlink buffer from raw entry, so it doesn't get freed */
+    re->elements[4].ptr = NULL;
+    freeRawLogEntry(re);
+
+    return target;
 }
 
 static int handleTerm(RaftLog *log, RawLogEntry *re)
@@ -315,14 +368,10 @@ static int handleVote(RaftLog *log, RawLogEntry *re)
 
 RaftLog *RaftLogOpen(const char *filename)
 {
-    FILE *file = fopen(filename, "a+");
-    if (!file) {
-        LOG_ERROR("Failed top open Raft log: %s: %s\n", filename, strerror(errno));
+    RaftLog *log = prepareLog(filename);
+    if (!log) {
         return NULL;
     }
-
-    RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
-    log->file = file;
 
     /* Read start */
     fseek(log->file, 0L, SEEK_SET);
@@ -365,6 +414,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
         raft_entry_t e;
         LogEntryAction action;
 
+        long offset = ftell(log->file);
         if (readRawLogEntry(log, &re) < 0 || !re->num_elements) {
             break;
         }
@@ -380,6 +430,8 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             log->index++;
             action = LA_APPEND;
             ret++;
+
+            updateIndex(log, log->index, offset);
         } else if (!strcasecmp(re->elements[0].ptr, "REMHEAD")) {
             action = LA_REMOVE_HEAD;
             ret--;
@@ -420,7 +472,11 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
             break;
         }
 
-        int cb_ret = callback(callback_arg, action, action == LA_APPEND ? &e : NULL);
+        int cb_ret = 0;
+        if (callback) {
+            callback(callback_arg, action, action == LA_APPEND ? &e : NULL);
+        }
+
         freeRawLogEntry(re);
         if (cb_ret < 0) {
             ret = cb_ret;
@@ -436,12 +492,20 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction, raf
 
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 {
+    off64_t offset = ftell(log->file);
+
     if (writeBegin(log, 5) < 0 ||
         writeBuffer(log, "ENTRY", 5) < 0 ||
         writeUnsignedInteger(log, entry->term) < 0 ||
         writeUnsignedInteger(log, entry->id) < 0 ||
         writeUnsignedInteger(log, entry->type) < 0 ||
         writeBuffer(log, entry->data.buf, entry->data.len) < 0) {
+        return RR_ERROR;
+    }
+
+    /* Update index */
+    log->index++;
+    if (updateIndex(log, log->index, offset) < 0) {
         return RR_ERROR;
     }
 
@@ -466,6 +530,43 @@ RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
     log->num_entries++;
     return RR_OK;
 }
+
+raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
+{
+    /* Bounds check */
+    if (idx <= log->snapshot_last_idx) {
+        return NULL;
+    }
+
+    if (idx > log->snapshot_last_idx + log->num_entries) {
+        return NULL;
+    }
+
+    raft_index_t relidx = idx - log->snapshot_last_idx;
+    off64_t offset;
+    if (fseek(log->idxfile, sizeof(off64_t) * relidx, SEEK_SET) < 0 ||
+            fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
+        return NULL;
+    }
+
+    RawLogEntry *re;
+    if (fseek(log->file, offset, SEEK_SET) < 0 ||
+            readRawLogEntry(log, &re) != RR_OK) {
+        return NULL;
+    }
+
+    raft_entry_t *e = RedisModule_Calloc(1, sizeof(raft_entry_t));
+    raft_entry_init(e);
+    if (!copyFromRawEntry(e, re)) {
+        raft_entry_release(e);
+        RedisModule_Free(e);
+        freeRawLogEntry(re);
+        return NULL;
+    }
+
+    return e;
+}
+
 
 RRStatus RaftLogRemoveHead(RaftLog *log)
 {
@@ -493,6 +594,7 @@ RRStatus RaftLogRemoveTail(RaftLog *log)
         return RR_ERROR;
     }
     log->num_entries--;
+    log->index--;
 
     return RR_OK;
 }

@@ -315,6 +315,7 @@ typedef struct RaftLog {
     raft_term_t         term;
     raft_index_t        index;
     FILE                *file;
+    FILE                *idxfile;
 } RaftLog;
 
 #define RAFTLOG_VERSION     1
@@ -378,6 +379,7 @@ RRStatus RaftLogRemoveHead(RaftLog *log);
 RRStatus RaftLogRemoveTail(RaftLog *log);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log);
+raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
 
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);

@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "cmocka.h"
+#include "raft.h"
 
 extern struct CMUnitTest log_tests[];
 extern struct CMUnitTest util_tests[];
@@ -24,9 +25,32 @@ int tests_count(struct CMUnitTest *tests)
 
 extern FILE *redis_raft_logfile;
 
+static void *__raft_malloc_stub(size_t size)
+{
+    return test_malloc(size);
+}
+
+static void __raft_free_stub(void *ptr)
+{
+    test_free(ptr);
+}
+
+static void *__raft_realloc_stub(void *ptr, size_t size)
+{
+    return test_realloc(ptr, size);
+}
+
+static void *__raft_calloc_stub(size_t nmemb, size_t size)
+{
+    return test_calloc(nmemb, size);
+}
+
 int main(int argc, char *argv[])
 {
     redis_raft_logfile = stderr;
+
+    raft_set_heap_functions(__raft_malloc_stub, __raft_calloc_stub,
+            __raft_realloc_stub, __raft_free_stub);
 
     return _cmocka_run_group_tests(
             "log", log_tests, tests_count(log_tests), NULL, NULL) ||
