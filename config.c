@@ -234,6 +234,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
     memset(config, 0, sizeof(RedisRaftConfig));
 
+    config->raftlog = RedisModule_Strdup(REDIS_RAFT_DEFAULT_RAFTLOG);
     config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
     config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;

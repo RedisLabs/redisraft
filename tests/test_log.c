@@ -18,13 +18,6 @@ static int setup_create_log(void **state)
     return 0;
 }
 
-static int setup_create_log_idx100(void **state)
-{
-    *state = RaftLogCreate(LOGNAME, DBID, 1, 100);
-    assert_non_null(*state);
-    return 0;
-}
-
 static int teardown_log(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
@@ -123,6 +116,9 @@ static void test_log_random_access_with_snapshot(void **state)
         .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
     };
 
+    /* Reset log assuming last snapshot is 100 */
+    RaftLogReset(log, 1, 100);
+
     /* Write entries */
     assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
     assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
@@ -133,6 +129,7 @@ static void test_log_random_access_with_snapshot(void **state)
     assert_null(RaftLogGet(log, 103));
 
     raft_entry_t *e = RaftLogGet(log, 101);
+    assert_non_null(e);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 
@@ -170,6 +167,7 @@ static void test_basic_log_read_write(void **state)
 static void test_log_index_rebuild(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
+    RaftLogReset(log, 1, 100);
 
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -208,7 +206,231 @@ static void test_log_index_rebuild(void **state)
     RaftLogClose(log2);
 }
 
+static void mock_notify_func(void *arg, raft_entry_t *ety, raft_index_t idx)
+{
+    int ety_id = ety->id;
+    check_expected(ety_id);
+    check_expected(idx);
+}
 
+static void test_log_delete(void **state)
+{
+    RaftLog *log = (RaftLog *) *state;
+
+    char value1[] = "value1";
+    raft_entry_t entry1 = {
+        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
+    };
+    char value2[] = "value22222";
+    raft_entry_t entry2 = {
+        .term = 10, .type = 2, .id = 20, .data = { .buf = value2, .len = sizeof(value2)-1 }
+    };
+    char value3[] = "value33333333333";
+    raft_entry_t entry3 = {
+        .term = 10, .type = 2, .id = 30, .data = { .buf = value3, .len = sizeof(value3)-1 }
+    };
+
+    /* Simulate post snapshot log */
+    RaftLogReset(log, 1, 50);
+
+    /* Write entries */
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
+
+    raft_entry_t *e = RaftLogGet(log, 51);
+    assert_non_null(e);
+    assert_int_equal(e->id, 3);
+    raft_entry_release(e);
+
+    /* Try delete with improper values */
+    assert_int_equal(RaftLogDelete(log, 0, NULL, NULL), RR_ERROR);
+
+    /* Delete last two elements */
+    expect_value(mock_notify_func, ety_id, 20);
+    expect_value(mock_notify_func, idx, 52);
+    expect_value(mock_notify_func, ety_id, 30);
+    expect_value(mock_notify_func, idx, 53);
+    assert_int_equal(RaftLogDelete(log, 52, mock_notify_func, NULL), RR_OK);
+
+    /* Check log sanity after delete */
+    assert_int_equal(RaftLogCount(log), 1);
+    assert_null(RaftLogGet(log, 52));
+    e = RaftLogGet(log, 51);
+    assert_non_null(e);
+    assert_int_equal(e->id, 3);
+    raft_entry_release(e);
+
+    /* Re-add entries in reverse order, validate indexes are handled
+     * properly.
+     */
+
+    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
+    e = RaftLogGet(log, 52);
+    assert_non_null(e);
+    assert_int_equal(e->id, 30);
+    raft_entry_release(e);
+
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    e = RaftLogGet(log, 53);
+    assert_non_null(e);
+    assert_int_equal(e->id, 20);
+    raft_entry_release(e);
+}
+
+static void test_entry_cache_sanity(void **state)
+{
+    EntryCache *cache = EntryCacheNew(8, 1);
+    raft_entry_t *ety;
+    int i;
+
+    /* Insert 64 entries (cache grows) */
+    for (i = 1; i <= 64; i++) {
+        ety = raft_entry_new();
+        ety->id = i;
+        EntryCacheAppend(cache, ety);
+        raft_entry_release(ety);
+    }
+
+    assert_int_equal(cache->size, 64);
+    assert_int_equal(cache->len, 64);
+
+    /* Get 64 entries */
+    for (i = 1; i <= 64; i++) {
+        ety = EntryCacheGet(cache, i);
+        assert_non_null(ety);
+        assert_int_equal(ety->id, i);
+        raft_entry_release(ety);
+    }
+
+    EntryCacheFree(cache);
+}
+
+static void test_entry_cache_delete_head(void **state)
+{
+    EntryCache *cache = EntryCacheNew(4, 1);
+    raft_entry_t *ety;
+    int i;
+
+    /* Fill up 5 entries */
+    for (i = 1; i <= 5; i++) {
+        ety = raft_entry_new();
+        ety->id = i;
+        EntryCacheAppend(cache, ety);
+        raft_entry_release(ety);
+    }
+
+    assert_int_equal(cache->size, 8);
+    assert_int_equal(cache->start, 0);
+    assert_int_equal(cache->start_idx, 1);
+
+    /* Test invalid deletes */
+    assert_int_equal(EntryCacheDeleteHead(cache, 0), -1);
+
+    /* Delete first entry */
+    assert_int_equal(EntryCacheDeleteHead(cache, 2), 1);
+    assert_null(EntryCacheGet(cache, 1));
+    ety = EntryCacheGet(cache, 2);
+    assert_int_equal(ety->id, 2);
+    raft_entry_release(ety);
+
+    assert_int_equal(cache->start, 1);
+    assert_int_equal(cache->len, 4);
+    assert_int_equal(cache->start_idx, 2);
+
+    /* Delete and add 5 entries (6, 7, 8, 9, 10)*/
+    for (i = 0; i < 5; i++) {
+        assert_int_equal(EntryCacheDeleteHead(cache, 3 + i), 1);
+        ety = raft_entry_new();
+        ety->id = 6 + i;
+        EntryCacheAppend(cache, ety);
+        raft_entry_release(ety);
+    }
+
+    assert_int_equal(cache->start_idx, 7);
+    assert_int_equal(cache->start, 6);
+    assert_int_equal(cache->size, 8);
+    assert_int_equal(cache->len, 4);
+
+    /* Add another 3 (11, 12, 13) */
+    for (i = 11; i <= 13; i++) {
+        ety = raft_entry_new();
+        ety->id = i;
+        EntryCacheAppend(cache, ety);
+        raft_entry_release(ety);
+    }
+
+    assert_int_equal(cache->start, 6);
+    assert_int_equal(cache->size, 8);
+    assert_int_equal(cache->len, 7);
+
+    /* Validate contents */
+    for (i = 7; i <= 13; i++) {
+        ety = EntryCacheGet(cache, i);
+        assert_non_null(ety);
+        assert_int_equal(ety->id, i);
+        raft_entry_release(ety);
+    }
+
+    /* Delete multiple with an overlap */
+    assert_int_equal(EntryCacheDeleteHead(cache, 10), 3);
+    assert_int_equal(cache->len, 4);
+    assert_int_equal(cache->start, 1);
+
+    /* Validate contents after deletion */
+    for (i = 10; i <= 13; i++) {
+        ety = EntryCacheGet(cache, i);
+        assert_non_null(ety);
+        assert_int_equal(ety->id, i);
+        raft_entry_release(ety);
+    }
+
+    EntryCacheFree(cache);
+}
+
+static void test_entry_cache_fuzzer(void **state)
+{
+    EntryCache *cache = EntryCacheNew(4, 1);
+    raft_entry_t *ety;
+    int i, j;
+    raft_index_t first_index = 1;
+    raft_index_t index = 0;
+
+    srandom(time(NULL));
+    for (i = 0; i < 100000; i++) {
+        int new_entries = random() % 50;
+
+        for (j = 0; j < new_entries; j++) {
+            ety = raft_entry_new();
+            ety->id = ++index;
+            EntryCacheAppend(cache, ety);
+            raft_entry_release(ety);
+        }
+
+        int remove_until = random() % ((index + 1) / 2);
+        int removed = EntryCacheDeleteHead(cache, remove_until);
+        if (removed > 0) {
+            first_index += removed;
+        }
+    }
+
+    /* verify */
+    for (i = 1; i < first_index; i++) {
+        assert_null(EntryCacheGet(cache, i));
+    }
+    for (i = first_index; i <= index; i++) {
+        ety = EntryCacheGet(cache, i);
+        assert_non_null(ety);
+        assert_int_equal(i, ety->id);
+        raft_entry_release(ety);
+    }
+
+    fprintf(stderr, "start = %lu size = %lu len = %lu\n", cache->start, cache->size, cache->len);
+
+    EntryCacheFree(cache);
+}
+
+#if 0
 static void test_log_remove_head(void **state)
 {
     struct fakelog fl = { 0 };
@@ -320,7 +542,7 @@ static void test_log_remove_head_and_tail(void **state)
     assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
     assert_int_equal(fakelog_entries(&fl), 0);
 }
-
+#endif
 
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
@@ -328,14 +550,24 @@ const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_random_access, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_random_access_with_snapshot, setup_create_log_idx100, teardown_log),
+            test_log_random_access_with_snapshot, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_index_rebuild, setup_create_log_idx100, teardown_log),
+            test_log_index_rebuild, setup_create_log, teardown_log),
+    cmocka_unit_test_setup_teardown(
+            test_log_delete, setup_create_log, teardown_log),
+    cmocka_unit_test_setup_teardown(
+            test_entry_cache_sanity, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+            test_entry_cache_delete_head, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+            test_entry_cache_fuzzer, NULL, NULL),
+#if 0
     cmocka_unit_test_setup_teardown(
             test_log_remove_head, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_log_remove_tail, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_log_remove_head_and_tail, setup_create_log, teardown_log),
+#endif
     { .test_func = NULL }
 };

@@ -173,6 +173,7 @@ typedef struct {
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
 } RedisRaftCtx;
 
+#define REDIS_RAFT_DEFAULT_RAFTLOG                  "redisraft.db"
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
 #define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
@@ -375,11 +376,29 @@ RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
 RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction action, raft_entry_t *), void *callback_arg);
-RRStatus RaftLogRemoveHead(RaftLog *log);
-RRStatus RaftLogRemoveTail(RaftLog *log);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg);
+RRStatus RaftLogReset(RaftLog *log, raft_term_t term, raft_index_t index);
+raft_index_t RaftLogCount(RaftLog *log);
+raft_index_t RaftLogFirstIdx(RaftLog *log);
+raft_index_t RaftLogCurrentIdx(RaftLog *log);
+
+typedef struct EntryCache {
+    unsigned long int size;
+    unsigned long int len;
+    unsigned long int start_idx;
+    unsigned long int start;
+    raft_entry_t **ptrs;
+} EntryCache;
+
+EntryCache *EntryCacheNew(unsigned long initial_size, raft_index_t start_idx);
+void EntryCacheFree(EntryCache *cache);
+void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety);
+raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
+long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
+long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);
 
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);

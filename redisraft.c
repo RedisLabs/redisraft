@@ -286,10 +286,11 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(req->r.appendentries.msg.entries[0]));
     }
     for (i = 0; i < n_entries; i++) {
-        msg_entry_t *e = &req->r.appendentries.msg.entries[i];
+        msg_entry_t *e = raft_entry_new();
+        req->r.appendentries.msg.entries[i] = e;
 
         tmpstr = RedisModule_StringPtrLen(argv[4 + 2*i], &tmplen);
-        if (sscanf(tmpstr, "%ld:%d:%d",
+        if (sscanf(tmpstr, "%ld:%d:%hd",
                     &e->term,
                     &e->id,
                     &e->type) != 3) {
