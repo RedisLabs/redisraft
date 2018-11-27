@@ -37,36 +37,14 @@ static int cmp_entry(raft_entry_t *e1, raft_entry_t *e2)
             !memcmp(e1->data.buf, e2->data.buf, e1->data.len));
 }
 
-#define MAX_FAKELOG 10
-struct fakelog {
-    int first;
-    int last;
-    raft_entry_t entries[MAX_FAKELOG];
-};
-
-static int fakelog_entries(struct fakelog *log)
+static int log_entries_callback(void *arg, LogEntryAction action, raft_entry_t *entry)
 {
-    return log->last - log->first;
-}
+    int ety_id = entry->id;
+    const char *value = entry->data.buf;
 
-static int fakelog_cmp_entry(struct fakelog *log, int idx, raft_entry_t *e)
-{
-    return cmp_entry(&log->entries[log->first + idx - 1], e);
-}
+    check_expected(ety_id);
+    check_expected(value);
 
-static int read_callback(void *arg, LogEntryAction action, raft_entry_t *entry)
-{
-    struct fakelog *log = (struct fakelog *) arg;
-    if (action == LA_APPEND) {
-        assert_true(log->last < MAX_FAKELOG);
-        log->entries[log->last++] = *entry;
-    } else if (action == LA_REMOVE_HEAD) {
-        assert_true(log->last > log->first);
-        log->first++;
-    } else if (action == LA_REMOVE_TAIL) {
-        assert_true(log->last > log->first);
-        log->last--;
-    }
     return mock();
 }
 
@@ -135,10 +113,9 @@ static void test_log_random_access_with_snapshot(void **state)
     raft_entry_release(e);
 }
 
-static void test_basic_log_read_write(void **state)
+static void test_log_load_entries(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
-    struct fakelog fl = { 0 };
 
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -154,11 +131,14 @@ static void test_basic_log_read_write(void **state)
     assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
 
     /* Load entries */
-    will_return_always(read_callback, 0);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *) &fl), 2);
-    assert_int_equal(fakelog_entries(&fl), 2);
-    assert_true(!fakelog_cmp_entry(&fl, 1, &entry1));
-    assert_true(!fakelog_cmp_entry(&fl, 2, &entry2));
+    will_return_always(log_entries_callback, 0);
+    expect_value(log_entries_callback, ety_id, 3);
+    expect_memory(log_entries_callback, value, "value1", 6);
+
+    expect_value(log_entries_callback, ety_id, 30);
+    expect_memory(log_entries_callback, value, "value2", 6);
+
+    assert_int_equal(RaftLogLoadEntries(log, log_entries_callback, NULL), 2);
 }
 
 static void test_log_index_rebuild(void **state)
@@ -439,16 +419,18 @@ static void test_entry_cache_fuzzer(void **state)
             raft_entry_release(ety);
         }
 
-        int del_head = random() % ((index + 1) / 2);
-        int removed = EntryCacheDeleteHead(cache, del_head);
-        if (removed > 0) {
-            first_index += removed;
+        if (index > 5) {
+            int del_head = random() % ((index + 1) / 2);
+            int removed = EntryCacheDeleteHead(cache, del_head);
+            if (removed > 0) {
+                first_index += removed;
+            }
         }
 
         if (index - first_index > 10) {
             int del_tail = random() % ((index - first_index) / 10);
             if (del_tail) {
-                removed = EntryCacheDeleteTail(cache, index - del_tail + 1);
+                int removed = EntryCacheDeleteTail(cache, index - del_tail + 1);
                 assert_int_equal(removed, del_tail);
                 index -= removed;
             }
@@ -585,7 +567,7 @@ static void test_log_remove_head_and_tail(void **state)
 
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
-            test_basic_log_read_write, setup_create_log, teardown_log),
+            test_log_load_entries, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_log_random_access, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
