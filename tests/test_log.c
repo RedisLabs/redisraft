@@ -28,16 +28,7 @@ static int teardown_log(void **state)
     return 0;
 }
 
-static int cmp_entry(raft_entry_t *e1, raft_entry_t *e2)
-{
-    return (e1->term == e2->term &&
-            e1->type == e2->type &&
-            e1->id == e2->id &&
-            e1->data.len == e2->data.len &&
-            !memcmp(e1->data.buf, e2->data.buf, e1->data.len));
-}
-
-static int log_entries_callback(void *arg, LogEntryAction action, raft_entry_t *entry)
+static int log_entries_callback(void *arg, raft_entry_t *entry)
 {
     int ety_id = entry->id;
     const char *value = entry->data.buf;
@@ -183,6 +174,37 @@ static void test_log_index_rebuild(void **state)
     RaftLogClose(log2);
 }
 
+static void test_log_voting_persistence(void **state)
+{
+    RaftLog *log = (RaftLog *) *state;
+
+    char value1[] = "value1";
+    raft_entry_t entry1 = {
+        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
+    };
+    char value2[] = "value2";
+    raft_entry_t entry2 = {
+        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
+    };
+
+    /* Write entries */
+    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+
+    /* Change voting */
+    RaftLogSetTerm(log, 0xffffffff, INT32_MAX);
+
+    /* Re-read first entry to verify no corruption */
+    raft_entry_t *ety = RaftLogGet(log, 1);
+    assert_int_equal(ety->id, 3);
+    raft_entry_release(ety);
+
+    RaftLog *templog = RaftLogOpen(LOGNAME);
+    assert_int_equal(templog->term, 0xffffffff);
+    assert_int_equal(templog->vote, INT32_MAX);
+    RaftLogClose(templog);
+}
+
 static void mock_notify_func(void *arg, raft_entry_t *ety, raft_index_t idx)
 {
     int ety_id = ety->id;
@@ -279,6 +301,31 @@ static void test_entry_cache_sanity(void **state)
         assert_int_equal(ety->id, i);
         raft_entry_release(ety);
     }
+
+    EntryCacheFree(cache);
+}
+
+static void test_entry_cache_start_index_change(void **state)
+{
+    EntryCache *cache = EntryCacheNew(8);
+    raft_entry_t *ety;
+
+    /* Establish start_idx 1 */
+    ety = raft_entry_new();
+    ety->id = 1;
+    EntryCacheAppend(cache, ety, 1);
+    raft_entry_release(ety);
+
+    assert_int_equal(cache->start_idx, 1);
+    EntryCacheDeleteTail(cache, 1);
+    assert_int_equal(cache->start_idx, 0);
+
+    ety = raft_entry_new();
+    ety->id = 10;
+    EntryCacheAppend(cache, ety, 10);
+    raft_entry_release(ety);
+
+    assert_int_equal(cache->start_idx, 10);
 
     EntryCacheFree(cache);
 }
@@ -451,120 +498,6 @@ static void test_entry_cache_fuzzer(void **state)
     EntryCacheFree(cache);
 }
 
-#if 0
-static void test_log_remove_head(void **state)
-{
-    struct fakelog fl = { 0 };
-
-    RaftLog *log = (RaftLog *) *state;
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 1, .type = 2, .id = 4, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Create log */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
-
-    /* Remove first */
-    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
-    will_return_always(read_callback, 0);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, &fl), 1);
-    assert_int_equal(fakelog_entries(&fl), 1);
-    assert_true(!fakelog_cmp_entry(&fl, 1, &entry2));
-
-    /* Remove last */
-    fakelog_clear(&fl);
-    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
-    assert_int_equal(fakelog_entries(&fl), 0);
-
-    /* No more */
-    assert_int_equal(RaftLogRemoveHead(log), RR_ERROR);
-}
-
-static void test_log_remove_tail(void **state)
-{
-    struct fakelog fl = { 0 };
-
-    RaftLog *log = (RaftLog *) *state;
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 1, .type = 2, .id = 4, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Create log */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
-
-    /* Remove tail */
-    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
-    will_return_always(read_callback, 0);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
-    assert_int_equal(fakelog_entries(&fl), 1);
-    assert_true(!fakelog_cmp_entry(&fl, 1, &entry1));
-
-    /* Remove last entry */
-    fakelog_clear(&fl);
-    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
-    assert_int_equal(fakelog_entries(&fl), 0);
-
-    /* No more */
-    assert_int_equal(RaftLogRemoveTail(log), RR_ERROR);
-}
-
-static void test_log_remove_head_and_tail(void **state)
-{
-    struct fakelog fl = { 0 };
-
-    RaftLog *log = (RaftLog *) *state;
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 1, .type = 2, .id = 4, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    char value3[] = "value3";
-    raft_entry_t entry3 = {
-        .term = 1, .type = 2, .id = 5, .data = { .buf = value3, .len = sizeof(value3)-1 }
-    };
-
-    /* Create log */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
-
-    /* Remove head and tail */
-    assert_int_equal(RaftLogRemoveHead(log), RR_OK);
-    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
-    will_return_always(read_callback, 0);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 1);
-    assert_int_equal(fakelog_entries(&fl), 1);
-    assert_true(!fakelog_cmp_entry(&fl, 1, &entry2));
-
-    /* Remove tail */
-    fakelog_clear(&fl);
-    assert_int_equal(RaftLogRemoveTail(log), RR_OK);
-    assert_int_equal(RaftLogLoadEntries(log, &read_callback, (void *)&fl), 0);
-    assert_int_equal(fakelog_entries(&fl), 0);
-}
-#endif
-
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_load_entries, setup_create_log, teardown_log),
@@ -577,20 +510,16 @@ const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_delete, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
+            test_log_voting_persistence, setup_create_log, teardown_log),
+    cmocka_unit_test_setup_teardown(
             test_entry_cache_sanity, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+            test_entry_cache_start_index_change, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_delete_head, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_delete_tail, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_fuzzer, NULL, NULL),
-#if 0
-    cmocka_unit_test_setup_teardown(
-            test_log_remove_head, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-            test_log_remove_tail, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-            test_log_remove_head_and_tail, setup_create_log, teardown_log),
-#endif
     { .test_func = NULL }
 };

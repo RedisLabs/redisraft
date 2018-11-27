@@ -18,7 +18,7 @@
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static RaftReqHandler RaftReqHandlers[];
-static raft_log_impl_t RaftLogImpl;
+extern raft_log_impl_t RaftLogImpl;
 
 const char *getStateStr(RedisRaftCtx *rr)
 {
@@ -872,25 +872,16 @@ RRStatus joinCluster(RedisRaftCtx *rr)
     return RR_OK;
 }
 
-static int loadEntriesCallback(void *arg, LogEntryAction action, raft_entry_t *entry)
+static int loadEntriesCallback(void *arg, raft_entry_t *entry)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) arg;
 
-    switch (action) {
-        case LA_APPEND:
-            if (rr->snapshot_info.last_applied_term <= entry->term &&
-                    rr->snapshot_info.last_applied_idx < rr->log->index) {
-                return raft_append_entry(rr->raft, entry);
-            } else {
-                return 0;
-            }
-        case LA_REMOVE_HEAD:
-            return raft_poll_entry(rr->raft);
-        case LA_REMOVE_TAIL:
-            return raft_pop_entry(rr->raft);
-        default:
-            return -1;
+    if (rr->snapshot_info.last_applied_term <= entry->term &&
+            rr->snapshot_info.last_applied_idx < rr->log->index) {
+        return raft_append_entry(rr->raft, entry);
     }
+
+    return 0;
 }
 
 RRStatus loadRaftLog(RedisRaftCtx *rr)

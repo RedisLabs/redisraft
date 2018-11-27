@@ -308,20 +308,22 @@ typedef struct RaftReq {
     } r;
 } RaftReq;
 
+#define RAFTLOG_VERSION     1
+
 typedef struct RaftLog {
-    uint32_t            version;
-    char                dbid[RAFT_DBID_LEN+1];
-    unsigned long int   num_entries;
-    raft_term_t         snapshot_last_term;
-    raft_index_t        snapshot_last_idx;
-    raft_node_id_t      vote;
-    raft_term_t         term;
-    raft_index_t        index;
+    uint32_t            version;                /* Log file format version */
+    char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
+    unsigned long int   num_entries;            /* Entries in log */
+    raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
+    raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
+    raft_index_t        index;                  /* Index of last entry */
+    raft_term_t         term;                   /* Last term we're aware of */
+    raft_node_id_t      vote;                   /* Our vote in the last term, or -1 */
     FILE                *file;
+    FILE                *filehdr;
     FILE                *idxfile;
 } RaftLog;
 
-#define RAFTLOG_VERSION     1
 
 #define SNAPSHOT_RESULT_MAGIC    0x70616e73  /* "snap" */
 typedef struct SnapshotResult {
@@ -365,19 +367,13 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 
 /* log.c */
-typedef enum LogEntryAction {
-    LA_APPEND,
-    LA_REMOVE_HEAD,
-    LA_REMOVE_TAIL
-} LogEntryAction;
-
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index);
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
 RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, LogEntryAction action, raft_entry_t *), void *callback_arg);
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *), void *callback_arg);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
