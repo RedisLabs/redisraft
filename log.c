@@ -7,19 +7,18 @@
 
 #include "redisraft.h"
 
-#define INITIAL_LOG_OFFSET  sizeof(RaftLogHeader)
+#define ENTRY_CACHE_INIT_SIZE 512
 
 /*
  * Entries Cache.
  */
 
-EntryCache *EntryCacheNew(unsigned long initial_size, raft_index_t start_idx)
+EntryCache *EntryCacheNew(unsigned long initial_size)
 {
     EntryCache *cache = RedisModule_Calloc(1, sizeof(EntryCache));
 
     cache->size = initial_size;
     cache->ptrs = RedisModule_Calloc(cache->size, sizeof(raft_entry_t *));
-    cache->start_idx = start_idx;
 
     return cache;
 }
@@ -36,8 +35,14 @@ void EntryCacheFree(EntryCache *cache)
     RedisModule_Free(cache);
 }
 
-void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety)
+void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx)
 {
+    if (!cache->start_idx) {
+        cache->start_idx = idx;
+    }
+
+    assert(cache->start_idx + cache->len == idx);
+
     /* Enlrage cache if necessary */
     if (cache->len == cache->size) {
         unsigned long int new_size = cache->size * 2;
@@ -92,6 +97,10 @@ long EntryCacheDeleteHead(EntryCache *cache, raft_index_t first_idx)
         deleted++;
     }
 
+    if (!cache->len) {
+        cache->start_idx = 0;
+    }
+
     return deleted;
 }
 
@@ -103,14 +112,22 @@ long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index)
     if (index >= cache->start_idx + cache->len) {
         return -1;
     }
+    if (index < cache->start_idx) {
+        return -1;
+    }
 
     for (i = index; i < cache->start_idx + cache->len; i++) {
         unsigned long int relidx = i - cache->start_idx;
         unsigned long int ofs = (cache->start + relidx) % cache->size;
         raft_entry_release(cache->ptrs[ofs]);
         cache->ptrs[ofs] = NULL;
-        cache->len--;
         deleted++;
+    }
+
+    cache->len -= deleted;
+
+    if (!cache->len) {
+        cache->start_idx = 0;
     }
 
     return deleted;
@@ -784,3 +801,139 @@ raft_index_t RaftLogCount(RaftLog *log)
 {
     return log->num_entries;
 }
+
+/*
+ * Interface to Raft library.
+ */
+
+static void *logImplInit(void *raft, void *arg)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) arg;
+
+    return rr;
+}
+
+static void logImplFree(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+
+    RaftLogClose(rr->log);
+    EntryCacheFree(rr->logcache);
+}
+
+static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RaftLogReset(rr->log, index, term);
+
+    EntryCacheFree(rr->logcache);
+    rr->logcache = EntryCacheNew(ENTRY_CACHE_INIT_SIZE);
+}
+
+static int logImplAppend(void *rr_, raft_entry_t *ety)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    if (RaftLogAppend(rr->log, ety) != RR_OK) {
+        return -1;
+    }
+    EntryCacheAppend(rr->logcache, ety, rr->log->index);
+    return 0;
+}
+
+static int logImplPoll(void *rr_, raft_index_t first_idx)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    EntryCacheDeleteHead(rr->logcache, first_idx);
+    return 0;
+}
+
+static int logImplPop(void *rr_, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    if (RaftLogDelete(rr->log, from_idx, cb, cb_arg) != RR_OK) {
+        return -1;
+    }
+    EntryCacheDeleteTail(rr->logcache, from_idx);
+    return 0;
+}
+
+static raft_entry_t *logImplGet(void *rr_, raft_index_t idx)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    raft_entry_t *ety;
+
+    ety = EntryCacheGet(rr->logcache, idx);
+    if (ety != NULL) {
+        return ety;
+    }
+
+    return RaftLogGet(rr->log, idx);
+}
+
+static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entry_t **entries)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    static raft_entry_t *result = NULL;
+    static int result_n = 0;
+    int i;
+
+    if (result) {
+        for (i = 0; i < result_n; i++) {
+            if (result[i].data.buf != NULL) {
+                RedisModule_Free(result[i].data.buf);
+            }
+        }
+        RedisModule_Free(result);
+    }
+
+    result = RedisModule_Calloc(entries_n, sizeof(raft_entry_t));
+    result_n = 0;
+    while (result_n < entries_n) {
+        raft_entry_t *e = EntryCacheGet(rr->logcache, idx);
+        if (!e) {
+            e = RaftLogGet(rr->log, idx);
+        }
+        if (!e) {
+            break;
+        }
+
+        result[result_n] = *e;
+        RedisModule_Free(e);
+
+        result_n++;
+    }
+
+    return result_n;
+}
+
+static raft_index_t logImplFirstIdx(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    return RaftLogFirstIdx(rr->log);
+}
+
+static raft_index_t logImplCurrentIdx(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    return RaftLogCurrentIdx(rr->log);
+}
+
+static raft_index_t logImplCount(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    return RaftLogCount(rr->log);
+}
+
+raft_log_impl_t RaftLogImpl = {
+    .init = logImplInit,
+    .free = logImplFree,
+    .reset = logImplReset,
+    .append = logImplAppend,
+    .poll = logImplPoll,
+    .pop = logImplPop,
+    .get = logImplGet,
+    .get_batch = logImplGetBatch,
+    .first_idx = logImplFirstIdx,
+    .current_idx = logImplCurrentIdx,
+    .count = logImplCount
+};

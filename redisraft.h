@@ -83,6 +83,7 @@ void raft_module_log(const char *fmt, ...);
 
 /* Forward declarations */
 struct RaftReq;
+struct EntryCache;
 struct RedisRaftConfig;
 struct Node;
 
@@ -163,6 +164,7 @@ typedef struct {
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (Redis thread -> Raft thread) */
     struct RaftLog *log;        /* Raft persistent log; May be NULL if not used */
+    struct EntryCache *logcache;
     struct RedisRaftConfig *config;     /* User provided configuration */
     RaftJoinState *join_state;  /* Tracks state while we're in REDIS_RAFT_JOINING */
     bool snapshot_in_progress;  /* Indicates we're creating a snapshot in the background */
@@ -393,9 +395,9 @@ typedef struct EntryCache {
     raft_entry_t **ptrs;
 } EntryCache;
 
-EntryCache *EntryCacheNew(unsigned long initial_size, raft_index_t start_idx);
+EntryCache *EntryCacheNew(unsigned long initial_size);
 void EntryCacheFree(EntryCache *cache);
-void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety);
+void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx);
 raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);

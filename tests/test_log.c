@@ -3,6 +3,8 @@
 #include <setjmp.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
+#include <sys/time.h>
 
 #include "cmocka.h"
 
@@ -50,11 +52,6 @@ static int fakelog_entries(struct fakelog *log)
 static int fakelog_cmp_entry(struct fakelog *log, int idx, raft_entry_t *e)
 {
     return cmp_entry(&log->entries[log->first + idx - 1], e);
-}
-
-static void fakelog_clear(struct fakelog *log)
-{
-    log->first = log->last = 0;
 }
 
 static int read_callback(void *arg, LogEntryAction action, raft_entry_t *entry)
@@ -280,7 +277,7 @@ static void test_log_delete(void **state)
 
 static void test_entry_cache_sanity(void **state)
 {
-    EntryCache *cache = EntryCacheNew(8, 1);
+    EntryCache *cache = EntryCacheNew(8);
     raft_entry_t *ety;
     int i;
 
@@ -288,7 +285,7 @@ static void test_entry_cache_sanity(void **state)
     for (i = 1; i <= 64; i++) {
         ety = raft_entry_new();
         ety->id = i;
-        EntryCacheAppend(cache, ety);
+        EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
     }
 
@@ -308,7 +305,7 @@ static void test_entry_cache_sanity(void **state)
 
 static void test_entry_cache_delete_head(void **state)
 {
-    EntryCache *cache = EntryCacheNew(4, 1);
+    EntryCache *cache = EntryCacheNew(4);
     raft_entry_t *ety;
     int i;
 
@@ -316,7 +313,7 @@ static void test_entry_cache_delete_head(void **state)
     for (i = 1; i <= 5; i++) {
         ety = raft_entry_new();
         ety->id = i;
-        EntryCacheAppend(cache, ety);
+        EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
     }
 
@@ -343,7 +340,7 @@ static void test_entry_cache_delete_head(void **state)
         assert_int_equal(EntryCacheDeleteHead(cache, 3 + i), 1);
         ety = raft_entry_new();
         ety->id = 6 + i;
-        EntryCacheAppend(cache, ety);
+        EntryCacheAppend(cache, ety, ety->id);
         raft_entry_release(ety);
     }
 
@@ -356,7 +353,7 @@ static void test_entry_cache_delete_head(void **state)
     for (i = 11; i <= 13; i++) {
         ety = raft_entry_new();
         ety->id = i;
-        EntryCacheAppend(cache, ety);
+        EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
     }
 
@@ -388,9 +385,44 @@ static void test_entry_cache_delete_head(void **state)
     EntryCacheFree(cache);
 }
 
+static void test_entry_cache_delete_tail(void **state)
+{
+    EntryCache *cache = EntryCacheNew(4);
+    raft_entry_t *ety;
+    int i;
+
+    for (i = 100; i <= 103; i++) {
+        ety = raft_entry_new();
+        ety->id = i;
+        EntryCacheAppend(cache, ety, i);
+        raft_entry_release(ety);
+    }
+
+    assert_int_equal(cache->size, 4);
+    assert_int_equal(cache->len, 4);
+
+    /* Try invalid indexes */
+    assert_int_equal(EntryCacheDeleteTail(cache, 104), -1);
+    assert_int_equal(EntryCacheDeleteTail(cache, 99), -1);
+
+    /* Delete last entry */
+    assert_int_equal(EntryCacheDeleteTail(cache, 103), 1);
+    assert_int_equal(cache->len, 3);
+    assert_null(EntryCacheGet(cache, 103));
+    ety = EntryCacheGet(cache, 102);
+    assert_int_equal(ety->id, 102);
+    raft_entry_release(ety);
+
+    /* Delete all entries */
+    assert_int_equal(EntryCacheDeleteTail(cache, 100), 3);
+    assert_int_equal(cache->len, 0);
+
+    EntryCacheFree(cache);
+}
+
 static void test_entry_cache_fuzzer(void **state)
 {
-    EntryCache *cache = EntryCacheNew(4, 1);
+    EntryCache *cache = EntryCacheNew(4);
     raft_entry_t *ety;
     int i, j;
     raft_index_t first_index = 1;
@@ -403,14 +435,23 @@ static void test_entry_cache_fuzzer(void **state)
         for (j = 0; j < new_entries; j++) {
             ety = raft_entry_new();
             ety->id = ++index;
-            EntryCacheAppend(cache, ety);
+            EntryCacheAppend(cache, ety, index);
             raft_entry_release(ety);
         }
 
-        int remove_until = random() % ((index + 1) / 2);
-        int removed = EntryCacheDeleteHead(cache, remove_until);
+        int del_head = random() % ((index + 1) / 2);
+        int removed = EntryCacheDeleteHead(cache, del_head);
         if (removed > 0) {
             first_index += removed;
+        }
+
+        if (index - first_index > 10) {
+            int del_tail = random() % ((index - first_index) / 10);
+            if (del_tail) {
+                removed = EntryCacheDeleteTail(cache, index - del_tail + 1);
+                assert_int_equal(removed, del_tail);
+                index -= removed;
+            }
         }
     }
 
@@ -424,8 +465,6 @@ static void test_entry_cache_fuzzer(void **state)
         assert_int_equal(i, ety->id);
         raft_entry_release(ety);
     }
-
-    fprintf(stderr, "start = %lu size = %lu len = %lu\n", cache->start, cache->size, cache->len);
 
     EntryCacheFree(cache);
 }
@@ -559,6 +598,8 @@ const struct CMUnitTest log_tests[] = {
             test_entry_cache_sanity, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_delete_head, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+            test_entry_cache_delete_tail, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_fuzzer, NULL, NULL),
 #if 0
