@@ -517,7 +517,7 @@ error:
     return NULL;
 }
 
-RRStatus RaftLogReset(RaftLog *log, raft_term_t term, raft_index_t index)
+RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
 {
     log->index = log->snapshot_last_idx = index;
     log->snapshot_last_term = term;
@@ -536,7 +536,7 @@ RRStatus RaftLogReset(RaftLog *log, raft_term_t term, raft_index_t index)
     return RR_OK;
 }
 
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *), void *callback_arg)
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg)
 {
     int ret = 0;
 
@@ -587,7 +587,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *), vo
 
         int cb_ret = 0;
         if (callback) {
-            callback(callback_arg, &e);
+            callback(callback_arg, &e, log->index);
         }
 
         freeRawLogEntry(re);
@@ -840,22 +840,9 @@ static raft_entry_t *logImplGet(void *rr_, raft_index_t idx)
 static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entry_t **entries)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    static raft_entry_t *result = NULL;
-    static int result_n = 0;
-    int i;
+    int n = 0;
 
-    if (result) {
-        for (i = 0; i < result_n; i++) {
-            if (result[i].data.buf != NULL) {
-                RedisModule_Free(result[i].data.buf);
-            }
-        }
-        RedisModule_Free(result);
-    }
-
-    result = RedisModule_Calloc(entries_n, sizeof(raft_entry_t));
-    result_n = 0;
-    while (result_n < entries_n) {
+    while (n < entries_n) {
         raft_entry_t *e = EntryCacheGet(rr->logcache, idx);
         if (!e) {
             e = RaftLogGet(rr->log, idx);
@@ -864,13 +851,12 @@ static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entr
             break;
         }
 
-        result[result_n] = *e;
-        RedisModule_Free(e);
-
-        result_n++;
+        entries[n] = e;
+        n++;
+        idx++;
     }
 
-    return result_n;
+    return n;
 }
 
 static raft_index_t logImplFirstIdx(void *rr_)

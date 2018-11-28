@@ -503,20 +503,22 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 
     TRACE("node:%d has sufficient logs now, adding as voting node.\n", node->id);
 
-    raft_entry_t entry = { 0 };
-    entry.id = rand();
-    entry.type = RAFT_LOGTYPE_ADD_NODE;
+    raft_entry_t *entry = raft_entry_new();
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_ADD_NODE;
 
     msg_entry_response_t response;
-    RaftCfgChange cfgchange = { 0 };
-    cfgchange.id = node->id;
-    cfgchange.addr = node->addr;
+    RaftCfgChange *cfgchange = RedisModule_Alloc(sizeof(RaftCfgChange));
+    cfgchange->id = node->id;
+    cfgchange->addr = node->addr;
 
-    entry.data.len = sizeof(cfgchange);
-    entry.data.buf = &cfgchange;
+    entry->data.len = sizeof(cfgchange);
+    entry->data.buf = cfgchange;
 
-    int e = raft_recv_entry(raft, &entry, &response);
+    int e = raft_recv_entry(raft, entry, &response);
     assert(e == 0);
+
+    raft_entry_release(entry);
 
     return 0;
 }
@@ -783,6 +785,8 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
     ety->data.buf = cfgchange;
 
     RaftLogAppend(rr->log, ety);
+    raft_entry_release(ety);
+
     return 0;
 }
 
@@ -840,45 +844,18 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
         return RR_ERROR;
     }
 
-    if (rr->log) {
-        raft_entry_t *entry = raft_get_entry_from_idx(rr->raft, 1);
-        assert(entry != NULL);
-        assert(RaftLogAppend(rr->log, entry) == RR_OK);
-    }
-
-    raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
-    rr->callbacks_set = true;
-
     return RR_OK;
 }
 
-RRStatus joinCluster(RedisRaftCtx *rr)
-{
-    /* Create a Snapshot Info meta-key */
-    initializeSnapshotInfo(rr);
 
-    /* Create our own node */
-    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
-    if (!self) {
-        LOG_ERROR("Failed to initialize raft_node\n");
-        return RR_ERROR;
-    }
-    rr->state = REDIS_RAFT_JOINING;
-
-    raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
-    rr->callbacks_set = true;
-
-    /* We don't yet initialize the log, as we're waiting for dbid */
-    return RR_OK;
-}
-
-static int loadEntriesCallback(void *arg, raft_entry_t *entry)
+static int loadEntriesCallback(void *arg, raft_entry_t *entry, raft_index_t idx)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) arg;
 
     if (rr->snapshot_info.last_applied_term <= entry->term &&
-            rr->snapshot_info.last_applied_idx < rr->log->index) {
-        return raft_append_entry(rr->raft, entry);
+            rr->snapshot_info.last_applied_idx < rr->log->index &&
+            raft_entry_is_cfg_change(entry)) {
+        raft_handle_append_cfg_change(rr->raft, entry, idx);
     }
 
     return 0;
@@ -1019,8 +996,7 @@ void RaftReqFree(RaftReq *req)
             if (req->r.appendentries.msg.entries) {
                 int i;
                 for (i = 0; i < req->r.appendentries.msg.n_entries; i++) {
-                    RedisModule_Free(req->r.appendentries.msg.entries[i]->data.buf);
-                    RedisModule_Free(req->r.appendentries.msg.entries[i]);
+                    raft_entry_release(req->r.appendentries.msg.entries[i]);
                 }
                 RedisModule_Free(req->r.appendentries.msg.entries);
                 req->r.appendentries.msg.entries = NULL;
@@ -1033,6 +1009,7 @@ void RaftReqFree(RaftReq *req)
                 }
                 RedisModule_Free(req->r.redis.cmd.argv);
             }
+            // TODO: hold a reference from entry so we can disconnect our req
             req->r.redis.cmd.argv = NULL;
             break;
         case RR_LOADSNAPSHOT:
@@ -1157,31 +1134,32 @@ exit:
 
 static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
-    raft_entry_t entry;
+    raft_entry_t *entry;
 
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
     }
 
-    memset(&entry, 0, sizeof(entry));
-    entry.id = rand();
+    entry = raft_entry_new();
+    entry->id = rand();
 
     switch (req->type) {
         case RR_CFGCHANGE_ADDNODE:
-            entry.type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+            entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            entry.type = RAFT_LOGTYPE_REMOVE_NODE;
+            entry->type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:
             assert(0);
     }
 
-    entry.data.len = sizeof(req->r.cfgchange);
-    entry.data.buf = &req->r.cfgchange;
+    entry->data.len = sizeof(req->r.cfgchange);
+    entry->data.buf = RedisModule_Alloc(sizeof(req->r.cfgchange));
+    memcpy(entry->data.buf, &req->r.cfgchange, sizeof(req->r.cfgchange));
 
-    int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
+    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     if (e == 0) {
         char r[RAFT_DBID_LEN + 5];
         if (req->type == RR_CFGCHANGE_ADDNODE) {
@@ -1194,6 +1172,8 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     } else  {
         replyRaftError(req->ctx, e);
     }
+
+    raft_entry_release(entry);
 
 exit:
     RaftReqFree(req);
@@ -1216,16 +1196,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    raft_entry_t entry = {
-        .id = rand(),
-        .type = RAFT_LOGTYPE_NORMAL,
-        .user_data = req,
-    };
+    raft_entry_t *entry = raft_entry_new();
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_NORMAL;
+    entry->user_data = req;
 
-    RaftRedisCommandSerialize(&entry.data, &req->r.redis.cmd);
-    void *buf = entry.data.buf;     /* Store it because raft_recv_entry will overwrite */
-    int e = raft_recv_entry(rr->raft, &entry, &req->r.redis.response);
-    RedisModule_Free(buf);
+    RaftRedisCommandSerialize(&entry->data, &req->r.redis.cmd);
+    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+
     if (e != 0) {
         replyRaftError(req->ctx, e);
         goto exit;
@@ -1249,31 +1227,30 @@ exit:
 
 static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftState(rr, req) != RR_OK) {
-        RaftReqFree(req);
-        return;
-    }
-
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
 
     char role[10];
-    switch (raft_get_state(rr->raft)) {
-        case RAFT_STATE_FOLLOWER:
-            strcpy(role, "follower");
-            break;
-        case RAFT_STATE_LEADER:
-            strcpy(role, "leader");
-            break;
-        case RAFT_STATE_CANDIDATE:
-            strcpy(role, "candidate");
-            break;
-        default:
-            strcpy(role, "(none)");
-            break;
+    if (!rr->raft) {
+        strcpy(role, "-");
+    } else {
+        switch (raft_get_state(rr->raft)) {
+            case RAFT_STATE_FOLLOWER:
+                strcpy(role, "follower");
+                break;
+            case RAFT_STATE_LEADER:
+                strcpy(role, "leader");
+                break;
+            case RAFT_STATE_CANDIDATE:
+                strcpy(role, "candidate");
+                break;
+            default:
+                strcpy(role, "(none)");
+                break;
+        }
     }
 
-    raft_node_t *me = raft_get_my_node(rr->raft);
+    raft_node_t *me = rr->raft ? raft_get_my_node(rr->raft) : NULL;
     s = catsnprintf(s, &slen,
             "# Raft\r\n"
             "node_id:%d\r\n"
@@ -1284,18 +1261,19 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "current_term:%d\r\n"
             "num_nodes:%d\r\n"
             "num_voting_nodes:%d\r\n",
-            raft_get_nodeid(rr->raft),
+            rr->config->id,
             getStateStr(rr),
             role,
             me ? (raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no") : "-",
-            raft_get_current_leader(rr->raft),
-            raft_get_current_term(rr->raft),
-            raft_get_num_nodes(rr->raft),
-            raft_get_num_voting_nodes(rr->raft));
+            rr->raft ? raft_get_current_leader(rr->raft) : -1,
+            rr->raft ? raft_get_current_term(rr->raft) : 0,
+            rr->raft ? raft_get_num_nodes(rr->raft) : 0,
+            rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0);
 
     int i;
     time_t now = time(NULL);
-    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+    int num_nodes = rr->raft ? raft_get_num_nodes(rr->raft) : 0;
+    for (i = 0; i < num_nodes; i++) {
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
         Node *node = raft_node_get_udata(rnode);
         if (!node) {
@@ -1339,10 +1317,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "current_index:%d\r\n"
             "commit_index:%d\r\n"
             "last_applied_index:%d\r\n",
-            raft_get_log_count(rr->raft),
-            raft_get_current_idx(rr->raft),
-            raft_get_commit_idx(rr->raft),
-            raft_get_last_applied_idx(rr->raft));
+            rr->raft ? raft_get_log_count(rr->raft) : 0,
+            rr->raft ? raft_get_current_idx(rr->raft) : 0,
+            rr->raft ? raft_get_commit_idx(rr->raft) : 0,
+            rr->raft ? raft_get_last_applied_idx(rr->raft) : 0);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
@@ -1399,15 +1377,38 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     rr->join_state->addr = req->r.cluster_join.addr;
     req->r.cluster_join.addr = NULL;    /* We now own it in join_state! */
 
-    if (joinCluster(rr) == RR_ERROR) {
-        /* TODO error message */
-        RedisModule_ReplyWithError(req->ctx, "Failed to join");
-        goto exit;
-    }
+    /* Create a Snapshot Info meta-key */
+    initializeSnapshotInfo(rr);
+
+    rr->state = REDIS_RAFT_JOINING;
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
 
 exit:
     RaftReqFree(req);
+}
+
+void HandleClusterJoinCompleted(RedisRaftCtx *rr)
+{
+    /* Initialize Raft log.  We delay this operation as we want to create the log
+     * with the proper dbid which is only received now.
+     */
+    if (rr->config->raftlog) {
+        rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid,
+                rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx);
+        if (!rr->log) {
+            PANIC("Failed to initialize Raft log");
+        }
+    }
+
+    initRaftLibrary(rr);
+
+    /* Create our own node */
+    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
+    if (!self) {
+        PANIC("Failed to initialize raft_node\n");
+    }
+
+    rr->state = REDIS_RAFT_UP;
 }
 
 static RaftReqHandler RaftReqHandlers[] = {

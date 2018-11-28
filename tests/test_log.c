@@ -28,7 +28,7 @@ static int teardown_log(void **state)
     return 0;
 }
 
-static int log_entries_callback(void *arg, raft_entry_t *entry)
+static int log_entries_callback(void *arg, raft_entry_t *entry, raft_index_t idx)
 {
     int ety_id = entry->id;
     const char *value = entry->data.buf;
@@ -83,7 +83,7 @@ static void test_log_random_access_with_snapshot(void **state)
     };
 
     /* Reset log assuming last snapshot is 100 */
-    RaftLogReset(log, 1, 100);
+    RaftLogReset(log, 100, 1);
 
     /* Write entries */
     assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
@@ -135,7 +135,7 @@ static void test_log_load_entries(void **state)
 static void test_log_index_rebuild(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
-    RaftLogReset(log, 1, 100);
+    RaftLogReset(log, 100, 1);
 
     char value1[] = "value1";
     raft_entry_t entry1 = {
@@ -230,7 +230,7 @@ static void test_log_delete(void **state)
     };
 
     /* Simulate post snapshot log */
-    RaftLogReset(log, 1, 50);
+    RaftLogReset(log, 50, 1);
 
     /* Write entries */
     assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);

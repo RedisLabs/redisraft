@@ -104,8 +104,7 @@ class RedisRaft(object):
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
-        if persist_log:
-            raft_args['raftlog'] = self.raftlog
+        raft_args['raftlog'] = self.raftlog
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)
@@ -249,9 +248,6 @@ class RedisRaft(object):
             try:
                 if test_func():
                     return
-            except redis.ResponseError as err:
-                if not str(err).startswith('UNBLOCKED'):
-                    raise
             except redis.ConnectionError:
                 pass
 

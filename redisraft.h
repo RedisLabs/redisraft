@@ -352,6 +352,7 @@ bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, 
 void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
+void HandleClusterJoinCompleted(RedisRaftCtx *rr);
 
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
@@ -373,12 +374,12 @@ void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
 RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *), void *callback_arg);
+int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
 RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg);
-RRStatus RaftLogReset(RaftLog *log, raft_term_t term, raft_index_t index);
+RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);

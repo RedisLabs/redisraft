@@ -232,18 +232,8 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
         LOG_INFO("Joined Raft cluster, dbid: %s\n", reply->str + 3);
         strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
-        rr->state = REDIS_RAFT_UP;
 
-        /* Initialize Raft log.  We delay this operation as we want to create the log
-         * with the proper dbid which is only received now.
-         */
-        if (rr->config->raftlog) {
-            rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid,
-                    rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx);
-            if (!rr->log) {
-                PANIC("Failed to initialize Raft log");
-            }
-        }
+        HandleClusterJoinCompleted(rr);
     }
 
     if (rr->state != REDIS_RAFT_UP) {
@@ -266,7 +256,7 @@ void sendNodeAddRequest(const redisAsyncContext *c, int status)
     } else if (redisAsyncCommand(node->rc, handleNodeAddResponse, node,
         "RAFT.NODE %s %d %s:%u",
         "ADD",
-        raft_get_nodeid(rr->raft),
+        rr->config->id,
         rr->config->addr.host, rr->config->addr.port) != REDIS_OK) {
 
         node->state = NODE_CONNECT_ERROR;
