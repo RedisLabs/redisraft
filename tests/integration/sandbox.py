@@ -6,6 +6,7 @@ import subprocess
 import threading
 import random
 import logging
+import uuid
 import redis
 
 LOG = logging.getLogger('sandbox')
@@ -40,6 +41,10 @@ class DefaultConfig(object):
     args = None
     raftmodule = 'redisraft.so'
     up_timeout = 2
+    raft_loglevel = 'info'
+
+class VerboseConfig(DefaultConfig):
+    raft_loglevel = 'debug'
 
 class DebugConfig(DefaultConfig):
     executable = 'gnome-terminal'
@@ -92,6 +97,7 @@ class RedisRaft(object):
         self.executable = config.executable
         self.process = None
         self.raftlog = 'redis{}.raftlog'.format(self.id)
+        self.raftlogidx = '{}.idx'.format(self.raftlog)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
@@ -105,6 +111,7 @@ class RedisRaft(object):
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
         raft_args['raftlog'] = self.raftlog
+        raft_args['loglevel'] = config.raft_loglevel
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)
@@ -218,10 +225,18 @@ class RedisRaft(object):
                 continue
 
     def cleanup(self):
-        if os.path.exists(self.raftlog):
-            os.unlink(self.raftlog)
-        if os.path.exists(self.dbfilename):
-            os.unlink(self.dbfilename)
+        files = [self.raftlog, self.raftlogidx, self.dbfilename]
+        if os.environ.get('SANDBOX_KEEPFILES'):
+            savedir = 'keepfiles_{}'.format(uuid.uuid4().hex)
+            os.mkdir(savedir)
+            LOG.info("Moving files ==> %s", savedir)
+            for _file in files:
+                if os.path.exists(_file):
+                    os.rename(_file, os.path.join(savedir, _file))
+        else:
+            for _file in files:
+                if os.path.exists(_file):
+                    os.unlink(_file)
 
     def raft_exec(self, *args):
         cmd = ['RAFT'] + list(args)
