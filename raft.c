@@ -682,6 +682,12 @@ static void handleLoadingState(RedisRaftCtx *rr)
             }
 
             applyLoadedRaftLog(rr);
+
+            raft_set_current_term(rr->raft, rr->snapshot_info.last_applied_term);
+            raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
+            raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
+                    rr->snapshot_info.last_applied_idx);
+
             rr->state = REDIS_RAFT_UP;
         } else {
             rr->state = REDIS_RAFT_UNINITIALIZED;
@@ -889,7 +895,6 @@ static void initRaftLibrary(RedisRaftCtx *rr)
 static void configureFromSnapshot(RedisRaftCtx *rr)
 {
     SnapshotCfgEntry *c;
-    int ret;
 
     LOG_INFO("Loading: Snapshot: applied term=%lu index=%lu\n",
             rr->snapshot_info.last_applied_term,
@@ -900,15 +905,7 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
                 c->id, c->addr.host, c->addr.port, c->active, c->voting);
     }
 
-    if ((ret = raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
-                rr->snapshot_info.last_applied_idx)) < 0) {
-        assert(0);
-        PANIC("Failed to begin snapshot loading [%d], aborting.\n", ret);
-    }
     configRaftFromSnapshotInfo(rr);
-    if ((ret = raft_end_load_snapshot(rr->raft)) < 0) {
-        PANIC("Failed to end snapshot loading [%d], aborting.\n", ret);
-    }
 }
 
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
