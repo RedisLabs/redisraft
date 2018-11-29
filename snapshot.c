@@ -150,6 +150,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     RaftLog *new_log = NULL;
+    unsigned long new_log_entries = sr->num_entries;
 
     assert(rr->snapshot_in_progress);
 
@@ -166,6 +167,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
             return -1;
         }
 
+        new_log_entries += n;
         LOG_VERBOSE("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
                 raft_get_snapshot_last_idx(rr->raft));
 
@@ -205,6 +207,13 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         RaftLogClose(rr->log);
         rr->log = new_log;
     }
+
+    /* TODO: Clean this!
+     *
+     * What we probably want to do is move some of the rewrite logic into
+     * log.c anyway (maybe a log concatenation function?)
+     */
+    rr->log->num_entries = new_log_entries;
 
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
