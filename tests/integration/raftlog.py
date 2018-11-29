@@ -6,10 +6,6 @@ class RawEntry(object):
     # Log entries
     RAFTLOG = 'RAFTLOG'
     ENTRY = 'ENTRY'
-    REMHEAD = 'REMHEAD'
-    REMTAIL = 'REMTAIL'
-    TERM = 'TERM'
-    VOTE = 'VOTE'
 
     def __init__(self, args):
         self.args = args.copy()
@@ -62,6 +58,15 @@ class LogHeader(RawEntry):
         return int(self.args[3])
     def snapshot_index(self):
         return int(self.args[4])
+    def last_term(self):
+        return int(self.args[5])
+    def last_vote(self):
+        return int(self.args[6])
+    def __repr__(self):
+        return '<LogHeader:version=%s,dbid=%s,snapshot=<term:%s,index:%s>,' \
+               'last_term=%s,last_vote=%s' % (
+                   self.version(), self.dbid(), self.snapshot_term(),
+                   self.snapshot_index(), self.last_term(), self.last_vote())
 
 class LogEntry(RawEntry):
     class LogType(Enum):
