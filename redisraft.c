@@ -286,26 +286,23 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(req->r.appendentries.msg.entries[0]));
     }
     for (i = 0; i < n_entries; i++) {
-        msg_entry_t *e = raft_entry_new();
-        req->r.appendentries.msg.entries[i] = e;
+        /* Create entry with payload */
+        tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
+        msg_entry_t *e = raft_entry_new(tmplen);
+        memcpy(e->data, tmpstr, tmplen);
 
+        /* Parse additional entry fields */
         tmpstr = RedisModule_StringPtrLen(argv[4 + 2*i], &tmplen);
         if (sscanf(tmpstr, "%ld:%d:%hd",
                     &e->term,
                     &e->id,
                     &e->type) != 3) {
             RedisModule_ReplyWithError(ctx, "invalid entry");
+            raft_entry_release(e);
             goto error_cleanup;
         }
 
-        /* Note: There is an extra allocation that can be avoided here, but
-         * we then need to keep the list of retained strings so RaftReqFree()
-         * can later release them. TODO later on.
-         */
-        tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
-        e->data.buf = RedisModule_Alloc(tmplen);
-        e->data.len = tmplen;
-        memcpy(e->data.buf, tmpstr, tmplen);
+        req->r.appendentries.msg.entries[i] = e;
     }
 
     RaftReqSubmit(rr, req);

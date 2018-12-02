@@ -149,7 +149,7 @@ static RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
 
 /* Serialize a RaftRedisCommand into a Raft entry */
-void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source)
+raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source)
 {
     size_t sz = sizeof(size_t) * (source->argc + 1);
     size_t len;
@@ -162,9 +162,9 @@ void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *sour
         sz += len;
     }
 
-    /* Serialize argc */
-    p = target->buf = RedisModule_Alloc(sz);
-    target->len = sz;
+    /* Prepare entry */
+    raft_entry_t *ety = raft_entry_new(sz);
+    p = ety->data;
 
     *(size_t *)p = source->argc;
     p += sizeof(size_t);
@@ -177,13 +177,15 @@ void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *sour
         memcpy(p, d, len);
         p += len;
     }
+
+    return ety;
 }
 
 /* Deserialize a RaftRedisCommand from a Raft entry */
 bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx,
-        RaftRedisCommand *target, raft_entry_data_t *source)
+        RaftRedisCommand *target, void *source)
 {
-    char *p = source->buf;
+    char *p = source;
     size_t argc = *(size_t *)p;
     p += sizeof(size_t);
 
@@ -228,7 +230,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
      * original argv in RaftReq
      */
     RaftRedisCommand rcmd;
-    RaftRedisCommandDeserialize(rr->ctx, &rcmd, &entry->data);
+    RaftRedisCommandDeserialize(rr->ctx, &rcmd, entry->data);
     RaftReq *req = entry->user_data;
     RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
@@ -402,8 +404,8 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
         raft_entry_t *e = msg->entries[i];
         argv[4 + i*2] = RedisModule_Alloc(64);
         argvlen[4 + i*2] = snprintf(argv[4 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
-        argvlen[5 + i*2] = e->data.len;
-        argv[5 + i*2] = e->data.buf;
+        argvlen[5 + i*2] = e->data_len;
+        argv[5 + i*2] = e->data;
     }
 
     if (redisAsyncCommandArgv(node->rc, handleAppendEntriesResponse,
@@ -454,7 +456,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
-            req = (RaftCfgChange *) entry->data.buf;
+            req = (RaftCfgChange *) entry->data;
             if (req->id == raft_get_nodeid(raft)) {
                 return RAFT_ERR_SHUTDOWN;
             }
@@ -492,7 +494,7 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
 static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
         raft_index_t entry_idx)
 {
-    RaftCfgChange *req = (RaftCfgChange *) entry->data.buf;
+    RaftCfgChange *req = (RaftCfgChange *) entry->data;
     return req->id;
 }
 
@@ -503,17 +505,14 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 
     TRACE("node:%d has sufficient logs now, adding as voting node.\n", node->id);
 
-    raft_entry_t *entry = raft_entry_new();
+    raft_entry_t *entry = raft_entry_new(sizeof(RaftCfgChange));
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_ADD_NODE;
 
     msg_entry_response_t response;
-    RaftCfgChange *cfgchange = RedisModule_Alloc(sizeof(RaftCfgChange));
+    RaftCfgChange *cfgchange = (RaftCfgChange *) entry->data;
     cfgchange->id = node->id;
     cfgchange->addr = node->addr;
-
-    entry->data.len = sizeof(cfgchange);
-    entry->data.buf = cfgchange;
 
     int e = raft_recv_entry(raft, entry, &response);
     assert(e == 0);
@@ -540,7 +539,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
 
             /* Ignore our own node, as we don't maintain a Node structure for it */
             assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
-            cfgchange = (RaftCfgChange *) entry->data.buf;
+            cfgchange = (RaftCfgChange *) entry->data;
             if (cfgchange->id == raft_get_nodeid(raft)) {
                 break;
             }
@@ -778,17 +777,17 @@ static void RedisRaftThread(void *arg)
 
 static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
 {
-    RaftCfgChange *cfgchange = RedisModule_Calloc(1, sizeof(RaftCfgChange));
+
+    raft_entry_t *ety = raft_entry_new(sizeof(RaftCfgChange));
+    RaftCfgChange *cfgchange = (RaftCfgChange *) ety->data;
+
     cfgchange->id = id;
     if (addr != NULL) {
         cfgchange->addr = *addr;
     }
 
-    raft_entry_t *ety = raft_entry_new();
     ety->id = rand();
     ety->type = type;
-    ety->data.len = sizeof(RaftCfgChange);
-    ety->data.buf = cfgchange;
 
     RaftLogAppend(rr->log, ety);
     raft_entry_release(ety);
@@ -1138,7 +1137,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    entry = raft_entry_new();
+    entry = raft_entry_new(sizeof(req->r.cfgchange));
     entry->id = rand();
 
     switch (req->type) {
@@ -1152,9 +1151,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             assert(0);
     }
 
-    entry->data.len = sizeof(req->r.cfgchange);
-    entry->data.buf = RedisModule_Alloc(sizeof(req->r.cfgchange));
-    memcpy(entry->data.buf, &req->r.cfgchange, sizeof(req->r.cfgchange));
+    memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
 
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     if (e == 0) {
@@ -1193,12 +1190,10 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    raft_entry_t *entry = raft_entry_new();
+    raft_entry_t *entry = RaftRedisCommandSerialize(&req->r.redis.cmd);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entry->user_data = req;
-
-    RaftRedisCommandSerialize(&entry->data, &req->r.redis.cmd);
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
 
     if (e != 0) {

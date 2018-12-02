@@ -18,7 +18,7 @@ def test_log_rollback(c):
     Rollback of log entries that were written in the minority.
     """
 
-    c.create(3, persist_log=True)
+    c.create(3)
     eq_(c.leader, 1)
     eq_(c.raft_exec('SET', 'key', 'value1'), b'OK')
 

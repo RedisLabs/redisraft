@@ -347,8 +347,8 @@ void HandleNodeStates(RedisRaftCtx *rr);
 
 /* raft.c */
 const char *getStateStr(RedisRaftCtx *rr);
-void RaftRedisCommandSerialize(raft_entry_data_t *target, RaftRedisCommand *source);
-bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, raft_entry_data_t *source);
+raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source);
+bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, void *source);
 void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);

@@ -31,7 +31,7 @@ static int teardown_log(void **state)
 static int log_entries_callback(void *arg, raft_entry_t *entry, raft_index_t idx)
 {
     int ety_id = entry->id;
-    const char *value = entry->data.buf;
+    const char *value = entry->data;
 
     check_expected(ety_id);
     check_expected(value);
@@ -39,22 +39,37 @@ static int log_entries_callback(void *arg, raft_entry_t *entry, raft_index_t idx
     return mock();
 }
 
+static raft_entry_t *__make_entry_value(int id, const char *value)
+{
+    raft_entry_t *e = raft_entry_new(strlen(value) + 1);
+    e->id = id;
+    strcpy(e->data, value);
+    return e;
+}
+
+
+static raft_entry_t *__make_entry(int id)
+{
+    raft_entry_t *e = raft_entry_new(50);
+    e->id = id;
+    snprintf(e->data, 49, "value%d\n", id);
+    return e;
+}
+
+static void __append_entry(RaftLog *log, int id)
+{
+    raft_entry_t *e = __make_entry(id);
+
+    assert_int_equal(RaftLogAppend(log, e), RR_OK);
+    raft_entry_release(e);
+}
+
 static void test_log_random_access(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
 
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    __append_entry(log, 3);
+    __append_entry(log, 30);
 
     /* Invalid out of bound reads */
     assert_null(RaftLogGet(log, 0));
@@ -73,21 +88,12 @@ static void test_log_random_access_with_snapshot(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
 
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
     /* Reset log assuming last snapshot is 100 */
     RaftLogReset(log, 100, 1);
 
     /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    __append_entry(log, 3);
+    __append_entry(log, 30);
 
     /* Invalid out of bound reads */
     assert_null(RaftLogGet(log, 99));
@@ -108,26 +114,16 @@ static void test_log_load_entries(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
 
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    __append_entry(log, 3);
+    __append_entry(log, 30);
 
     /* Load entries */
     will_return_always(log_entries_callback, 0);
     expect_value(log_entries_callback, ety_id, 3);
-    expect_memory(log_entries_callback, value, "value1", 6);
+    expect_memory(log_entries_callback, value, "value3", 6);
 
     expect_value(log_entries_callback, ety_id, 30);
-    expect_memory(log_entries_callback, value, "value2", 6);
+    expect_memory(log_entries_callback, value, "value30", 7);
 
     assert_int_equal(RaftLogLoadEntries(log, log_entries_callback, NULL), 2);
 }
@@ -137,18 +133,8 @@ static void test_log_index_rebuild(void **state)
     RaftLog *log = (RaftLog *) *state;
     RaftLogReset(log, 100, 1);
 
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    __append_entry(log, 3);
+    __append_entry(log, 30);
 
     /* Delete index file */
     unlink(LOGNAME ".idx");
@@ -178,18 +164,8 @@ static void test_log_voting_persistence(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
 
-    char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
-    char value2[] = "value2";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
-
-    /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    __append_entry(log, 3);
+    __append_entry(log, 30);
 
     /* Change voting */
     RaftLogSetTerm(log, 0xffffffff, INT32_MAX);
@@ -217,25 +193,19 @@ static void test_log_delete(void **state)
     RaftLog *log = (RaftLog *) *state;
 
     char value1[] = "value1";
-    raft_entry_t entry1 = {
-        .term = 1, .type = 2, .id = 3, .data = { .buf = value1, .len = sizeof(value1)-1 }
-    };
+    raft_entry_t *entry1 = __make_entry_value(3, value1);
     char value2[] = "value22222";
-    raft_entry_t entry2 = {
-        .term = 10, .type = 2, .id = 20, .data = { .buf = value2, .len = sizeof(value2)-1 }
-    };
+    raft_entry_t *entry2 = __make_entry_value(20, value2);
     char value3[] = "value33333333333";
-    raft_entry_t entry3 = {
-        .term = 10, .type = 2, .id = 30, .data = { .buf = value3, .len = sizeof(value3)-1 }
-    };
+    raft_entry_t *entry3 = __make_entry_value(30, value3);
 
     /* Simulate post snapshot log */
     RaftLogReset(log, 50, 1);
 
     /* Write entries */
-    assert_int_equal(RaftLogAppend(log, &entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
-    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
+    assert_int_equal(RaftLogAppend(log, entry1), RR_OK);
+    assert_int_equal(RaftLogAppend(log, entry2), RR_OK);
+    assert_int_equal(RaftLogAppend(log, entry3), RR_OK);
 
     raft_entry_t *e = RaftLogGet(log, 51);
     assert_non_null(e);
@@ -264,17 +234,21 @@ static void test_log_delete(void **state)
      * properly.
      */
 
-    assert_int_equal(RaftLogAppend(log, &entry3), RR_OK);
+    assert_int_equal(RaftLogAppend(log, entry3), RR_OK);
     e = RaftLogGet(log, 52);
     assert_non_null(e);
     assert_int_equal(e->id, 30);
     raft_entry_release(e);
 
-    assert_int_equal(RaftLogAppend(log, &entry2), RR_OK);
+    assert_int_equal(RaftLogAppend(log, entry2), RR_OK);
     e = RaftLogGet(log, 53);
     assert_non_null(e);
     assert_int_equal(e->id, 20);
     raft_entry_release(e);
+
+    raft_entry_release(entry1);
+    raft_entry_release(entry2);
+    raft_entry_release(entry3);
 }
 
 static void test_entry_cache_sanity(void **state)
@@ -285,7 +259,7 @@ static void test_entry_cache_sanity(void **state)
 
     /* Insert 64 entries (cache grows) */
     for (i = 1; i <= 64; i++) {
-        ety = raft_entry_new();
+        ety = raft_entry_new(0);
         ety->id = i;
         EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
@@ -311,7 +285,7 @@ static void test_entry_cache_start_index_change(void **state)
     raft_entry_t *ety;
 
     /* Establish start_idx 1 */
-    ety = raft_entry_new();
+    ety = raft_entry_new(0);
     ety->id = 1;
     EntryCacheAppend(cache, ety, 1);
     raft_entry_release(ety);
@@ -320,7 +294,7 @@ static void test_entry_cache_start_index_change(void **state)
     EntryCacheDeleteTail(cache, 1);
     assert_int_equal(cache->start_idx, 0);
 
-    ety = raft_entry_new();
+    ety = raft_entry_new(0);
     ety->id = 10;
     EntryCacheAppend(cache, ety, 10);
     raft_entry_release(ety);
@@ -338,7 +312,7 @@ static void test_entry_cache_delete_head(void **state)
 
     /* Fill up 5 entries */
     for (i = 1; i <= 5; i++) {
-        ety = raft_entry_new();
+        ety = raft_entry_new(0);
         ety->id = i;
         EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
@@ -365,7 +339,7 @@ static void test_entry_cache_delete_head(void **state)
     /* Delete and add 5 entries (6, 7, 8, 9, 10)*/
     for (i = 0; i < 5; i++) {
         assert_int_equal(EntryCacheDeleteHead(cache, 3 + i), 1);
-        ety = raft_entry_new();
+        ety = raft_entry_new(0);
         ety->id = 6 + i;
         EntryCacheAppend(cache, ety, ety->id);
         raft_entry_release(ety);
@@ -378,7 +352,7 @@ static void test_entry_cache_delete_head(void **state)
 
     /* Add another 3 (11, 12, 13) */
     for (i = 11; i <= 13; i++) {
-        ety = raft_entry_new();
+        ety = raft_entry_new(0);
         ety->id = i;
         EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
@@ -419,7 +393,7 @@ static void test_entry_cache_delete_tail(void **state)
     int i;
 
     for (i = 100; i <= 103; i++) {
-        ety = raft_entry_new();
+        ety = raft_entry_new(0);
         ety->id = i;
         EntryCacheAppend(cache, ety, i);
         raft_entry_release(ety);
@@ -460,7 +434,7 @@ static void test_entry_cache_fuzzer(void **state)
         int new_entries = random() % 50;
 
         for (j = 0; j < new_entries; j++) {
-            ety = raft_entry_new();
+            ety = raft_entry_new(0);
             ety->id = ++index;
             EntryCacheAppend(cache, ety, index);
             raft_entry_release(ety);

@@ -9,6 +9,13 @@
 
 #define ENTRY_CACHE_INIT_SIZE 512
 
+#define RAFT_LOG_TRACE
+#ifdef RAFT_LOG_TRACE
+#  define TRACE_LOG_OP(fmt, ...) LOG_DEBUG(fmt, ##__VA_ARGS__)
+#else
+#  define TRACE_LOG_OP(fmt, ...)
+#endif
+
 /*
  * Entries Cache.
  */
@@ -396,46 +403,39 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
     return log;
 }
 
-static int parseRaftLogEntry(RawLogEntry *re, raft_entry_t *e)
+static raft_entry_t *parseRaftLogEntry(RawLogEntry *re)
 {
     char *eptr;
+    raft_entry_t *e;
 
     if (re->num_elements != 5) {
         LOG_ERROR("Log entry: invalid number of arguments: %d\n", re->num_elements);
-        return -1;
+        return NULL;
     }
+
+    e = raft_entry_new(re->elements[4].len);
+    memcpy(e->data, re->elements[4].ptr, re->elements[4].len);
 
     e->term = strtoul(re->elements[1].ptr, &eptr, 10);
     if (*eptr) {
-        return -1;
+        goto error;
     }
 
     e->id = strtoul(re->elements[2].ptr, &eptr, 10);
     if (*eptr) {
-        return -1;
+        goto error;
     }
 
     e->type = strtoul(re->elements[3].ptr, &eptr, 10);
     if (*eptr) {
-        return -1;
+        goto error;
     }
 
-    e->data.len = re->elements[4].len;
-    e->data.buf = re->elements[4].ptr;
-    return 0;
-}
+    return e;
 
-raft_entry_t *copyFromRawEntry(raft_entry_t *target, RawLogEntry *re)
-{
-    if (parseRaftLogEntry(re, target) < 0) {
-        return NULL;
-    }
-
-    /* Unlink buffer from raw entry, so it doesn't get freed */
-    re->elements[4].ptr = NULL;
-    freeRawLogEntry(re);
-
-    return target;
+error:
+    raft_entry_release(e);
+    return NULL;
 }
 
 static int handleHeader(RaftLog *log, RawLogEntry *re)
@@ -558,7 +558,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 
     /* Read Entries */
     do {
-        raft_entry_t e;
+        raft_entry_t *e = NULL;
 
         long offset = ftell(log->file);
         if (readRawLogEntry(log, &re) < 0 || !re->num_elements) {
@@ -566,9 +566,8 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
         }
 
         if (!strcasecmp(re->elements[0].ptr, "ENTRY")) {
-            memset(&e, 0, sizeof(raft_entry_t));
-
-            if (parseRaftLogEntry(re, &e) < 0) {
+            e = parseRaftLogEntry(re);
+            if (!e) {
                 freeRawLogEntry(re);
                 ret = -1;
                 break;
@@ -587,10 +586,12 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 
         int cb_ret = 0;
         if (callback) {
-            callback(callback_arg, &e, log->index);
+            callback(callback_arg, e, log->index);
         }
 
         freeRawLogEntry(re);
+        raft_entry_release(e);
+
         if (cb_ret < 0) {
             ret = cb_ret;
             break;
@@ -612,7 +613,7 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
         writeUnsignedInteger(log->file, entry->term, 0) < 0 ||
         writeUnsignedInteger(log->file, entry->id, 0) < 0 ||
         writeUnsignedInteger(log->file, entry->type, 0) < 0 ||
-        writeBuffer(log->file, entry->data.buf, entry->data.len) < 0) {
+        writeBuffer(log->file, entry->data, entry->data_len) < 0) {
         return RR_ERROR;
     }
 
@@ -680,10 +681,10 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
         return NULL;
     }
 
-    raft_entry_t *e = raft_entry_new();
-    if (!copyFromRawEntry(e, re)) {
-        raft_entry_release(e);
-        freeRawLogEntry(re);
+    raft_entry_t *e = parseRaftLogEntry(re);
+    freeRawLogEntry(re);
+
+    if (!e) {
         return NULL;
     }
 
@@ -702,23 +703,23 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
 
     do {
         RawLogEntry *re;
-        raft_entry_t e;
+        raft_entry_t *e;
 
         if (readRawLogEntry(log, &re) < 0) {
             break;
         }
 
         if (!strcasecmp(re->elements[0].ptr, "ENTRY")) {
-            memset(&e, 0, sizeof(raft_entry_t));
-            if (parseRaftLogEntry(re, &e) < 0) {
+            if ((e = parseRaftLogEntry(re)) == NULL) {
                 freeRawLogEntry(re);
                 ret = RR_ERROR;
                 break;
             }
 
-            cb(cb_arg, &e, idx);
+            cb(cb_arg, e, idx);
             idx++;
 
+            raft_entry_release(e);
             freeRawLogEntry(re);
         }
     } while(1);
@@ -733,6 +734,7 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
 
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
 {
+    TRACE_LOG_OP("RaftLogSetVote(vote=%ld)\n", vote);
     log->vote = vote;
     if (updateLogHeader(log) < 0) {
         return RR_ERROR;
@@ -742,6 +744,7 @@ RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
 
 RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
 {
+    TRACE_LOG_OP("RaftLogSetTerm(term=%lu,vote=%ld)\n", term, vote);
     log->term = term;
     log->vote = vote;
     if (updateLogHeader(log) < 0) {
@@ -793,6 +796,8 @@ static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
     RaftLogReset(rr->log, index, term);
 
+    TRACE_LOG_OP("RaftLogReset(index=%lu,term=%lu)\n", index, term);
+
     EntryCacheFree(rr->logcache);
     rr->logcache = EntryCacheNew(ENTRY_CACHE_INIT_SIZE);
 }
@@ -800,6 +805,7 @@ static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
 static int logImplAppend(void *rr_, raft_entry_t *ety)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    TRACE_LOG_OP("RaftLogAppend(id=%d)\n", ety->id);
     if (RaftLogAppend(rr->log, ety) != RR_OK) {
         return -1;
     }
@@ -810,6 +816,7 @@ static int logImplAppend(void *rr_, raft_entry_t *ety)
 static int logImplPoll(void *rr_, raft_index_t first_idx)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    TRACE_LOG_OP("RaftLogPoll(first_idx=%lu)\n", first_idx);
     EntryCacheDeleteHead(rr->logcache, first_idx);
     return 0;
 }
@@ -817,6 +824,7 @@ static int logImplPoll(void *rr_, raft_index_t first_idx)
 static int logImplPop(void *rr_, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    TRACE_LOG_OP("RaftLogDelete(from_idx=%lu)\n", from_idx);
     if (RaftLogDelete(rr->log, from_idx, cb, cb_arg) != RR_OK) {
         return -1;
     }

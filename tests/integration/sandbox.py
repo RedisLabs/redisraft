@@ -84,8 +84,7 @@ def resolve_config():
     return DefaultConfig
 
 class RedisRaft(object):
-    def __init__(self, _id, port, config=None, persist_log=True,
-                 raft_args=None):
+    def __init__(self, _id, port, config=None, raft_args=None):
         if config is None:
             config = resolve_config()
         if raft_args is None:
@@ -96,13 +95,11 @@ class RedisRaft(object):
         self.port = port
         self.executable = config.executable
         self.process = None
-        self.raftlog = 'redis{}.raftlog'.format(self.id)
+        self.raftlog = 'redis{}.db'.format(self.id)
         self.raftlogidx = '{}.idx'.format(self.raftlog)
         self.dbfilename = 'redis{}.rdb'.format(self.id)
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
-        if not persist_log:
-            self.args += ['--save', '']
         self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
                       '--bind', '0.0.0.0',
@@ -368,12 +365,11 @@ class Cluster(object):
     def node_addresses(self):
         return ['localhost:{}'.format(n.port) for n in self.nodes.values()]
 
-    def create(self, node_count, persist_log=True, raft_args=None):
+    def create(self, node_count, raft_args=None):
         if raft_args is None:
             raft_args={}
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
-                                   persist_log=persist_log,
                                    raft_args=raft_args)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
@@ -386,11 +382,10 @@ class Cluster(object):
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
 
-    def add_node(self, persist_log=True, raft_args=None, cluster_setup=True):
+    def add_node(self, raft_args=None, cluster_setup=True):
         _id = self.next_id
         self.next_id += 1
-        node = RedisRaft(_id, self.base_port + _id, persist_log=persist_log,
-                         raft_args=raft_args)
+        node = RedisRaft(_id, self.base_port + _id, raft_args=raft_args)
         if cluster_setup:
             if len(self.nodes) > 0:
                 node.join(self.node_addresses())
