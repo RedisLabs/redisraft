@@ -160,6 +160,54 @@ static void test_log_index_rebuild(void **state)
     RaftLogClose(log2);
 }
 
+static void test_log_write_after_read(void **state)
+{
+    RaftLog *log = (RaftLog *) *state;
+
+    __append_entry(log, 1);
+    __append_entry(log, 2);
+
+    raft_entry_t *e = RaftLogGet(log, 1);
+    assert_int_equal(e->id, 1);
+    raft_entry_release(e);
+
+    __append_entry(log, 3);
+    e = RaftLogGet(log, 3);
+    assert_int_equal(e->id, 3);
+    raft_entry_release(e);
+}
+
+static void test_log_fuzzer(void **state)
+{
+    RaftLog *log = (RaftLog *) *state;
+    int idx = 0, i;
+
+    log->no_fsync = true;
+
+    for (i = 0; i < 10000; i++) {
+        int new_entries = random() % 10;
+        int j;
+        for (j = 0; j < new_entries; j++) {
+            __append_entry(log, ++idx);
+        }
+
+        if (idx > 10) {
+            int del_entries = (random() % 5) + 1;
+            idx = idx - del_entries;
+            assert_int_equal(RaftLogDelete(log, idx + 1, NULL, NULL), RR_OK);
+        }
+
+        for (j = 0; j < 20; j++) {
+            int get_idx = (random() % (idx - 1)) + 1;
+            raft_entry_t *e = RaftLogGet(log, get_idx);
+            assert_non_null(e);
+            assert_int_equal(e->id, get_idx);
+            raft_entry_release(e);
+        }
+    }
+}
+
+
 static void test_log_voting_persistence(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
@@ -480,11 +528,15 @@ const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_random_access_with_snapshot, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
+            test_log_write_after_read, setup_create_log, teardown_log),
+    cmocka_unit_test_setup_teardown(
             test_log_index_rebuild, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_log_delete, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_log_voting_persistence, setup_create_log, teardown_log),
+    cmocka_unit_test_setup_teardown(
+            test_log_fuzzer, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_sanity, NULL, NULL),
     cmocka_unit_test_setup_teardown(

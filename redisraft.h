@@ -313,6 +313,7 @@ typedef struct RaftReq {
 typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
+    bool                no_fsync;
     unsigned long int   num_entries;            /* Entries in log */
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
     raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
