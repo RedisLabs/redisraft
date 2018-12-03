@@ -320,8 +320,8 @@ typedef struct RaftLog {
     raft_index_t        index;                  /* Index of last entry */
     raft_term_t         term;                   /* Last term we're aware of */
     raft_node_id_t      vote;                   /* Our vote in the last term, or -1 */
+    const char          *filename;
     FILE                *file;
-    FILE                *filehdr;
     FILE                *idxfile;
 } RaftLog;
 

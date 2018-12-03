@@ -144,7 +144,6 @@ void RaftLogClose(RaftLog *log)
 {
     fclose(log->file);
     fclose(log->idxfile);
-    fclose(log->filehdr);
     RedisModule_Free(log);
 }
 
@@ -337,22 +336,22 @@ RaftLog *prepareLog(const char *filename)
         return NULL;
     }
 
-    FILE *filehdr = fopen(filename, "r+");
-
+    /* Index file */
     int idx_filename_len = strlen(filename) + 10;
     char idx_filename[idx_filename_len];
     snprintf(idx_filename, idx_filename_len - 1, "%s.idx", filename);
     FILE *idxfile = fopen(idx_filename, "w+");
-    if (!file) {
+    if (!idxfile) {
         LOG_ERROR("Raft Log: %s: %s\n", idx_filename, strerror(errno));
         fclose(file);
         return NULL;
     }
 
+    /* Initialize struct */
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
     log->file = file;
-    log->filehdr = filehdr;
     log->idxfile = idxfile;
+    log->filename = filename;
 
     return log;
 }
@@ -367,7 +366,7 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
         writeUnsignedInteger(logfile, log->term, 20) < 0 ||
         writeInteger(logfile, log->vote, 11) < 0 ||
-        writeEnd(logfile, false) < 0) {
+        writeEnd(logfile, log->no_fsync) < 0) {
             return -1;
     }
 
@@ -376,11 +375,29 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
 
 int updateLogHeader(RaftLog *log)
 {
-    /* Make sure we don't race our own buffers */
-    fflush(log->file);
+    int ret;
 
-    fseek(log->filehdr, 0, SEEK_SET);
-    return writeLogHeader(log->filehdr, log);
+    /* Avoid same file open twice */
+    fclose(log->file);
+    log->file = NULL;
+
+    FILE *file = fopen(log->filename, "r+");
+    if (!file) {
+        PANIC("Failed to update log header: %s: %s",
+                log->filename, strerror(errno));
+    }
+
+    ret = writeLogHeader(file, log);
+    fclose(file);
+
+    /* Reopen */
+    log->file = fopen(log->filename, "a+");
+    if (!log->file) {
+        PANIC("Failed to reopen log file: %s: %s",
+                log->filename, strerror(errno));
+    }
+
+    return ret;
 }
 
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
@@ -700,7 +717,7 @@ static off64_t seekEntry(RaftLog *log, raft_index_t idx)
 
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
 {
-    if (seekEntry(log, idx) < 0) {
+    if (seekEntry(log, idx) <= 0) {
         return NULL;
     }
 
@@ -883,11 +900,12 @@ static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entr
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
     int n = 0;
+    raft_index_t i = idx;
 
     while (n < entries_n) {
-        raft_entry_t *e = EntryCacheGet(rr->logcache, idx);
+        raft_entry_t *e = EntryCacheGet(rr->logcache, i);
         if (!e) {
-            e = RaftLogGet(rr->log, idx);
+            e = RaftLogGet(rr->log, i);
         }
         if (!e) {
             break;
@@ -895,9 +913,10 @@ static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entr
 
         entries[n] = e;
         n++;
-        idx++;
+        i++;
     }
 
+    TRACE_LOG_OP("GetBatch(idx=%lu entries_n=%d) -> %d\n", idx, entries_n, n);
     return n;
 }
 

@@ -181,6 +181,7 @@ static void test_log_fuzzer(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
     int idx = 0, i;
+    raft_term_t t = 1;
 
     log->no_fsync = true;
 
@@ -204,6 +205,9 @@ static void test_log_fuzzer(void **state)
             assert_int_equal(e->id, get_idx);
             raft_entry_release(e);
         }
+
+        RaftLogSetTerm(log, ++t, 1);
+        RaftLogSetVote(log, -1);
     }
 }
 
