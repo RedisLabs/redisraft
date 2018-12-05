@@ -57,78 +57,6 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
     }
 }
 
-/* Rewrite the current log state into a new file:
- * 1. Latest snapshot info
- * 2. All entries
- * 3. Current term and vote
- */
-long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
-{
-    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
-            rr->snapshot_info.last_applied_term,
-            rr->snapshot_info.last_applied_idx);
-    long long int num_entries = 0;
-
-    raft_index_t i;
-    for (i = raft_get_first_entry_idx(rr->raft) + 1; i <= raft_get_current_idx(rr->raft); i++) {
-        num_entries++;
-        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(log, ety) != RR_OK) {
-            RaftLogClose(log);
-            return -1;
-        }
-        raft_entry_release(ety);
-    }
-
-    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) != RR_OK) {
-        RaftLogClose(log);
-        return -1;
-    }
-
-    if (RaftLogSync(log) != RR_OK) {
-        RaftLogClose(log);
-        return -1;
-    }
-
-    RaftLogClose(log);
-    return num_entries;
-}
-
-/* Append to the specified Raft log entries from the in-memory log, starting from
- * a specific index.
- */
-long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
-{
-    long long int num_entries = 0;
-    RaftLog *log = RaftLogOpen(filename);
-    if (!log) {
-        num_entries = -1;
-        goto exit;
-    }
-
-    raft_index_t i;
-    for (i = from_idx; i <= raft_get_current_idx(rr->raft); i++) {
-        num_entries++;
-        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(log, ety) != RR_OK) {
-            num_entries = -1;
-            goto exit;
-        }
-        raft_entry_release(ety);
-    }
-
-    if (RaftLogSync(log) != RR_OK) {
-        num_entries = -1;
-    }
-
-exit:
-    if (log) {
-        RaftLogClose(log);
-    }
-
-    return num_entries;
-}
-
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
@@ -143,9 +71,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         if (sr->rdb_filename[0]) {
             unlink(sr->rdb_filename);
         }
-        if (sr->log_filename[0]) {
-            unlink(sr->log_filename);
-        }
+        RaftLogRemoveFiles(sr->log_filename);
     }
 }
 
@@ -162,7 +88,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * entries to the temporary log and switch.
      */
     if (rr->log) {
-        long long int n = appendLogEntries(rr, sr->log_filename, rr->snapshot_rewrite_last_idx + 1);
+        long long int n = RaftLogRewriteAppend(rr, sr->log_filename, rr->snapshot_rewrite_last_idx + 1);
         if (n < 0) {
             LOG_ERROR("Failed to append entries to rewritten log, aborting snapshot.\n");
             cancelSnapshot(rr, sr);
@@ -197,28 +123,14 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
-    if (rr->log) {
-        if (rename(sr->log_filename, rr->config->raftlog) < 0) {
-            LOG_ERROR("Failed to switch logfiles (%s to %s): %s\n",
-                    sr->log_filename, rr->config->raftlog, strerror(errno));
-            RaftLogClose(new_log);
-            cancelSnapshot(rr, sr);
-            return -1;
-        }
-
-        RaftLogClose(rr->log);
-        rr->log = new_log;
-        rr->log->filename = rr->config->raftlog;
-
-        EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
+    if (RaftLogRewriteSwitch(rr, new_log, new_log_entries) != RR_OK) {
+        RaftLogClose(new_log);
+        cancelSnapshot(rr, sr);
+        return -1;
     }
 
-    /* TODO: Clean this!
-     *
-     * What we probably want to do is move some of the rewrite logic into
-     * log.c anyway (maybe a log concatenation function?)
-     */
-    rr->log->num_entries = new_log_entries;
+    /* Clear cached entries */
+    EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
 
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
@@ -371,12 +283,10 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         RedisModule_FreeCallReply(reply);
 
         /* Now create a compact log file */
-        if (rr->config->raftlog) {
-            sr.num_entries = rewriteLog(rr, sr.log_filename);
-            if (sr.num_entries < 0) {
-                snprintf(sr.err, sizeof(sr.err) - 1, "%s", "Log rewrite failed");
-                goto exit;
-            }
+        sr.num_entries = RaftLogRewrite(rr, sr.log_filename);
+        if (sr.num_entries < 0) {
+            snprintf(sr.err, sizeof(sr.err) - 1, "%s", "Log rewrite failed");
+            goto exit;
         }
         sr.success = 1;
 

@@ -331,6 +331,14 @@ static int updateIndex(RaftLog *log, raft_index_t index, off64_t offset)
     return 0;
 }
 
+char *getIndexFilename(const char *filename)
+{
+    int idx_filename_len = strlen(filename) + 10;
+    char *idx_filename = RedisModule_Alloc(idx_filename_len);
+    snprintf(idx_filename, idx_filename_len - 1, "%s.idx", filename);
+    return idx_filename;
+}
+
 RaftLog *prepareLog(const char *filename)
 {
     FILE *file = fopen(filename, "a+");
@@ -340,15 +348,15 @@ RaftLog *prepareLog(const char *filename)
     }
 
     /* Index file */
-    int idx_filename_len = strlen(filename) + 10;
-    char idx_filename[idx_filename_len];
-    snprintf(idx_filename, idx_filename_len - 1, "%s.idx", filename);
+    char *idx_filename = getIndexFilename(filename);
     FILE *idxfile = fopen(idx_filename, "w+");
     if (!idxfile) {
         LOG_ERROR("Raft Log: %s: %s\n", idx_filename, strerror(errno));
+        RedisModule_Free(idx_filename);
         fclose(file);
         return NULL;
     }
+    RedisModule_Free(idx_filename);
 
     /* Initialize struct */
     RaftLog *log = RedisModule_Calloc(1, sizeof(RaftLog));
@@ -815,6 +823,127 @@ raft_index_t RaftLogCurrentIdx(RaftLog *log)
 raft_index_t RaftLogCount(RaftLog *log)
 {
     return log->num_entries;
+}
+
+/*
+ * Log compaction.
+ */
+
+
+/* Rewrite the current log state into a new file:
+ * 1. Latest snapshot info
+ * 2. All entries
+ * 3. Current term and vote
+ */
+long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename)
+{
+    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
+            rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
+    long long int num_entries = 0;
+
+    raft_index_t i;
+    for (i = rr->snapshot_info.last_applied_idx + 1; i <= RaftLogCurrentIdx(rr->log); i++) {
+        num_entries++;
+        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
+        if (RaftLogWriteEntry(log, ety) != RR_OK) {
+            RaftLogClose(log);
+            return -1;
+        }
+        raft_entry_release(ety);
+    }
+
+    if (RaftLogSync(log) != RR_OK) {
+        RaftLogClose(log);
+        return -1;
+    }
+
+    RaftLogClose(log);
+    return num_entries;
+}
+
+/* Append to the specified Raft log entries from the in-memory log, starting from
+ * a specific index.
+ */
+long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
+{
+    long long int num_entries = 0;
+    RaftLog *log = RaftLogOpen(filename);
+    if (!log) {
+        num_entries = -1;
+        goto exit;
+    }
+
+    raft_index_t i;
+    for (i = from_idx; i <= RaftLogCurrentIdx(rr->log); i++) {
+        num_entries++;
+        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
+        if (RaftLogWriteEntry(log, ety) != RR_OK) {
+            num_entries = -1;
+            goto exit;
+        }
+        raft_entry_release(ety);
+    }
+
+    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) != RR_OK) {
+        RaftLogClose(log);
+        return -1;
+    }
+
+    if (RaftLogSync(log) != RR_OK) {
+        num_entries = -1;
+    }
+
+exit:
+    if (log) {
+        RaftLogClose(log);
+    }
+
+    return num_entries;
+}
+
+void RaftLogRemoveFiles(const char *filename)
+{
+    char *idx_filename = getIndexFilename(filename);
+
+    unlink(filename);
+    unlink(idx_filename);
+
+    RedisModule_Free(idx_filename);
+}
+
+RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries)
+{
+    /* Rename Raft log.  If we fail, we can assume the old log is still
+     * okay and we can just cancel the operation.
+     */
+    if (rename(new_log->filename, rr->log->filename) < 0) {
+        LOG_ERROR("Failed to switch Raft log: %s to %s: %s\n",
+                new_log->filename, rr->log->filename, strerror(errno));
+        return RR_ERROR;
+    }
+
+    /* Rename the index.  If we fail now we're in inconsistent state, so we
+     * panic and expect the index to be re-built when the process restarts.
+     */
+    char *log_idx_filename = getIndexFilename(rr->log->filename);
+    char *new_idx_filename = getIndexFilename(new_log->filename);
+    if (rename(new_idx_filename, log_idx_filename) < 0) {
+        PANIC("Failed to switch Raft log index: %s to %s: %s\n",
+               new_idx_filename, log_idx_filename, strerror(errno));
+    }
+
+    RedisModule_Free(log_idx_filename);
+    RedisModule_Free(new_idx_filename);
+
+    new_log->filename = rr->log->filename;
+    new_log->num_entries = new_log_entries;
+    new_log->index = new_log->snapshot_last_idx + new_log->num_entries;
+
+    RaftLogClose(rr->log);
+    rr->log = new_log;
+
+    return RR_OK;
 }
 
 /*

@@ -384,6 +384,10 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);
+long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename);
+long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx);
+void RaftLogRemoveFiles(const char *filename);
+RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 
 typedef struct EntryCache {
     unsigned long int size;
