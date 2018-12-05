@@ -1195,6 +1195,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     entry->type = RAFT_LOGTYPE_NORMAL;
     entry->user_data = req;
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+    raft_entry_release(entry);
 
     if (e != 0) {
         replyRaftError(req->ctx, e);

@@ -77,6 +77,7 @@ long long int rewriteLog(RedisRaftCtx *rr, const char *filename)
             RaftLogClose(log);
             return -1;
         }
+        raft_entry_release(ety);
     }
 
     if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) != RR_OK) {
@@ -113,6 +114,7 @@ long long int appendLogEntries(RedisRaftCtx *rr, const char *filename, raft_inde
             num_entries = -1;
             goto exit;
         }
+        raft_entry_release(ety);
     }
 
     if (RaftLogSync(log) != RR_OK) {
@@ -206,6 +208,9 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
         RaftLogClose(rr->log);
         rr->log = new_log;
+        rr->log->filename = rr->config->raftlog;
+
+        EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
     /* TODO: Clean this!

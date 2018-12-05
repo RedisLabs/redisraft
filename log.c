@@ -24,6 +24,9 @@ EntryCache *EntryCacheNew(unsigned long initial_size)
 {
     EntryCache *cache = RedisModule_Calloc(1, sizeof(EntryCache));
 
+    if (initial_size < 0) {
+        initial_size = ENTRY_CACHE_INIT_SIZE;
+    }
     cache->size = initial_size;
     cache->ptrs = RedisModule_Calloc(cache->size, sizeof(raft_entry_t *));
 
