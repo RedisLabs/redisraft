@@ -22,6 +22,7 @@ LIBS = \
 
 OBJECTS = \
 	  redisraft.o \
+	  common.o \
 	  node.o \
 	  util.o \
 	  config.o \

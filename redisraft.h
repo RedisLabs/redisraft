@@ -336,6 +336,13 @@ typedef struct SnapshotResult {
     char err[256];
 } SnapshotResult;
 
+/* common.c */
+const char *getStateStr(RedisRaftCtx *rr);
+const char *raft_logtype_str(int type);
+void replyRaftError(RedisModuleCtx *ctx, int error);
+RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
+RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
+RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
 
 /* node.c */
 void NodeFree(Node *node);
@@ -347,7 +354,6 @@ void NodeAddrListFree(NodeAddrListElement *head);
 void HandleNodeStates(RedisRaftCtx *rr);
 
 /* raft.c */
-const char *getStateStr(RedisRaftCtx *rr);
 raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source);
 bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, void *source);
 void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);

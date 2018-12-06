@@ -358,8 +358,6 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisRaftCtx *rr = &redis_raft;
-
     if (argc != 4) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
@@ -370,13 +368,6 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
     if (RedisModule_StringToLongLong(argv[1], &term) != REDISMODULE_OK ||
         RedisModule_StringToLongLong(argv[2], &idx) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "-ERR invalid numeric values");
-        return REDISMODULE_OK;
-    }
-
-    /* Early bail out if we already have this */
-    if (raft_get_current_term(rr->raft) == term &&
-        idx <= raft_get_current_idx(rr->raft)) {
-        RedisModule_ReplyWithLongLong(ctx, 0);
         return REDISMODULE_OK;
     }
 

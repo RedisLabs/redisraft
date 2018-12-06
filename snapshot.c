@@ -445,6 +445,10 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
     RedisModuleCallReply *reply = NULL;
 
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
     /* Ignore load snapshot request if we are leader, or if we already have
      * what we are looking for.
      */
