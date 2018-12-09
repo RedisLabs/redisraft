@@ -438,6 +438,7 @@ class Network(object):
             ety = lib.raft_get_entry_from_idx(server.raft, ci)
             try:
                 assert ety
+                lib.raft_entry_release(ety)
             except Exception:
                 print('current idx ', ci)
                 print('count', lib.raft_get_log_count(server.raft))
@@ -799,6 +800,7 @@ class RaftServer(object):
                         logger.error(self.debug_log())
                         logger.error(server.debug_log())
                         return lib.RAFT_ERR_SHUTDOWN
+                lib.raft_entry_release(their_log)
 
     def entry_apply(self, ety, idx):
         # collect stats
@@ -971,6 +973,7 @@ class RaftServer(object):
                 assert prev_ety
                 other_id = prev_ety.id
                 assert other_id < ety.id
+                lib.raft_entry_release(prev_ety)
             except Exception as e:
                 logger.error(other_id, ety.id)
                 self.abort_exception = e

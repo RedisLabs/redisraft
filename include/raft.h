@@ -101,7 +101,7 @@ typedef struct
     short type;
 
     /** number of references */
-    short refs;
+    unsigned short refs;
 
     /** private local data */
     void *user_data;
@@ -339,11 +339,9 @@ typedef int (
  * @param[in] raft The Raft server making this callback
  * @param[in] user_data User data that is passed from Raft server
  * @param[in] entry The entry that the event is happening to.
- *    For offering, polling, and popping, the user is allowed to change the
- *    memory pointed to in the raft_entry_data_t struct. This MUST be done if
- *    the memory is temporary.
  * @param[in] entry_idx The entries index in the log
- * @return 0 on success */
+ * @return 0 on success
+ * */
 typedef int (
 *func_logentry_event_f
 )   (
@@ -407,6 +405,7 @@ typedef struct
     /** Callback for detecting when a non-voting node has sufficient logs. */
     func_node_has_sufficient_logs_f node_has_sufficient_logs;
 
+    /** Callback for being notified of membership changes (optional). */
     func_membership_event_f notify_membership_event;
 
     /** Callback for catching debugging log messages
@@ -493,7 +492,9 @@ typedef struct raft_log_impl
      *  RAFT_ERR_NOMEM memory allocation failure.
      *
      * @note
-     *  The passed raft_entry_t is expected to be allocated on the heap.
+     *  The passed raft_entry_t is expected to be allocated by raft_entry_new().
+     *  The caller is expected to call raft_entry_release() after the append.
+     *
      *  The log implementation shall call raft_entry_hold() in order to
      *  maintain its reference count, and call raft_entry_release() when
      *  the entry is no longer needed.
@@ -536,9 +537,8 @@ typedef struct raft_log_impl
      *  NULL if no entry in specified index.
      *
      * @note
-     *  Returned entry memory is owned by the log and may be freed on next log
-     *  operation, so caller must make a copy if it is going to be retained beyond
-     *  this scope.
+     *  Caller must use raft_entry_release() when no longer requiring the
+     *  entry.
      */
     raft_entry_t* (*get) (void *log, raft_index_t idx);
 
@@ -550,6 +550,10 @@ typedef struct raft_log_impl
      * @return
      *  Number of entries fetched;
      *  -1 on error.
+     *
+     * @note
+     *  Caller must use raft_entry_release_list() when no longer requiring
+     *    the returned entries.
      */
     int (*get_batch) (void *log, raft_index_t idx, int entries_n,
             raft_entry_t **entries);
@@ -669,14 +673,8 @@ int raft_periodic(raft_server_t* me, int msec_elapsed);
  *
  * Will block (ie. by syncing to disk) if we need to append a message.
  *
- * Might call malloc once to increase the log entry array size.
- *
- * The log_offer callback will be called.
- *
- * @note The memory pointer (ie. raft_entry_data_t) for each msg_entry_t is
- *   copied directly. If the memory is temporary you MUST either make the
- *   memory permanent (ie. via malloc) OR re-assign the memory within the
- *   log_offer callback.
+ * The caller is responsible to call raft_entry_release() for all
+ * included entries.
  *
  * @param[in] node The node who sent us this message
  * @param[in] ae The appendentries message
@@ -727,14 +725,8 @@ int raft_recv_requestvote_response(raft_server_t* me,
  *
  * Will block (ie. by syncing to disk) if we need to append a message.
  *
- * Might call malloc once to increase the log entry array size.
- *
- * The log_offer callback will be called.
- *
- * @note The memory pointer (ie. raft_entry_data_t) in msg_entry_t is
- *  copied directly. If the memory is temporary you MUST either make the
- *  memory permanent (ie. via malloc) OR re-assign the memory within the
- *  log_offer callback.
+ * The caller is responsible to call raft_entry_release() following this
+ * call.
  *
  * Will fail:
  * <ul>

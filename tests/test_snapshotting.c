@@ -428,9 +428,9 @@ void TestRaft_follower_load_from_snapshot_does_not_break_cluster_safety(CuTest *
     CuAssertIntEquals(tc, 0, raft_get_log_count(r));
 
     /* entry message */
-    __APPEND_ENTRY(r, 1, 1, "entry");
-    __APPEND_ENTRY(r, 2, 1, "entry");
-    __APPEND_ENTRY(r, 3, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 1, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 2, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 3, 1, "entry");
 
     CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 2, 2));
 }
@@ -471,7 +471,7 @@ void TestRaft_leader_sends_appendentries_when_node_next_index_was_compacted(CuTe
     raft_add_node(r, NULL, 3, 0);
 
     /* entry 1 */
-    __APPEND_ENTRIES_SEQ_ID(r, 3, 1, 1, "aaa");
+    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 3, 1, 1, "aaa");
     CuAssertIntEquals(tc, 3, raft_get_current_idx(r));
 
     /* compact entry 1 & 2 */
@@ -700,13 +700,13 @@ void TestRaft_leader_sends_snapshot_if_log_was_compacted(CuTest* tc)
 
     /* entry 1 */
     char *str = "aaa";
-    __APPEND_ENTRY(r, 1, 1, str);
+    __RAFT_APPEND_ENTRY(r, 1, 1, str);
 
     /* entry 2 */
-    __APPEND_ENTRY(r, 2, 1, str);
+    __RAFT_APPEND_ENTRY(r, 2, 1, str);
 
     /* entry 3 */
-    __APPEND_ENTRY(r, 3, 1, str);
+    __RAFT_APPEND_ENTRY(r, 3, 1, str);
     CuAssertIntEquals(tc, 3, raft_get_current_idx(r));
 
     /* compact entry 1 & 2 */

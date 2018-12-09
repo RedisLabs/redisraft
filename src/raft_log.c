@@ -245,6 +245,8 @@ static int __log_delete(log_t* me_, raft_index_t idx, func_entry_notify_f cb, vo
         if (cb)
             cb(cb_arg, me->entries[back], idx_tmp);
 
+        raft_entry_release(me->entries[back]);
+
         me->back = back;
         me->count--;
     }
@@ -272,6 +274,9 @@ int log_poll(log_t * me_, void** etyp)
         if (0 != e)
             return e;
     }
+
+    raft_entry_release(me->entries[me->front]);
+
     me->front++;
     me->front = me->front % me->size;
     me->count--;
@@ -359,12 +364,16 @@ static void __log_reset(void *log, raft_index_t first_idx, raft_term_t term)
 
 static int __log_append(void *log, raft_entry_t *entry)
 {
+    raft_entry_hold(entry);
     return log_append_entry(log, entry);
 }
 
 static raft_entry_t *__log_get(void *log, raft_index_t idx)
 {
-    return log_get_at_idx(log, idx);
+    raft_entry_t *e = log_get_at_idx(log, idx);
+    if (e != NULL)
+        raft_entry_hold(e);
+    return e;
 }
 
 static int __log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entry_t **entries)
@@ -381,6 +390,7 @@ static int __log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entr
 
     for (i = 0; i < n; i++) {
         entries[i] = r[i];
+        raft_entry_hold(entries[i]);
     }
     return n;
 }

@@ -21,6 +21,7 @@ class Libraft(object):
                 src/raft_node.c
                 """.split(),
             include_dirs=["include"],
+            extra_compile_args=["-UNDEBUG"]
             )
         library = ffi.compile()
 
@@ -83,7 +84,7 @@ class CoreTestCase(unittest.TestCase):
 
         for cmd in commands:
             if cmd == 'append':
-                entry = self.r.ffi.new('raft_entry_t*')
+                entry = r.raft_entry_new(0)
                 entry.id = unique_id
                 unique_id += 1
 

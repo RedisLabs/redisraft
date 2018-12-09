@@ -32,13 +32,13 @@ static raft_entry_t **__MAKE_ENTRY_ARRAY_SEQ_ID(int count, int start_id, raft_te
     return array;
 }
 
-static void __APPEND_ENTRY(void *r, int id, raft_term_t term, const char *data)
+static void __RAFT_APPEND_ENTRY(void *r, int id, raft_term_t term, const char *data)
 {
     raft_entry_t *e = __MAKE_ENTRY(id, term, data);
     raft_append_entry(r, e);
 }
 
-static void __APPEND_ENTRIES_SEQ_ID(void *r, int count, int id, raft_term_t term, const char *data)
+static void __RAFT_APPEND_ENTRIES_SEQ_ID(void *r, int count, int id, raft_term_t term, const char *data)
 {
     int i;
     for (i = 0; i < count; i++) {
@@ -47,7 +47,7 @@ static void __APPEND_ENTRIES_SEQ_ID(void *r, int count, int id, raft_term_t term
     }
 }
 
-static void __APPEND_ENTRIES_SEQ_ID_TERM(void *r, int count, int id, raft_term_t term, const char *data)
+static void __RAFT_APPEND_ENTRIES_SEQ_ID_TERM(void *r, int count, int id, raft_term_t term, const char *data)
 {
     int i;
     for (i = 0; i < count; i++) {
@@ -55,6 +55,5 @@ static void __APPEND_ENTRIES_SEQ_ID_TERM(void *r, int count, int id, raft_term_t
         raft_append_entry(r, e);
     }
 }
-
 
 #endif
