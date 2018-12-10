@@ -50,8 +50,8 @@ def test_fuzzing_with_restarts_and_rewrites(c):
     # Randomize max log entries
     for node in c.nodes.values():
         node.client.execute_command(
-            'RAFT.CONFIG', 'SET', 'max-log-entries',
-            str(random.randint(10, 20)))
+            'RAFT.CONFIG', 'SET', 'raft-log-max-file-size',
+            str(random.randint(1000, 2000)))
 
     for i in range(cycles):
         eq_(c.raft_exec('INCRBY', 'counter', 1), i + 1)

@@ -105,14 +105,20 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->reconnect_interval = val;
-    } else if (!strcmp(keyword, "max-log-entries")) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'max-log-entries' value");
+    } else if (!strcmp(keyword, "raft-log-max-cache-size")) {
+        unsigned long val;
+        if (parseMemorySize(value, &val) == RR_ERROR) {
+            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-cache-size' value");
             return RR_ERROR;
         }
-        target->max_log_entries = val;
+        target->log_max_cache_size = val;
+    } else if (!strcmp(keyword, "raft-log-max-file-size")) {
+        unsigned long val;
+        if (parseMemorySize(value, &val) == RR_ERROR) {
+            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-file-size' value");
+            return RR_ERROR;
+        }
+        target->log_max_file_size = val;
     } else if (!strcmp(keyword, "follower-proxy")) {
         bool val;
         if (parseBool(value, &val) != RR_OK) {
@@ -173,6 +179,16 @@ static void replyConfigInt(RedisModuleCtx *ctx, const char *name, int val)
     RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
 }
 
+static void replyConfigMemSize(RedisModuleCtx *ctx, const char *name, int val)
+{
+    char str[64];
+    formatExactMemorySize(val, str, sizeof(str));
+
+    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));
+    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
+}
+
+
 static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
 {
     replyConfigStr(ctx, name, val ? "yes" : "no");
@@ -209,9 +225,13 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, "reconnect-interval", config->reconnect_interval);
     }
-    if (stringmatch(pattern, "max-log-entries", 1)) {
+    if (stringmatch(pattern, "raft-log-max-cache-size", 1)) {
         len++;
-        replyConfigInt(ctx, "max-log-entries", config->max_log_entries);
+        replyConfigMemSize(ctx, "raft-log-max-cache-size", config->log_max_cache_size);
+    }
+    if (stringmatch(pattern, "raft-log-max-file-size", 1)) {
+        len++;
+        replyConfigMemSize(ctx, "raft-log-max-file-size", config->log_max_file_size);
     }
     if (stringmatch(pattern, "follower-proxy", 1)) {
         len++;
@@ -239,7 +259,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
-    config->max_log_entries = REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES;
+    config->log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
+    config->log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
 }
 
 static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)

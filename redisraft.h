@@ -180,7 +180,8 @@ typedef struct {
 #define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
-#define REDIS_RAFT_DEFAULT_MAX_LOG_ENTRIES          10000
+#define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE       8*1000*1000
+#define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE        64*1000*1000
 
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
@@ -193,7 +194,9 @@ typedef struct RedisRaftConfig {
     int request_timeout;
     int election_timeout;
     int reconnect_interval;
-    int max_log_entries;
+    /* Cache and file comapction */
+    unsigned long log_max_cache_size;
+    unsigned long log_max_file_size;
     /* Debug options */
     int compact_delay;
 } RedisRaftConfig;
@@ -320,6 +323,7 @@ typedef struct RaftLog {
     raft_index_t        index;                  /* Index of last entry */
     raft_term_t         term;                   /* Last term we're aware of */
     raft_node_id_t      vote;                   /* Our vote in the last term, or -1 */
+    size_t              file_size;              /* File size at the time of last write */
     const char          *filename;
     FILE                *file;
     FILE                *idxfile;
@@ -373,6 +377,8 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
 int stringmatch(const char *pattern, const char *string, int nocase);
 int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
+RRStatus parseMemorySize(const char *value, unsigned long *result);
+RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index);
@@ -400,6 +406,7 @@ typedef struct EntryCache {
     unsigned long int len;
     unsigned long int start_idx;
     unsigned long int start;
+    unsigned long int entries_memsize;
     raft_entry_t **ptrs;
 } EntryCache;
 
@@ -409,6 +416,7 @@ void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx);
 raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);
+long EntryCacheCompact(EntryCache *cache, size_t max_memory);
 
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);

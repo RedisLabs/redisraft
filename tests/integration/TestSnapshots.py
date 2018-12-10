@@ -1,7 +1,7 @@
 import sys
 import time
 import sandbox
-from nose.tools import eq_, ok_, assert_greater, nottest
+from nose.tools import eq_, ok_
 from test_tools import with_setup_args
 from raftlog import RaftLog, LogEntry
 
@@ -10,20 +10,6 @@ def _setup():
 
 def _teardown(c):
     c.destroy()
-
-@with_setup_args(_setup, _teardown)
-def test_compaction_thresholds(c):
-    """
-    Log compaction behaves according to configuration
-    """
-
-    r1 = c.add_node()
-    eq_(r1.raft_info()['log_entries'], 1)
-    ok_(r1.raft_config_set('max-log-entries', 5))
-    for x in range(10):
-        ok_(r1.raft_exec('SET', 'testkey', x))
-    time.sleep(1)
-    assert_greater(5, r1.raft_info()['log_entries'])
 
 @with_setup_args(_setup, _teardown)
 def test_snapshot_delivery(c):

@@ -603,17 +603,17 @@ static void callRaftPeriodic(uv_timer_t *handle)
     assert(ret == 0);
     raft_apply_all(rr->raft);
 
-    /* Do we need a snapshot? */
-    /* TODO: Change logic here.
-     * 1) If we're persistent we should probably sync with AOF/RDB saving.
-     * 2) If we don't persist anything, snapshotting is cheap and should be
-     *    done every time we apply log entries.
-     */
+    /* Compact cache */
+    if (rr->config->log_max_cache_size) {
+        EntryCacheCompact(rr->logcache, rr->config->log_max_cache_size);
+    }
 
-    if (!rr->snapshot_in_progress &&
-            raft_get_num_snapshottable_logs(rr->raft) > rr->config->max_log_entries) {
-        LOG_DEBUG("Log reached max_log_entries (%d/%d), initiating snapshot.\n",
-                raft_get_num_snapshottable_logs(rr->raft), rr->config->max_log_entries);
+    /* Initiate snapshot if log size exceeds raft-log-file-max */
+    if (!rr->snapshot_in_progress && rr->config->log_max_file_size && 
+            raft_get_num_snapshottable_logs(rr->raft) > 0 &&
+            rr->log->file_size > rr->config->log_max_file_size) {
+        LOG_DEBUG("Raft log file size is %lu, initiating snapshot.\n",
+                rr->log->file_size);
         initiateSnapshot(rr);
     }
 }
@@ -866,7 +866,10 @@ void RaftReqFree(RaftReq *req)
             if (req->r.appendentries.msg.entries) {
                 int i;
                 for (i = 0; i < req->r.appendentries.msg.n_entries; i++) {
-                    raft_entry_release(req->r.appendentries.msg.entries[i]);
+                    raft_entry_t *e = req->r.appendentries.msg.entries[i];
+                    if (e) {
+                        raft_entry_release(e);
+                    }
                 }
                 RedisModule_Free(req->r.appendentries.msg.entries);
                 req->r.appendentries.msg.entries = NULL;
@@ -1183,11 +1186,17 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "log_entries:%d\r\n"
             "current_index:%d\r\n"
             "commit_index:%d\r\n"
-            "last_applied_index:%d\r\n",
+            "last_applied_index:%d\r\n"
+            "file_size:%lu\r\n"
+            "cache_memory_size:%lu\r\n"
+            "cache_entries:%lu\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
-            rr->raft ? raft_get_last_applied_idx(rr->raft) : 0);
+            rr->raft ? raft_get_last_applied_idx(rr->raft) : 0,
+            rr->log ? rr->log->file_size : 0,
+            rr->logcache ? rr->logcache->entries_memsize : 0,
+            rr->logcache ? rr->logcache->len : 0);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"

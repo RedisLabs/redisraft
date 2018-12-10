@@ -215,17 +215,18 @@ controlled in different ways:
 
 The following configuration parameters are supported:
 
-| Parameter          | Description |
-| ---------          | ----------- |
-| id                 | A unique numeric ID of the node in the cluster. *Default: none, required.* |
-| addr               | Address and port the node advertises itself on. *Default: non-local interfce address and the Redis port.* |
-| raftlog            | Raft log filename. *Default: none, log is not persisted.* |
-| raft-interval      | Interval (in ms) in which Raft wakes up and handles chores (e.g. send heartbeat AppendEntries to nodes, etc.). *Default: 100*. |
-| request-timeout    | Amount of time (in ms) before an AppendEntries request is resent. *Default: 250*. |
-| election-timeout   | Amount of time (in ms) after the last AppendEntries, before we assume a leader is down. *Default: 500*. |
-| reconnect-interval | Amount of time (in ms) to wait before retrying to establish a connection with another node. *Default: 100*. |
-| max-log-entries    | Maximal length of Raft log before triggering a log rewrite (generating a local snapshot). *Default: 10000*. |
-| follower-proxy     | If `yes`, follower nodes proxy commands to the leader.  Otherwise, a `-MOVED` response is returned with the address and port of the leader. *Default: no.* |
+| Parameter               | Description |
+| ---------               | ----------- |
+| id                      | A unique numeric ID of the node in the cluster. *Default: none, required.* |
+| addr                    | Address and port the node advertises itself on. *Default: non-local interfce address and the Redis port.* |
+| raftlog                 | Raft log filename. *Default: none, log is not persisted.* |
+| raft-interval           | Interval (in ms) in which Raft wakes up and handles chores (e.g. send heartbeat AppendEntries to nodes, etc.). *Default: 100*. |
+| request-timeout         | Amount of time (in ms) before an AppendEntries request is resent. *Default: 250*. |
+| election-timeout        | Amount of time (in ms) after the last AppendEntries, before we assume a leader is down. *Default: 500*. |
+| reconnect-interval      | Amount of time (in ms) to wait before retrying to establish a connection with another node. *Default: 100*. |
+| follower-proxy          | If `yes`, follower nodes proxy commands to the leader.  Otherwise, a `-MOVED` response is returned with the address and port of the leader. *Default: no.* |
+| raft-log-max-file-size  | Maximum allowed Raft log file size, before compaction is initiated. *Default: 64MB*. |
+| raft-log-max-cache-size | Maximum size of in-memory Raft log cache. *Default: 8MB*. |
 
 # Implementation Details
 
@@ -385,15 +386,15 @@ to synchronize reads with heartbeats received from the majority.
 
 ## Roadmap
 
-- [ ] Decouple log implementation, to allow storing most of the log on disk and
+- [v] Decouple log implementation, to allow storing most of the log on disk and
       only a recent cache in memory (Raft lib).
 - [ ] Optimize reads, so they are not added as log entries (Raft lib).
-- [ ] More friendly membership management through Redis commands, to avoid
+- [v] More friendly membership management through Redis commands, to avoid
       changing process arguments.
 - [ ] Add NO-OP log entry when starting up, to force commit index computing.
 - [ ] Improve automatic proxying performance.
 - [ ] Improve debug logging (Redis Module API).
 - [ ] Batch log operations (Raft lib).
-- [ ] Optimize memory management (Raft lib).
+- [v] Optimize memory management (Raft lib).
 - [ ] Cleaner snapshot RDB loading (Redis Module API).
 - [ ] Stream snapshot data on LOAD.SNAPSHOT (hiredis streaming support).

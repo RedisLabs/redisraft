@@ -65,12 +65,11 @@ class ValgrindConfig(DefaultConfig):
         'redis-server'
     ]
 
-class ValgrindShowPossiblyLostConfig(DefaultConfig):
+class ValgrindFullConfig(DefaultConfig):
     executable = 'valgrind'
     args = [
         '--leak-check=full',
-        '--show-reachable=no',
-        '--show-possibly-lost=yes',
+        '--show-leak-kinds=all',
         '--suppressions=../redis/src/valgrind.sup',
         '--log-file=valgrind-redis.%p',
         '--suppressions=redisraft.supp',

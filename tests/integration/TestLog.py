@@ -2,7 +2,8 @@ import sys
 import time
 import sandbox
 import redis
-from nose.tools import eq_, ok_, assert_raises_regex, assert_regex
+from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
+                        assert_greater)
 from test_tools import with_setup_args
 from raftlog import RaftLog, RawEntry
 
@@ -58,3 +59,41 @@ def test_log_rollback(c):
     log.reset()
     log.read()
     assert_regex(str(log.entries[7].data), '.*SET.*value3')
+
+@with_setup_args(_setup, _teardown)
+def test_raft_log_max_file_size(c):
+    """
+    Raft log size configuration affects compaction.
+    """
+
+    r1 = c.add_node()
+    eq_(r1.raft_info()['log_entries'], 1)
+    ok_(r1.raft_config_set('raft-log-max-file-size', '1kb'))
+    for x in range(10):
+        ok_(r1.raft_exec('SET', 'testkey', 'x'*500))
+    time.sleep(1)
+    assert_greater(10, r1.raft_info()['log_entries'])
+
+@with_setup_args(_setup, _teardown)
+def test_raft_log_max_cache_size(c):
+    """
+    Raft log cache configuration in effect.
+    """
+
+    r1 = c.add_node()
+    eq_(r1.raft_info()['cache_entries'], 0)
+    eq_(r1.raft_info()['cache_memory_size'], 0)
+
+    ok_(r1.raft_config_set('raft-log-max-cache-size', '1kb'))
+    ok_(r1.raft_exec('SET', 'testkey', 'testvalue'))
+
+    info = r1.raft_info()
+    eq_(info['cache_entries'], 1)
+    assert_greater(info['cache_memory_size'], 0)
+
+    for x in range(10):
+        ok_(r1.raft_exec('SET', 'testkey', 'x' * 500))
+
+    info = r1.raft_info()
+    eq_(info['log_entries'], 12)
+    assert_greater(10, info['cache_entries'])

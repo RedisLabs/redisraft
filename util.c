@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <assert.h>
 #include "redisraft.h"
@@ -293,4 +294,70 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 exit:
     RedisModule_FreeCallReply(reply);
     return ret;
+}
+
+RRStatus parseMemorySize(const char *value, unsigned long *result)
+{
+    unsigned long val;
+    char *eptr;
+
+    val = strtoul(value, &eptr, 10);
+    if (!val && eptr == value) {
+        return RR_ERROR;
+    }
+
+    if (!*eptr) {
+        /* No prefix */
+    } else if (!strcasecmp(eptr, "kb")) {
+        val *= 1000;
+    } else if (!strcasecmp(eptr, "kib")) {
+        val *= 1024;
+    } else if (!strcasecmp(eptr, "mb")) {
+        val *= 1000*1000;
+    } else if (!strcasecmp(eptr, "mib")) {
+        val *= 1024*1024;
+    } else if (!strcasecmp(eptr, "gb")) {
+        val *= 1000L*1000*1000;
+    } else if (!strcasecmp(eptr, "gib")) {
+        val *= 1024L*1024*1024;
+    } else {
+        return RR_ERROR;
+    }
+
+    *result = val;
+    return RR_OK;
+}
+
+RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
+{
+    char suffix[4];
+
+    if (!(value % (1000L*1000*1000))) {
+        value /= 1000L*1000*1000;
+        strcpy(suffix, "GB");
+    } else if (!(value % (1024L*1024*1024))) {
+        value /= 1024L*1024*1024;
+        strcpy(suffix, "GiB");
+    } else if (!(value % (1000L*1000))) {
+        value /= 1000L*1000;
+        strcpy(suffix, "MB");
+    } else if (!(value % (1024L*1024))) {
+        value /= 1024L*1024;
+        strcpy(suffix, "MiB");
+    } else if (!(value % 1000)) {
+        value /= 1000;
+        strcpy(suffix, "KB");
+    } else if (!(value % 1024)) {
+        value /= 1024;
+        strcpy(suffix, "KiB");
+    } else {
+        suffix[0] = '\0';
+    }
+
+    if (snprintf(buf, buf_size - 1, "%lu%s", value, suffix) == buf_size - 1) {
+        /* Truncated... */
+        return RR_ERROR;
+    }
+
+    return RR_OK;
 }

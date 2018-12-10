@@ -30,8 +30,9 @@ def test_config_sanity(c):
     r1.raft_config_set('reconnect-interval', 111)
     eq_(r1.raft_config_get('reconnect-interval'), {'reconnect-interval': '111'})
 
-    r1.raft_config_set('max-log-entries', 11111)
-    eq_(r1.raft_config_get('max-log-entries'), {'max-log-entries': '11111'})
+    r1.raft_config_set('raft-log-max-file-size', '64mb')
+    eq_(r1.raft_config_get('raft-log-max-file-size'),
+        {'raft-log-max-file-size': '64MB'})
 
     r1.raft_config_set('loglevel', 'debug')
     eq_(r1.raft_config_get('loglevel'), {'loglevel': 'debug'})

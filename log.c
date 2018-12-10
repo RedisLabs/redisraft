@@ -68,6 +68,7 @@ void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx)
 
     cache->ptrs[(cache->start + cache->len) % cache->size] = ety;
     cache->len++;
+    cache->entries_memsize += sizeof(raft_entry_t) + ety->data_len;
     raft_entry_hold(ety);
 }
 
@@ -96,8 +97,11 @@ long EntryCacheDeleteHead(EntryCache *cache, raft_index_t first_idx)
     }
 
     while (first_idx > cache->start_idx && cache->len > 0) {
+        raft_entry_t *ety = cache->ptrs[cache->start];
+        cache->entries_memsize -= sizeof(raft_entry_t) + ety->data_len;
+        raft_entry_release(ety);
+
         cache->start_idx++;
-        raft_entry_release(cache->ptrs[cache->start]);
         cache->ptrs[cache->start] = NULL;
         cache->start++;
         if (cache->start >= cache->size) {
@@ -129,12 +133,42 @@ long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index)
     for (i = index; i < cache->start_idx + cache->len; i++) {
         unsigned long int relidx = i - cache->start_idx;
         unsigned long int ofs = (cache->start + relidx) % cache->size;
-        raft_entry_release(cache->ptrs[ofs]);
+        raft_entry_t *ety = cache->ptrs[ofs];
+
+        cache->entries_memsize -= sizeof(raft_entry_t) + ety->data_len;
+        raft_entry_release(ety);
+
         cache->ptrs[ofs] = NULL;
         deleted++;
     }
 
     cache->len -= deleted;
+
+    if (!cache->len) {
+        cache->start_idx = 0;
+    }
+
+    return deleted;
+}
+
+long EntryCacheCompact(EntryCache *cache, size_t max_memory)
+{
+    long deleted = 0;
+
+    while (cache->len > 0 && cache->entries_memsize > max_memory) {
+        raft_entry_t *ety = cache->ptrs[cache->start];
+        cache->entries_memsize -= sizeof(raft_entry_t) + ety->data_len;
+        raft_entry_release(ety);
+
+        cache->start_idx++;
+        cache->ptrs[cache->start] = NULL;
+        cache->start++;
+        if (cache->start >= cache->size) {
+            cache->start = 0;
+        }
+        cache->len--;
+        deleted++;
+    }
 
     if (!cache->len) {
         cache->start_idx = 0;
@@ -673,7 +707,8 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
     written += n;
 
     /* Update index */
-    off64_t offset = ftell(log->file) - written;
+    log->file_size = ftell(log->file);
+    off64_t offset = log->file_size - written;
     log->index++;
     if (updateIndex(log, log->index, offset) < 0) {
         return RR_ERROR;
