@@ -81,14 +81,13 @@ def test_raft_log_max_cache_size(c):
     """
 
     r1 = c.add_node()
-    eq_(r1.raft_info()['cache_entries'], 0)
-    eq_(r1.raft_info()['cache_memory_size'], 0)
+    eq_(r1.raft_info()['cache_entries'], 1)
 
     ok_(r1.raft_config_set('raft-log-max-cache-size', '1kb'))
     ok_(r1.raft_exec('SET', 'testkey', 'testvalue'))
 
     info = r1.raft_info()
-    eq_(info['cache_entries'], 1)
+    eq_(info['cache_entries'], 2)
     assert_greater(info['cache_memory_size'], 0)
 
     for x in range(10):
@@ -96,4 +95,4 @@ def test_raft_log_max_cache_size(c):
 
     info = r1.raft_info()
     eq_(info['log_entries'], 12)
-    assert_greater(10, info['cache_entries'])
+    assert_greater(5, info['cache_entries'])

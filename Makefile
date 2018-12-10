@@ -74,6 +74,8 @@ tests/test-%.o: %.c
 .PHONY: tests
 tests: unit-tests integration-tests
 
+NOSE_REDNOSE := 1
+export NOSE_REDNOSE
 NOSE_OPTS ?= tests/integration -v
 
 .PHONY: unit-tests

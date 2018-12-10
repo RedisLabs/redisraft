@@ -47,7 +47,7 @@ provided to configure tests.  For example, running a single test with
 no logging capture, so output is printed in runtime:
 
 ```
-NOSE_OPTS="-v --nologcapture --logging-config=tests/integration/logging.ini --tests tests/integration/TestSnapshots.py:test_new_snapshot_with_old_log" make integration-tests
+NOSE_OPTS="-v --nologcapture --logging-config=tests/integration/logging.ini --tests tests/integration/test_snapshots.py:test_new_snapshot_with_old_log" make integration-tests
 ```
 
 ### Jepsen
