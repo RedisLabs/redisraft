@@ -71,8 +71,8 @@
       :--bind    "0.0.0.0"
       :--loadmodule modulename
         (str "id=" (redisraft-node-id test node))
-        (when-not (:disable-proxy test) "follower-proxy=yes")
-        (when (:persistence test) (str "raftlog=" raftlog)))))
+        (str "raft-log-filename=" raftlog)
+        (when-not (:disable-proxy test) "follower-proxy=yes"))))
 
 (defn create!
   "Create the redisraft cluster."
@@ -186,7 +186,6 @@
   (merge tests/noop-test
          opts
          {:name         (str "redisraft"
-                             (when (:persistence opts) "+persistence")
                              (when (:disable-proxy opts) "+disable-proxy"))
           :os           debian/os
           :db           (db "1.0")
@@ -215,9 +214,7 @@
 
 (def cli-opts
   "Additional command line options."
-  [["-p" "--persistence" "Use a persistent disk-based Raft log."
-    :default false]
-   [nil "--disable-proxy" "Do not Use request proxying from follower to leader."
+  [[nil "--disable-proxy" "Do not Use request proxying from follower to leader."
     :default false]
    ])
 

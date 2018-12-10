@@ -50,7 +50,7 @@ def test_config_startup_only_params(c):
 
     with assert_raises_regex(redis.ResponseError,
                              '.*only supported at load time'):
-        r1.raft_config_set('raftlog', 'filename')
+        r1.raft_config_set('raft-log-filename', 'filename')
 
 @with_setup_args(_setup, _teardown)
 def test_invalid_configs(c):

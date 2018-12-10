@@ -546,7 +546,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
             configureFromSnapshot(rr);
         }
 
-        if (rr->config->raftlog && loadRaftLog(rr) == RR_OK) {
+        if (loadRaftLog(rr) == RR_OK) {
             if (rr->log->snapshot_last_term) {
                 LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu\n",
                         rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
@@ -604,14 +604,14 @@ static void callRaftPeriodic(uv_timer_t *handle)
     raft_apply_all(rr->raft);
 
     /* Compact cache */
-    if (rr->config->log_max_cache_size) {
-        EntryCacheCompact(rr->logcache, rr->config->log_max_cache_size);
+    if (rr->config->raft_log_max_cache_size) {
+        EntryCacheCompact(rr->logcache, rr->config->raft_log_max_cache_size);
     }
 
     /* Initiate snapshot if log size exceeds raft-log-file-max */
-    if (!rr->snapshot_in_progress && rr->config->log_max_file_size && 
+    if (!rr->snapshot_in_progress && rr->config->raft_log_max_file_size && 
             raft_get_num_snapshottable_logs(rr->raft) > 0 &&
-            rr->log->file_size > rr->config->log_max_file_size) {
+            rr->log->file_size > rr->config->raft_log_max_file_size) {
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.\n",
                 rr->log->file_size);
         initiateSnapshot(rr);
@@ -671,7 +671,8 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 
 RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
-    rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid, 1, 0);
+    rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
+            1, 0, rr->config);
     if (!rr->log) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
         return RR_ERROR;
@@ -687,10 +688,8 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
     /* Initialize log */
-    if (rr->config->raftlog) {
-        if (initRaftLog(ctx, rr) == RR_ERROR) {
-            return RR_ERROR;
-        }
+    if (initRaftLog(ctx, rr) == RR_ERROR) {
+        return RR_ERROR;
     }
 
     initRaftLibrary(rr);
@@ -823,10 +822,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * or RAFT.CLUSTER JOIN command.
      */
 
-    if (config->raftlog) {
-        rr->log = RaftLogOpen(rr->config->raftlog);
-    }
-    if (rr->log) {
+    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config)) != NULL) {
         rr->state = REDIS_RAFT_LOADING;
     } else {
         rr->state = REDIS_RAFT_UNINITIALIZED;
@@ -1268,12 +1264,11 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     /* Initialize Raft log.  We delay this operation as we want to create the log
      * with the proper dbid which is only received now.
      */
-    if (rr->config->raftlog) {
-        rr->log = RaftLogCreate(rr->config->raftlog, rr->snapshot_info.dbid,
-                rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx);
-        if (!rr->log) {
-            PANIC("Failed to initialize Raft log");
-        }
+    rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
+            rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
+            rr->config);
+    if (!rr->log) {
+        PANIC("Failed to initialize Raft log");
     }
 
     initRaftLibrary(rr);

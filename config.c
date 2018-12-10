@@ -45,7 +45,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
-    if (!on_init && (!strcmp(keyword, "id") || !strcmp(keyword, "raftlog"))) {
+    if (!on_init && (!strcmp(keyword, "id") || !strcmp(keyword, "raft-log-filename"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
     }
@@ -68,11 +68,11 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid addr '%s'", value);
             return RR_ERROR;
         }
-    } else if (!strcmp(keyword, "raftlog")) {
-        if (target->raftlog) {
-            RedisModule_Free(target->raftlog);
+    } else if (!strcmp(keyword, "raft-log-filename")) {
+        if (target->raft_log_filename) {
+            RedisModule_Free(target->raft_log_filename);
         }
-        target->raftlog = RedisModule_Strdup(value);
+        target->raft_log_filename = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, "raft-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -107,18 +107,25 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         target->reconnect_interval = val;
     } else if (!strcmp(keyword, "raft-log-max-cache-size")) {
         unsigned long val;
-        if (parseMemorySize(value, &val) == RR_ERROR) {
+        if (parseMemorySize(value, &val) != RR_OK) {
             snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-cache-size' value");
             return RR_ERROR;
         }
-        target->log_max_cache_size = val;
+        target->raft_log_max_cache_size = val;
     } else if (!strcmp(keyword, "raft-log-max-file-size")) {
         unsigned long val;
-        if (parseMemorySize(value, &val) == RR_ERROR) {
+        if (parseMemorySize(value, &val) != RR_OK) {
             snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-file-size' value");
             return RR_ERROR;
         }
-        target->log_max_file_size = val;
+        target->raft_log_max_file_size = val;
+    } else if (!strcmp(keyword, "raft-log-fsync")) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK) {
+            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-fsync' value");
+            return RR_ERROR;
+        }
+        target->raft_log_fsync = val;
     } else if (!strcmp(keyword, "follower-proxy")) {
         bool val;
         if (parseBool(value, &val) != RR_OK) {
@@ -205,9 +212,9 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, "id", config->id);
     }
-    if (stringmatch(pattern, "raftlog", 1)) {
+    if (stringmatch(pattern, "raft-log-filename", 1)) {
         len++;
-        replyConfigStr(ctx, "raftlog", config->raftlog ? config->raftlog : "");
+        replyConfigStr(ctx, "raft-log-filename", config->raft_log_filename);
     }
     if (stringmatch(pattern, "raft-interval", 1)) {
         len++;
@@ -227,11 +234,15 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     }
     if (stringmatch(pattern, "raft-log-max-cache-size", 1)) {
         len++;
-        replyConfigMemSize(ctx, "raft-log-max-cache-size", config->log_max_cache_size);
+        replyConfigMemSize(ctx, "raft-log-max-cache-size", config->raft_log_max_cache_size);
     }
     if (stringmatch(pattern, "raft-log-max-file-size", 1)) {
         len++;
-        replyConfigMemSize(ctx, "raft-log-max-file-size", config->log_max_file_size);
+        replyConfigMemSize(ctx, "raft-log-max-file-size", config->raft_log_max_file_size);
+    }
+    if (stringmatch(pattern, "raft-log-fsync", 1)) {
+        len++;
+        replyConfigBool(ctx, "raft-log-fsync", config->raft_log_fsync);
     }
     if (stringmatch(pattern, "follower-proxy", 1)) {
         len++;
@@ -254,13 +265,14 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
     memset(config, 0, sizeof(RedisRaftConfig));
 
-    config->raftlog = RedisModule_Strdup(REDIS_RAFT_DEFAULT_RAFTLOG);
+    config->raft_log_filename = RedisModule_Strdup(REDIS_RAFT_DEFAULT_LOG_FILENAME);
     config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
     config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
-    config->log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
-    config->log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
+    config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
+    config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
+    config->raft_log_fsync = true;
 }
 
 static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)

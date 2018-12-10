@@ -175,7 +175,7 @@ typedef struct {
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
 } RedisRaftCtx;
 
-#define REDIS_RAFT_DEFAULT_RAFTLOG                  "redisraft.db"
+#define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
 #define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
 #define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
@@ -187,7 +187,7 @@ typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
     char *rdb_filename;         /* Original Redis dbfilename */
-    char *raftlog;              /* Raft log file name, derived from dbfilename */
+    char *raft_log_filename;    /* Raft log file name, derived from dbfilename */
     bool follower_proxy;        /* Do follower nodes proxy requests to leader? */
     /* Tuning */
     int raft_interval;
@@ -195,8 +195,9 @@ typedef struct RedisRaftConfig {
     int election_timeout;
     int reconnect_interval;
     /* Cache and file comapction */
-    unsigned long log_max_cache_size;
-    unsigned long log_max_file_size;
+    unsigned long raft_log_max_cache_size;
+    unsigned long raft_log_max_file_size;
+    bool raft_log_fsync;
     /* Debug options */
     int compact_delay;
 } RedisRaftConfig;
@@ -316,7 +317,7 @@ typedef struct RaftReq {
 typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
-    bool                no_fsync;
+    bool                fsync;                  /* Should fsync every append? */
     unsigned long int   num_entries;            /* Entries in log */
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
     raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
@@ -381,8 +382,8 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 
 /* log.c */
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index);
-RaftLog *RaftLogOpen(const char *filename);
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index, RedisRaftConfig *config);
+RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);

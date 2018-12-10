@@ -199,12 +199,12 @@ static int writeBegin(FILE *logfile, int length)
     return n;
 }
 
-static int writeEnd(FILE *logfile, bool no_fsync)
+static int writeEnd(FILE *logfile, bool use_fsync)
 {
     if (fflush(logfile) < 0) {
         return -1;
     }
-    if (no_fsync) {
+    if (!use_fsync) {
         return 0;
     }
     if (fsync(fileno(logfile)) < 0) {
@@ -365,7 +365,7 @@ static int updateIndex(RaftLog *log, raft_index_t index, off64_t offset)
     return 0;
 }
 
-char *getIndexFilename(const char *filename)
+static char *getIndexFilename(const char *filename)
 {
     int idx_filename_len = strlen(filename) + 10;
     char *idx_filename = RedisModule_Alloc(idx_filename_len);
@@ -373,7 +373,7 @@ char *getIndexFilename(const char *filename)
     return idx_filename;
 }
 
-RaftLog *prepareLog(const char *filename)
+static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config)
 {
     FILE *file = fopen(filename, "a+");
     if (!file) {
@@ -398,6 +398,13 @@ RaftLog *prepareLog(const char *filename)
     log->idxfile = idxfile;
     log->filename = filename;
 
+    /* Config */
+    if (config) {
+        log->fsync = config->raft_log_fsync;
+    } else {
+        log->fsync = true;
+    }
+
     return log;
 }
 
@@ -411,7 +418,7 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
         writeUnsignedInteger(logfile, log->term, 20) < 0 ||
         writeInteger(logfile, log->vote, 11) < 0 ||
-        writeEnd(logfile, log->no_fsync) < 0) {
+        writeEnd(logfile, log->fsync) < 0) {
             return -1;
     }
 
@@ -446,9 +453,9 @@ int updateLogHeader(RaftLog *log)
 }
 
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
-        raft_index_t index)
+        raft_index_t index, RedisRaftConfig *config)
 {
-    RaftLog *log = prepareLog(filename);
+    RaftLog *log = prepareLog(filename, config);
     if (!log) {
         return NULL;
     }
@@ -558,9 +565,9 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
-RaftLog *RaftLogOpen(const char *filename)
+RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config)
 {
-    RaftLog *log = prepareLog(filename);
+    RaftLog *log = prepareLog(filename, config);
     if (!log) {
         return NULL;
     }
@@ -719,7 +726,7 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 
 RRStatus RaftLogSync(RaftLog *log)
 {
-    if (writeEnd(log->file, log->no_fsync) < 0) {
+    if (writeEnd(log->file, log->fsync) < 0) {
         return RR_ERROR;
     }
     return RR_OK;
@@ -728,7 +735,7 @@ RRStatus RaftLogSync(RaftLog *log)
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
     if (RaftLogWriteEntry(log, entry) != RR_OK ||
-            writeEnd(log->file, log->no_fsync) < 0) {
+            writeEnd(log->file, log->fsync) < 0) {
         return RR_ERROR;
     }
 
@@ -874,7 +881,8 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename)
 {
     RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term,
-            rr->snapshot_info.last_applied_idx);
+            rr->snapshot_info.last_applied_idx,
+            rr->config);
     long long int num_entries = 0;
 
     raft_index_t i;
@@ -903,7 +911,7 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename)
 long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
 {
     long long int num_entries = 0;
-    RaftLog *log = RaftLogOpen(filename);
+    RaftLog *log = RaftLogOpen(filename, rr->config);
     if (!log) {
         num_entries = -1;
         goto exit;

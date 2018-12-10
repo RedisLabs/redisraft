@@ -99,7 +99,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         LOG_VERBOSE("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
                 raft_get_snapshot_last_idx(rr->raft));
 
-        new_log = RaftLogOpen(sr->log_filename);
+        new_log = RaftLogOpen(sr->log_filename, rr->config);
         if (!new_log) {
             LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
             cancelSnapshot(rr, sr);
@@ -254,9 +254,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
         sr.magic = SNAPSHOT_RESULT_MAGIC;
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp", rr->config->rdb_filename);
-        if (rr->config->raftlog) {
-            snprintf(sr.log_filename, sizeof(sr.log_filename) - 1, "%s.tmp", rr->config->raftlog);
-        }
+        snprintf(sr.log_filename, sizeof(sr.log_filename) - 1, "%s.tmp", rr->config->raft_log_filename);
 
         /* Configure Redis to dump to our temporary file */
         RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename",
@@ -492,10 +490,11 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     /* Restart the log where the snapshot ends */
     if (rr->log) {
         RaftLogClose(rr->log);
-        rr->log = RaftLogCreate(rr->config->raftlog,
+        rr->log = RaftLogCreate(rr->config->raft_log_filename,
                 rr->snapshot_info.dbid,
                 rr->snapshot_info.last_applied_term,
-                rr->snapshot_info.last_applied_idx);
+                rr->snapshot_info.last_applied_idx,
+                rr->config);
     }
 
     RedisModule_ThreadSafeContextUnlock(rr->ctx);

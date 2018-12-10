@@ -15,7 +15,7 @@
 
 static int setup_create_log(void **state)
 {
-    *state = RaftLogCreate(LOGNAME, DBID, 1, 0);
+    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, NULL);
     assert_non_null(*state);
     return 0;
 }
@@ -140,7 +140,7 @@ static void test_log_index_rebuild(void **state)
     unlink(LOGNAME ".idx");
 
     /* Reopen the log */
-    RaftLog *log2 = RaftLogOpen(LOGNAME);
+    RaftLog *log2 = RaftLogOpen(LOGNAME, NULL);
     RaftLogLoadEntries(log2, NULL, NULL);
 
     /* Invalid out of bound reads */
@@ -183,7 +183,7 @@ static void test_log_fuzzer(void **state)
     int idx = 0, i;
     raft_term_t t = 1;
 
-    log->no_fsync = true;
+    log->fsync = false;
 
     for (i = 0; i < 10000; i++) {
         int new_entries = random() % 10;
@@ -227,7 +227,7 @@ static void test_log_voting_persistence(void **state)
     assert_int_equal(ety->id, 3);
     raft_entry_release(ety);
 
-    RaftLog *templog = RaftLogOpen(LOGNAME);
+    RaftLog *templog = RaftLogOpen(LOGNAME, NULL);
     assert_int_equal(templog->term, 0xffffffff);
     assert_int_equal(templog->vote, INT32_MAX);
     RaftLogClose(templog);

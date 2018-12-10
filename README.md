@@ -11,9 +11,7 @@ provides the fault tolerance properties of Raft:
    will reply with a redirect message.
 2. User requests are replied only after they have been replicated to a majority
    of the cluster.
-3. The Raft log and other critical state can be persisted to disk or stored
-   in-memory only.
-4. Cluster configuration is dynamic and it is possible to add or remove members
+3. Cluster configuration is dynamic and it is possible to add or remove members
    on the fly.
 
 ## Getting Started
@@ -92,7 +90,7 @@ cluster:
 redis-server \
     --port 5001 --dbfilename raft1.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=1 raftlog=raftlog1.db addr=localhost:5001
+        id=1 raft-log-filename=raftlog1.db addr=localhost:5001
 redis-cli -p 5001 raft.cluster init
 ```
 
@@ -102,7 +100,7 @@ Then start the second node and make it join the cluster:
 redis-server \
     --port 5002 --dbfilename raft2.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=2 raftlog=raftlog2.db addr=localhost:5002
+        id=2 raft-log-filename=raftlog2.db addr=localhost:5002
 redis-cli -p 5002 raft.cluster join localhost:5001
 ```
 
@@ -112,7 +110,7 @@ And the third node:
 redis-server \
     --port 5003 --dbfilename raft3.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=3 raftlog=raftlog3.db addr=localhost:5003
+        id=3 raft-log-filename=raftlog3.db addr=localhost:5003
 redis-cli -p 5003 raft.cluster join localhost:5001
 ```
 
@@ -219,7 +217,7 @@ The following configuration parameters are supported:
 | ---------               | ----------- |
 | id                      | A unique numeric ID of the node in the cluster. *Default: none, required.* |
 | addr                    | Address and port the node advertises itself on. *Default: non-local interfce address and the Redis port.* |
-| raftlog                 | Raft log filename. *Default: none, log is not persisted.* |
+| raft-log-filename       | Raft log filename. *Default: redisraft.db.* |
 | raft-interval           | Interval (in ms) in which Raft wakes up and handles chores (e.g. send heartbeat AppendEntries to nodes, etc.). *Default: 100*. |
 | request-timeout         | Amount of time (in ms) before an AppendEntries request is resent. *Default: 250*. |
 | election-timeout        | Amount of time (in ms) after the last AppendEntries, before we assume a leader is down. *Default: 500*. |
@@ -227,6 +225,7 @@ The following configuration parameters are supported:
 | follower-proxy          | If `yes`, follower nodes proxy commands to the leader.  Otherwise, a `-MOVED` response is returned with the address and port of the leader. *Default: no.* |
 | raft-log-max-file-size  | Maximum allowed Raft log file size, before compaction is initiated. *Default: 64MB*. |
 | raft-log-max-cache-size | Maximum size of in-memory Raft log cache. *Default: 8MB*. |
+| raft-log-fsync          | Toggles the use of fsync when appending entries to the log. *Default: true*. |
 
 # Implementation Details
 
@@ -239,8 +238,7 @@ algorithm related work.
 A single `RAFT` command is implemented as a prefix command for users to submit
 requests to the Raft log.  This triggers the following series of events:
 
-1. The command is appended to the local log.  If log is persistent, it is also
-   persisted to disk.
+1. The command is appended to the local Raft log (in memory cache and file).
 2. The log is replicated to the majority of cluster members.  This is done by
    the Raft module communicating with the other Raft modules using
    module-specific commands.
@@ -287,49 +285,25 @@ to a cluster-centric approach which is the way Redis Cluster does things.*
 
 ## Persistence
 
-Most implementations of Raft assume a disk based crash recovery model.  This
-means that a crashed process can re-start, load its state (log and snapshots)
-from disk and resume.
+The Raft Log is persisted to disk in a dedicated log file managed by the module.
+In addition, an in-memory cache of recent entries is maintained in order to
+optimize log access.
 
-The Raft module can work in either persistent or non-persistent mode.  In
-persistent mode:
-1. A `raftlog=` parameter is required and specifies the name of the Raft log
-   file to use.
-2. On startup, Raft log is read and applied on top of the latest snapshot (i.e.
-   RDB file as loaded by Redis).
+The file format is based on RESP encoding and is similar to an AOF file.  It
+begins with a header entry that stores the Raft state at the time the log was
+created, followed by a list of entries.
 
-If no Raft log is specified, the module assumes it operates in non-persistent
-mode:
-1. If the process crashes, it is equivalent to a total node failure (e.g. as if
-   a persistent Raft node crashed and lost its files).
-2. On start, the process will need to re-join the cluster as a new node (require
-   a new ID), and the operator will need to explicitly delete the old node ID.
+The header entry may be updated to persist additional data such as voting
+information.  For this reason, the entry sized is fixed.
+
+In addition, the module maintains a simple index file to store the 64-bit
+offsets of every entry written to the log.
 
 ## Log Compaction
 
 Raft defines a mechanism for compaction of logs by storing and exchanging
 snapshots.  The snapshot is expected to be persisted just like the log, and
 include information that was removed from the log during compaction.
-
-### Live Snapshot
-In the context of Redis, we can think about the Redis dataset as a constantly
-updated snapshot.  If persistence is required, then our snapshot is version of
-the data that was last saved to RDB or AOF.
-
-### Compaction Threshold
-
-**If persistence is not required**: we may be able to continuously compact the
-Raft log and remove entries that have been received by *all* cluster members.
-A majority in this case is not enough, as those nodes that did not receive the
-entries would have to fall back to snapshots.
-
-**If persistence is required**: ideally we can follow the same compaction
-strategy above, but make sure we only compact entries that have been persisted
-by Redis.
-
-*NOTE: The Redis Module API currently does not offer a way to implement these
-strategies.  Currently compaction can be done explicitly or automatically by
-configuring specific thresholds.*
 
 ### Compaction & Snapshot Creation
 
@@ -349,6 +323,9 @@ The parent detects that the child has completed and:
 2. Appends all Raft log entries that have been received since the
    child was forked to the temporary Raft log file.
 3. Renames the temporary Raft log so it overwrites the existing one.
+
+Note that while the above is not atomic, operations are ordered such that a
+failure at any given time would not result with data loss.
 
 ### Snapshot Delivery
 
@@ -386,15 +363,15 @@ to synchronize reads with heartbeats received from the majority.
 
 ## Roadmap
 
-- [v] Decouple log implementation, to allow storing most of the log on disk and
+- [x] Decouple log implementation, to allow storing most of the log on disk and
       only a recent cache in memory (Raft lib).
 - [ ] Optimize reads, so they are not added as log entries (Raft lib).
-- [v] More friendly membership management through Redis commands, to avoid
+- [x] More friendly membership management through Redis commands, to avoid
       changing process arguments.
 - [ ] Add NO-OP log entry when starting up, to force commit index computing.
 - [ ] Improve automatic proxying performance.
 - [ ] Improve debug logging (Redis Module API).
 - [ ] Batch log operations (Raft lib).
-- [v] Optimize memory management (Raft lib).
+- [x] Optimize memory management (Raft lib).
 - [ ] Cleaner snapshot RDB loading (Redis Module API).
 - [ ] Stream snapshot data on LOAD.SNAPSHOT (hiredis streaming support).

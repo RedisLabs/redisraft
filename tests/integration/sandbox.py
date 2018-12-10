@@ -106,7 +106,7 @@ class RedisRaft(object):
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
-        raft_args['raftlog'] = self.raftlog
+        raft_args['raft-log-filename'] = self.raftlog
         raft_args['loglevel'] = config.raft_loglevel
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
