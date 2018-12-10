@@ -663,7 +663,7 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
     ety->id = rand();
     ety->type = type;
 
-    RaftLogAppend(rr->log, ety);
+    RaftLogImpl.append(rr, ety);
     raft_entry_release(ety);
 
     return 0;
