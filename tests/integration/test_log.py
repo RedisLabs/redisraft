@@ -93,6 +93,7 @@ def test_raft_log_max_cache_size(c):
     for x in range(10):
         ok_(r1.raft_exec('SET', 'testkey', 'x' * 500))
 
+    time.sleep(1)
     info = r1.raft_info()
     eq_(info['log_entries'], 12)
     assert_greater(5, info['cache_entries'])
