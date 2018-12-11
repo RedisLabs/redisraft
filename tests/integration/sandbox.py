@@ -61,9 +61,15 @@ class ValgrindConfig(DefaultConfig):
         '--show-possibly-lost=no',
         '--show-reachable=no',
         '--suppressions=../redis/src/valgrind.sup',
+        '--suppressions=libuv.supp',
         '--log-file=valgrind-redis.%p',
         'redis-server'
     ]
+
+class ValgrindVgdbConfig(ValgrindConfig):
+    up_timeout = None
+    args = ['--vgdb-error=0',
+            '--vgdb-stop-at=exit'] + ValgrindConfig.args
 
 class ValgrindFullConfig(DefaultConfig):
     executable = 'valgrind'
