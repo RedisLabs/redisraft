@@ -572,7 +572,7 @@ static int __should_grant_vote(raft_server_private_t* me, msg_requestvote_t* vr)
         return 1;
 
     raft_entry_t* ety = raft_get_entry_from_idx((void*)me, current_idx);
-    int ety_term;
+    raft_term_t ety_term;
 
     // TODO: add test
     if (ety) {
@@ -1147,9 +1147,11 @@ int raft_msg_entry_response_committed(raft_server_t* me_,
     raft_entry_t* ety = raft_get_entry_from_idx(me_, r->idx);
     if (!ety)
         return 0;
+    raft_term_t ety_term = ety->term;
+    raft_entry_release(ety);
 
     /* entry from another leader has invalidated this entry message */
-    if (r->term != ety->term)
+    if (r->term != ety_term)
         return -1;
     return r->idx <= raft_get_commit_idx(me_);
 }
@@ -1345,6 +1347,8 @@ int raft_begin_snapshot(raft_server_t *me_, int flags)
     raft_entry_t* ety = raft_get_entry_from_idx(me_, snapshot_target);
     if (!ety)
         return -1;
+    raft_term_t ety_term = ety->term;
+    raft_entry_release(ety);
 
     /* we need to get all the way to the commit idx */
     int e = raft_apply_all(me_);
@@ -1353,7 +1357,7 @@ int raft_begin_snapshot(raft_server_t *me_, int flags)
 
     assert(raft_get_commit_idx(me_) == raft_get_last_applied_idx(me_));
 
-    raft_set_snapshot_metadata(me_, ety->term, snapshot_target);
+    raft_set_snapshot_metadata(me_, ety_term, snapshot_target);
     me->snapshot_in_progress = 1;
     me->snapshot_flags = flags;
 
