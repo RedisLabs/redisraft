@@ -100,6 +100,8 @@ void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r)
 
 static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
 {
+    assert(entry->type == RAFT_LOGTYPE_NORMAL);
+
     /* TODO: optimize and avoid deserialization here, we can use the
      * original argv in RaftReq
      */
@@ -334,6 +336,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             if (req->id == raft_get_nodeid(raft)) {
                 return RAFT_ERR_SHUTDOWN;
             }
+            break;
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry);
             break;
