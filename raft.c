@@ -20,6 +20,11 @@ static void configureFromSnapshot(RedisRaftCtx *rr);
 static RaftReqHandler RaftReqHandlers[];
 extern raft_log_impl_t RaftLogImpl;
 
+static bool processExiting = false;
+static void __setProcessExiting(void) {
+    processExiting = true;
+}
+
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
 
 /* Serialize a RaftRedisCommand into a Raft entry */
@@ -584,6 +589,10 @@ static void callRaftPeriodic(uv_timer_t *handle)
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
     int ret;
 
+    if (processExiting) {
+        return;
+    }
+
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
      * we can apply the log.
      */
@@ -635,6 +644,10 @@ static void callRaftPeriodic(uv_timer_t *handle)
 static void callHandleNodeStates(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    if (processExiting) {
+        return;
+    }
+
     HandleNodeStates(rr);
 }
 
@@ -795,6 +808,12 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 {
     memset(rr, 0, sizeof(RedisRaftCtx));
     STAILQ_INIT(&rr->rqueue);
+
+    /* Register an atexit handler to tell us we're exiting.  Redis offers no
+     * other way and we need to be aware of this to avoid getting into execution
+     * flows that involve libuv workers that self destructor using .dtors.
+     */
+    atexit(__setProcessExiting);
 
     /* Initialize uv loop */
     rr->loop = RedisModule_Alloc(sizeof(uv_loop_t));
