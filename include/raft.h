@@ -81,13 +81,6 @@ typedef enum {
     RAFT_LOGTYPE_NUM=100,
 } raft_logtype_e;
 
-typedef struct
-{
-    void *buf;
-
-    unsigned int len;
-} raft_entry_data_t;
-
 /** Entry that is stored in the server's entry log. */
 typedef struct raft_entry
 {
@@ -210,9 +203,6 @@ typedef struct
     /** If success, this is the highest log IDX we've received and appended to
      * our log; otherwise, this is the our currentIndex */
     raft_index_t current_idx;
-
-    /** The first idx that we received within the appendentries message */
-    raft_index_t first_idx;
 } msg_appendentries_response_t;
 
 typedef void* raft_server_t;
@@ -579,15 +569,6 @@ typedef struct raft_log_impl
      */
     raft_index_t (*count) (void *log);
 } raft_log_impl_t;
-
-typedef struct
-{
-    /** User data pointer for addressing.
-     * Examples of what this could be:
-     * - void* pointing to implementor's networking data
-     * - a (IP,Port) tuple */
-    void* udata_address;
-} raft_node_configuration_t;
 
 /** Initialise a new Raft server, using the in-memory log implementation.
  *

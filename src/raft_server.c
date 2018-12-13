@@ -285,11 +285,10 @@ int raft_recv_appendentries_response(raft_server_t* me_,
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     __log(me_, node,
-          "received appendentries response %s ci:%d rci:%d 1stidx:%d",
+          "received appendentries response %s ci:%d rci:%d",
           r->success == 1 ? "SUCCESS" : "fail",
           raft_get_current_idx(me_),
-          r->current_idx,
-          r->first_idx);
+          r->current_idx);
 
     if (!node)
         return -1;
@@ -542,7 +541,6 @@ out:
     r->term = me->current_term;
     if (0 == r->success)
         r->current_idx = raft_get_current_idx(me_);
-    r->first_idx = ae->prev_log_idx + 1;
     return e;
 }
 
