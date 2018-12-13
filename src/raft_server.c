@@ -1539,7 +1539,11 @@ void raft_entry_release(raft_entry_t *ety)
     ety->refs--;
 
     if (!ety->refs) {
-        __raft_free(ety);
+        if (ety->free_func) {
+            ety->free_func(ety);
+        } else {
+            __raft_free(ety);
+        }
     }
 }
 

@@ -89,7 +89,7 @@ typedef struct
 } raft_entry_data_t;
 
 /** Entry that is stored in the server's entry log. */
-typedef struct
+typedef struct raft_entry
 {
     /** the entry's term at the point it was created */
     raft_term_t term;
@@ -105,6 +105,9 @@ typedef struct
 
     /** private local data */
     void *user_data;
+
+    /** free function, used instead of __free if specified */
+    void (*free_func) (struct raft_entry *entry);
 
     /** data length */
     unsigned int data_len;
