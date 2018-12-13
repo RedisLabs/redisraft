@@ -1075,6 +1075,20 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 exit:
     RaftReqFree(req);
 }
+
+static void freeRedisCommandRaftEntry(raft_entry_t *ety)
+{
+    RaftReq *req = (RaftReq *) ety->user_data;
+    ety->user_data = NULL;
+
+    if (req) {
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
+        RaftReqFree(req);
+    }
+
+    RedisModule_Free(ety);
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
@@ -1097,6 +1111,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entry->user_data = req;
+    entry->free_func = freeRedisCommandRaftEntry;
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     raft_entry_release(entry);
 

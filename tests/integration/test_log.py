@@ -3,7 +3,7 @@ import time
 import sandbox
 import redis
 from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
-                        assert_greater)
+                        assert_greater, timed)
 from test_tools import with_setup_args
 from raftlog import RaftLog, RawEntry
 
@@ -97,3 +97,51 @@ def test_raft_log_max_cache_size(c):
     info = r1.raft_info()
     eq_(info['log_entries'], 12)
     assert_greater(5, info['cache_entries'])
+
+@with_setup_args(_setup, _teardown)
+def test_reply_to_cache_invalidated_entry(c):
+    """
+    Reply a RAFT redis command that have its entry already removed
+    from the cache.
+    """
+
+    c.create(3)
+    eq_(c.leader, 1)
+
+    # Configure a small cache
+    ok_(c.node(1).raft_config_set('raft-log-max-cache-size', '1kb'))
+
+    # Break cluster to avoid commits
+    c.node(2).terminate()
+    c.node(3).terminate()
+
+    # Send commands that are guarnateed to overflow the cache
+    conns = []
+    for i in range(10):
+        conn = c.node(1).client.connection_pool.get_connection('RAFT')
+        conn.send_command('RAFT', 'SET', 'key%s' % i, 'x' * 1000)
+        conns.append(conn)
+
+    # give periodic job time to handle cache
+    time.sleep(0.5)
+
+    # confirm all raft entries were created but some have been evicted
+    # from cache already.
+    info = c.node(1).raft_info()
+    eq_(info['log_entries'], 15)
+    assert_greater(10, info['cache_entries'])
+
+    # Repair cluster and wait
+    c.node(2).start()
+    c.node(3).start()
+    c.node(1).wait_for_num_voting_nodes(3)
+    time.sleep(1)
+    eq_(c.node(1).commit_index(), 15)
+
+    # Expect TIMEOUT or OK for all
+    for conn in conns:
+        ok_(conn.can_read(timeout=1))
+        try:
+            eq_(conn.read_response(), b'OK')
+        except redis.ResponseError as err:
+            ok_(str(err).startswith('TIMEOUT'))
