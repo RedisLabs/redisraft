@@ -21,6 +21,17 @@ enum {
 
 struct raft_log_impl;
 
+typedef struct raft_read_request {
+    raft_index_t read_idx;
+    raft_term_t read_term;
+
+    raft_msg_id_t msg_id;
+    func_read_request_callback_f cb;
+    void *cb_arg;
+
+    struct raft_read_request *next;
+} raft_read_request_t;
+
 typedef struct {
     /* Persistent state: */
 
@@ -87,6 +98,13 @@ typedef struct {
      */
     raft_index_t saved_snapshot_last_idx;
     raft_term_t saved_snapshot_last_term;
+
+    /* Read requests that await a network round trip to confirm
+     * we're still the leader.
+     */
+    raft_msg_id_t msg_id;
+    raft_read_request_t *read_queue_head;
+    raft_read_request_t *read_queue_tail;
 } raft_server_private_t;
 
 int raft_election_start(raft_server_t* me);
@@ -149,6 +167,14 @@ int raft_node_is_active(raft_node_t* me_);
 void raft_node_set_voting_committed(raft_node_t* me_, int voting);
 
 void raft_node_set_addition_committed(raft_node_t* me_, int committed);
+
+void raft_node_set_last_ack(raft_node_t* me_, raft_msg_id_t msgid, raft_term_t term);
+
+raft_msg_id_t raft_node_get_last_acked_msgid(raft_node_t* me_);
+
+raft_term_t raft_node_get_last_acked_term(raft_node_t* me_);
+
+void raft_process_read_queue(raft_server_t* me_);
 
 /* Heap functions */
 extern void *(*__raft_malloc)(size_t size);

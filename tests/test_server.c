@@ -3634,3 +3634,86 @@ void TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_v
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertIntEquals(tc, 2, has_sufficient_logs_flag);
 }
+
+struct read_request_arg {
+    int calls;
+    int last_cb_safe;
+};
+
+static void __read_request_callback(void *arg, int safe)
+{
+    struct read_request_arg *a = (struct read_request_arg *) arg;
+    a->calls++;
+    a->last_cb_safe = safe;
+}
+
+void TestRaft_read_action_callback(
+        CuTest * tc)
+{
+    void *r = raft_new();
+    struct read_request_arg ra = { 0 };
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+    raft_add_node(r, NULL, 3, 0);
+
+    raft_set_current_term(r, 1);
+    raft_set_election_timeout(r, 1000);
+    raft_become_leader(r);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "aaa");
+    raft_set_commit_idx(r, 1);
+
+    raft_queue_read_request(r, __read_request_callback, &ra);
+
+    /* not acked yet */
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 0, ra.calls);
+
+    /* acked by node 2 - enough for quorum */
+    msg_appendentries_response_t aer = { .msg_id = 1, .term = 1, .success = 1, .current_idx = 1 };
+    CuAssertIntEquals(tc, 0, raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer));
+
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 1, ra.calls);
+    CuAssertIntEquals(tc, 1, ra.last_cb_safe);
+
+    /* make sure read request is called only once */
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 1, ra.calls);
+
+    /* entry 2 */
+    __RAFT_APPEND_ENTRY(r, 2, 1, "aaa");
+    ra.calls = 0;
+    raft_queue_read_request(r, __read_request_callback, &ra);
+
+    /* election started, nothing should be read */
+    raft_become_candidate(r);
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 0, ra.calls);
+
+    /* we win, but for safety we will not process read requests
+     * from past terms */
+    raft_become_leader(r);
+    aer.msg_id = 2;
+    aer.term = 2;
+    CuAssertIntEquals(tc, 0, raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer));
+
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 1, ra.calls);
+    CuAssertIntEquals(tc, 0, ra.last_cb_safe);
+
+    /* entry 3 */
+    __RAFT_APPEND_ENTRY(r, 3, 1, "aaa");
+    ra.calls = 0;
+    raft_queue_read_request(r, __read_request_callback, &ra);
+
+    /* elections again, we lose */
+    raft_become_candidate(r);
+    raft_become_follower(r);
+
+    /* queued read should fire back with can_read==false */
+    raft_periodic(r, 1);
+    CuAssertIntEquals(tc, 1, ra.calls);
+    CuAssertIntEquals(tc, 0, ra.last_cb_safe);
+}

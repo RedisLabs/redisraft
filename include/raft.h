@@ -163,6 +163,9 @@ typedef struct
  * This message could force a leader/candidate to become a follower. */
 typedef struct
 {
+    /** id, to make it possible to associate responses with requests. */
+    raft_msg_id_t msg_id;
+
     /** currentTerm, to force other leader/candidate to step down */
     raft_term_t term;
 
@@ -190,6 +193,9 @@ typedef struct
  * This message could force a leader/candidate to become a follower. */
 typedef struct
 {
+    /** the msg_id this response refers to */
+    unsigned long msg_id;
+
     /** currentTerm, to force other leader/candidate to step down */
     raft_term_t term;
 
@@ -422,6 +428,20 @@ typedef void (
     void* arg,
     raft_entry_t *entry,
     raft_index_t entry_idx
+    );
+
+/** A callback used to notify when queued read requests can be processed.
+ *
+ * @param[in] arg Argument passed in the original call.
+ * @param[in] can_read If non-zero, the read requests may be processed and
+ *   returned to the user. Otherwise the request should be treated as if
+ *   arriving to a non leader.
+ */
+typedef void (
+*func_read_request_callback_f
+)   (
+    void *arg,
+    int can_read
     );
 
 /** Generic Raft Log implementation.
@@ -1165,5 +1185,7 @@ void raft_entry_release_list(raft_entry_t **ety_list, size_t len);
 extern const raft_log_impl_t raft_log_internal_impl;
 
 void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, raft_index_t idx);
+
+void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg);
 
 #endif /* RAFT_H_ */

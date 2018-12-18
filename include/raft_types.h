@@ -25,4 +25,9 @@ typedef long int raft_index_t;
  */
 typedef int raft_node_id_t;
 
+/**
+ * Unique message identifier.
+ */
+typedef unsigned long raft_msg_id_t;
+
 #endif  /* RAFT_DEFS_H_ */

@@ -877,7 +877,6 @@ class RaftServer(object):
         response.success = 1
         response.current_idx = snapshot.last_idx
         response.term = lib.raft_get_current_term(self.raft)
-        response.first_idx = response.current_idx
         self.network.enqueue_msg(response, self, other)
 
         node_id = lib.raft_get_nodeid(self.raft)

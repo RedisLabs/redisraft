@@ -34,6 +34,10 @@ typedef struct
     int flags;
 
     raft_node_id_t id;
+
+    /* last AE heartbeat response received */
+    raft_term_t last_acked_term;
+    raft_msg_id_t last_acked_msgid;
 } raft_node_private_t;
 
 raft_node_t* raft_node_new(void* udata, raft_node_id_t id)
@@ -189,4 +193,23 @@ int raft_node_is_addition_committed(raft_node_t* me_)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
     return (me->flags & RAFT_NODE_ADDITION_COMMITTED) != 0;
+}
+
+void raft_node_set_last_ack(raft_node_t* me_, raft_msg_id_t msgid, raft_term_t term)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    me->last_acked_msgid = msgid;
+    me->last_acked_term = term;
+}
+
+raft_msg_id_t raft_node_get_last_acked_msgid(raft_node_t* me_)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    return me->last_acked_msgid;
+}
+
+raft_term_t raft_node_get_last_acked_term(raft_node_t* me_)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    return me->last_acked_term;
 }

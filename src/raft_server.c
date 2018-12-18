@@ -264,6 +264,8 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
             return e;
     }
 
+    raft_process_read_queue(me_);
+
     return 0;
 }
 
@@ -285,10 +287,10 @@ int raft_recv_appendentries_response(raft_server_t* me_,
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     __log(me_, node,
-          "received appendentries response %s ci:%d rci:%d",
+          "received appendentries response %s ci:%d rci:%d msgid:%lu",
           r->success == 1 ? "SUCCESS" : "fail",
           raft_get_current_idx(me_),
-          r->current_idx);
+          r->current_idx, r->msg_id);
 
     if (!node)
         return -1;
@@ -344,6 +346,8 @@ int raft_recv_appendentries_response(raft_server_t* me_,
         if (0 == e)
             raft_node_set_has_sufficient_logs(node);
     }
+
+    raft_node_set_last_ack(node, r->msg_id, r->term);
 
     if (r->current_idx <= match_idx)
         return 0;
@@ -408,6 +412,7 @@ int raft_recv_appendentries(
               ae->prev_log_term,
               ae->n_entries);
 
+    r->msg_id = ae->msg_id;
     r->success = 0;
 
     if (raft_is_candidate(me_) && me->current_term == ae->term)
@@ -838,7 +843,7 @@ int raft_apply_entry(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
-    if (!raft_is_apply_allowed(me_)) 
+    if (!raft_is_apply_allowed(me_))
         return -1;
 
     /* Don't apply after the commit_idx */
@@ -944,6 +949,7 @@ int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
     ae.leader_commit = raft_get_commit_idx(me_);
     ae.prev_log_idx = 0;
     ae.prev_log_term = 0;
+    ae.msg_id = me->msg_id;
 
     raft_index_t next_idx = raft_node_get_next_idx(node);
 
@@ -976,13 +982,14 @@ int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
         }
     }
 
-    __log(me_, node, "sending appendentries: ci:%lu comi:%lu t:%lu lc:%lu pli:%lu plt:%lu #%d",
+    __log(me_, node, "sending appendentries: ci:%lu comi:%lu t:%lu lc:%lu pli:%lu plt:%lu msgid:%lu #%d",
           raft_get_current_idx(me_),
           raft_get_commit_idx(me_),
           ae.term,
           ae.leader_commit,
           ae.prev_log_idx,
           ae.prev_log_term,
+          ae.msg_id,
           ae.n_entries);
 
     int res = me->cb.send_appendentries(me_, me->udata, node, &ae);
@@ -1551,5 +1558,107 @@ void raft_entry_release_list(raft_entry_t **ety_list, size_t len)
 
     for (i = 0; i < len; i++) {
         raft_entry_release(ety_list[i]);
+    }
+}
+
+static int msgid_cmp(const void *a, const void *b)
+{
+    return *(raft_msg_id_t *) a - *(raft_msg_id_t *) b;
+}
+
+raft_msg_id_t quorum_msg_id(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+    int i;
+
+    raft_msg_id_t msg_ids[me->num_nodes];
+    int msg_ids_count = 0;
+
+    for (i = 0; i < me->num_nodes; i++) {
+        raft_node_t* node = me->nodes[i];
+        if (me->node == node) {
+            msg_ids[msg_ids_count++] = me->msg_id;
+            continue;
+        }
+        if (!raft_node_is_active(node) || !raft_node_is_voting(node))
+            continue;
+
+        msg_ids[msg_ids_count++] = raft_node_get_last_acked_msgid(node);
+    }
+
+    qsort(msg_ids, msg_ids_count, sizeof(raft_msg_id_t), msgid_cmp);
+    int num_voting_nodes = raft_get_num_voting_nodes(me_);
+    assert(num_voting_nodes == msg_ids_count);
+    return msg_ids[num_voting_nodes - (num_voting_nodes / 2 + num_voting_nodes % 2)];
+}
+
+void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    raft_read_request_t *req = __raft_malloc(sizeof(raft_read_request_t));
+
+    req->read_idx = raft_get_commit_idx(me_);
+    req->read_term = raft_get_current_term(me_);
+    req->msg_id = ++me->msg_id;
+    req->cb = cb;
+    req->cb_arg = cb_arg;
+    req->next = NULL;
+
+    if (!me->read_queue_head)
+        me->read_queue_head = req;
+    if (me->read_queue_tail)
+        me->read_queue_tail->next = req;
+    me->read_queue_tail = req;
+
+    raft_send_appendentries_all(me_);
+}
+
+static void pop_read_queue(raft_server_private_t *me, int can_read)
+{
+    raft_read_request_t *p = me->read_queue_head;
+
+    p->cb(p->cb_arg, can_read);
+
+    /* remove entry and update head/tail */
+    if (p->next) {
+        me->read_queue_head = p->next;
+        if (!me->read_queue_head->next)
+            me->read_queue_tail = me->read_queue_head;
+    } else {
+        me->read_queue_head = NULL;
+        me->read_queue_tail = NULL;
+    }
+
+    __raft_free(p);
+}
+
+void raft_process_read_queue(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    if (!me->read_queue_head)
+        return;
+
+    /* As a follower we drop all queued read requests */
+    if (raft_is_follower(me_)) {
+        while (me->read_queue_head) {
+            pop_read_queue(me, 0);
+        }
+        return;
+    }
+
+    /* As a leader we can process requests that fulfill these conditions:
+     * 1) Heartbeat acknowledged by majority
+     * 2) We're on the same term (note: is this needed or over cautious?)
+     */
+    if (!raft_is_leader(me_))
+        return;
+
+    raft_msg_id_t acked_msgid = quorum_msg_id(me_);
+    while (me->read_queue_head &&
+            me->read_queue_head->msg_id <= acked_msgid &&
+            me->read_queue_head->read_idx <= me->last_applied_idx) {
+        pop_read_queue(me, me->read_queue_head->read_term == me->current_term);
     }
 }
