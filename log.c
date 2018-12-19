@@ -9,7 +9,6 @@
 
 #define ENTRY_CACHE_INIT_SIZE 512
 
-#define RAFT_LOG_TRACE
 #ifdef RAFT_LOG_TRACE
 #  define TRACE_LOG_OP(fmt, ...) LOG_DEBUG("Log>>" fmt, ##__VA_ARGS__)
 #else

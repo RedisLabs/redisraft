@@ -89,3 +89,21 @@ def test_proxying(c):
     # Error
     with assert_raises_regex(redis.ResponseError, 'WRONGTYPE'):
         c.node(2).raft_exec('INCR', 'myset')
+
+@with_setup_args(_setup, _teardown)
+def test_readonly_commands(c):
+    """
+    Test read-only command execution, which does not go through the Raft
+    log.
+    """
+    c.create(3)
+    eq_(c.leader, 1)
+
+    # Write something
+    eq_(c.node(1).current_index(), 5)
+    eq_(c.node(1).raft_exec('SET', 'key', 'value'), b'OK')
+    eq_(c.node(1).current_index(), 6)
+
+    # Read something, log should not grow
+    eq_(c.node(1).raft_exec('GET', 'key'), b'value')
+    eq_(c.node(1).current_index(), 6)

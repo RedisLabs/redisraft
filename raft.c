@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <ctype.h>
 
 /* Verify we're little endian, as our encoding is such and we
  * don't do network/host reodering.
@@ -23,6 +24,74 @@ extern raft_log_impl_t RaftLogImpl;
 static bool processExiting = false;
 static void __setProcessExiting(void) {
     processExiting = true;
+}
+
+/* ------------------------------------ Command Classification ------------------------------------ */
+
+static RedisModuleDict *readonlyCommandDict = NULL;
+
+static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
+{
+    char *commands[] = {
+        "get",
+        "strlen",
+        "exists",
+        "getbit",
+        "getrange",
+        "substr",
+        "mget",
+        "llen",
+        "lindex",
+        "lrange",
+        "scard",
+        "sismember",
+        "srandmember",
+        "sinter",
+        "sunion",
+        "sdiff",
+        "smembers",
+        "sscan",
+        "zrange",
+        "zrangebyscore",
+        "zrevrangebyscore",
+        "zrangebylex",
+        "zrevrangebylex",
+        "zcount",
+        "zlexcount",
+        "zrevrange",
+        "zcard",
+        "zscore",
+        "zrank",
+        "zrevrank",
+        "zscan",
+        "hmget",
+        "hlen",
+        "hstrlen",
+        "hkeys",
+        "hvals",
+        "hgetall",
+        "hexists",
+        "hscan",
+        "randomkey",
+        "keys",
+        "scan",
+        "dbsize",
+        "ttl",
+        "bitcount",
+        "georadius_ro",
+        "georadiusbymember_ro",
+        "geohash",
+        "geopos",
+        "geodist",
+        "pfcount",
+        NULL
+    };
+
+    readonlyCommandDict = RedisModule_CreateDict(ctx);
+    int i;
+    for (i = 0; commands[i] != NULL; i++) {
+        RedisModule_DictSetC(readonlyCommandDict, commands[i], strlen(commands[i]), (void *) 0x01);
+    }
 }
 
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
@@ -233,7 +302,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
         .term = reply->element[0]->integer,
         .success = reply->element[1]->integer,
         .current_idx = reply->element[2]->integer,
-        .first_idx = reply->element[3]->integer
+        .msg_id = reply->element[3]->integer
     };
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
@@ -272,11 +341,12 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     argv[1] = argv1_buf;
     argvlen[1] = snprintf(argv1_buf, sizeof(argv1_buf)-1, "%d", raft_get_nodeid(raft));
     argv[2] = argv2_buf;
-    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%ld:%ld:%ld:%ld",
+    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%ld:%ld:%ld:%ld:%lu",
             msg->term,
             msg->prev_log_idx,
             msg->prev_log_term,
-            msg->leader_commit);
+            msg->leader_commit,
+            msg->msg_id);
     argv[3] = argv3_buf;
     argvlen[3] = snprintf(argv3_buf, sizeof(argv3_buf)-1, "%d", msg->n_entries);
 
@@ -815,6 +885,9 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      */
     atexit(__setProcessExiting);
 
+    /* Populate Read-only command dict */
+    populateReadonlyCommandDict(ctx);
+
     /* Initialize uv loop */
     rr->loop = RedisModule_Alloc(sizeof(uv_loop_t));
     uv_loop_init(rr->loop);
@@ -1025,7 +1098,7 @@ static void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithLongLong(req->ctx, response.term);
     RedisModule_ReplyWithLongLong(req->ctx, response.success);
     RedisModule_ReplyWithLongLong(req->ctx, response.current_idx);
-    RedisModule_ReplyWithLongLong(req->ctx, response.first_idx);
+    RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
 
 exit:
     RaftReqFree(req);
@@ -1089,6 +1162,50 @@ static void freeRedisCommandRaftEntry(raft_entry_t *ety)
     RedisModule_Free(ety);
 }
 
+static void handleReadOnlyCommand(void *arg, int can_read)
+{
+    RaftReq *req = (RaftReq *) arg;
+
+    if (!can_read) {
+        RedisModule_ReplyWithError(req->ctx, "NOTLEADER leadership not guaranteed");
+        goto exit;
+    }
+
+    size_t cmdlen;
+    const char *cmd = RedisModule_StringPtrLen(req->r.redis.cmd.argv[0], &cmdlen);
+
+    RedisModule_ThreadSafeContextLock(req->ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(req->ctx, cmd, "v",
+            &req->r.redis.cmd.argv[1], req->r.redis.cmd.argc - 1);
+    RedisModule_ThreadSafeContextUnlock(req->ctx);
+    if (reply) {
+        RedisModule_ReplyWithCallReply(req->ctx, reply);
+    } else {
+        RedisModule_ReplyWithError(req->ctx, "Unknown command/arguments");
+    }
+
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+exit:
+    RaftReqFree(req);
+}
+
+static bool checkReadOnlyCommand(RedisModuleString *cmd)
+{
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
+    char lcmd[cmd_len];
+
+    int i;
+    for (i = 0; i < cmd_len; i++) {
+        lcmd[i] = tolower(cmd_str[i]);
+    }
+
+    return RedisModule_DictGetC(readonlyCommandDict, lcmd, cmd_len, NULL) != NULL;
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
@@ -1104,6 +1221,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
             RedisModule_ReplyWithError(rr->ctx, "NOTLEADER Failed to proxy command");
             goto exit;
         }
+        return;
+    }
+
+    /* If command is read only we don't push it to the log, but queue it
+     * until we can confirm it's safe to execute (i.e. still a leader).
+     */
+    if (checkReadOnlyCommand(req->r.redis.cmd.argv[0])) {
+        raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         return;
     }
 
