@@ -1130,14 +1130,20 @@ typedef struct {
 
     /** Callback for removing the oldest entry from the log
      * For safety reasons this callback MUST flush the change to disk.
-     * @note If memory was malloc'd in log_offer then this should be the right
-     *  time to free the memory. */
+     * @note The callback does not need to call raft_entry_release() as
+     *   no references are implicitly held.  If access to the entry is
+     *   desired after the callback returns, raft_entry_hold() should be
+     *   used.
+     */
     func_logentry_event_f log_poll;
 
     /** Callback for removing the youngest entry from the log
      * For safety reasons this callback MUST flush the change to disk.
-     * @note If memory was malloc'd in log_offer then this should be the right
-     *  time to free the memory. */
+     * @note The callback does not need to call raft_entry_release() as
+     *   no references are implicitly held.  If access to the entry is
+     *   desired after the callback returns, raft_entry_hold() should be
+     *   used.
+     */
     func_logentry_event_f log_pop;
 
     /** Callback called for every existing log entry when clearing the log.

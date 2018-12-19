@@ -17,6 +17,7 @@
 static void __LOG_APPEND_ENTRY(void *l, int id, raft_term_t term, const char *data)
 {
     raft_entry_t *e = __MAKE_ENTRY(id, term, data);
+    raft_entry_hold(e); /* need an extra ref because tests assume it lives on */
     log_append_entry(l, e);
 }
 
@@ -25,6 +26,7 @@ static void __LOG_APPEND_ENTRIES_SEQ_ID(void *l, int count, int id, raft_term_t 
     int i;
     for (i = 0; i < count; i++) {
         raft_entry_t *e = __MAKE_ENTRY(id++, term, data);
+        raft_entry_hold(e); /* need an extra ref because tests assume it lives on */
         log_append_entry(l, e);
     }
 }
