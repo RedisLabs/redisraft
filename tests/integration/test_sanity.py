@@ -107,3 +107,15 @@ def test_readonly_commands(c):
     # Read something, log should not grow
     eq_(c.node(1).raft_exec('GET', 'key'), b'value')
     eq_(c.node(1).current_index(), 6)
+
+    # Tear down cluster, reads should hang
+    c.node(2).terminate()
+    c.node(3).terminate()
+    conn = c.node(1).client.connection_pool.get_connection('RAFT',
+                                                           socket_timeout=1)
+    conn.send_command('RAFT', 'GET', 'key')
+    eq_(conn.can_read(timeout=1), False)
+
+    # Now configure non-quorum reads
+    c.node(1).raft_config_set('quorum-reads', 'no')
+    eq_(c.node(1).raft_exec('GET', 'key'), b'value')

@@ -1228,7 +1228,11 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
      * until we can confirm it's safe to execute (i.e. still a leader).
      */
     if (checkReadOnlyCommand(req->r.redis.cmd.argv[0])) {
-        raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+        if (rr->config->quorum_reads) {
+            raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+        } else {
+            handleReadOnlyCommand(req, 1);
+        }
         return;
     }
 

@@ -133,6 +133,13 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->follower_proxy = val;
+    } else if (!strcmp(keyword, "quorum-reads")) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK) {
+            snprintf(errbuf, errbuflen-1, "invalid 'quorum-reads' value");
+            return RR_ERROR;
+        }
+        target->quorum_reads = val;
     } else if (!strcmp(keyword, "loglevel")) {
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
@@ -248,6 +255,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, "follower-proxy", config->follower_proxy);
     }
+    if (stringmatch(pattern, "quorum-reads", 1)) {
+        len++;
+        replyConfigBool(ctx, "quorum-reads", config->quorum_reads);
+    }
     if (stringmatch(pattern, "addr", 1)) {
         len++;
         char buf[300];
@@ -273,6 +284,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
     config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
     config->raft_log_fsync = true;
+    config->quorum_reads = true;
 }
 
 static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)

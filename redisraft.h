@@ -189,6 +189,7 @@ typedef struct RedisRaftConfig {
     char *rdb_filename;         /* Original Redis dbfilename */
     char *raft_log_filename;    /* Raft log file name, derived from dbfilename */
     bool follower_proxy;        /* Do follower nodes proxy requests to leader? */
+    bool quorum_reads;          /* Reads have to go through quorum */
     /* Tuning */
     int raft_interval;
     int request_timeout;
