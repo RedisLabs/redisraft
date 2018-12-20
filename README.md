@@ -176,31 +176,24 @@ with unexpected/undesired results in other cases.  For example:
 ### Read Safety
 
 In a Raft cluster, reads may be fulfilled in different levels of safety:
-1. Consensus reads, only processed by the leader after confirming a majority
+1. Quorum reads, only processed by the leader after confirming a majority
    still considers it a leader (i.e. not stale).
 2. Potentially stale reads, processed by the leader without the above
    confirmation.  The risk here is that another leader may have **recently**
    been elected and the read would be stale.
 3. Unsafe reads, which may be fulfilled from any node.
 
-Currently the `RAFT` command makes no distinction between read or writes.
-Sending `RAFT GET keyname` would result with:
+Unsafe reads can be executed by bypassing the Raft module and directly reading
+from Redis.
 
-1. A new Raft log entry created, with the above Redis command.
-2. Replication of the log entry to cluster nodes.
-3. Execution of the entry and reply once it was acknowledged by the majority.
+Quorum reads are enabled by default and controlled by the `quorum-reads` config
+parameter.  When a read-only command is detected, it is not replicated through
+the log but instead put on a local read queue.  A heartbeat (empty
+AppendEntries) is then broadcast, and the command is only served if/when a
+majority responds.
 
-This corresponds to consensus reads, offering the highest level of safety but
-very inefficiently.  An optimization that would result with the same level of
-safety would replicate an empty entry, as a way to ensure the leader is not
-stale.
-
-In the future we may also wish to support the potentially stale reads, either by
-creating an alternative `RAFT` command or by inspecting the encapsulated command
-and following a different path if it's a read-only command.
-
-Unsafe reads are possible by simply sending Redis read commands unwrapped by
-`RAFT`.
+If quorum reads are disabled, Redis read-only commands are executed immediately
+if the local node is a leader.
 
 ## Configuration
 
@@ -226,6 +219,7 @@ The following configuration parameters are supported:
 | raft-log-max-file-size  | Maximum allowed Raft log file size, before compaction is initiated. *Default: 64MB*. |
 | raft-log-max-cache-size | Maximum size of in-memory Raft log cache. *Default: 8MB*. |
 | raft-log-fsync          | Toggles the use of fsync when appending entries to the log. *Default: true*. |
+| quorum-reads            | Toggles safe quorum reads. *Default: true*. |
 
 # Implementation Details
 
@@ -346,32 +340,19 @@ compacted, a snapshot needs to be delivered instead:
 very efficient and will fail on very large datasets. In the future this should
 be optimized*.
 
-### Read request handling
-
-The naive implementation of reads is identical to writes.  Reads are prefixed
-by the `RAFT` command which places the read command in the Raft log and only
-executes it when it can be "committed".
-
-This has two limitations:
-1. It does not offer a choice for faster, but potentially stale reads which
-   many Raft implementations support.
-2. It bloats the Raft log for no reason.  An optimization would trigger a
-   heartbeat to avoid stale reads but not generate a real log entry.
-
-A better approach, which needs to be implemented at the Raft library level, is
-to synchronize reads with heartbeats received from the majority.
-
 ## Roadmap
 
 - [x] Decouple log implementation, to allow storing most of the log on disk and
       only a recent cache in memory (Raft lib).
-- [ ] Optimize reads, so they are not added as log entries (Raft lib).
+- [x] Optimize reads, so they are not added as log entries (Raft lib).
 - [x] More friendly membership management through Redis commands, to avoid
       changing process arguments.
+- [x] Optimize memory management (Raft lib).
 - [ ] Add NO-OP log entry when starting up, to force commit index computing.
+- [ ] Latency optimizations through better concurrency (batch operations,
+      distribute entries while syncing to disk, etc.).
 - [ ] Improve automatic proxying performance.
 - [ ] Improve debug logging (Redis Module API).
 - [ ] Batch log operations (Raft lib).
-- [x] Optimize memory management (Raft lib).
 - [ ] Cleaner snapshot RDB loading (Redis Module API).
 - [ ] Stream snapshot data on LOAD.SNAPSHOT (hiredis streaming support).
