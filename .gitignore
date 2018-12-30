@@ -11,3 +11,8 @@ core.*
 cscope.*out
 tests/lcov.info
 *.rdb
+.env/
+.vscode/
+jepsen/docker/dist/
+jepsen/docker/secret/
+jepsen/docker/control/jepsen/
