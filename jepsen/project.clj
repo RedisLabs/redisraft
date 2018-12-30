@@ -7,5 +7,5 @@
 ;; Uncomment this for more recent JVMs
 ;; :jvm-opts ["--add-modules" "java.xml.bind"]
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [jepsen "0.1.8"]
+                 [jepsen "0.1.11"]
                  [com.taoensso/carmine "2.19.1"]])
