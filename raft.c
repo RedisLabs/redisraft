@@ -317,6 +317,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 
     /* Maybe we have pending stuff to apply now */
     raft_apply_all(rr->raft);
+    raft_process_read_queue(rr->raft);
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
