@@ -1194,4 +1194,8 @@ void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, raft_i
 
 void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg);
 
+/** Attempt to process read queue.
+ */
+void raft_process_read_queue(raft_server_t* me_);
+
 #endif /* RAFT_H_ */
