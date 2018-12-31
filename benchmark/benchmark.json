@@ -1,0 +1,35 @@
+{
+    "name": "redisraft-benchmark",
+    "configuration": {
+        "memtier_benchmark": {
+            "binary": "../memtier_benchmark/memtier_benchmark",
+            "threads": 1,
+            "clients": 50,
+            "test_time": 10
+        }
+    },
+    "targets": [
+        {
+            "name": "vanilla-redis",
+            "binary": "../redis/src/redis-server",
+            "args": []
+        },
+        {
+            "name": "redis-raft-no-fsync",
+            "binary": "./benchmark/redisraft_cluster.sh",
+            "args": [
+                "--redis", "../redis/src/redis-server",
+                "--raftmodule", "redisraft.so",
+                "--modulearg", "raft-log-fsync=no",
+                "--nodes", "3"
+            ]
+        }
+    ],
+    "benchmarks": [
+        {
+            "name": "default",
+            "args": []
+        }
+    ]
+}
+
