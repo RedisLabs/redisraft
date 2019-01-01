@@ -484,33 +484,32 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 #ifdef USE_COMMAND_FILTER
 void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
 {
+    static char *excluded_commands[] = {
+        "info",
+        "client",
+        "config",
+        "monitor",
+        "command",
+        NULL
+    };
+
     size_t cmdname_len;
     const char *cmdname = RedisModule_StringPtrLen(cmd->argv[0], &cmdname_len);
 
-    /* Don't process RAFT commands */
-    if (cmdname_len >= 4 && (
-                !strncasecmp(cmdname, "raft", 4) ||
-                !strncasecmp(cmdname, "info", 4))) {
-        return;
+    /* Don't process any RAFT.* command */
+    if (cmdname_len >= 4 && !strncasecmp(cmdname, "raft", 4)) {
+       return;
     }
-    if (cmdname_len >= 5 && (
-                !strncasecmp(cmdname, "client", 5) ||
-                !strncasecmp(cmdname, "config", 5))) {
-        return;
+
+    /* Don't process any excluded command */
+    char **c = excluded_commands;
+    while (*c != NULL) {
+        int len = strlen(*c);
+        if (cmdname_len == len && !strncasecmp(cmdname, *c, len)) {
+            return;
+        }
+        c++;
     }
-    if (cmdname_len == 7 && (
-                !strncasecmp(cmdname, "monitor", 7) ||
-                !strcasecmp(cmdname, "command"))) {
-        return;
-    }
-    if (cmdname_len == 8 && !strncasecmp(cmdname, "shutdown", 8)) {
-        return;
-    }
-#ifdef USE_UNSAFE_READS
-    if (cmdname_len == 3 && !strncasecmp(cmdname, "get", 3)) {
-        return;
-    }
-#endif
 
     /* Prepend RAFT to the original command */
     cmd->argv = RedisModule_Realloc(cmd->argv, (cmd->argc+1)*sizeof(RedisModuleString *));
@@ -577,8 +576,10 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     }
 
 #ifdef USE_COMMAND_FILTER
-    if (RedisModule_RegisterCommandFilter(ctx, raftize_commands) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
+    if (config.raftize_all_commands) {
+        if (RedisModule_RegisterCommandFilter(ctx, raftize_commands) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+        }
     }
 #endif
 

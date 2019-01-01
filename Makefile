@@ -10,9 +10,15 @@ else
 endif
 
 CC = gcc
-CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE # -DUSE_COMMAND_FILTER
+CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
 CFLAGS = -g -Wall -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS)
 LDFLAGS = $(ARCH_LDFLAGS)
+
+# Uncomment this to add support for raftize-all-commands.  This requires
+# the command filtering patch to be applied on Redis:
+#
+# https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a
+# CPPFLAGS += -DUSE_COMMAND_FILTER
 
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \

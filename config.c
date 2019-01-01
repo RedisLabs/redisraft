@@ -140,6 +140,15 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->quorum_reads = val;
+#ifdef USE_COMMAND_FILTER
+    } else if (!strcmp(keyword, "raftize-all-commands")) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK) {
+            snprintf(errbuf, errbuflen-1, "invalid 'raftize-all-commands' value");
+            return RR_ERROR;
+        }
+        target->raftize_all_commands = val;
+#endif
     } else if (!strcmp(keyword, "loglevel")) {
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
@@ -259,6 +268,12 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, "quorum-reads", config->quorum_reads);
     }
+#ifdef USE_COMMAND_FILTER
+    if (stringmatch(pattern, "raftize-all-commands", 1)) {
+        len++;
+        replyConfigBool(ctx, "raftize-all-commands", config->raftize_all_commands);
+    }
+#endif
     if (stringmatch(pattern, "addr", 1)) {
         len++;
         char buf[300];

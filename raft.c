@@ -32,7 +32,7 @@ static RedisModuleDict *readonlyCommandDict = NULL;
 
 static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
 {
-    char *commands[] = {
+    static char *commands[] = {
         "get",
         "strlen",
         "exists",

@@ -136,11 +136,14 @@ prefixed with `RAFT` to be processed properly.
 This will change when the Redis Module API has support for command hooking and
 make it possible to intercept built-in commands.
 
-For now it is possible to use an [experimental patch that offers a command
-filtering
-API](https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a)
-and enable it on the module side by un-commenting `-DUSE_COMMAND_FILTER` in the
+Currently it is possible to use an experimental Redis patch to do so:
+
+1. Apply the [experimental patch that offers a command filtering
+API](https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a).
+2. Enable it on the module side by un-commenting `-DUSE_COMMAND_FILTER` in the
 Makefile.
+3. Configure the module to use it by specifying `raftize-all-commands=yes` on
+   as a module argument or using `RAFT.CONFIG SET`.
 
 ### Follower Proxy
 
@@ -220,6 +223,7 @@ The following configuration parameters are supported:
 | raft-log-max-cache-size | Maximum size of in-memory Raft log cache. *Default: 8MB*. |
 | raft-log-fsync          | Toggles the use of fsync when appending entries to the log. *Default: true*. |
 | quorum-reads            | Toggles safe quorum reads. *Default: true*. |
+| raftize-all-commands    | Enable automatic handling of all Redis commands as if prefixed by `RAFT`. This requires compiling with the `USE_COMMAND_FILTER` flag. *Default: false* |
 
 # Implementation Details
 
