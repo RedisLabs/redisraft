@@ -62,6 +62,7 @@ fi
 procs=()
 kill_procs() {
     kill ${procs[@]}
+    wait ${procs[@]}
 }
 trap "kill_procs" EXIT
 export LD_LIBRARY_PATH=`pwd`    # For redisraft.so in case it's not abspath

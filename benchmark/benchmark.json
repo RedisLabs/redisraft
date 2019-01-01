@@ -10,9 +10,19 @@
     },
     "targets": [
         {
-            "name": "vanilla-redis",
+            "name": "redis",
             "binary": "../redis/src/redis-server",
             "args": []
+        },
+        {
+            "name": "redis-aof-no-fsync",
+            "binary": "../redis/src/redis-server",
+            "args": ["--appendonly", "yes", "--appendfsync", "no"]
+        },
+        {
+            "name": "redis-aof-fsync-always",
+            "binary": "../redis/src/redis-server",
+            "args": ["--appendonly", "yes", "--appendfsync", "always"]
         },
         {
             "name": "redis-raft-no-fsync",
@@ -21,6 +31,17 @@
                 "--redis", "../redis/src/redis-server",
                 "--raftmodule", "redisraft.so",
                 "--modulearg", "raft-log-fsync=no",
+                "--modulearg", "raftize-all-commands=yes",
+                "--nodes", "3"
+            ]
+        },
+        {
+            "name": "redis-raft-fsync",
+            "binary": "./benchmark/redisraft_cluster.sh",
+            "args": [
+                "--redis", "../redis/src/redis-server",
+                "--raftmodule", "redisraft.so",
+                "--modulearg", "raftize-all-commands=yes",
                 "--nodes", "3"
             ]
         }
