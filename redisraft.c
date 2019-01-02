@@ -1,4 +1,5 @@
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -86,7 +87,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     size_t cmd_len;
 
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    if (!strcasecmp(cmd, "ADD")) {
+    if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
@@ -110,7 +111,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
         req->r.cfgchange.id = node_id;
         req->r.cfgchange.addr = node_addr;
-    } else if (!strcasecmp(cmd, "REMOVE")) {
+    } else if (!strncasecmp(cmd, "REMOVE", cmd_len)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
@@ -335,10 +336,10 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    if (!strcasecmp(cmd, "SET") && argc >= 4) {
+    if (!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) {
         handleConfigSet(ctx, rr->config, argv, argc);
         return REDISMODULE_OK;
-    } else if (!strcasecmp(cmd, "GET") && argc == 3) {
+    } else if (!strncasecmp(cmd, "GET", cmd_len) && argc == 3) {
         handleConfigGet(ctx, rr->config, argv, argc);
         return REDISMODULE_OK;
     } else {
@@ -406,13 +407,13 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     RaftReq *req = NULL;
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    if (!strcasecmp(cmd, "INIT")) {
+    if (!strncasecmp(cmd, "INIT", cmd_len)) {
         if (argc != 2) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
         req = RaftReqInit(ctx, RR_CLUSTER_INIT);
-    } else if (!strcasecmp(cmd, "JOIN")) {
+    } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
         if (argc < 3) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
@@ -461,7 +462,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     memcpy(cmd, cmdstr, cmdlen);
     cmd[cmdlen] = '\0';
 
-    if (!strcasecmp(cmd, "compact")) {
+    if (!strncasecmp(cmd, "compact", cmdlen)) {
         long long delay = 0;
         if (argc == 3) {
             if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {

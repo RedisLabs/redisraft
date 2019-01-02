@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <sys/uio.h>
 
@@ -352,12 +353,12 @@ error:
     return -1;
 }
 
-static int updateIndex(RaftLog *log, raft_index_t index, off64_t offset)
+static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
     long relidx = index - log->snapshot_last_idx;
 
-    if (fseek(log->idxfile, sizeof(off64_t) * relidx, SEEK_SET) < 0 ||
-            fwrite(&offset, sizeof(off64_t), 1, log->idxfile) != 1) {
+    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
+            fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
         return -1;
     }
 
@@ -714,7 +715,7 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 
     /* Update index */
     log->file_size = ftell(log->file);
-    off64_t offset = log->file_size - written;
+    off_t offset = log->file_size - written;
     log->index++;
     if (updateIndex(log, log->index, offset) < 0) {
         return RR_ERROR;
@@ -742,7 +743,7 @@ RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
     return RR_OK;
 }
 
-static off64_t seekEntry(RaftLog *log, raft_index_t idx)
+static off_t seekEntry(RaftLog *log, raft_index_t idx)
 {
     /* Bounds check */
     if (idx <= log->snapshot_last_idx) {
@@ -754,8 +755,8 @@ static off64_t seekEntry(RaftLog *log, raft_index_t idx)
     }
 
     raft_index_t relidx = idx - log->snapshot_last_idx;
-    off64_t offset;
-    if (fseek(log->idxfile, sizeof(off64_t) * relidx, SEEK_SET) < 0 ||
+    off_t offset;
+    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
             fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
         return 0;
     }
@@ -790,7 +791,7 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
 
 RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
 {
-    off64_t offset;
+    off_t offset;
     raft_index_t idx = from_idx;
     RRStatus ret = RR_OK;
 
