@@ -51,6 +51,37 @@ no logging capture, so output is printed in runtime:
 NOSE_OPTS="-v --nologcapture --logging-config=tests/integration/logging.ini --tests tests/integration/test_snapshots.py:test_new_snapshot_with_old_log" make integration-tests
 ```
 
+#### Unit test coverage
+
+To run unit tests and see a detailed coverage report:
+
+```
+$ make clean
+$ make COVERAGE=1 unit-tests
+$ make unit-lcov-report
+```
+
+#### Integration tests coverage
+
+To see coverage reports for the entire set of integration tests, you'll first
+need to build Redis with gcov support:
+
+```
+$ cd <redis dir>
+$ make clean
+$ make gcov
+```
+
+Then execute:
+
+```
+$ cd <redisraft dir>
+$ make clean
+$ COVERAGE=1 make
+$ make integration-tests
+$ make integration-lcov-report
+```
+
 ### Jepsen
 
 The module ships with a basic Jepsen test to verify its safety.  It is set up to
