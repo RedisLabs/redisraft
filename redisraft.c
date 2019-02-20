@@ -86,6 +86,11 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RaftReq *req = NULL;
     size_t cmd_len;
 
+    if (rr->state == REDIS_RAFT_UNINITIALIZED) {
+        RedisModule_ReplyWithError(ctx, "NOCLUSTER No Raft Cluster");
+        return REDISMODULE_OK;
+    }
+
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc != 4) {
