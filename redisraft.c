@@ -57,13 +57,16 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
 }
 
 /* RAFT.NODE ADD [id] [address:port]
- *   Add a new node to the cluster.
+ *   Add a new node to the cluster.  The [id] can be an explicit non-zero value,
+ *   or zero to let the cluster choose one.
  * Reply:
  *   -NOCLUSTER ||
  *   -LOADING ||
  *   -NOLEADER ||
  *   -MOVED <addr> ||
- *   +OK <dbid>
+ *   *2
+ *   :<new node id>
+ *   :<dbid>
  *
  * RAFT.NODE REMOVE [id]
  *   Remove an existing node from the cluster.
@@ -100,10 +103,9 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         /* Validate node id */
         long long node_id;
-        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
-            !VALID_NODE_ID(node_id)) {
-                RedisModule_ReplyWithError(ctx, "invalid node id");
-                return REDISMODULE_OK;
+        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "invalid node id");
+            return REDISMODULE_OK;
         }
 
         /* Parse address */
@@ -616,10 +618,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     /* Initialize and validate configuration */
     ConfigInit(ctx, &config);
     if (ConfigParseArgs(ctx, argv, argc, &config) == RR_ERROR) {
-        return REDISMODULE_ERR;
-    }
-
-    if (ConfigValidate(ctx, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
 

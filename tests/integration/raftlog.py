@@ -54,19 +54,22 @@ class LogHeader(RawEntry):
         return int(self.args[1])
     def dbid(self):
         return self.args[2]
+    def node_id(self):
+        return self.args[3]
     def snapshot_term(self):
-        return int(self.args[3])
-    def snapshot_index(self):
         return int(self.args[4])
-    def last_term(self):
+    def snapshot_index(self):
         return int(self.args[5])
-    def last_vote(self):
+    def last_term(self):
         return int(self.args[6])
+    def last_vote(self):
+        return int(self.args[7])
     def __repr__(self):
-        return '<LogHeader:version=%s,dbid=%s,snapshot=<term:%s,index:%s>,' \
-               'last_term=%s,last_vote=%s' % (
-                   self.version(), self.dbid(), self.snapshot_term(),
-                   self.snapshot_index(), self.last_term(), self.last_vote())
+        return '<LogHeader:version=%s,dbid=%s,node_id=%s,' \
+               'snapshot=<term:%s,index:%s>,last_term=%s,last_vote=%s' % (
+                   self.version(), self.dbid(), self.node_id(),
+                   self.snapshot_term(), self.snapshot_index(),
+                   self.last_term(), self.last_vote())
 
 class LogEntry(RawEntry):
     class LogType(Enum):

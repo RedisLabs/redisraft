@@ -423,13 +423,3 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RR_OK;
 }
 
-RRStatus ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config)
-{
-    if (!config->id) {
-        RedisModule_Log(ctx, REDIS_WARNING, "'id' is required");
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-}
-

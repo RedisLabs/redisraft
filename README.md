@@ -122,7 +122,7 @@ cluster:
 redis-server \
     --port 5001 --dbfilename raft1.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=1 raft-log-filename=raftlog1.db addr=localhost:5001
+        raft-log-filename=raftlog1.db addr=localhost:5001
 redis-cli -p 5001 raft.cluster init
 ```
 
@@ -132,7 +132,7 @@ Then start the second node and make it join the cluster:
 redis-server \
     --port 5002 --dbfilename raft2.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=2 raft-log-filename=raftlog2.db addr=localhost:5002
+        raft-log-filename=raftlog2.db addr=localhost:5002
 redis-cli -p 5002 raft.cluster join localhost:5001
 ```
 
@@ -142,7 +142,7 @@ And the third node:
 redis-server \
     --port 5003 --dbfilename raft3.rdb \
     --loadmodule <path-to>/redisraft.so \
-        id=3 raft-log-filename=raftlog3.db addr=localhost:5003
+        raft-log-filename=raftlog3.db addr=localhost:5003
 redis-cli -p 5003 raft.cluster join localhost:5001
 ```
 
@@ -243,7 +243,7 @@ The following configuration parameters are supported:
 
 | Parameter               | Description |
 | ---------               | ----------- |
-| id                      | A unique numeric ID of the node in the cluster. *Default: none, required.* |
+| id                      | An optional unique numeric ID of the node in the cluster.  If not specified, a random one is generated. |
 | addr                    | Address and port the node advertises itself on. *Default: non-local interfce address and the Redis port.* |
 | raft-log-filename       | Raft log filename. *Default: redisraft.db.* |
 | raft-interval           | Interval (in ms) in which Raft wakes up and handles chores (e.g. send heartbeat AppendEntries to nodes, etc.). *Default: 100*. |

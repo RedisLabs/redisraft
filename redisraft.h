@@ -321,6 +321,7 @@ typedef struct RaftReq {
 typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
+    raft_node_id_t      node_id;                /* Node ID */
     bool                fsync;                  /* Should fsync every append? */
     unsigned long int   num_entries;            /* Entries in log */
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
@@ -426,7 +427,6 @@ long EntryCacheCompact(EntryCache *cache, size_t max_memory);
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
-RRStatus ConfigValidate(RedisModuleCtx *ctx, RedisRaftConfig *config);
 void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);

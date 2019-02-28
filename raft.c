@@ -614,6 +614,18 @@ static void handleLoadingState(RedisRaftCtx *rr)
         LOG_INFO("Loading: Redis loading complete, snapshot %s\n",
                 rr->snapshot_info.loaded ? "LOADED" : "NOT LOADED");
 
+        /* If id is configured, confirm the log matches.  If not, we set it from
+         * the log.
+         */
+        if (!rr->config->id) {
+            rr->config->id = rr->log->node_id;
+        } else {
+            if (rr->config->id != rr->log->node_id) {
+                PANIC("Raft log node id [%d] does not match configured id [%d]\n",
+                        rr->log->node_id, rr->config->id);
+            }
+        }
+
         initRaftLibrary(rr);
 
         raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
@@ -764,6 +776,24 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
     return 0;
 }
 
+static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
+{
+    unsigned int id;
+
+    /* Generate a random id and validate:
+     * 1. It's not zero (reserved value)
+     * 2. Avoid negative numbers for better convenience
+     * 3. Skip existing IDs, if library is already initialized
+     */
+
+    do {
+        RedisModule_GetRandomBytes((unsigned char *) &id, sizeof(id));
+        id &= ~(1<<31);
+    } while (!id || (rr->raft && raft_get_node(rr->raft, id) != NULL));
+
+    return id;
+}
+
 RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
@@ -781,6 +811,11 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     /* Initialize dbid */
     RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
+
+    /* If node id was not specified, make up one */
+    if (!config->id) {
+        config->id = makeRandomNodeId(rr);
+    }
 
     /* Initialize log */
     if (initRaftLog(ctx, rr) == RR_ERROR) {
@@ -1120,6 +1155,9 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     switch (req->type) {
         case RR_CFGCHANGE_ADDNODE:
             entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+            if (!req->r.cfgchange.id) {
+                req->r.cfgchange.id = makeRandomNodeId(rr);
+            }
             break;
         case RR_CFGCHANGE_REMOVENODE:
             entry->type = RAFT_LOGTYPE_REMOVE_NODE;
@@ -1129,19 +1167,17 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     }
 
     memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
-
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
-    if (e == 0) {
-        char r[RAFT_DBID_LEN + 5];
-        if (req->type == RR_CFGCHANGE_ADDNODE) {
-            snprintf(r, sizeof(r) - 1, "OK %s", rr->snapshot_info.dbid);
-        } else {
-            strcpy(r, "OK");
-        }
-
-        RedisModule_ReplyWithSimpleString(req->ctx, r);
-    } else  {
+    if (e != 0) {
         replyRaftError(req->ctx, e);
+    } else {
+        if (req->type == RR_CFGCHANGE_REMOVENODE) {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        } else {
+            RedisModule_ReplyWithArray(req->ctx, 2);
+            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
+            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
+        }
     }
 
     raft_entry_release(entry);

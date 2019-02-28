@@ -58,7 +58,7 @@ def test_log_rollback(c):
     # Make sure log reflects the change
     log.reset()
     log.read()
-    assert_regex(str(log.entries[7].data), '.*SET.*value3')
+    assert_regex(str(log.entries[7].data()), '.*SET.*value3')
 
 @with_setup_args(_setup, _teardown)
 def test_raft_log_max_file_size(c):

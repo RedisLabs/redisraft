@@ -89,7 +89,8 @@ def resolve_config():
     return DefaultConfig
 
 class RedisRaft(object):
-    def __init__(self, _id, port, config=None, raft_args=None):
+    def __init__(self, _id, port, config=None, raft_args=None,
+                 use_id_arg=True):
         if config is None:
             config = resolve_config()
         if raft_args is None:
@@ -110,7 +111,8 @@ class RedisRaft(object):
                       '--bind', '0.0.0.0',
                       '--dbfilename', self.dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
-        raft_args['id'] = str(_id)
+        if use_id_arg:
+            raft_args['id'] = str(_id)
         raft_args['addr'] = 'localhost:{}'.format(self.port)
         raft_args['raft-log-filename'] = self.raftlog
         raft_args['loglevel'] = config.raft_loglevel
@@ -386,6 +388,9 @@ class Cluster(object):
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
+
+    def add_initialized_node(self, node):
+        self.nodes[node.id] = node
 
     def add_node(self, raft_args=None, cluster_setup=True):
         _id = self.next_id
