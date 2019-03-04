@@ -410,10 +410,11 @@ static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config)
 
 int writeLogHeader(FILE *logfile, RaftLog *log)
 {
-    if (writeBegin(logfile, 7) < 0 ||
+    if (writeBegin(logfile, 8) < 0 ||
         writeBuffer(logfile, "RAFTLOG", 7) < 0 ||
         writeUnsignedInteger(logfile, RAFTLOG_VERSION, 4) < 0 ||
         writeBuffer(logfile, log->dbid, strlen(log->dbid)) < 0 ||
+        writeUnsignedInteger(logfile, log->node_id, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_term, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
         writeUnsignedInteger(logfile, log->term, 20) < 0 ||
@@ -467,6 +468,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
+    log->node_id = config->id;
 
     /* Truncate */
     ftruncate(fileno(log->file), 0);
@@ -519,7 +521,7 @@ error:
 
 static int handleHeader(RaftLog *log, RawLogEntry *re)
 {
-    if (re->num_elements != 7 ||
+    if (re->num_elements != 8 ||
         strcmp(re->elements[0].ptr, "RAFTLOG")) {
         LOG_ERROR("Invalid Raft log header.");
         return -1;
@@ -538,27 +540,33 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
     }
     strcpy(log->dbid, re->elements[2].ptr);
 
-    log->snapshot_last_term = strtoul(re->elements[3].ptr, &eptr, 10);
+    log->node_id = strtoul(re->elements[3].ptr, &eptr, 10);
     if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log term: %s\n", re->elements[3].ptr);
+        LOG_ERROR("Invalid Raft node_id: %s\n", re->elements[3].ptr);
         return -1;
     }
 
-    log->index = log->snapshot_last_idx = strtoul(re->elements[4].ptr, &eptr, 10);
+    log->snapshot_last_term = strtoul(re->elements[4].ptr, &eptr, 10);
     if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log index: %s\n", re->elements[4].ptr);
+        LOG_ERROR("Invalid Raft log term: %s\n", re->elements[4].ptr);
         return -1;
     }
 
-    log->term = strtoul(re->elements[5].ptr, &eptr, 10);
+    log->index = log->snapshot_last_idx = strtoul(re->elements[5].ptr, &eptr, 10);
     if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log voted term: %s\n", re->elements[5].ptr);
+        LOG_ERROR("Invalid Raft log index: %s\n", re->elements[5].ptr);
         return -1;
     }
 
-    log->vote = strtol(re->elements[6].ptr, &eptr, 10);
+    log->term = strtoul(re->elements[6].ptr, &eptr, 10);
     if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log vote: %s\n", re->elements[6].ptr);
+        LOG_ERROR("Invalid Raft log voted term: %s\n", re->elements[6].ptr);
+        return -1;
+    }
+
+    log->vote = strtol(re->elements[7].ptr, &eptr, 10);
+    if (*eptr != '\0') {
+        LOG_ERROR("Invalid Raft log vote: %s\n", re->elements[7].ptr);
         return -1;
     }
 

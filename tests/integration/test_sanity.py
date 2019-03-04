@@ -2,7 +2,8 @@ import sys
 import time
 import sandbox
 import redis
-from nose.tools import eq_, ok_, assert_raises_regex, assert_regex
+from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
+                        assert_not_equal)
 from test_tools import with_setup_args
 from raftlog import RaftLog, RawEntry
 
@@ -119,3 +120,37 @@ def test_readonly_commands(c):
     # Now configure non-quorum reads
     c.node(1).raft_config_set('quorum-reads', 'no')
     eq_(c.node(1).raft_exec('GET', 'key'), b'value')
+
+
+@with_setup_args(_setup, _teardown)
+def test_auto_ids(c):
+    """
+    Test automatic assignment of ids.
+    """
+
+    # -- Test auto id on create --
+    node1 = sandbox.RedisRaft(1, 5000, use_id_arg=False)
+    node1.start()
+    c.add_initialized_node(node1)   # Just to make sure it gets destroyed
+
+    # No id initially
+    eq_(node1.raft_info()['node_id'], 0)
+
+    # Create cluster, id should be generated
+    node1.cluster('init')
+    assert_not_equal(node1.raft_info()['node_id'], 0)
+
+    # -- Test auto id on join --
+    node2 = sandbox.RedisRaft(2, 5001, use_id_arg=False)
+    node2.start()
+    c.add_initialized_node(node2)   # Just to make sure it gets destroyed
+
+    eq_(node2.raft_info()['node_id'], 0)
+    node2.cluster('join', '127.0.0.1:5000')
+    node2.wait_for_node_voting()
+    assert_not_equal(node2.raft_info()['node_id'], 0)
+
+    # -- Test recovery of id from log after restart --
+    _id = node2.raft_info()['node_id']
+    node2.restart()
+    eq_(_id, node2.raft_info()['node_id'])

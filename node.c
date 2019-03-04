@@ -225,13 +225,17 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s\n", reply->str);
         }
-    } else if (reply->type != REDIS_REPLY_STATUS || strlen(reply->str) < 4 ||
-            strlen(reply->str) > 3 + RAFT_DBID_LEN || strncmp(reply->str, "OK", 2)) {
-        LOG_ERROR("RAFT.NODE ADD invalid reply: %s\n", reply->str);
+    } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
+        LOG_ERROR("RAFT.NODE ADD invalid reply.\n");
     } else {
-        LOG_INFO("Joined Raft cluster, dbid: %s\n", reply->str + 3);
-        strncpy(rr->snapshot_info.dbid, reply->str + 3, RAFT_DBID_LEN);
+        LOG_INFO("Joined Raft cluster, node id: %lu, dbid: %.*s\n",
+                reply->element[0]->integer,
+                reply->element[1]->len, reply->element[1]->str);
+
+        strncpy(rr->snapshot_info.dbid, reply->element[1]->str, reply->element[1]->len);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
+
+        rr->config->id = reply->element[0]->integer;
 
         HandleClusterJoinCompleted(rr);
     }
