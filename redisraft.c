@@ -103,7 +103,8 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         /* Validate node id */
         long long node_id;
-        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK) {
+        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
+                (node_id && !VALID_NODE_ID(node_id))) {
             RedisModule_ReplyWithError(ctx, "invalid node id");
             return REDISMODULE_OK;
         }
