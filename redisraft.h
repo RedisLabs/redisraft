@@ -285,6 +285,12 @@ typedef struct {
     RedisModuleString **argv;
 } RaftRedisCommand;
 
+typedef struct {
+    int size;           /* Size of allocated array */
+    int len;            /* Number of elements in array */
+    RaftRedisCommand **commands;
+} RaftRedisCommandArray;
+
 typedef struct RaftReq {
     int type;
     STAILQ_ENTRY(RaftReq) entries;
@@ -305,7 +311,7 @@ typedef struct RaftReq {
         } requestvote;
         struct {
             redisAsyncContext *proxy_conn;
-            RaftRedisCommand cmd;
+            RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
         struct {
@@ -363,10 +369,15 @@ void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);
 void HandleNodeStates(RedisRaftCtx *rr);
 
+/* serialization.c */
+raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source);
+size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, size_t buf_size);
+RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size);
+void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
+void RaftRedisCommandFree(RaftRedisCommand *r);
+RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
+
 /* raft.c */
-raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source);
-bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, void *source);
-void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 void HandleClusterJoinCompleted(RedisRaftCtx *rr);

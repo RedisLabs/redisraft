@@ -213,13 +213,15 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    req->r.redis.cmd.argc = argc - 1;
-    req->r.redis.cmd.argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
+    RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
+
+    cmd->argc = argc - 1;
+    cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
 
     int i;
     for (i = 0; i < argc - 1; i++) {
-        req->r.redis.cmd.argv[i] =  argv[i + 1];
-        RedisModule_RetainString(req->ctx, req->r.redis.cmd.argv[i]);
+        cmd->argv[i] =  argv[i + 1];
+        RedisModule_RetainString(req->ctx, cmd->argv[i]);
     }
     RaftReqSubmit(&redis_raft, req);
 

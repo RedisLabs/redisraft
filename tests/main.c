@@ -9,6 +9,7 @@
 
 extern struct CMUnitTest log_tests[];
 extern struct CMUnitTest util_tests[];
+extern struct CMUnitTest serialization_tests[];
 
 /* Redis symbols to keep linker happy */
 void *rdbLoad;
@@ -55,5 +56,8 @@ int main(int argc, char *argv[])
     return _cmocka_run_group_tests(
             "log", log_tests, tests_count(log_tests), NULL, NULL) ||
            _cmocka_run_group_tests(
-            "util", util_tests, tests_count(util_tests), NULL, NULL);
+            "util", util_tests, tests_count(util_tests), NULL, NULL) ||
+           _cmocka_run_group_tests(
+            "serialization", serialization_tests, tests_count(serialization_tests), NULL, NULL);
+
 }

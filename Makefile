@@ -35,7 +35,8 @@ OBJECTS = \
 	  raft.o \
 	  snapshot.o \
 	  log.o \
-	  proxy.o
+	  proxy.o \
+	  serialization.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage
@@ -65,7 +66,8 @@ endif
 TEST_OBJECTS = \
 	tests/main.o \
 	tests/test_log.o \
-	tests/test_util.o
+	tests/test_util.o \
+	tests/test_serialization.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
 TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a $(DUT_LIBS) -lpthread
