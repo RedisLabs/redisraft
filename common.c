@@ -131,6 +131,7 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
 static void raftize_commands(RedisModuleCommandFilterCtx *filter)
 {
     static char *excluded_commands[] = {
+        "raft",
         "info",
         "client",
         "config",
@@ -144,7 +145,7 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
             RedisModule_CommandFilterArgGet(filter, 0), &cmdname_len);
 
     /* Don't process any RAFT.* command */
-    if (cmdname_len >= 4 && !strncasecmp(cmdname, "raft", 4)) {
+    if (cmdname_len > 4 && !strncasecmp(cmdname, "raft.", 5)) {
        return;
     }
 
