@@ -173,6 +173,7 @@ typedef struct {
     bool callbacks_set;         /* TODO: Needed? */
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
+    RedisModuleCommandFilter *registered_filter;
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
@@ -190,9 +191,7 @@ typedef struct RedisRaftConfig {
     char *raft_log_filename;    /* Raft log file name, derived from dbfilename */
     bool follower_proxy;        /* Do follower nodes proxy requests to leader? */
     bool quorum_reads;          /* Reads have to go through quorum */
-#ifdef USE_COMMAND_FILTER
     bool raftize_all_commands;  /* Automatically pass all commands through Raft? */
-#endif
     /* Tuning */
     int raft_interval;
     int request_timeout;
@@ -353,6 +352,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error);
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
+RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
 
 /* node.c */
 void NodeFree(Node *node);
@@ -427,7 +427,7 @@ long EntryCacheCompact(EntryCache *cache, size_t max_memory);
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
-void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 

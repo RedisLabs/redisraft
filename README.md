@@ -162,20 +162,12 @@ redis-cli -p 5001 RAFT SET mykey myvalue
 
 ### Transparency
 
-Currently the module is not transparent, as all Redis commands need to be
+By default the module is not transparent, as all Redis commands need to be
 prefixed with `RAFT` to be processed properly.
 
-This will change when the Redis Module API has support for command hooking and
-make it possible to intercept built-in commands.
-
-Currently it is possible to use an experimental Redis patch to do so:
-
-1. Apply the [experimental patch that offers a command filtering
-API](https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a).
-2. Enable it on the module side by un-commenting `-DUSE_COMMAND_FILTER` in the
-Makefile.
-3. Configure the module to use it by specifying `raftize-all-commands=yes` on
-   as a module argument or using `RAFT.CONFIG SET`.
+When using the latest unstable Redis, which supports command filtering API, it
+is possible to enable a fully transparent mode by specifying
+`raftize-all-commands=yes` as a module argument or using `RAFT.CONFIG SET`.
 
 ### Follower Proxy
 
