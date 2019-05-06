@@ -19,6 +19,8 @@ static void __setProcessExiting(void) {
     processExiting = true;
 }
 
+static RedisModuleDict *multiClientState = NULL;
+
 /* ------------------------------------ Command Classification ------------------------------------ */
 
 static RedisModuleDict *readonlyCommandDict = NULL;
@@ -124,6 +126,19 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         size_t cmdlen;
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
 
+        /* We need to handle MULTI as a special case:
+        * 1. Skip the command (no need to execute MULTI in a Module context).
+        * 2. If we're returning a response, group it as an array (multibulk).
+        */
+
+        if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
+            if (reply_ctx) {
+                RedisModule_ReplyWithArray(reply_ctx, array->len - 1);
+            }
+
+            continue;
+        }
+
         RedisModuleCallReply *reply = RedisModule_Call(
                 ctx, cmd, "v", &c->argv[1], c->argc - 1);
 
@@ -131,7 +146,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                RedisModule_ReplyWithError(reply_ctx, "Unknown command/arguments");
+                RedisModule_ReplyWithError(reply_ctx, "ERR Unknown command/arguments");
             }
         }
 
@@ -906,6 +921,9 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
     rr->config = config;
 
+    /* Client state for MULTI support */
+    multiClientState = RedisModule_CreateDict(ctx);
+
     /* Read configuration from Redis */
     if (ConfigReadFromRedis(rr) == RR_ERROR) {
         PANIC("Raft initialization failed: invalid Redis configuration!");
@@ -1054,7 +1072,7 @@ static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
                 raft_get_node(rr->raft, req->r.requestvote.src_node_id),
                 &req->r.requestvote.msg,
                 &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "operation failed"); // TODO: Identify cases
+        RedisModule_ReplyWithError(req->ctx, "ERR operation failed"); // TODO: Identify cases
         goto exit;
     }
 
@@ -1198,6 +1216,65 @@ static bool checkReadOnlyCommandArray(RaftRedisCommandArray *array)
     return true;
 }
 
+static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
+{
+    unsigned long long client_id = RedisModule_GetClientId(req->ctx);
+
+    /* Get Multi state */
+    RaftRedisCommandArray *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
+
+    /* Is this a MULTI command? */
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+    if (cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
+        if (multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
+        } else {
+            multiState = RedisModule_Calloc(sizeof(RaftRedisCommandArray), 1);
+            RedisModule_DictSetC(multiClientState, &client_id, sizeof(client_id), multiState);
+
+            /* We put the MULTI as the first command in the array, as we still need to
+             * distinguish single-MULTI array from a single command.
+             */
+            RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
+        if (!multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR EXEC without MULTI");
+        } else {
+            /* Just swap our commands with the EXEC command and proceed. */
+            RaftRedisCommandArrayFree(&req->r.redis.cmds);
+            RaftRedisCommandArrayMove(&req->r.redis.cmds, multiState);
+
+            RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
+            RaftRedisCommandArrayFree(multiState);
+            return false;
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    /* Are we in MULTI? */
+    if (multiState) {
+        RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+        RedisModule_ReplyWithSimpleString(req->ctx, "QUEUED");
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    return false;
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
@@ -1205,6 +1282,10 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
+    }
+
+    if (handleMultiExec(rr, req)) {
+        return;
     }
 
     /* Proxy */
@@ -1379,12 +1460,12 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
     }
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "Already cluster member");
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
     }
 
     if (initCluster(req->ctx, rr, rr->config) == RR_ERROR) {
-        RedisModule_ReplyWithError(req->ctx, "Failed to initialize, check logs");
+        RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
         goto exit;
     }
 
@@ -1405,7 +1486,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "Already cluster member");
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
     }
 

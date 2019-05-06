@@ -376,6 +376,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
 void RaftRedisCommandFree(RaftRedisCommand *r);
 RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
+void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandArray *source);
 
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);

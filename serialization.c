@@ -21,6 +21,27 @@ RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target)
     return target->commands[target->len - 1];
 }
 
+/* Concatenate the commands in the source array to the target array.  The source array
+ * will remain empty when this operation is complete!
+ */
+void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandArray *source)
+{
+    int i;
+
+    if (target->len + source->len > target->size) {
+        target->size = target->len + source->len;
+        target->commands = RedisModule_Realloc(target->commands, target->size * sizeof(RaftRedisCommand *));
+    }
+
+    for (i = 0; i < source->len; i++) {
+        target->commands[target->len] = source->commands[i];
+        target->len++;
+    }
+
+    source->len = 0;
+    memset(source->commands, 0, sizeof(RaftRedisCommand *) * source->size);
+}
+
 /* Free a RaftRedisCommand */
 void RaftRedisCommandFree(RaftRedisCommand *r)
 {
