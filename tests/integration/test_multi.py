@@ -14,7 +14,44 @@ def _teardown(c):
 
 
 @with_setup_args(_setup, _teardown)
-def test_multi(c):
+def test_multi_exec_invalid_use(c):
+    r1 = c.add_node()
+
+    # EXEC without MULTI is not supported
+    with assert_raises_regex(redis.ResponseError,
+                             ''):
+        r1.raft_exec('.*EXEC without MULTI')
+
+    # DISCARD without MULTI is not supported
+    with assert_raises_regex(redis.ResponseError,
+                             ''):
+        r1.raft_exec('.*DISCARD without MULTI')
+
+    # MULTI cannot be nested
+    eq_(r1.raft_exec('MULTI'), b'OK')
+    with assert_raises_regex(redis.ResponseError,
+                             '.*MULTI calls can not be nested'):
+        r1.raft_exec('MULTI')
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_discard(c):
+    """
+    MULTI/DISCARD test
+    """
+
+    r1 = c.add_node()
+
+    ok_(r1.raft_exec('MULTI'))
+    eq_(r1.raft_exec('INCR', 'key'), b'QUEUED')
+    eq_(r1.raft_exec('INCR', 'key'), b'QUEUED')
+    eq_(r1.raft_exec('DISCARD'), b'OK')
+
+    eq_(r1.raft_exec('GET', 'key'), None)
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec(c):
     """
     MULTI/EXEC test
     """
@@ -27,7 +64,7 @@ def test_multi(c):
     # MULTI cannot be nested
     with assert_raises_regex(redis.ResponseError,
                              '.*MULTI calls can not be nested'):
-        ok_(r1.raft_exec('MULTI'))
+        r1.raft_exec('MULTI')
 
     # Commands are queued
     eq_(r1.raft_exec('INCR', 'key'), b'QUEUED')

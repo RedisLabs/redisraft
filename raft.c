@@ -1263,6 +1263,20 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
         return true;
     }
 
+    if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
+        if (!multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR DISCARD without MULTI");
+        } else {
+            RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
+            RaftRedisCommandArrayFree(multiState);
+
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
     /* Are we in MULTI? */
     if (multiState) {
         RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
