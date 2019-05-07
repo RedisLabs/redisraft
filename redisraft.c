@@ -377,7 +377,7 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) {
-        handleConfigSet(ctx, rr->config, argv, argc);
+        handleConfigSet(rr, ctx, argv, argc);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "GET", cmd_len) && argc == 3) {
         handleConfigGet(ctx, rr->config, argv, argc);
@@ -522,47 +522,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
-#ifdef USE_COMMAND_FILTER
-void raftize_commands(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
-{
-    static char *excluded_commands[] = {
-        "info",
-        "client",
-        "config",
-        "monitor",
-        "command",
-        NULL
-    };
-
-    size_t cmdname_len;
-    const char *cmdname = RedisModule_StringPtrLen(cmd->argv[0], &cmdname_len);
-
-    /* Don't process any RAFT.* command */
-    if (cmdname_len >= 4 && !strncasecmp(cmdname, "raft", 4)) {
-       return;
-    }
-
-    /* Don't process any excluded command */
-    char **c = excluded_commands;
-    while (*c != NULL) {
-        int len = strlen(*c);
-        if (cmdname_len == len && !strncasecmp(cmdname, *c, len)) {
-            return;
-        }
-        c++;
-    }
-
-    /* Prepend RAFT to the original command */
-    cmd->argv = RedisModule_Realloc(cmd->argv, (cmd->argc+1)*sizeof(RedisModuleString *));
-    int i;
-    for (i = cmd->argc; i > 0; i--) {
-        cmd->argv[i] = cmd->argv[i-1];
-    }
-    cmd->argv[0] = RedisModule_CreateString(ctx, "RAFT", 4);
-    cmd->argc++;
-}
-#endif
-
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
     /* Register commands */
@@ -621,14 +580,6 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
-#ifdef USE_COMMAND_FILTER
-    if (config.raftize_all_commands) {
-        if (RedisModule_RegisterCommandFilter(ctx, raftize_commands) == REDISMODULE_ERR) {
-            return REDISMODULE_ERR;
-        }
-    }
-#endif
-
     return REDISMODULE_OK;
 }
 
@@ -673,6 +624,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                          RedisModule_Free);
 
     if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (setRaftizeMode(&redis_raft, ctx, config.raftize_all_commands) != RR_OK) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Error: raftize-all-commands=yes is not supported on this Redis version.");
         return REDISMODULE_ERR;
     }
 

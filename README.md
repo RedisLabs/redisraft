@@ -1,7 +1,9 @@
 # Redis Raft Module
 
 This is an **experimental, work-inprogress** Redis module that implements the
-[Raft Consensus Algorithm](https://raft.github.io/) as a Redis module.
+[Raft Consensus Algorithm](https://raft.github.io/) as a Redis module.  For the
+Raft algorithm implementation, it is based on a [standalone Raft
+library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 
 Using this module it is possible to form a cluster of Redis servers which
 provides the fault tolerance properties of Raft:
@@ -27,7 +29,7 @@ submodules under `deps`.  To compile you will need:
 
 ### Testing
 
-The module includes a minimal set of unit tests and integration tests.  To run
+The module includes a basic set of unit tests and integration tests.  To run
 them you'll need:
 * lcov (for coverage analysis, on Linux)
 * Python and a few packages (e.g. nose, redis, etc.)
@@ -160,39 +162,6 @@ redis-cli -p 5001 RAFT SET mykey myvalue
 
 ## Issues and Limitations
 
-### Transparency
-
-Currently the module is not transparent, as all Redis commands need to be
-prefixed with `RAFT` to be processed properly.
-
-This will change when the Redis Module API has support for command hooking and
-make it possible to intercept built-in commands.
-
-Currently it is possible to use an experimental Redis patch to do so:
-
-1. Apply the [experimental patch that offers a command filtering
-API](https://github.com/yossigo/redis/commit/234d25ea0adfaa724fbfac41a2d672d0f556d42a).
-2. Enable it on the module side by un-commenting `-DUSE_COMMAND_FILTER` in the
-Makefile.
-3. Configure the module to use it by specifying `raftize-all-commands=yes` on
-   as a module argument or using `RAFT.CONFIG SET`.
-
-### Follower Proxy
-
-By default, an attempt to send a `RAFT` command to a follower node will result
-with a `-MOVED` response that includes the address and port of the leader.
-
-It is possible to enable the `follower-proxy` configuration setting (see below),
-so followers will instead attempt to deliver the command to the leader over an
-established connection.  If successful, the response is then proxied back to the
-user when received from the leader.  If no response is received and the
-connection is dropped, a `-TIMEOUT` error is returned instead, indicating the
-status of the request is unknown (it may or may not have been received).
-
-**NOTE: The Proxy mechanism is quite limited, as it reuses existing connections
-and does not maintain a connection pool, etc.  It is mainly used as an easier
-way to run safety tests against the cluster.**
-
 ### Supported Commands
 
 Commands passed to the `RAFT` command are naively added to the Raft log and
@@ -202,11 +171,24 @@ This works well for most simple commands manipulating data types, but may result
 with unexpected/undesired results in other cases.  For example:
 
 - `MUTLI`/`EXEC` cannot be passed to `RAFT`, and will fail to offer atomic
-  execution.
+  execution.  There is work in progress to support that by bundling multiple
+  Redis commands in a single Raft log entry.
 - Blocking commands are not supported, as they cannot be relayed by the module
   to Redis (they will not block).
 - Streams are not supported.
-- Pubsub are not supported.
+- PUBLISH/SUBSCRIBE is not supported.
+
+### Dataset Size & Snapshots
+
+Log snapshots are delivered to followers as a serialized binary argument to a
+module-implemented Redis command.
+
+Because of the way Redis and hiredis work, this requires allocating temporary
+buffer(s) to hold the entire serialized dataset, which is not memory efficient
+and may not work well for large datasets.
+
+In the future we would prefer to stream this data (either on a side channel or
+using future Redis capabilities such as RESP version 3).
 
 ### Read Safety
 
@@ -229,6 +211,33 @@ majority responds.
 
 If quorum reads are disabled, Redis read-only commands are executed immediately
 if the local node is a leader.
+
+## Other Features
+
+### Transparent Mode
+
+By default the module is not transparent, as all Redis commands need to be
+prefixed with `RAFT` to be processed properly.
+
+When using the latest Redis unstable branch, which supports command filtering
+API, it is possible to enable a fully transparent mode by specifying
+`raftize-all-commands=yes` as a module argument or using `RAFT.CONFIG SET`.
+
+### Follower Proxy
+
+By default, an attempt to send a `RAFT` command to a follower node will result
+with a `-MOVED` response that includes the address and port of the leader.
+
+It is possible to enable the `follower-proxy` configuration setting (see below),
+so followers will instead attempt to deliver the command to the leader over an
+established connection.  If successful, the response is then proxied back to the
+user when received from the leader.  If no response is received and the
+connection is dropped, a `-TIMEOUT` error is returned instead, indicating the
+status of the request is unknown (it may or may not have been received).
+
+**NOTE: The Proxy mechanism is quite limited, as it reuses existing connections
+and does not maintain a connection pool, etc.  It is mainly used as an easier
+way to run safety tests against the cluster.**
 
 ## Configuration
 
@@ -255,15 +264,11 @@ The following configuration parameters are supported:
 | raft-log-max-cache-size | Maximum size of in-memory Raft log cache. *Default: 8MB*. |
 | raft-log-fsync          | Toggles the use of fsync when appending entries to the log. *Default: true*. |
 | quorum-reads            | Toggles safe quorum reads. *Default: true*. |
-| raftize-all-commands    | Enable automatic handling of all Redis commands as if prefixed by `RAFT`. This requires compiling with the `USE_COMMAND_FILTER` flag. *Default: false* |
+| raftize-all-commands    | Enable automatic handling of all Redis commands as if prefixed by `RAFT`. This requires a compatible Redis version (currently unstable branch). *Default: false* |
 
 # Implementation Details
 
 ## Overview
-
-The module uses a [standalone C library implementation of
-Raft](https://github.com/willemt/raft) by Willem-Hendrik Thiart for all Raft
-algorithm related work.
 
 A single `RAFT` command is implemented as a prefix command for users to submit
 requests to the Raft log.  This triggers the following series of events:
@@ -376,19 +381,14 @@ compacted, a snapshot needs to be delivered instead:
 very efficient and will fail on very large datasets. In the future this should
 be optimized*.
 
-## Roadmap
+## To-Do List
 
-- [x] Decouple log implementation, to allow storing most of the log on disk and
-      only a recent cache in memory (Raft lib).
-- [x] Optimize reads, so they are not added as log entries (Raft lib).
-- [x] More friendly membership management through Redis commands, to avoid
-      changing process arguments.
-- [x] Optimize memory management (Raft lib).
 - [ ] Add NO-OP log entry when starting up, to force commit index computing.
 - [ ] Latency optimizations through better concurrency (batch operations,
       distribute entries while syncing to disk, etc.).
+- [ ] Improve debug logging (pending Redis Module API support).
+- [ ] Batch log operations (pending Raft lib support).
+- [ ] Cleaner snapshot RDB loading (pending Redis Module API support).
+- [ ] Stream snapshot data on LOAD.SNAPSHOT (pending hiredis support/RESP3 or
+  a dedicated side channel implementation).
 - [ ] Improve automatic proxying performance.
-- [ ] Improve debug logging (Redis Module API).
-- [ ] Batch log operations (Raft lib).
-- [ ] Cleaner snapshot RDB loading (Redis Module API).
-- [ ] Stream snapshot data on LOAD.SNAPSHOT (hiredis streaming support).

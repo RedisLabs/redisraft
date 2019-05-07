@@ -140,7 +140,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->quorum_reads = val;
-#ifdef USE_COMMAND_FILTER
     } else if (!strcmp(keyword, "raftize-all-commands")) {
         bool val;
         if (parseBool(value, &val) != RR_OK) {
@@ -148,7 +147,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->raftize_all_commands = val;
-#endif
     } else if (!strcmp(keyword, "loglevel")) {
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
@@ -164,7 +162,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     return RR_OK;
 }
 
-void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
+void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     size_t key_len;
     const char *key = RedisModule_StringPtrLen(argv[2], &key_len);
@@ -178,9 +176,21 @@ void handleConfigSet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     memcpy(valuebuf, value, value_len);
     valuebuf[value_len] = '\0';
 
+    RedisRaftConfig old_config = *rr->config;
+
     char errbuf[256] = "ERR ";
-    if (processConfigParam(keybuf, valuebuf, config, false,
+    if (processConfigParam(keybuf, valuebuf, rr->config, false,
                 errbuf + strlen(errbuf), sizeof(errbuf) - strlen(errbuf)) == RR_OK) {
+
+        /* Special cases -- when configuration needs to be actively applied */
+        if (old_config.raftize_all_commands != rr->config->raftize_all_commands) {
+            if (setRaftizeMode(rr, ctx, rr->config->raftize_all_commands) != RR_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR not supported in this Redis version.");
+                rr->config->raftize_all_commands = old_config.raftize_all_commands;
+                return;
+            }
+        }
+
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, errbuf);
@@ -268,12 +278,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, "quorum-reads", config->quorum_reads);
     }
-#ifdef USE_COMMAND_FILTER
     if (stringmatch(pattern, "raftize-all-commands", 1)) {
         len++;
         replyConfigBool(ctx, "raftize-all-commands", config->raftize_all_commands);
     }
-#endif
     if (stringmatch(pattern, "addr", 1)) {
         len++;
         char buf[300];

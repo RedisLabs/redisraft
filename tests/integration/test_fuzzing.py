@@ -1,17 +1,20 @@
-import sys
 import random
 import logging
-import sandbox
 import redis
-from nose.tools import eq_, ok_
-from test_tools import with_setup_args
+from nose.tools import eq_
 from nose.plugins.attrib import attr
+
+from test_tools import with_setup_args
+import sandbox
+
 
 def _setup():
     return [sandbox.Cluster()], {}
 
+
 def _teardown(c):
     c.destroy()
+
 
 @attr('fuzz')
 @with_setup_args(_setup, _teardown)
@@ -35,6 +38,7 @@ def test_fuzzing_with_restarts(c):
             logging.info('********** Node %s is UP **********', r)
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
+
 
 @attr('fuzz')
 @with_setup_args(_setup, _teardown)
@@ -64,6 +68,7 @@ def test_fuzzing_with_restarts_and_rewrites(c):
             logging.info('********** Node %s is UP **********', r)
 
     eq_(int(c.raft_exec('GET', 'counter')), cycles)
+
 
 @attr('fuzz')
 @with_setup_args(_setup, _teardown)

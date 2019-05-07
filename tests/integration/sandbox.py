@@ -11,14 +11,18 @@ import redis
 
 LOG = logging.getLogger('sandbox')
 
+
 class RedisRaftError(Exception):
     pass
+
 
 class RedisRaftTimeout(RedisRaftError):
     pass
 
+
 class RedisRaftFailedToStart(RedisRaftError):
     pass
+
 
 class PipeLogger(threading.Thread):
     def __init__(self, pipe, prefix):
@@ -28,23 +32,22 @@ class PipeLogger(threading.Thread):
         self.daemon = True
         self.start()
 
-    def getvalue(self):
-        return self.buf
-
     def run(self):
         for line in iter(self.pipe.readline, b''):
-            LOG.debug('{}: {}'.format(self.prefix,
-                                      str(line, 'utf-8').rstrip()))
+            LOG.debug('%s: %s', self.prefix, str(line, 'utf-8').rstrip())
+
 
 class DefaultConfig(object):
     executable = 'redis-server'
     args = None
     raftmodule = 'redisraft.so'
-    up_timeout = 2
-    raft_loglevel = 'info'
+    up_timeout = 3
+    raft_loglevel = 'debug'
+
 
 class VerboseConfig(DefaultConfig):
     raft_loglevel = 'debug'
+
 
 class DebugConfig(DefaultConfig):
     executable = 'gnome-terminal'
@@ -53,12 +56,13 @@ class DebugConfig(DefaultConfig):
     ]
     up_timeout = None
 
+
 class ValgrindConfig(DefaultConfig):
     executable = 'valgrind'
     args = [
         '--leak-check=full',
         '--show-reachable=no',
-        '--show-possibly-lost=no',
+        '--show-possibly-lost=yes',
         '--show-reachable=no',
         '--suppressions=../redis/src/valgrind.sup',
         '--suppressions=libuv.supp',
@@ -66,10 +70,12 @@ class ValgrindConfig(DefaultConfig):
         'redis-server'
     ]
 
+
 class ValgrindVgdbConfig(ValgrindConfig):
     up_timeout = None
     args = ['--vgdb-error=0',
             '--vgdb-stop-at=exit'] + ValgrindConfig.args
+
 
 class ValgrindFullConfig(DefaultConfig):
     executable = 'valgrind'
@@ -82,11 +88,13 @@ class ValgrindFullConfig(DefaultConfig):
         'redis-server'
     ]
 
+
 def resolve_config():
     name = os.environ.get('SANDBOX_CONFIG')
     if name is not None:
         return getattr(sys.modules[__name__], name)
     return DefaultConfig
+
 
 class RedisRaft(object):
     def __init__(self, _id, port, config=None, raft_args=None,
@@ -131,7 +139,7 @@ class RedisRaft(object):
     def cluster(self, *args):
         retries = self.up_timeout
         if retries is not None:
-            retries *= 100
+            retries *= 10
         while True:
             try:
                 return self.client.execute_command('RAFT.CLUSTER', *args)
@@ -140,15 +148,15 @@ class RedisRaft(object):
                 if retries is not None:
                     retries -= 1
                     if not retries:
-                        LOG.fatal('RAFT.CLUSTER {} failed'.format(*args))
+                        LOG.fatal('RAFT.CLUSTER %s failed', *args)
                         break
-                time.sleep(0.01)
+                time.sleep(0.1)
 
     def init(self):
         self.cleanup()
         self.start()
         dbid = self.cluster('init')
-        LOG.info('Cluster created: {}'.format(dbid))
+        LOG.info('Cluster created: %s', dbid)
         return self
 
     def join(self, addresses):
@@ -175,7 +183,7 @@ class RedisRaft(object):
     def verify_up(self):
         retries = self.up_timeout
         if retries is not None:
-            retries *= 100
+            retries *= 10
         while True:
             try:
                 self.client.ping()
@@ -187,7 +195,7 @@ class RedisRaft(object):
                         LOG.fatal('RedisRaft<%s> failed to start', self.id)
                         raise RedisRaftFailedToStart(
                             'RedisRaft<%s> failed to start' % self.id)
-                time.sleep(0.01)
+                time.sleep(0.1)
 
     def terminate(self):
         if self.process:
@@ -198,7 +206,6 @@ class RedisRaft(object):
             except OSError as err:
                 LOG.error('RedisRaft<%s> failed to terminate: %s',
                           self.id, err)
-                pass
             else:
                 LOG.info('RedisRaft<%s> terminated', self.id)
         self.process = None
@@ -212,7 +219,6 @@ class RedisRaft(object):
             except OSError as err:
                 LOG.error('Cannot kill RedisRaft<%s>: %s',
                           self.id, err)
-                pass
             else:
                 LOG.info('RedisRaft<%s> killed', self.id)
         self.process = None
@@ -261,7 +267,8 @@ class RedisRaft(object):
     def current_index(self):
         return self.raft_info()['current_index']
 
-    def _wait_for_condition(self, test_func, timeout_func, timeout=3):
+    @staticmethod
+    def _wait_for_condition(test_func, timeout_func, timeout=3):
         retries = timeout * 10
         while retries > 0:
             try:
@@ -277,6 +284,7 @@ class RedisRaft(object):
     def wait_for_election(self, timeout=10):
         def has_leader():
             return bool(self.raft_info()['leader_id'] != -1)
+
         def raise_no_master_error():
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
@@ -285,6 +293,7 @@ class RedisRaft(object):
         def commit_idx_applied():
             info = self.raft_info()
             return bool(info['commit_index'] == info['last_applied_index'])
+
         def raise_not_applied():
             raise RedisRaftTimeout('Last committed entry not yet applied')
         self._wait_for_condition(commit_idx_applied, raise_not_applied,
@@ -295,6 +304,7 @@ class RedisRaft(object):
         def current_idx_reached():
             info = self.raft_info()
             return bool(info['current_index'] == idx)
+
         def raise_not_reached():
             info = self.raft_info()
             LOG.debug("------- last info before bail out: %s\n", info)
@@ -309,8 +319,8 @@ class RedisRaft(object):
             info = self.raft_info()
             if gt_ok:
                 return bool(info['commit_index'] >= idx)
-            else:
-                return bool(info['commit_index'] == idx)
+            return bool(info['commit_index'] == idx)
+
         def raise_not_reached():
             info = self.raft_info()
             LOG.debug("------- last info before bail out: %s\n", info)
@@ -324,9 +334,10 @@ class RedisRaft(object):
         def num_voting_nodes_match():
             info = self.raft_info()
             return bool(info['num_voting_nodes'] == count)
+
         def raise_not_added():
-            info = self.raft_info()
             raise RedisRaftTimeout('Nodes not added')
+
         self._wait_for_condition(num_voting_nodes_match, raise_not_added,
                                  timeout)
         LOG.debug("Finished waiting for num_voting_nodes == %d", count)
@@ -335,24 +346,29 @@ class RedisRaft(object):
         def check_voting():
             info = self.raft_info()
             return bool(info['is_voting'] == 'yes')
+
         def raise_not_voting():
             info = self.raft_info()
             LOG.debug("Non voting node: %s", str(info))
             raise RedisRaftTimeout('Node is not voting')
+
         self._wait_for_condition(check_voting, raise_not_voting, timeout)
 
     def wait_for_info_param(self, name, value, timeout=10):
         def check_param():
             info = self.raft_info()
             return bool(info.get(name) == value)
+
         def raise_not_matched():
             raise RedisRaftTimeout('RAFT.INFO "%s" did not reach "%s"' %
                                    (name, value))
+
         self._wait_for_condition(check_param, raise_not_matched, timeout)
 
     def destroy(self):
         self.terminate()
         self.cleanup()
+
 
 class Cluster(object):
     noleader_timeout = 10
@@ -374,7 +390,7 @@ class Cluster(object):
 
     def create(self, node_count, raft_args=None):
         if raft_args is None:
-            raft_args={}
+            raft_args = {}
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
                                    raft_args=raft_args)
@@ -397,7 +413,7 @@ class Cluster(object):
         self.next_id += 1
         node = RedisRaft(_id, self.base_port + _id, raft_args=raft_args)
         if cluster_setup:
-            if len(self.nodes) > 0:
+            if self.nodes:
                 node.join(self.node_addresses())
             else:
                 node.init()
@@ -414,7 +430,7 @@ class Cluster(object):
                 'RAFT.NODE', 'REMOVE', _id)
         self.raft_retry(_func)
         self.nodes[_id].destroy()
-        del(self.nodes[_id])
+        del self.nodes[_id]
         if self.leader == _id:
             self.reset_leader()
 
@@ -431,8 +447,8 @@ class Cluster(object):
         result = []
         for _id, node in self.nodes.items():
             try:
-                r = node.client.execute_command(*cmd)
-                result.append(r)
+                res = node.client.execute_command(*cmd)
+                result.append(res)
             except redis.ConnectionError:
                 pass
         return result
@@ -481,7 +497,7 @@ class Cluster(object):
                 elif str(err).startswith('NOLEADER'):
                     if no_leader_first:
                         LOG.info("-NOLEADER response received, will retry"
-                                 " for %s seconds" % self.noleader_timeout)
+                                 " for %s seconds", self.noleader_timeout)
                         no_leader_first = False
                     time.sleep(0.5)
                 else:

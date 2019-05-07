@@ -5,8 +5,8 @@ def with_setup_args(setup, teardown=None):
           " ... "
     The setup function should return (args, kwargs) which will be passed to
     test function, and teardown function.
-    Note that `with_setup_args` is useful *only* for test functions, not for test
-    methods or inside of TestCase subclasses.
+    Note that `with_setup_args` is useful *only* for test functions, not for
+    test methods or inside of TestCase subclasses.
     """
     def decorate(func):
         args = []

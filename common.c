@@ -128,3 +128,63 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
 
 }
 
+static void raftize_commands(RedisModuleCommandFilterCtx *filter)
+{
+    static char *excluded_commands[] = {
+        "raft",
+        "info",
+        "client",
+        "config",
+        "monitor",
+        "command",
+        NULL
+    };
+
+    size_t cmdname_len;
+    const char *cmdname = RedisModule_StringPtrLen(
+            RedisModule_CommandFilterArgGet(filter, 0), &cmdname_len);
+
+    /* Don't process any RAFT.* command */
+    if (cmdname_len > 4 && !strncasecmp(cmdname, "raft.", 5)) {
+       return;
+    }
+
+    /* Don't process any excluded command */
+    char **c = excluded_commands;
+    while (*c != NULL) {
+        int len = strlen(*c);
+        if (cmdname_len == len && !strncasecmp(cmdname, *c, len)) {
+            return;
+        }
+        c++;
+    }
+
+    /* Prepend RAFT to the original command */
+    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT", 4);
+    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+}
+
+
+RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag)
+{
+    /* Is it supported by Redis? */
+    if (!RedisModule_RegisterCommandFilter) {
+        /* No; but if flag is false no harm is done. */
+        return flag ? RR_ERROR : RR_OK;
+    }
+
+    /* Disable */
+    if (rr->registered_filter && !flag) {
+        RedisModule_UnregisterCommandFilter(ctx, rr->registered_filter);
+        rr->registered_filter = NULL;
+    } else if (!rr->registered_filter && flag) {
+        rr->registered_filter = RedisModule_RegisterCommandFilter(ctx, 
+                    raftize_commands, REDISMODULE_CMDFILTER_NOSELF);
+        if (!rr->registered_filter) {
+            return RR_ERROR;
+        }
+    }
+
+    return RR_OK;
+}
+
