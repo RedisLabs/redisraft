@@ -60,30 +60,14 @@ exit:
 
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
 {
-    /* TODO: This is just a quick hack to proxy a single command.
-     * We need to proxy all commands we get inside MULTI/EXEC,
-     * and somehow fail if we have a WATCH.
-     */
-    RaftRedisCommand *c = req->r.redis.cmds.commands[0];
-
-    int argc = c->argc + 1;
-    const char *argv[argc];
-    size_t argvlen[argc];
-    int i;
-
+    /* TODO: Fail if any key is watched. */
     if (!leader->rc || leader->state != NODE_CONNECTED) {
         return RR_ERROR;
     }
 
-    argv[0] = "RAFT";
-    argvlen[0] = 4;
-
-    for (i = 1; i < argc; i++) {
-        argv[i] = RedisModule_StringPtrLen(c->argv[i-1], &argvlen[i]);
-    }
-
-    if (redisAsyncCommandArgv(leader->rc, handleProxiedCommandResponse,
-                req, c->argc + 1, argv, argvlen) != REDIS_OK) {
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    if (redisAsyncCommand(leader->rc, handleProxiedCommandResponse,
+                req, "RAFT.ENTRY %b", entry->data, entry->data_len) != REDIS_OK) {
         return RR_ERROR;
     }
 

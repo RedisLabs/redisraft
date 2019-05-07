@@ -77,3 +77,23 @@ def test_multi_exec(c):
     eq_(r1.raft_info()['current_index'], 2)
 
     eq_(r1.raft_exec('GET', 'key'), b'3')
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec_proxying(c):
+    """
+    Proxy a MULTI/EXEC sequence
+    """
+    c.create(3)
+    eq_(c.leader, 1)
+    eq_(c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
+                                         'follower-proxy', 'yes'), b'OK')
+
+    # Basic sanity
+    eq_(c.node(2).raft_info()['current_index'], 5)
+    ok_(c.node(2).raft_exec('MULTI'))
+    eq_(c.node(2).raft_exec('INCR', 'key'), b'QUEUED')
+    eq_(c.node(2).raft_exec('INCR', 'key'), b'QUEUED')
+    eq_(c.node(2).raft_exec('INCR', 'key'), b'QUEUED')
+    eq_(c.node(2).raft_exec('EXEC'), [1, 2, 3])
+    eq_(c.node(2).raft_info()['current_index'], 6)

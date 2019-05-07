@@ -1216,6 +1216,32 @@ static bool checkReadOnlyCommandArray(RaftRedisCommandArray *array)
     return true;
 }
 
+/* Handle MULTI/EXEC transactions here.
+ *
+ * If this logic was applied, the request is freeed (if necessary) and the
+ * return value is true, indicating no further processing is required.
+ * Otherwise, the main handleRedisCommand() flow is applied.
+ *
+ * 1) On MULTI, we create a RaftRedisCommandArray which will store all
+ *    user commands as they are queued.
+ * 2) On EXEC, we remove the RaftRedisCommandArray with all queued commands
+ *    from multiClientState, place it in the RaftReq and let the rest of the
+ *    code handle it.
+ * 3) On DISCARD we simply remove the queued commands array.
+ *
+ * Important notes:
+ * 1) Although as a module we don't need to pass MULTI to Redis, we still keep
+ *    it in the array, because when processing the array we want to distinguish
+ *    between a MULTI with a single command and a non-MULTI scenario.
+ * 2) If our RaftReq contains multiple commands, we assume it was received as
+ *    a RAFT.ENTRY in which case we need to process it as an EXEC.  That means
+ *    we don't need to reply with +OK and multiple +QUEUED, but just process
+ *    the commands atomically.  This is common when a follower proxies a batch
+ *    of commands to a leader: the follower handles the user interaction and
+ *    the leader only handles the execution (when the user issued the final
+ *    EXEC).
+ */
+
 static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 {
     unsigned long long client_id = RedisModule_GetClientId(req->ctx);
@@ -1227,7 +1253,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-    if (cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
+    if (req->r.redis.cmds.len == 1 && cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
         if (multiState) {
             RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
         } else {
