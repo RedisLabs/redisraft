@@ -1,4 +1,5 @@
 import redis
+from nose import SkipTest
 from nose.tools import (ok_, eq_, assert_raises_regex)
 from test_tools import with_setup_args
 
@@ -97,3 +98,32 @@ def test_multi_exec_proxying(c):
     eq_(c.node(2).raft_exec('INCR', 'key'), b'QUEUED')
     eq_(c.node(2).raft_exec('EXEC'), [1, 2, 3])
     eq_(c.node(2).raft_info()['current_index'], 6)
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec_raftized(c):
+    """
+    MULTI/EXEC when raftize-all-commands is on.
+    """
+
+    r1 = c.add_node()
+    try:
+        ok_(r1.raft_config_set('raftize-all-commands', 'yes'))
+    except redis.ResponseError:
+        raise SkipTest('Not supported on this Redis')
+
+    # MULTI does not go itself to the log
+    ok_(r1.client.execute_command('MULTI'))
+    eq_(r1.raft_info()['current_index'], 1)
+
+    # Commands are queued
+    eq_(r1.client.execute_command('INCR', 'key'), b'QUEUED')
+    eq_(r1.client.execute_command('INCR', 'key'), b'QUEUED')
+    eq_(r1.client.execute_command('INCR', 'key'), b'QUEUED')
+
+    # More validations
+    eq_(r1.raft_info()['current_index'], 1)
+    eq_(r1.client.execute_command('EXEC'), [1, 2, 3])
+    eq_(r1.raft_info()['current_index'], 2)
+
+    eq_(r1.client.execute_command('GET', 'key'), b'3')
