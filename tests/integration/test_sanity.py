@@ -2,6 +2,7 @@ import sys
 import time
 import sandbox
 import redis
+from nose import SkipTest
 from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
                         assert_not_equal)
 from test_tools import with_setup_args
@@ -154,3 +155,19 @@ def test_auto_ids(c):
     _id = node2.raft_info()['node_id']
     node2.restart()
     eq_(_id, node2.raft_info()['node_id'])
+
+
+@with_setup_args(_setup, _teardown)
+def test_raftize(c):
+    """
+    Test raftize-all-commands mode.
+    """
+
+    r1 = c.add_node()
+    try:
+        ok_(r1.raft_config_set('raftize-all-commands', 'yes'))
+    except redis.ResponseError:
+        raise SkipTest('Not supported on this Redis')
+    eq_(r1.raft_info()['current_index'], 1)
+    ok_(r1.client.execute_command('SET', 'key', 'value'))
+    eq_(r1.raft_info()['current_index'], 2)
