@@ -1,18 +1,18 @@
-import sys
-import time
-import sandbox
 import redis
 from nose import SkipTest
-from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
-                        assert_not_equal)
+from nose.tools import (eq_, ok_, assert_raises_regex, assert_not_equal)
+
 from test_tools import with_setup_args
-from raftlog import RaftLog, RawEntry
+import sandbox
+
 
 def _setup():
     return [sandbox.Cluster()], {}
 
+
 def _teardown(c):
     c.destroy()
+
 
 @with_setup_args(_setup, _teardown)
 def test_add_node_as_a_single_leader(c):
@@ -23,6 +23,7 @@ def test_add_node_as_a_single_leader(c):
     r1 = c.add_node()
     ok_(r1.raft_exec('SET', 'key', 'value'))
     eq_(r1.raft_info()['current_index'], 2)
+
 
 @with_setup_args(_setup, _teardown)
 def test_node_joins_and_gets_data(c):
@@ -40,6 +41,7 @@ def test_node_joins_and_gets_data(c):
     with assert_raises_regex(redis.ResponseError, 'MOVED'):
         eq_(r2.raft_exec('SET', 'key', 'value'), None)
 
+
 @with_setup_args(_setup, _teardown)
 def test_single_node_log_is_reapplied(c):
     """Single node log is reapplied on startup"""
@@ -50,6 +52,7 @@ def test_single_node_log_is_reapplied(c):
     eq_(r1.raft_info().get('leader_id'), 1)
     r1.wait_for_log_applied()
     eq_(r1.client.get('key'), b'value')
+
 
 @with_setup_args(_setup, _teardown)
 def test_reelection_basic_flow(c):
@@ -62,7 +65,8 @@ def test_reelection_basic_flow(c):
     c.node(1).terminate()
     c.node(2).wait_for_election()
     eq_(c.raft_exec('SET', 'key2', 'value2'), b'OK')
-    res = c.exec_all('GET', 'key2')
+    c.exec_all('GET', 'key2')
+
 
 @with_setup_args(_setup, _teardown)
 def test_proxying(c):
@@ -86,11 +90,13 @@ def test_proxying(c):
     # Multibulk
     eq_(set(c.node(2).raft_exec('SMEMBERS', 'myset')), set([b'a', b'b']))
     # Nested multibulk
-    eq_(set(c.node(2).raft_exec('EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]),
+    eq_(set(c.node(2).raft_exec(
+        'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]),
         set([b'a', b'b', b'c']))
     # Error
     with assert_raises_regex(redis.ResponseError, 'WRONGTYPE'):
         c.node(2).raft_exec('INCR', 'myset')
+
 
 @with_setup_args(_setup, _teardown)
 def test_readonly_commands(c):

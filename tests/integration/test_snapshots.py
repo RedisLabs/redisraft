@@ -1,15 +1,16 @@
-import sys
-import time
-import sandbox
 from nose.tools import eq_, ok_
+import sandbox
 from test_tools import with_setup_args
 from raftlog import RaftLog, LogEntry
+
 
 def _setup():
     return [sandbox.Cluster()], {}
 
+
 def _teardown(c):
     c.destroy()
+
 
 @with_setup_args(_setup, _teardown)
 def test_snapshot_delivery(c):
@@ -31,6 +32,7 @@ def test_snapshot_delivery(c):
     r2 = c.add_node()
     c.wait_for_unanimity()
     eq_(r2.client.get('testkey'), b'4')
+
 
 @with_setup_args(_setup, _teardown)
 def test_log_fixup_after_snapshot_delivery(c):
@@ -61,6 +63,7 @@ def test_log_fixup_after_snapshot_delivery(c):
     log.read()
     eq_(log.header().snapshot_index(), 8)
 
+
 @with_setup_args(_setup, _teardown)
 def test_cfg_node_added_from_snapshot(c):
     """
@@ -84,10 +87,11 @@ def test_cfg_node_added_from_snapshot(c):
         eq_(str(c.node(3).client.get('key%s' % i), 'utf-8'), 'val%s' % i)
     eq_(c.node(3).client.get('counter'), b'100')
 
+
 @with_setup_args(_setup, _teardown)
 def test_index_correct_right_after_snapshot(c):
     c.create(1)
-    for i in range(10):
+    for _ in range(10):
         c.node(1).raft_exec('INCR', 'counter')
     info = c.node(1).raft_info()
     eq_(11, info['current_index'])
@@ -98,6 +102,7 @@ def test_index_correct_right_after_snapshot(c):
     eq_(0, info['log_entries'])
     eq_(11, info['current_index'])
     eq_(11, info['commit_index'])
+
 
 @with_setup_args(_setup, _teardown)
 def test_cfg_node_removed_from_snapshot(c):
@@ -127,6 +132,7 @@ def test_cfg_node_removed_from_snapshot(c):
     c.wait_for_unanimity()
     eq_(4, c.node(4).raft_info()['num_nodes'])
 
+
 @with_setup_args(_setup, _teardown)
 def test_all_committed_log_rewrite(c):
     """
@@ -146,6 +152,7 @@ def test_all_committed_log_rewrite(c):
     log = RaftLog(c.node(1).raftlog)
     log.read()
     eq_(0, log.entry_count(LogEntry.LogType.NORMAL))
+
 
 @with_setup_args(_setup, _teardown)
 def test_uncommitted_log_rewrite(c):
@@ -175,6 +182,7 @@ def test_uncommitted_log_rewrite(c):
     eq_(c.node(1).current_index(), 7)
     eq_(c.node(1).commit_index(), 6)
     eq_(1, c.node(1).raft_info()['log_entries'])
+
 
 @with_setup_args(_setup, _teardown)
 def test_new_uncommitted_during_rewrite(c):
@@ -216,7 +224,7 @@ def test_new_uncommitted_during_rewrite(c):
 
     # TODO: Need a log entry for the commit index to be re-computed; In the
     # future Redis Raft should do that implicitly with a no-op.
-    c.raft_exec('set','no-op','no-op')
+    c.raft_exec('set', 'no-op', 'no-op')
 
     # Make sure cluster state is as expected
     eq_(b'10', c.raft_exec('get', 'key'))
@@ -224,6 +232,7 @@ def test_new_uncommitted_during_rewrite(c):
     # Make sure node 1 state is as expected
     c.node(1).wait_for_log_applied()
     eq_(b'10', c.node(1).client.get('key'))
+
 
 @with_setup_args(_setup, _teardown)
 def test_identical_snapshot_and_log(c):
@@ -236,6 +245,7 @@ def test_identical_snapshot_and_log(c):
 
     # Both log and snapshot have all entries
     eq_(r1.client.get('testkey'), b'2')
+
 
 @with_setup_args(_setup, _teardown)
 def test_loading_log_tail(c):
@@ -254,6 +264,7 @@ def test_loading_log_tail(c):
     # Log contains all entries
     # Snapshot has all but last 3 entries
     eq_(r1.client.get('testkey'), b'6')
+
 
 @with_setup_args(_setup, _teardown)
 def test_loading_log_tail_after_rewrite(c):

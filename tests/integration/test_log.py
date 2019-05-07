@@ -1,17 +1,19 @@
-import sys
 import time
-import sandbox
 import redis
-from nose.tools import (eq_, ok_, assert_raises_regex, assert_regex,
-                        assert_greater, timed)
+from nose.tools import (eq_, ok_, assert_regex, assert_greater)
+from raftlog import RaftLog
+
 from test_tools import with_setup_args
-from raftlog import RaftLog, RawEntry
+import sandbox
+
 
 def _setup():
     return [sandbox.Cluster()], {}
 
+
 def _teardown(c):
     c.destroy()
+
 
 @with_setup_args(_setup, _teardown)
 def test_log_rollback(c):
@@ -60,6 +62,7 @@ def test_log_rollback(c):
     log.read()
     assert_regex(str(log.entries[7].data()), '.*SET.*value3')
 
+
 @with_setup_args(_setup, _teardown)
 def test_raft_log_max_file_size(c):
     """
@@ -69,10 +72,11 @@ def test_raft_log_max_file_size(c):
     r1 = c.add_node()
     eq_(r1.raft_info()['log_entries'], 1)
     ok_(r1.raft_config_set('raft-log-max-file-size', '1kb'))
-    for x in range(10):
+    for _ in range(10):
         ok_(r1.raft_exec('SET', 'testkey', 'x'*500))
     time.sleep(1)
     assert_greater(10, r1.raft_info()['log_entries'])
+
 
 @with_setup_args(_setup, _teardown)
 def test_raft_log_max_cache_size(c):
@@ -90,13 +94,14 @@ def test_raft_log_max_cache_size(c):
     eq_(info['cache_entries'], 2)
     assert_greater(info['cache_memory_size'], 0)
 
-    for x in range(10):
+    for _ in range(10):
         ok_(r1.raft_exec('SET', 'testkey', 'x' * 500))
 
     time.sleep(1)
     info = r1.raft_info()
     eq_(info['log_entries'], 12)
     assert_greater(5, info['cache_entries'])
+
 
 @with_setup_args(_setup, _teardown)
 def test_reply_to_cache_invalidated_entry(c):

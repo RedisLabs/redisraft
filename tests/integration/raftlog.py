@@ -2,6 +2,7 @@ import os
 import logging
 from enum import Enum
 
+
 class RawEntry(object):
     # Log entries
     RAFTLOG = 'RAFTLOG'
@@ -14,8 +15,8 @@ class RawEntry(object):
         return str(self.args[0], encoding='ascii')
 
     @classmethod
-    def from_file(cls, f):
-        mb_line = str(f.readline().rstrip(), encoding='ascii')
+    def from_file(cls, _file):
+        mb_line = str(_file.readline().rstrip(), encoding='ascii')
         if not mb_line:
             raise EOFError('End of file reading multi-bulk')
         if not mb_line.startswith('*'):
@@ -24,23 +25,22 @@ class RawEntry(object):
 
         args = []
         for _ in range(elements):
-            hdr = str(f.readline().rstrip(), encoding='ascii')
+            hdr = str(_file.readline().rstrip(), encoding='ascii')
             if not hdr.startswith('$'):
                 raise RuntimeError('Missing/invalid bulk header')
-            len = int(hdr[1:])
-            data = f.read(len)
+            _len = int(hdr[1:])
+            data = _file.read(_len)
             args.append(data)
 
-            eol = f.read(2)
+            eol = _file.read(2)
             if eol != b'\r\n':
                 raise RuntimeError('Missing CRLF after bulk data')
 
         if str(args[0], encoding='ascii') == cls.ENTRY:
             return LogEntry(args)
-        elif str(args[0], encoding='ascii') == cls.RAFTLOG:
+        if str(args[0], encoding='ascii') == cls.RAFTLOG:
             return LogHeader(args)
-        else:
-            return RawEntry(args)
+        return RawEntry(args)
 
     def __str__(self):
         return '<RawEntry:kind=%s>' % self.kind()
@@ -49,27 +49,36 @@ class RawEntry(object):
         return '<RawEntry:%s>' % ','.join(str(x, encoding='ascii')
                                           for x in self.args)
 
+
 class LogHeader(RawEntry):
     def version(self):
         return int(self.args[1])
+
     def dbid(self):
         return self.args[2]
+
     def node_id(self):
         return self.args[3]
+
     def snapshot_term(self):
         return int(self.args[4])
+
     def snapshot_index(self):
         return int(self.args[5])
+
     def last_term(self):
         return int(self.args[6])
+
     def last_vote(self):
         return int(self.args[7])
+
     def __repr__(self):
         return '<LogHeader:version=%s,dbid=%s,node_id=%s,' \
                'snapshot=<term:%s,index:%s>,last_term=%s,last_vote=%s' % (
                    self.version(), self.dbid(), self.node_id(),
                    self.snapshot_term(), self.snapshot_index(),
                    self.last_term(), self.last_vote())
+
 
 class LogEntry(RawEntry):
     class LogType(Enum):
@@ -81,16 +90,20 @@ class LogEntry(RawEntry):
 
     def term(self):
         return int(self.args[1])
+
     def id(self):
         return int(self.args[2])
+
     def type(self):
         return self.LogType(int(self.args[3]))
+
     def data(self):
         return self.args[4]
 
     def __repr__(self):
         return '<LogEntry:%s:id=%s,term=%s,data=%s>' % (
             self.type(), self.id(), self.term(), self.data())
+
 
 class RaftLog(object):
     def __init__(self, filename):
@@ -116,12 +129,12 @@ class RaftLog(object):
     def last_entry(self):
         return self.entries[-1]
 
-    def entry_count(self, type=None):
+    def entry_count(self, _type=None):
         count = 0
         for entry in self.entries:
             if not isinstance(entry, LogEntry):
                 continue
-            if type is None or type == entry.type():
+            if _type is None or _type == entry.type():
                 count += 1
         return count
 
@@ -130,4 +143,3 @@ class RaftLog(object):
         for entry in self.entries:
             logging.info(repr(entry))
         logging.info('===== End Raft Log Dump =====')
-
