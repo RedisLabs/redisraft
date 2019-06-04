@@ -6,7 +6,7 @@ ENV LEIN_ROOT true
 #
 RUN apt-get -y -q update && \
     apt-get install -qqy \
-        openjdk-9-jre \
+        openjdk-8-jre \
         libjna-java \
         git \
         gnuplot \

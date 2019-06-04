@@ -5,7 +5,8 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :main jepsen.redisraft
 ;; Uncomment this for more recent JVMs
-;; :jvm-opts ["--add-modules" "java.xml.bind"]
-  :dependencies [[org.clojure/clojure "1.8.0"]
-                 [jepsen "0.1.11"]
+;;:jvm-opts ["--add-modules" "java.xml.bind"]
+;;:jvm-opts ["-Xmx10g"]
+  :dependencies [[org.clojure/clojure "1.10.1"]
+                 [jepsen "0.1.17"]
                  [com.taoensso/carmine "2.19.1"]])

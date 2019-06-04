@@ -62,33 +62,8 @@ Then execute:
 
 ### Jepsen
 
-The module includes a basic set of Jepsen-based tests to verify consistency
-guarantees. It is set up to execute a 5-node cluster + a Jepsen control node,
-based on the Jepsen Docker Compose setup.
-
-First, you'll need to build a tarball that contains Redis + the module, compiled
-for a debian image used for Jepsen.
-
-To do that, run:
-
-    ./jepsen/docker/build_dist.sh
-
-This should result with a `jepsen/docker/dist` directory being created with a
-single tarball.
-
-To start Jepsen:
-
-    cd jepsen/docker
-    ./up.sh
-
-This will launch Jepsen's built-in web server on `http://localhost:8080`, but do
-nothing else.
-
-To start an actual test, use a command such as:
-
-    docker exec -ti jepsen-control bash
-    lein run test --time-limit 60 --concurrency 200
-
+See [jepsen/README.md](jepsen/README.md) for information on using Jepsen to test
+Redis Raft for linerizability violations.
 
 General Design
 --------------

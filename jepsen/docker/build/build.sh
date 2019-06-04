@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-REDIS_VERSION=${REDIS_VERSION:-5.0.0}
+REDIS_REPO=${REDIS_REPO:-yossigo/redis}
+REDIS_VERSION=${REDIS_VERSION:-blocking-api-fix}
 if [ -z "$VERSION" ]; then
     echo "Missing VERSION environment variable!"
     exit 1
@@ -17,8 +18,7 @@ cd /work/redisraft
 (cd /src ; tar cf - * --exclude jepsen) | tar xf -
 
 cd /work
-curl -L https://github.com/antirez/redis/archive/${REDIS_VERSION}.tar.gz | tar xfz -
-mv redis-${REDIS_VERSION} redis
+curl -L https://github.com/${REDIS_REPO}/archive/${REDIS_VERSION}.tar.gz | tar xfz - --transform='s,[^/]*,redis,'
 
 # Avoid core dump corruption:
 sed -i '/^#define HAVE_PROC_MAPS/ d' redis/src/config.h

@@ -70,9 +70,10 @@
       :--port    port
       :--bind    "0.0.0.0"
       :--loadmodule modulename
+        :raftize-all-commands=no
         (str "id=" (redisraft-node-id test node))
         (str "raft-log-filename=" raftlog)
-        (when-not (:disable-proxy test) "follower-proxy=yes"))))
+        (when (:enable-proxy test) "follower-proxy=yes"))))
 
 (defn create!
   "Create the redisraft cluster."
@@ -186,18 +187,18 @@
   (merge tests/noop-test
          opts
          {:name         (str "redisraft"
-                             (when (:disable-proxy opts) "+disable-proxy"))
+                             (when (:enable-proxy opts) "+proxy"))
           :os           debian/os
           :db           (db "1.0")
           :client       (Client. nil)
           :nemesis      (nemesis/partition-random-halves)
-          :model        (model/cas-register)
           :checker (checker/compose
                      {:perf (checker/perf)
                       :indep (independent/checker
                                (checker/compose
                                  {:timeline (timeline/html)
-                                  :linear (checker/linearizable)}))})
+                                  :linear (checker/linearizable
+                                            {:model (model/cas-register)})}))})
           :generator (->> (independent/concurrent-generator
                             10
                             (range)
@@ -214,7 +215,7 @@
 
 (def cli-opts
   "Additional command line options."
-  [[nil "--disable-proxy" "Do not Use request proxying from follower to leader."
+  [[nil "--enable-proxy" "Use request proxying from follower to leader."
     :default false]
    ])
 
