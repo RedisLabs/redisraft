@@ -10,7 +10,8 @@ else
 endif
 
 CC = gcc
-CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
+USE_TEMP_API = -DUSE_TEMP_API
+CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE $(USE_TEMP_API)
 CFLAGS = -g -Wall -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS)
 LDFLAGS = $(ARCH_LDFLAGS)
 
@@ -29,7 +30,8 @@ OBJECTS = \
 	  raft.o \
 	  snapshot.o \
 	  log.o \
-	  proxy.o
+	  proxy.o \
+	  serialization.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage
@@ -59,7 +61,8 @@ endif
 TEST_OBJECTS = \
 	tests/main.o \
 	tests/test_log.o \
-	tests/test_util.o
+	tests/test_util.o \
+	tests/test_serialization.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
 TEST_LIBS = $(BUILDDIR)/lib/libcmocka.a $(DUT_LIBS) -lpthread

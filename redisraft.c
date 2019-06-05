@@ -213,15 +213,47 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    req->r.redis.cmd.argc = argc - 1;
-    req->r.redis.cmd.argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
+    RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
+
+    cmd->argc = argc - 1;
+    cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
 
     int i;
     for (i = 0; i < argc - 1; i++) {
-        req->r.redis.cmd.argv[i] =  argv[i + 1];
-        RedisModule_RetainString(req->ctx, req->r.redis.cmd.argv[i]);
+        cmd->argv[i] =  argv[i + 1];
+        RedisModule_RetainString(req->ctx, cmd->argv[i]);
     }
     RaftReqSubmit(&redis_raft, req);
+
+    return REDISMODULE_OK;
+}
+
+/* RAFT.ENTRY [Serialized Entry]
+ *   Receive a serialized batch of Redis commands (like a Raft entry) and
+ *   process them, as if received as individual RAFT commands.
+ *
+ *   This is used to simplify the proxying of MULTI/EXEC commands.
+ * Reply:
+ *   -MOVED <addr> ||
+ *   Any standard Redis reply
+ */
+static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    size_t data_len;
+    const char *data = RedisModule_StringPtrLen(argv[1], &data_len);
+
+    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    if (RaftRedisCommandArrayDeserialize(&req->r.redis.cmds, data, data_len) != RR_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid argument");
+        RaftReqFree(req);
+    } else {
+        RaftReqSubmit(&redis_raft, req);
+    }
 
     return REDISMODULE_OK;
 }
@@ -490,11 +522,24 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
+static void handleClientDisconnect(unsigned long long id)
+{
+    RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
+    req->r.client_disconnect.client_id = id;
+
+    RaftReqSubmit(&redis_raft, req);
+}
+
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
     /* Register commands */
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmdRaft, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.entry",
+                cmdRaftEntry, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
@@ -594,6 +639,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_Log(ctx, REDIS_WARNING, "Error: raftize-all-commands=yes is not supported on this Redis version.");
         return REDISMODULE_ERR;
     }
+
+#ifdef USE_TEMP_API
+    RedisModule_RegisterClientDisconnectCallback(handleClientDisconnect);
+#endif
 
     /* Start Raft thread */
     if (RedisRaftStart(ctx, &redis_raft) == RR_ERROR) {

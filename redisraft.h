@@ -271,7 +271,8 @@ enum RaftReqType {
     RR_REDISCOMMAND,
     RR_INFO,
     RR_LOADSNAPSHOT,
-    RR_COMPACT
+    RR_COMPACT,
+    RR_CLIENT_DISCONNECT,
 };
 
 typedef struct {
@@ -283,6 +284,12 @@ typedef struct {
     int argc;
     RedisModuleString **argv;
 } RaftRedisCommand;
+
+typedef struct {
+    int size;           /* Size of allocated array */
+    int len;            /* Number of elements in array */
+    RaftRedisCommand **commands;
+} RaftRedisCommandArray;
 
 typedef struct RaftReq {
     int type;
@@ -304,7 +311,7 @@ typedef struct RaftReq {
         } requestvote;
         struct {
             redisAsyncContext *proxy_conn;
-            RaftRedisCommand cmd;
+            RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
         struct {
@@ -312,6 +319,9 @@ typedef struct RaftReq {
             raft_index_t idx;
             RedisModuleString *snapshot;
         } loadsnapshot;
+        struct {
+            unsigned long long client_id;
+        } client_disconnect;
     } r;
 } RaftReq;
 
@@ -363,10 +373,16 @@ void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);
 void HandleNodeStates(RedisRaftCtx *rr);
 
+/* serialization.c */
+raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source);
+size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, size_t buf_size);
+RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size);
+void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
+void RaftRedisCommandFree(RaftRedisCommand *r);
+RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
+void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandArray *source);
+
 /* raft.c */
-raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source);
-bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx, RaftRedisCommand *target, void *source);
-void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r);
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 void HandleClusterJoinCompleted(RedisRaftCtx *rr);

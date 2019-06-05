@@ -60,24 +60,14 @@ exit:
 
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
 {
-    int argc = req->r.redis.cmd.argc + 1;
-    const char *argv[argc];
-    size_t argvlen[argc];
-    int i;
-
+    /* TODO: Fail if any key is watched. */
     if (!leader->rc || leader->state != NODE_CONNECTED) {
         return RR_ERROR;
     }
 
-    argv[0] = "RAFT";
-    argvlen[0] = 4;
-
-    for (i = 1; i < argc; i++) {
-        argv[i] = RedisModule_StringPtrLen(req->r.redis.cmd.argv[i-1], &argvlen[i]);
-    }
-
-    if (redisAsyncCommandArgv(leader->rc, handleProxiedCommandResponse,
-                req, req->r.redis.cmd.argc + 1, argv, argvlen) != REDIS_OK) {
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    if (redisAsyncCommand(leader->rc, handleProxiedCommandResponse,
+                req, "RAFT.ENTRY %b", entry->data, entry->data_len) != REDIS_OK) {
         return RR_ERROR;
     }
 

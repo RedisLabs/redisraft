@@ -6,13 +6,6 @@
 #include <unistd.h>
 #include <ctype.h>
 
-/* Verify we're little endian, as our encoding is such and we
- * don't do network/host reodering.
- */
-#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
-#error Byte order swapping is currently not implemented.
-#endif
-
 #include "redisraft.h"
 
 /* Forward declarations */
@@ -25,6 +18,8 @@ static bool processExiting = false;
 static void __setProcessExiting(void) {
     processExiting = true;
 }
+
+static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Command Classification ------------------------------------ */
 
@@ -96,75 +91,70 @@ static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
 
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
 
-/* Serialize a RaftRedisCommand into a Raft entry */
-raft_entry_t *RaftRedisCommandSerialize(RaftRedisCommand *source)
-{
-    size_t sz = sizeof(size_t) * (source->argc + 1);
-    size_t len;
-    int i;
-    char *p;
+/* ---------------------- RAFT MULTI/EXEC Handlig ---------------------------- */
 
-    /* Compute sizes */
-    for (i = 0; i < source->argc; i++) {
-        RedisModule_StringPtrLen(source->argv[i], &len);
-        sz += len;
-    }
-
-    /* Prepare entry */
-    raft_entry_t *ety = raft_entry_new(sz);
-    p = ety->data;
-
-    *(size_t *)p = source->argc;
-    p += sizeof(size_t);
-
-    /* Serialize argumnets */
-    for (i = 0; i < source->argc; i++) {
-        const char *d = RedisModule_StringPtrLen(source->argv[i], &len);
-        *(size_t *)p = len;
-        p += sizeof(size_t);
-        memcpy(p, d, len);
-        p += len;
-    }
-
-    return ety;
-}
-
-/* Deserialize a RaftRedisCommand from a Raft entry */
-bool RaftRedisCommandDeserialize(RedisModuleCtx *ctx,
-        RaftRedisCommand *target, void *source)
-{
-    char *p = source;
-    size_t argc = *(size_t *)p;
-    p += sizeof(size_t);
-
-    target->argv = RedisModule_Calloc(argc, sizeof(RedisModuleString *));
-    target->argc = argc;
-
-    int i;
-    for (i = 0; i < argc; i++) {
-        size_t len = *(size_t *)p;
-        p += sizeof(size_t);
-
-        target->argv[i] = RedisModule_CreateString(ctx, p, len);
-        p += len;
-    }
-
-    return true;
-}
-
-/* Free a RaftRedisCommand */
-void RaftRedisCommandFree(RedisModuleCtx *ctx, RaftRedisCommand *r)
-{
-    int i;
-
-    for (i = 0; i < r->argc; i++) {
-        RedisModule_FreeString(ctx, r->argv[i]);
-    }
-    RedisModule_Free(r->argv);
-}
-
+/* There are several concerns about MULTI/EXEC Handling:
+ *
+ * 1. We want to make sure that the commands are executed atomically across all
+ *    cluster nodes. To do this, we need to pack them as a single Raft log entry.
+ * 2. When executing the MULTI/EXEC we don't really need to wrap it because Redis
+ *    wraps all module commands in MULTI/EXEC (although no harm is done).
+ * 3. The MULTI/EXEC wrapping also ensures that any WATCHed keys will fail the
+ *    transaction.  We do have to be careful though and never proxy such operations
+ *    to a leader, as we don't synchronize WATCH.  (Note: we should also avoid
+ *    proxying WATCH commands of course).
+ */
 
 /* ------------------------------------ Log Execution ------------------------------------ */
+
+/* Execute all commands in a specified RaftRedisCommandArray.
+ *
+ * The commands are executed on ctx, which can be a real or thread-safe
+ * context.  Caller is responsible to hold the lock.
+ *
+ * If reply_ctx is non-NULL, replies are delivered to it.
+ * Otherwise no replies are delivered.
+ */
+static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
+    RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx)
+{
+    int i;
+
+    for (i = 0; i < array->len; i++) {
+        RaftRedisCommand *c = array->commands[i];
+
+        size_t cmdlen;
+        const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
+
+        /* We need to handle MULTI as a special case:
+        * 1. Skip the command (no need to execute MULTI in a Module context).
+        * 2. If we're returning a response, group it as an array (multibulk).
+        */
+
+        if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
+            if (reply_ctx) {
+                RedisModule_ReplyWithArray(reply_ctx, array->len - 1);
+            }
+
+            continue;
+        }
+
+        RedisModuleCallReply *reply = RedisModule_Call(
+                ctx, cmd, "v", &c->argv[1], c->argc - 1);
+
+        if (reply_ctx) {
+            if (reply) {
+                RedisModule_ReplyWithCallReply(reply_ctx, reply);
+            } else {
+                RedisModule_ReplyWithError(reply_ctx, "ERR Unknown command/arguments");
+            }
+        }
+
+        if (reply) {
+            RedisModule_FreeCallReply(reply);
+        }
+    }
+}
 
 /*
  * Execution of Raft log on the local instance.  There are two variants:
@@ -179,32 +169,19 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
     /* TODO: optimize and avoid deserialization here, we can use the
      * original argv in RaftReq
      */
-    RaftRedisCommand rcmd;
-    RaftRedisCommandDeserialize(rr->ctx, &rcmd, entry->data);
+
+    RaftRedisCommandArray entry_cmds = { 0 };
+    if (RaftRedisCommandArrayDeserialize(&entry_cmds, entry->data, entry->data_len) != RR_OK) {
+        PANIC("Invalid Raft entry");
+    }
+
     RaftReq *req = entry->user_data;
     RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
-    size_t cmdlen;
-    const char *cmd = RedisModule_StringPtrLen(rcmd.argv[0], &cmdlen);
-
-    RedisModule_ThreadSafeContextLock(ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(
-            ctx, cmd, "v",
-            &rcmd.argv[1],
-            rcmd.argc - 1);
     RedisModule_ThreadSafeContextUnlock(ctx);
-    if (req) {
-        if (reply) {
-            RedisModule_ReplyWithCallReply(ctx, reply);
-        } else {
-            RedisModule_ReplyWithError(ctx, "Unknown command/arguments");
-        }
-    }
-    RaftRedisCommandFree(rr->ctx, &rcmd);
-
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
-    }
+    executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RaftRedisCommandArrayFree(&entry_cmds);
 
     if (req) {
         /* Free request now, we don't need it anymore */
@@ -712,7 +689,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     /* Initiate snapshot if log size exceeds raft-log-file-max */
-    if (!rr->snapshot_in_progress && rr->config->raft_log_max_file_size && 
+    if (!rr->snapshot_in_progress && rr->config->raft_log_max_file_size &&
             raft_get_num_snapshottable_logs(rr->raft) > 0 &&
             rr->log->file_size > rr->config->raft_log_max_file_size) {
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.\n",
@@ -944,6 +921,9 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     rr->ctx = RedisModule_GetThreadSafeContext(NULL);
     rr->config = config;
 
+    /* Client state for MULTI support */
+    multiClientState = RedisModule_CreateDict(ctx);
+
     /* Read configuration from Redis */
     if (ConfigReadFromRedis(rr) == RR_ERROR) {
         PANIC("Raft initialization failed: invalid Redis configuration!");
@@ -991,8 +971,6 @@ RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
 void RaftReqFree(RaftReq *req)
 {
-    int i;
-
     switch (req->type) {
         case RR_APPENDENTRIES:
             /* Note: we only free the array of entries but not actual entries, as they
@@ -1011,14 +989,10 @@ void RaftReqFree(RaftReq *req)
             }
             break;
         case RR_REDISCOMMAND:
-            if (req->ctx && req->r.redis.cmd.argv) {
-                for (i = 0; i < req->r.redis.cmd.argc; i++) {
-                    RedisModule_FreeString(req->ctx, req->r.redis.cmd.argv[i]);
-                }
-                RedisModule_Free(req->r.redis.cmd.argv);
+            if (req->ctx && req->r.redis.cmds.size) {
+                RaftRedisCommandArrayFree(&req->r.redis.cmds);
             }
             // TODO: hold a reference from entry so we can disconnect our req
-            req->r.redis.cmd.argv = NULL;
             break;
         case RR_LOADSNAPSHOT:
             RedisModule_FreeString(req->ctx, req->r.loadsnapshot.snapshot);
@@ -1098,7 +1072,7 @@ static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
                 raft_get_node(rr->raft, req->r.requestvote.src_node_id),
                 &req->r.requestvote.msg,
                 &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "operation failed"); // TODO: Identify cases
+        RedisModule_ReplyWithError(req->ctx, "ERR operation failed"); // TODO: Identify cases
         goto exit;
     }
 
@@ -1208,22 +1182,9 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    size_t cmdlen;
-    const char *cmd = RedisModule_StringPtrLen(req->r.redis.cmd.argv[0], &cmdlen);
-
     RedisModule_ThreadSafeContextLock(req->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(req->ctx, cmd, "v",
-            &req->r.redis.cmd.argv[1], req->r.redis.cmd.argc - 1);
+    executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
     RedisModule_ThreadSafeContextUnlock(req->ctx);
-    if (reply) {
-        RedisModule_ReplyWithCallReply(req->ctx, reply);
-    } else {
-        RedisModule_ReplyWithError(req->ctx, "Unknown command/arguments");
-    }
-
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
-    }
 
 exit:
     RaftReqFree(req);
@@ -1243,6 +1204,131 @@ static bool checkReadOnlyCommand(RedisModuleString *cmd)
     return RedisModule_DictGetC(readonlyCommandDict, lcmd, cmd_len, NULL) != NULL;
 }
 
+static bool checkReadOnlyCommandArray(RaftRedisCommandArray *array)
+{
+    int i;
+
+    for (i = 0; i < array->len; i++) {
+        if (!checkReadOnlyCommand(array->commands[i]->argv[0]))
+            return false;
+    }
+
+    return true;
+}
+
+/* Handle MULTI/EXEC transactions here.
+ *
+ * If this logic was applied, the request is freeed (if necessary) and the
+ * return value is true, indicating no further processing is required.
+ * Otherwise, the main handleRedisCommand() flow is applied.
+ *
+ * 1) On MULTI, we create a RaftRedisCommandArray which will store all
+ *    user commands as they are queued.
+ * 2) On EXEC, we remove the RaftRedisCommandArray with all queued commands
+ *    from multiClientState, place it in the RaftReq and let the rest of the
+ *    code handle it.
+ * 3) On DISCARD we simply remove the queued commands array.
+ *
+ * Important notes:
+ * 1) Although as a module we don't need to pass MULTI to Redis, we still keep
+ *    it in the array, because when processing the array we want to distinguish
+ *    between a MULTI with a single command and a non-MULTI scenario.
+ * 2) If our RaftReq contains multiple commands, we assume it was received as
+ *    a RAFT.ENTRY in which case we need to process it as an EXEC.  That means
+ *    we don't need to reply with +OK and multiple +QUEUED, but just process
+ *    the commands atomically.  This is common when a follower proxies a batch
+ *    of commands to a leader: the follower handles the user interaction and
+ *    the leader only handles the execution (when the user issued the final
+ *    EXEC).
+ */
+
+static void freeMultiExecState(unsigned long long client_id)
+{
+
+    RaftRedisCommandArray *multiState = NULL;
+
+    if (RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id),
+               &multiState) == REDISMODULE_OK) {
+       if (multiState) {
+        RaftRedisCommandArrayFree(multiState);
+       }
+    }
+}
+
+static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
+{
+    unsigned long long client_id = RedisModule_GetClientId(req->ctx);
+
+
+    /* Get Multi state */
+    RaftRedisCommandArray *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
+
+    /* Is this a MULTI command? */
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+    if (req->r.redis.cmds.len == 1 && cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
+        if (multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
+        } else {
+            multiState = RedisModule_Calloc(sizeof(RaftRedisCommandArray), 1);
+            RedisModule_DictSetC(multiClientState, &client_id, sizeof(client_id), multiState);
+
+            /* We put the MULTI as the first command in the array, as we still need to
+             * distinguish single-MULTI array from a single command.
+             */
+            RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
+        if (!multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR EXEC without MULTI");
+        } else {
+            /* Just swap our commands with the EXEC command and proceed. */
+            RaftRedisCommandArrayFree(&req->r.redis.cmds);
+            RaftRedisCommandArrayMove(&req->r.redis.cmds, multiState);
+
+            RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
+            RaftRedisCommandArrayFree(multiState);
+            return false;
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
+        if (!multiState) {
+            RedisModule_ReplyWithError(req->ctx, "ERR DISCARD without MULTI");
+        } else {
+            RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
+            RaftRedisCommandArrayFree(multiState);
+
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    /* Are we in MULTI? */
+    if (multiState) {
+        RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+        RedisModule_ReplyWithSimpleString(req->ctx, "QUEUED");
+
+        RaftReqFree(req);
+        return true;
+    }
+
+    return false;
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
@@ -1250,6 +1336,10 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
+    }
+
+    if (handleMultiExec(rr, req)) {
+        return;
     }
 
     /* Proxy */
@@ -1264,7 +1354,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     /* If command is read only we don't push it to the log, but queue it
      * until we can confirm it's safe to execute (i.e. still a leader).
      */
-    if (checkReadOnlyCommand(req->r.redis.cmd.argv[0])) {
+    if (checkReadOnlyCommandArray(&req->r.redis.cmds)) {
         if (rr->config->quorum_reads) {
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         } else {
@@ -1273,7 +1363,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    raft_entry_t *entry = RaftRedisCommandSerialize(&req->r.redis.cmd);
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entry->user_data = req;
@@ -1411,6 +1501,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->snapshot_in_progress ? "yes" : "no"
             );
 
+    s = catsnprintf(s, &slen,
+            "\r\n# Clients\r\n"
+            "clients_in_multi_state:%d\r\n",
+            RedisModule_DictSize(multiClientState));
+
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);
 
@@ -1424,12 +1519,12 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
     }
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "Already cluster member");
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
     }
 
     if (initCluster(req->ctx, rr, rr->config) == RR_ERROR) {
-        RedisModule_ReplyWithError(req->ctx, "Failed to initialize, check logs");
+        RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
         goto exit;
     }
 
@@ -1450,7 +1545,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "Already cluster member");
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
     }
 
@@ -1493,6 +1588,12 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     rr->state = REDIS_RAFT_UP;
 }
 
+static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
+{
+    freeMultiExecState(req->r.client_disconnect.client_id);
+    RaftReqFree(req);
+}
+
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
     handleClusterInit,      /* RR_CLUSTER_INIT */
@@ -1505,6 +1606,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     handleCompact,          /* RR_COMPACT */
+    handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     NULL
 };
 
