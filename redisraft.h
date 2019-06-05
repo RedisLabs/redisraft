@@ -271,7 +271,8 @@ enum RaftReqType {
     RR_REDISCOMMAND,
     RR_INFO,
     RR_LOADSNAPSHOT,
-    RR_COMPACT
+    RR_COMPACT,
+    RR_CLIENT_DISCONNECT,
 };
 
 typedef struct {
@@ -318,6 +319,9 @@ typedef struct RaftReq {
             raft_index_t idx;
             RedisModuleString *snapshot;
         } loadsnapshot;
+        struct {
+            unsigned long long client_id;
+        } client_disconnect;
     } r;
 } RaftReq;
 

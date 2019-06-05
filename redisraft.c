@@ -522,6 +522,14 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
+static void handleClientDisconnect(unsigned long long id)
+{
+    RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
+    req->r.client_disconnect.client_id = id;
+
+    RaftReqSubmit(&redis_raft, req);
+}
+
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
     /* Register commands */
@@ -631,6 +639,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_Log(ctx, REDIS_WARNING, "Error: raftize-all-commands=yes is not supported on this Redis version.");
         return REDISMODULE_ERR;
     }
+
+#ifdef USE_TEMP_API
+    RedisModule_RegisterClientDisconnectCallback(handleClientDisconnect);
+#endif
 
     /* Start Raft thread */
     if (RedisRaftStart(ctx, &redis_raft) == RR_ERROR) {

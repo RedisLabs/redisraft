@@ -1,3 +1,5 @@
+import time
+
 import redis
 from nose import SkipTest
 from nose.tools import (ok_, eq_, assert_raises_regex)
@@ -78,6 +80,32 @@ def test_multi_exec(c):
     eq_(r1.raft_info()['current_index'], 2)
 
     eq_(r1.raft_exec('GET', 'key'), b'3')
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec_state_cleanup(c):
+    """
+    MULTI/EXEC state is cleaned up on client disconnect
+    """
+
+    r1 = c.add_node()
+
+    # Normal flow, no disconnect
+    c1 = r1.client.connection_pool.get_connection('multi')
+    c1.send_command('RAFT', 'MULTI')
+    eq_(c1.read_response(), b'OK')
+
+    c2 = r1.client.connection_pool.get_connection('multi')
+    c2.send_command('RAFT', 'MULTI')
+    eq_(c2.read_response(), b'OK')
+
+    eq_(r1.raft_info()['clients_in_multi_state'], 2)
+
+    c1.disconnect()
+    c2.disconnect()
+
+    time.sleep(1)   # Not ideal
+    eq_(r1.raft_info()['clients_in_multi_state'], 0)
 
 
 @with_setup_args(_setup, _teardown)

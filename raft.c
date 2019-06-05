@@ -1242,9 +1242,23 @@ static bool checkReadOnlyCommandArray(RaftRedisCommandArray *array)
  *    EXEC).
  */
 
+static void freeMultiExecState(unsigned long long client_id)
+{
+
+    RaftRedisCommandArray *multiState = NULL;
+
+    if (RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id),
+               &multiState) == REDISMODULE_OK) {
+       if (multiState) {
+        RaftRedisCommandArrayFree(multiState);
+       }
+    }
+}
+
 static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 {
     unsigned long long client_id = RedisModule_GetClientId(req->ctx);
+
 
     /* Get Multi state */
     RaftRedisCommandArray *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
@@ -1487,6 +1501,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->snapshot_in_progress ? "yes" : "no"
             );
 
+    s = catsnprintf(s, &slen,
+            "\r\n# Clients\r\n"
+            "clients_in_multi_state:%d\r\n",
+            RedisModule_DictSize(multiClientState));
+
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);
 
@@ -1569,6 +1588,12 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     rr->state = REDIS_RAFT_UP;
 }
 
+static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
+{
+    freeMultiExecState(req->r.client_disconnect.client_id);
+    RaftReqFree(req);
+}
+
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
     handleClusterInit,      /* RR_CLUSTER_INIT */
@@ -1581,6 +1606,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     handleCompact,          /* RR_COMPACT */
+    handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     NULL
 };
 
