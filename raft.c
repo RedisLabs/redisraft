@@ -1289,18 +1289,25 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
     if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
         if (!multiState) {
             RedisModule_ReplyWithError(req->ctx, "ERR EXEC without MULTI");
+            RaftReqFree(req);
+            return true;
+        }
+
+        /* Client is connected, we need to make sure it's not CAS dirty */
+        int ctx_flags = RedisModule_GetContextFlags(req->ctx);
+        if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI_DIRTY) {
+            RedisModule_ReplyWithNull(req->ctx);
+            RaftReqFree(req);
+            req = NULL;
         } else {
             /* Just swap our commands with the EXEC command and proceed. */
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, multiState);
-
-            RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
-            RaftRedisCommandArrayFree(multiState);
-            return false;
         }
 
-        RaftReqFree(req);
-        return true;
+        RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
+        RaftRedisCommandArrayFree(multiState);
+        return req == NULL;
     }
 
     if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
@@ -1335,6 +1342,19 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
+        goto exit;
+    }
+
+    /* If this is a request from a local client which is no longer connected,
+     * dont process it.
+     *
+     * NOTE: This is required for consistency reasons. MULTI/EXEC needs to do CAS checks at
+     * EXEC time, however the state of the client will be unavailable if it is connected.
+     * In that case, we need not only to discard the EXEC but also any command that followed
+     * in order to maintain consistency.
+     */
+
+    if (req->ctx && RedisModule_BlockedClientDisconnected(req->ctx)) {
         goto exit;
     }
 

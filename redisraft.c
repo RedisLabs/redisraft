@@ -212,6 +212,12 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(argv[1], &len);
+
+    fprintf(stderr, "@@@ Received command %.*s\n",
+            len, str);
+
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
 

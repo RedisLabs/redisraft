@@ -155,3 +155,70 @@ def test_multi_exec_raftized(c):
     eq_(r1.raft_info()['current_index'], 2)
 
     eq_(r1.client.execute_command('GET', 'key'), b'3')
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec_with_watch(c):
+    """
+    MULTI/EXEC with WATCH
+    """
+
+    r1 = c.add_node()
+
+    r1.client.execute_command('SET', 'watched-key', '1')
+
+    c1 = r1.client.connection_pool.get_connection('c1')
+    c1.send_command('WATCH', 'watched-key')
+    eq_(c1.read_response(), b'OK')
+
+    c2 = r1.client.connection_pool.get_connection('c2')
+    c2.send_command('RAFT', 'SET', 'watched-key', '2')
+    eq_(c2.read_response(), b'OK')
+
+    c1.send_command('RAFT', 'MULTI')
+    eq_(c1.read_response(), b'OK')
+    c1.send_command('RAFT', 'SET', 'watched-key', '3')
+    eq_(c1.read_response(), b'QUEUED')
+    c1.send_command('RAFT', 'EXEC')
+    eq_(c1.read_response(), None)
+
+    eq_(r1.client.execute_command('GET', 'watched-key'), b'2')
+
+
+@with_setup_args(_setup, _teardown)
+def test_multi_exec_with_disconnect(c):
+    """
+    MULTI/EXEC, client drops before EXEC.
+    """
+
+    r1 = c.add_node()
+
+    c1 = r1.client.connection_pool.get_connection('c1')
+    c2 = r1.client.connection_pool.get_connection('c2')
+
+    # We use RAFT.DEBUG COMPACT with delay to make the Raft thread
+    # busy and allow us to queue up several RaftReqs and disconnect in
+    # time.
+    # Note -- for compact to succeed we need at least one key.
+    r1.client.execute_command('RAFT', 'SET', 'somekey', 'someval')
+
+    c2.send_command('RAFT.DEBUG', 'COMPACT', '2')
+    time.sleep(0.5)
+
+    # While Raft thread is busy, pipeline a first non-MULTI request
+    c1.send_command('RAFT', 'SET', 'test-key', '1')
+
+    # Then pipeline a MULTI/EXEC which we expect to fail, because it
+    # cannot determine CAS safety.  We also want to be sure no other
+    # commands that follow get executed.
+    c1.send_command('RAFT', 'MULTI')
+    c1.send_command('RAFT', 'SET', 'test-key', '2')
+    c1.send_command('RAFT', 'EXEC')
+    c1.send_command('RAFT', 'SET', 'test-key', '3')
+    c1.disconnect()
+
+    # Wait for RAFT.DEBUG COMPACT
+    eq_(c2.read_response(), b'OK')
+
+    # Make sure SET succeeded and EXEC didn't.
+    eq_(r1.client.execute_command('GET', 'test-key'), b'1')

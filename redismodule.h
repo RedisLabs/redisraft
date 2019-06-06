@@ -87,7 +87,8 @@
 #define REDISMODULE_CTX_FLAGS_OOM_WARNING (1<<11)
 /* The command was sent over the replication link. */
 #define REDISMODULE_CTX_FLAGS_REPLICATED (1<<12)
-
+/* The next EXEC will fail due to dirty CAS (touched keys). */
+#define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<13)
 
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
 #define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */
