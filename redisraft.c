@@ -640,9 +640,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
-#ifdef USE_TEMP_API
-    RedisModule_RegisterClientDisconnectCallback(handleClientDisconnect);
-#endif
+    if (RedisModule_RegisterClientDisconnectCallback) {
+        RedisModule_RegisterClientDisconnectCallback(handleClientDisconnect);
+    } else {
+        RedisModule_Log(ctx, REDIS_WARNING, "** WARNING ** This version of redis does not support the temporary API extensions! As a result MULTI/EXEC may leak memory when clients drop, WATCH will not be supported, etc.");
+    }
 
     /* Start Raft thread */
     if (RedisRaftStart(ctx, &redis_raft) == RR_ERROR) {
