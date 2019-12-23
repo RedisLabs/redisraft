@@ -522,12 +522,16 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
-static void handleClientDisconnect(unsigned long long id)
+static void handleClientDisconnect(RedisModuleCtx *ctx,
+        RedisModuleEvent eid, uint64_t subevent, void *data)
 {
-    RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
-    req->r.client_disconnect.client_id = id;
-
-    RaftReqSubmit(&redis_raft, req);
+    if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
+            subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
+        RedisModuleClientInfo *ci = (RedisModuleClientInfo *) data;
+        RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
+        req->r.client_disconnect.client_id = ci->id;
+        RaftReqSubmit(&redis_raft, req);
+    }
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
@@ -640,10 +644,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_RegisterClientDisconnectCallback) {
-        RedisModule_RegisterClientDisconnectCallback(handleClientDisconnect);
-    } else {
-        RedisModule_Log(ctx, REDIS_WARNING, "** WARNING ** This version of redis does not support the temporary API extensions! As a result MULTI/EXEC may leak memory when clients drop, WATCH will not be supported, etc.");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
+                handleClientDisconnect) != REDISMODULE_OK) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+        return REDISMODULE_ERR;
     }
 
     /* Start Raft thread */
