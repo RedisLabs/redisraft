@@ -23,8 +23,8 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'antirez/redis'
-        ref: 'unstable'
+        repository: 'yossigo/redis'
+        ref: 'ctx-flags-multi-dirty'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make
