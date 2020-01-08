@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v2
       with:
         repository: 'antirez/redis'
-        ref: 'ctx-flags-multi-dirty'
+        ref: 'unstable'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make
