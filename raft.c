@@ -178,7 +178,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
     RaftReq *req = entry->user_data;
     RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_ThreadSafeContextLock(ctx);
     executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
     RedisModule_ThreadSafeContextUnlock(ctx);
     RaftRedisCommandArrayFree(&entry_cmds);
