@@ -8,6 +8,21 @@
 
 #include "redisraft.h"
 
+const char *RaftReqTypeStr[] = {
+    "<undef>",
+    "RR_CLUSTER_INIT",
+    "RR_CLUSTER_JOIN",
+    "RR_CFGCHANGE_ADDNODE",
+    "RR_CFGCHANGE_REMOVENODE",
+    "RR_APPENDENTRIES",
+    "RR_REQUESTVOTE",
+    "RR_REDISCOMMAND",
+    "RR_INFO",
+    "RR_LOADSNAPSHOT",
+    "RR_COMPACT",
+    "RR_CLIENT_DISCONNECT"
+};
+
 /* Forward declarations */
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
@@ -971,6 +986,8 @@ RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
 void RaftReqFree(RaftReq *req)
 {
+    TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p\n", req, req->ctx, req->client);
+
     switch (req->type) {
         case RR_APPENDENTRIES:
             /* Note: we only free the array of entries but not actual entries, as they
@@ -1019,6 +1036,9 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
     }
     req->type = type;
 
+    TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p\n",
+            req, RaftReqTypeStr[req->type], req->client, req->ctx);
+
     return req;
 }
 
@@ -1050,6 +1070,8 @@ void RaftReqHandleQueue(uv_async_t *handle)
     RaftReq *req;
 
     while ((req = raft_req_fetch(rr))) {
+        TRACE("RaftReqHandleQueue: req=%p, type=%s\n",
+                req, RaftReqTypeStr[req->type]);
         RaftReqHandlers[req->type](rr, req);
     }
 }

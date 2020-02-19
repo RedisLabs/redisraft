@@ -66,8 +66,12 @@ void raft_module_log(const char *fmt, ...);
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" \
                     fmt, ##__VA_ARGS__); exit(1); } while (0)
 
+#ifdef ENABLE_TRACE
 #define TRACE(fmt, ...) \
     LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+#else
+#define TRACE(fmt, ...)
+#endif
 
 #define NODE_TRACE(node, fmt, ...) \
     NODE_LOG(LOGLEVEL_DEBUG, node, "%s:%d: " fmt, \
@@ -274,6 +278,8 @@ enum RaftReqType {
     RR_COMPACT,
     RR_CLIENT_DISCONNECT,
 };
+
+extern const char *RaftReqTypeStr[];
 
 typedef struct {
     raft_node_id_t id;

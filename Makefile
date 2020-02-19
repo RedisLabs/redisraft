@@ -11,6 +11,9 @@ endif
 
 CC = gcc
 CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
+ifneq ($(TRACE),)
+    CPPFLAGS += -DENABLE_TRACE
+endif
 CFLAGS = -g -Wall -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS)
 LDFLAGS = $(ARCH_LDFLAGS)
 
