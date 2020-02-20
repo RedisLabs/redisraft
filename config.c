@@ -308,6 +308,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
     config->raft_log_fsync = true;
     config->quorum_reads = true;
+    config->raftize_all_commands = true;
 }
 
 static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)

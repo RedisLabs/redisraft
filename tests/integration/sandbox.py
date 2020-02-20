@@ -124,6 +124,7 @@ class RedisRaft(object):
         raft_args['addr'] = 'localhost:{}'.format(self.port)
         raft_args['raft-log-filename'] = self.raftlog
         raft_args['loglevel'] = config.raft_loglevel
+        raft_args['raftize-all-commands'] = 'no'
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)

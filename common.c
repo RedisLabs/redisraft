@@ -131,6 +131,9 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
 static void raftize_commands(RedisModuleCommandFilterCtx *filter)
 {
     static char *excluded_commands[] = {
+        "auth",
+        "ping",
+        "module",
         "raft",
         "info",
         "client",
