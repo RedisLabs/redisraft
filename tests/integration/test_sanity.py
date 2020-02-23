@@ -177,3 +177,26 @@ def test_raftize(c):
     eq_(r1.raft_info()['current_index'], 1)
     ok_(r1.client.execute_command('SET', 'key', 'value'))
     eq_(r1.raft_info()['current_index'], 2)
+
+
+@with_setup_args(_setup, _teardown)
+def test_raftize_does_not_affect_lua(c):
+    """
+    Make sure raftize-all-commands does not affect Lua commands.
+    """
+
+    r1 = c.add_node()
+    try:
+        ok_(r1.raft_config_set('raftize-all-commands', 'yes'))
+    except redis.ResponseError:
+        raise SkipTest('Not supported on this Redis')
+    eq_(r1.raft_info()['current_index'], 1)
+    eq_(r1.client.execute_command('EVAL', """
+redis.call('SET','key1','value1');
+redis.call('SET','key2','value2');
+redis.call('SET','key3','value3');
+return 1234;""", '0'), 1234)
+    eq_(r1.raft_info()['current_index'], 2)
+    eq_(r1.client.get('key1'), b'value1')
+    eq_(r1.client.get('key2'), b'value2')
+    eq_(r1.client.get('key3'), b'value3')
