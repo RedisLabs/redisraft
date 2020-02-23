@@ -55,7 +55,6 @@ following general exceptions:
 * Multiple databases (i.e. `SELECT`) are not supported.
 * Blocking commands (e.g. `BLPOP`) are not supported.
 * Publish/Subscribe and Streams are not supported (yet).
-* Lua scripts are not supported (yet).
 
 The following table summarizes the supported commands along with caveats, where
 applicable:
@@ -76,6 +75,8 @@ applicable:
 | DECRBY            | Yes       |          |
 | DEL               | Yes       |          |
 | DISCARD           | Yes       | See [3]  |
+| EVAL              | Yes       | See [4]  |
+| EVALSHA           | Yes       | See [4]  |
 | EXEC              | Yes       | See [3]  |
 | EXISTS            | Yes       |          |
 | EXPIRE            | Yes       | See [1]  |
@@ -131,7 +132,7 @@ applicable:
 | PFMERGE           | Yes       |          |
 | PSETEX            | Yes       |          |
 | PTTL              | Yes       |          |
-| RANDOMKEY         | Yes       |          |        
+| RANDOMKEY         | Yes       |          |
 | RENAME            | Yes       |          |
 | RENAMENX          | Yes       |          |
 | RPOP              | Yes       |          |
@@ -141,6 +142,7 @@ applicable:
 | SADD              | Yes       |          |
 | SCAN              | Yes       |          |
 | SCARD             | Yes       |          |
+| SCRIPT            | Yes       | See [4]  |
 | SDIFF             | Yes       |          |
 | SDIFFSTORE        | Yes       |          |
 | SET               | Yes       |          |
@@ -202,6 +204,11 @@ Notes:
 3. `MULTI/EXEC` and `WATCH` are not supported in *Explicit Mode* or if *Follower
    Proxy* is enabled.
 
+4. Lua scripts are supported but should be written as pure functions, i.e. as
+   required when script replication rather than command replication is in use.
+
+   For example, using commands such as `RANDOMKEY`, `SRANDMEMBER`, `TIME` or
+   other non-deterministic operations must be avoided.
 
 Read Consistency
 ----------------
