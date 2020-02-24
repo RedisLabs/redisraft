@@ -179,8 +179,14 @@ long EntryCacheCompact(EntryCache *cache, size_t max_memory)
 
 void RaftLogClose(RaftLog *log)
 {
-    fclose(log->file);
-    fclose(log->idxfile);
+    if (log->file) {
+        fclose(log->file);
+        log->file = NULL;
+    }
+    if (log->idxfile) {
+        fclose(log->idxfile);
+        log->idxfile = NULL;
+    }
     RedisModule_Free(log);
 }
 
@@ -576,14 +582,21 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config)
 {
     RaftLog *log = prepareLog(filename, config);
+    RawLogEntry *e = NULL;
+
     if (!log) {
         return NULL;
+    }
+
+    /* Gracefully skip an empty file */
+    fseek(log->file, 0L, SEEK_END);
+    if (!ftell(log->file)) {
+        goto error;
     }
 
     /* Read start */
     fseek(log->file, 0L, SEEK_SET);
 
-    RawLogEntry *e = NULL;
     if (readRawLogEntry(log, &e) < 0) {
         LOG_ERROR("Failed to read Raft log: %s\n", errno ? strerror(errno) : "invalid data");
         goto error;
@@ -600,7 +613,7 @@ error:
     if (e != NULL) {
         freeRawLogEntry(e);
     }
-    RedisModule_Free(log);
+    RaftLogClose(log);
     return NULL;
 }
 
