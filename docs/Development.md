@@ -62,7 +62,7 @@ Then execute:
 
 ### Jepsen
 
-See [jepsen/README.md](jepsen/README.md) for information on using Jepsen to test
+See [jepsen/README.md](../jepsen/README.md) for information on using Jepsen to test
 Redis Raft for linerizability violations.
 
 General Design
