@@ -1,8 +1,8 @@
-from nose.tools import eq_
+from nose.tools import eq_, assert_raises_regex
 
 import sandbox
 from test_tools import with_setup_args
-
+from redis import ResponseError
 
 def _setup():
     return [sandbox.Cluster()], {}
@@ -39,3 +39,14 @@ def test_node_join_redirects_to_leader(c):
     r3.start()
     r3.cluster('join', 'localhost:{}'.format(r2.port))
     r3.wait_for_election()
+
+@with_setup_args(_setup, _teardown)
+def test_leader_removal_not_allowed(c):
+    """
+    Leader node cannot be removed.
+    """
+
+    c.create(3)
+    eq_(c.leader, 1)
+    with assert_raises_regex(ResponseError, 'cannot remove leader'):
+        c.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '1')

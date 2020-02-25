@@ -1145,6 +1145,12 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    if (req->type == RR_CFGCHANGE_REMOVENODE &&
+            req->r.cfgchange.id == raft_get_nodeid(rr->raft)) {
+        RedisModule_ReplyWithError(req->ctx, "ERR cannot remove leader node");
+        goto exit;
+    }
+
     entry = raft_entry_new(sizeof(req->r.cfgchange));
     entry->id = rand();
 
