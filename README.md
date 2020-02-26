@@ -33,6 +33,8 @@ To compile you will need:
 
 To build, simple run
 
+    git submodule init
+    git submodule update
     make
 
 ### Starting a cluster
