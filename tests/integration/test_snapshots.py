@@ -1,285 +1,271 @@
-from nose.tools import eq_, ok_
-import sandbox
-from test_tools import with_setup_args
+from fixtures import cluster
 from raftlog import RaftLog, LogEntry
 
 
-def _setup():
-    return [sandbox.Cluster()], {}
-
-
-def _teardown(c):
-    c.destroy()
-
-
-@with_setup_args(_setup, _teardown)
-def test_snapshot_delivery(c):
+def test_snapshot_delivery(cluster):
     """
     Ability to properly deliver and load a snapshot.
     """
 
-    r1 = c.add_node()
+    r1 = cluster.add_node()
     r1.raft_exec('INCR', 'testkey')
     r1.raft_exec('INCR', 'testkey')
     r1.raft_exec('INCR', 'testkey')
     r1.raft_exec('SETRANGE', 'bigkey', '104857600', 'x')
     r1.raft_exec('INCR', 'testkey')
-    eq_(r1.client.get('testkey'), b'4')
+    assert r1.client.get('testkey') == b'4'
 
-    eq_(r1.client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    eq_(0, r1.raft_info()['log_entries'])
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert r1.raft_info()['log_entries'] == 0
 
-    r2 = c.add_node()
-    c.wait_for_unanimity()
-    eq_(r2.client.get('testkey'), b'4')
+    r2 = cluster.add_node()
+    cluster.wait_for_unanimity()
+    assert r2.client.get('testkey') == b'4'
 
 
-@with_setup_args(_setup, _teardown)
-def test_log_fixup_after_snapshot_delivery(c):
+def test_log_fixup_after_snapshot_delivery(cluster):
     """
     Log must be restarted when loading a snapshot.
     """
 
-    c.create(3)
-    c.node(1).raft_exec('INCR', 'key')
-    c.node(1).raft_exec('INCR', 'key')
+    cluster.create(3)
+    cluster.node(1).raft_exec('INCR', 'key')
+    cluster.node(1).raft_exec('INCR', 'key')
 
-    c.node(2).terminate()
-    c.node(1).raft_exec('INCR', 'key')
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
+    cluster.node(2).terminate()
+    cluster.node(1).raft_exec('INCR', 'key')
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
 
     # Confirm node 2's log starts from 1
-    log = RaftLog(c.node(2).raftlog)
+    log = RaftLog(cluster.node(2).raftlog)
     log.read()
-    eq_(log.header().snapshot_index(), 0)
+    assert log.header().snapshot_index() == 0
 
-    c.node(2).start()
-    c.node(2).wait_for_info_param('state', 'up')
+    cluster.node(2).start()
+    cluster.node(2).wait_for_info_param('state', 'up')
 
     # node 2 must get a snapshot to sync, make sure this happens and that
     # the log is ok.
-    c.node(2).wait_for_current_index(8)
-    log = RaftLog(c.node(2).raftlog)
+    cluster.node(2).wait_for_current_index(8)
+    log = RaftLog(cluster.node(2).raftlog)
     log.read()
-    eq_(log.header().snapshot_index(), 8)
+    assert log.header().snapshot_index() == 8
 
 
-@with_setup_args(_setup, _teardown)
-def test_cfg_node_added_from_snapshot(c):
+def test_cfg_node_added_from_snapshot(cluster):
     """
     Node able to join cluster and read cfg and data from snapshot.
     """
-    c.create(2)
+    cluster.create(2)
     for i in range(100):
-        c.node(1).raft_exec('SET', 'key%s' % i, 'val%s' % i)
-        c.node(1).raft_exec('INCR', 'counter')
+        cluster.node(1).raft_exec('SET', 'key%s' % i, 'val%s' % i)
+        cluster.node(1).raft_exec('INCR', 'counter')
 
     # Make sure log is compacted
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    eq_(0, c.node(1).raft_info()['log_entries'])
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(1).raft_info()['log_entries'] == 0
 
     # Add new node and wait for things to settle
-    r3 = c.add_node()
+    r3 = cluster.add_node()
     r3.wait_for_election()
 
     # Make sure we have what we expect
     for i in range(100):
-        eq_(str(c.node(3).client.get('key%s' % i), 'utf-8'), 'val%s' % i)
-    eq_(c.node(3).client.get('counter'), b'100')
+        assert str(cluster.node(3).client.get('key%s' % i),
+                   'utf-8') == 'val%s' % i
+    assert cluster.node(3).client.get('counter') == b'100'
 
 
-@with_setup_args(_setup, _teardown)
-def test_index_correct_right_after_snapshot(c):
-    c.create(1)
+def test_index_correct_right_after_snapshot(cluster):
+    cluster.create(1)
     for _ in range(10):
-        c.node(1).raft_exec('INCR', 'counter')
-    info = c.node(1).raft_info()
-    eq_(11, info['current_index'])
+        cluster.node(1).raft_exec('INCR', 'counter')
+    info = cluster.node(1).raft_info()
+    assert info['current_index'] == 11
 
     # Make sure log is compacted
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    info = c.node(1).raft_info()
-    eq_(0, info['log_entries'])
-    eq_(11, info['current_index'])
-    eq_(11, info['commit_index'])
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    info = cluster.node(1).raft_info()
+    assert info['log_entries'] == 0
+    assert info['current_index'] == 11
+    assert info['commit_index'] == 11
 
 
-@with_setup_args(_setup, _teardown)
-def test_cfg_node_removed_from_snapshot(c):
+def test_cfg_node_removed_from_snapshot(cluster):
     """
     Node able to learn that another node left by reading the snapshot metadata.
     """
-    c.create(5)
-    c.node(1).raft_exec('SET', 'key', 'value')
-    c.wait_for_unanimity()
+    cluster.create(5)
+    cluster.node(1).raft_exec('SET', 'key', 'value')
+    cluster.wait_for_unanimity()
 
     # interrupt
     # we now take down node 4 so it doesn't get updates and remove node 5.
-    c.node(4).terminate()
-    c.remove_node(5)
-    c.wait_for_unanimity(exclude=[4])
-    c.node(1).wait_for_log_applied()
-    eq_(4, c.node(1).raft_info()['num_nodes'])
+    cluster.node(4).terminate()
+    cluster.remove_node(5)
+    cluster.wait_for_unanimity(exclude=[4])
+    cluster.node(1).wait_for_log_applied()
+    assert cluster.node(1).raft_info()['num_nodes'] == 4
 
     # now compact logs
-    c.wait_for_unanimity(exclude=[4])
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    eq_(0, c.node(1).raft_info()['log_entries'])
+    cluster.wait_for_unanimity(exclude=[4])
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(1).raft_info()['log_entries'] == 0
 
     # bring back node 4
-    c.node(4).start()
-    c.node(4).wait_for_election()
-    c.wait_for_unanimity()
-    eq_(4, c.node(4).raft_info()['num_nodes'])
+    cluster.node(4).start()
+    cluster.node(4).wait_for_election()
+    cluster.wait_for_unanimity()
+    assert cluster.node(4).raft_info()['num_nodes'] == 4
 
 
-@with_setup_args(_setup, _teardown)
-def test_all_committed_log_rewrite(c):
+def test_all_committed_log_rewrite(cluster):
     """
     Log rewrite operation when all entries are committed, so we expect an
     empty log.
     """
-    c.create(3)
-    c.node(1).raft_exec('SET', 'key1', 'value')
-    c.node(1).raft_exec('SET', 'key2', 'value')
-    c.node(1).raft_exec('SET', 'key3', 'value')
-    c.wait_for_unanimity()
+    cluster.create(3)
+    cluster.node(1).raft_exec('SET', 'key1', 'value')
+    cluster.node(1).raft_exec('SET', 'key2', 'value')
+    cluster.node(1).raft_exec('SET', 'key3', 'value')
+    cluster.wait_for_unanimity()
 
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    eq_(0, c.node(1).raft_info()['log_entries'])
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(1).raft_info()['log_entries'] == 0
 
     # Make sure we have no log entries!
-    log = RaftLog(c.node(1).raftlog)
+    log = RaftLog(cluster.node(1).raftlog)
     log.read()
-    eq_(0, log.entry_count(LogEntry.LogType.NORMAL))
+    assert log.entry_count(LogEntry.LogType.NORMAL) == 0
 
 
-@with_setup_args(_setup, _teardown)
-def test_uncommitted_log_rewrite(c):
-    c.create(3)
+def test_uncommitted_log_rewrite(cluster):
+    cluster.create(3)
 
     # Log contains 5 config entries
 
     # Take down majority to create uncommitted entries and check rewrite
-    c.node(1).raft_exec('SET', 'key', 'value')  # Entry idx 6
-    c.node(2).terminate()
-    c.node(3).terminate()
-    conn = c.node(1).client.connection_pool.get_connection('RAFT')
+    cluster.node(1).raft_exec('SET', 'key', 'value')  # Entry idx 6
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
     conn.send_command('RAFT', 'SET', 'key2', 'value2')  # Entry idx 7
 
-    eq_(c.node(1).current_index(), 7)
-    eq_(c.node(1).commit_index(), 6)
-    eq_(c.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    eq_(1, c.node(1).raft_info()['log_entries'])
+    assert cluster.node(1).current_index() == 7
+    assert cluster.node(1).commit_index() == 6
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(1).raft_info()['log_entries'] == 1
 
-    log = RaftLog(c.node(1).raftlog)
+    log = RaftLog(cluster.node(1).raftlog)
     log.read()
-    eq_(1, log.entry_count(LogEntry.LogType.NORMAL))
+    assert log.entry_count(LogEntry.LogType.NORMAL) == 1
 
-    c.node(1).kill()
-    c.node(1).start()
-    c.node(1).wait_for_info_param('state', 'up')
-    eq_(c.node(1).current_index(), 7)
-    eq_(c.node(1).commit_index(), 6)
-    eq_(1, c.node(1).raft_info()['log_entries'])
+    cluster.node(1).kill()
+    cluster.node(1).start()
+    cluster.node(1).wait_for_info_param('state', 'up')
+    assert cluster.node(1).current_index() == 7
+    assert cluster.node(1).commit_index() == 6
+    assert cluster.node(1).raft_info()['log_entries'] == 1
 
 
-@with_setup_args(_setup, _teardown)
-def test_new_uncommitted_during_rewrite(c):
-    c.create(3)
+def test_new_uncommitted_during_rewrite(cluster):
+    cluster.create(3)
 
     # Take down majority to create uncommitted entries and check rewrite
-    c.node(1).raft_exec('SET', 'key', '1')
+    cluster.node(1).raft_exec('SET', 'key', '1')
 
     # Initiate compaction and wait to see it's in progress
-    conn = c.node(1).client.connection_pool.get_connection('COMPACT')
+    conn = cluster.node(1).client.connection_pool.get_connection('COMPACT')
     conn.send_command('RAFT.DEBUG', 'COMPACT', '2')
-    c.node(1).wait_for_info_param('snapshot_in_progress', 'yes')
-    eq_('yes', c.node(1).raft_info()['snapshot_in_progress'])
+    cluster.node(1).wait_for_info_param('snapshot_in_progress', 'yes')
+    assert cluster.node(1).raft_info()['snapshot_in_progress'] == 'yes'
 
     # Send a bunch of writes
-    c.node(1).raft_exec('INCRBY', 'key', '2')
-    c.node(1).raft_exec('INCRBY', 'key', '3')
-    c.node(1).raft_exec('INCRBY', 'key', '4')
+    cluster.node(1).raft_exec('INCRBY', 'key', '2')
+    cluster.node(1).raft_exec('INCRBY', 'key', '3')
+    cluster.node(1).raft_exec('INCRBY', 'key', '4')
 
     # Wait for compaction to end
-    eq_('yes', c.node(1).raft_info()['snapshot_in_progress'])
-    c.node(1).wait_for_info_param('snapshot_in_progress', 'no')
+    assert cluster.node(1).raft_info()['snapshot_in_progress'] == 'yes'
+    cluster.node(1).wait_for_info_param('snapshot_in_progress', 'no')
 
     # Make sure our writes made it to the log
-    log = RaftLog(c.node(1).raftlog)
+    log = RaftLog(cluster.node(1).raftlog)
     log.read()
-    eq_(3, log.entry_count(LogEntry.LogType.NORMAL))
+    assert log.entry_count(LogEntry.LogType.NORMAL) == 3
 
     # Extra check -- Make sure we can read it back. Note that we need to start
     # all nodes because we don't log the commit index.
-    c.node(1).terminate()
-    c.node(2).terminate()
-    c.node(3).terminate()
-    c.node(1).start()
-    c.node(2).start()
-    c.node(3).start()
+    cluster.node(1).terminate()
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+    cluster.node(1).start()
+    cluster.node(2).start()
+    cluster.node(3).start()
 
-    c.node(1).wait_for_info_param('state', 'up')
+    cluster.node(1).wait_for_info_param('state', 'up')
 
     # TODO: Need a log entry for the commit index to be re-computed; In the
     # future Redis Raft should do that implicitly with a no-op.
-    c.raft_exec('set', 'no-op', 'no-op')
+    cluster.raft_exec('set', 'no-op', 'no-op')
 
     # Make sure cluster state is as expected
-    eq_(b'10', c.raft_exec('get', 'key'))
+    assert cluster.raft_exec('get', 'key') == b'10'
 
     # Make sure node 1 state is as expected
-    c.node(1).wait_for_log_applied()
-    eq_(b'10', c.node(1).client.get('key'))
+    cluster.node(1).wait_for_log_applied()
+    assert cluster.node(1).client.get('key') == b'10'
 
 
-@with_setup_args(_setup, _teardown)
-def test_identical_snapshot_and_log(c):
-    r1 = c.add_node()
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
+def test_identical_snapshot_and_log(cluster):
+    r1 = cluster.add_node()
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
     r1.terminate()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Both log and snapshot have all entries
-    eq_(r1.client.get('testkey'), b'2')
+    assert r1.client.get('testkey') == b'2'
 
 
-@with_setup_args(_setup, _teardown)
-def test_loading_log_tail(c):
-    r1 = c.add_node()
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
+def test_loading_log_tail(cluster):
+    r1 = cluster.add_node()
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
     r1.client.save()
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
     r1.kill()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Log contains all entries
     # Snapshot has all but last 3 entries
-    eq_(r1.client.get('testkey'), b'6')
+    assert r1.client.get('testkey') == b'6'
 
 
-@with_setup_args(_setup, _teardown)
-def test_loading_log_tail_after_rewrite(c):
-    r1 = c.add_node()
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    eq_(r1.client.execute_command('RAFT.DEBUG', 'COMPACT'), b'OK')
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
-    ok_(r1.raft_exec('INCR', 'testkey'))
+def test_loading_log_tail_after_rewrite(cluster):
+    r1 = cluster.add_node()
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.raft_exec('INCR', 'testkey')
     r1.kill()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Log contains last 3 entries
     # Snapshot has first 3 entries
-    eq_(r1.client.get('testkey'), b'6')
+    assert r1.client.get('testkey') == b'6'

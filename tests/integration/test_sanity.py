@@ -1,202 +1,184 @@
-import redis
-from nose import SkipTest
-from nose.tools import (eq_, ok_, assert_raises_regex, assert_not_equal)
-
-from test_tools import with_setup_args
-import sandbox
+from redis import ResponseError
+from pytest import raises, skip
+from fixtures import cluster
+from sandbox import RedisRaft
 
 
-def _setup():
-    return [sandbox.Cluster()], {}
-
-
-def _teardown(c):
-    c.destroy()
-
-
-@with_setup_args(_setup, _teardown)
-def test_add_node_as_a_single_leader(c):
+def test_add_node_as_a_single_leader(cluster):
     """
     Single node becomes a leader
     """
     # Do some basic sanity
-    r1 = c.add_node()
-    ok_(r1.raft_exec('SET', 'key', 'value'))
-    eq_(r1.raft_info()['current_index'], 2)
+    r1 = cluster.add_node()
+    assert r1.raft_exec('SET', 'key', 'value')
+    assert r1.raft_info()['current_index'] == 2
 
 
-@with_setup_args(_setup, _teardown)
-def test_node_joins_and_gets_data(c):
+def test_node_joins_and_gets_data(cluster):
     """
     Node joins and gets data
     """
-    r1 = c.add_node()
-    eq_(r1.raft_exec('SET', 'key', 'value'), b'OK')
-    r2 = c.add_node()
+    r1 = cluster.add_node()
+    assert r1.raft_exec('SET', 'key', 'value') == b'OK'
+    r2 = cluster.add_node()
     r2.wait_for_election()
-    eq_(r2.raft_info().get('leader_id'), 1)
-    eq_(r2.client.get('key'), b'value')
+    assert r2.raft_info().get('leader_id') == 1
+    assert r2.client.get('key') == b'value'
 
     # Also validate -MOVED as expected
-    with assert_raises_regex(redis.ResponseError, 'MOVED'):
-        eq_(r2.raft_exec('SET', 'key', 'value'), None)
+    with raises(ResponseError, match='MOVED'):
+        assert r2.raft_exec('SET', 'key', 'value') is None
 
 
-@with_setup_args(_setup, _teardown)
-def test_single_node_log_is_reapplied(c):
+def test_single_node_log_is_reapplied(cluster):
     """Single node log is reapplied on startup"""
-    r1 = c.add_node()
-    ok_(r1.raft_exec('SET', 'key', 'value'))
+    r1 = cluster.add_node()
+    assert r1.raft_exec('SET', 'key', 'value')
     r1.restart()
     r1.wait_for_election()
-    eq_(r1.raft_info().get('leader_id'), 1)
+    assert r1.raft_info().get('leader_id') == 1
     r1.wait_for_log_applied()
-    eq_(r1.client.get('key'), b'value')
+    assert r1.client.get('key') == b'value'
 
 
-@with_setup_args(_setup, _teardown)
-def test_reelection_basic_flow(c):
+def test_reelection_basic_flow(cluster):
     """
     Basic reelection flow
     """
-    c.create(3)
-    eq_(c.leader, 1)
-    eq_(c.raft_exec('SET', 'key', 'value'), b'OK')
-    c.node(1).terminate()
-    c.node(2).wait_for_election()
-    eq_(c.raft_exec('SET', 'key2', 'value2'), b'OK')
-    c.exec_all('GET', 'key2')
+    cluster.create(3)
+    assert cluster.leader == 1
+    assert cluster.raft_exec('SET', 'key', 'value') ==  b'OK'
+    cluster.node(1).terminate()
+    cluster.node(2).wait_for_election()
+    assert cluster.raft_exec('SET', 'key2', 'value2') == b'OK'
+    cluster.exec_all('GET', 'key2')
 
 
-@with_setup_args(_setup, _teardown)
-def test_proxying(c):
+def test_proxying(cluster):
     """
     Command proxying from follower to leader works
     """
-    c.create(3)
-    eq_(c.leader, 1)
-    with assert_raises_regex(redis.ResponseError, 'MOVED'):
-        eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
-    eq_(c.node(2).client.execute_command('RAFT.CONFIG', 'SET',
-                                         'follower-proxy', 'yes'), b'OK')
+    cluster.create(3)
+    assert cluster.leader == 1
+    with raises(ResponseError, match='MOVED'):
+        assert cluster.node(2).raft_exec('SET', 'key', 'value') == b'OK'
+    assert cluster.node(2).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
 
     # Basic sanity
-    eq_(c.node(2).raft_exec('SET', 'key', 'value'), b'OK')
-    eq_(c.raft_exec('GET', 'key'), b'value')
+    assert cluster.node(2).raft_exec('SET', 'key', 'value') == b'OK'
+    assert cluster.raft_exec('GET', 'key') == b'value'
 
     # Numeric values
-    eq_(c.node(2).raft_exec('SADD', 'myset', 'a'), 1)
-    eq_(c.node(2).raft_exec('SADD', 'myset', 'b'), 1)
+    assert cluster.node(2).raft_exec('SADD', 'myset', 'a') == 1
+    assert cluster.node(2).raft_exec('SADD', 'myset', 'b') == 1
     # Multibulk
-    eq_(set(c.node(2).raft_exec('SMEMBERS', 'myset')), set([b'a', b'b']))
+    assert set(cluster.node(2).raft_exec('SMEMBERS', 'myset')) == set(
+        [b'a', b'b'])
     # Nested multibulk
-    eq_(set(c.node(2).raft_exec(
-        'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]),
-        set([b'a', b'b', b'c']))
+    assert set(cluster.node(2).raft_exec(
+        'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]) == set(
+            [b'a', b'b', b'c'])
     # Error
-    with assert_raises_regex(redis.ResponseError, 'WRONGTYPE'):
-        c.node(2).raft_exec('INCR', 'myset')
+    with raises(ResponseError, match='WRONGTYPE'):
+        cluster.node(2).raft_exec('INCR', 'myset')
 
 
-@with_setup_args(_setup, _teardown)
-def test_readonly_commands(c):
+def test_readonly_commands(cluster):
     """
     Test read-only command execution, which does not go through the Raft
     log.
     """
-    c.create(3)
-    eq_(c.leader, 1)
+    cluster.create(3)
+    assert cluster.leader == 1
 
     # Write something
-    eq_(c.node(1).current_index(), 5)
-    eq_(c.node(1).raft_exec('SET', 'key', 'value'), b'OK')
-    eq_(c.node(1).current_index(), 6)
+    assert cluster.node(1).current_index() == 5
+    assert cluster.node(1).raft_exec('SET', 'key', 'value') == b'OK'
+    assert cluster.node(1).current_index() == 6
 
     # Read something, log should not grow
-    eq_(c.node(1).raft_exec('GET', 'key'), b'value')
-    eq_(c.node(1).current_index(), 6)
+    assert cluster.node(1).raft_exec('GET', 'key') == b'value'
+    assert cluster.node(1).current_index() == 6
 
     # Tear down cluster, reads should hang
-    c.node(2).terminate()
-    c.node(3).terminate()
-    conn = c.node(1).client.connection_pool.get_connection('RAFT',
-                                                           socket_timeout=1)
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+    conn = cluster.node(1).client.connection_pool.get_connection(
+        'RAFT', socket_timeout=1)
     conn.send_command('RAFT', 'GET', 'key')
-    eq_(conn.can_read(timeout=1), False)
+    assert not conn.can_read(timeout=1)
 
     # Now configure non-quorum reads
-    c.node(1).raft_config_set('quorum-reads', 'no')
-    eq_(c.node(1).raft_exec('GET', 'key'), b'value')
+    cluster.node(1).raft_config_set('quorum-reads', 'no')
+    assert cluster.node(1).raft_exec('GET', 'key') == b'value'
 
 
-@with_setup_args(_setup, _teardown)
-def test_auto_ids(c):
+def test_auto_ids(cluster):
     """
     Test automatic assignment of ids.
     """
 
     # -- Test auto id on create --
-    node1 = sandbox.RedisRaft(1, 5000, use_id_arg=False)
+    node1 = RedisRaft(1, 5000, use_id_arg=False)
     node1.start()
-    c.add_initialized_node(node1)   # Just to make sure it gets destroyed
+    cluster.add_initialized_node(node1) # Just to make sure it gets destroyed
 
     # No id initially
-    eq_(node1.raft_info()['node_id'], 0)
+    assert node1.raft_info()['node_id'] == 0
 
     # Create cluster, id should be generated
     node1.cluster('init')
-    assert_not_equal(node1.raft_info()['node_id'], 0)
+    assert node1.raft_info()['node_id'] != 0
 
     # -- Test auto id on join --
-    node2 = sandbox.RedisRaft(2, 5001, use_id_arg=False)
+    node2 = RedisRaft(2, 5001, use_id_arg=False)
     node2.start()
-    c.add_initialized_node(node2)   # Just to make sure it gets destroyed
+    cluster.add_initialized_node(node2) # Just to make sure it gets destroyed
 
-    eq_(node2.raft_info()['node_id'], 0)
+    assert node2.raft_info()['node_id'] == 0
     node2.cluster('join', '127.0.0.1:5000')
     node2.wait_for_node_voting()
-    assert_not_equal(node2.raft_info()['node_id'], 0)
+    assert node2.raft_info()['node_id'] != 0
 
     # -- Test recovery of id from log after restart --
     _id = node2.raft_info()['node_id']
     node2.restart()
-    eq_(_id, node2.raft_info()['node_id'])
+    assert _id == node2.raft_info()['node_id']
 
 
-@with_setup_args(_setup, _teardown)
-def test_raftize(c):
+def test_raftize(cluster):
     """
     Test raftize-all-commands mode.
     """
 
-    r1 = c.add_node()
+    r1 = cluster.add_node()
     try:
-        ok_(r1.raft_config_set('raftize-all-commands', 'yes'))
-    except redis.ResponseError:
-        raise SkipTest('Not supported on this Redis')
-    eq_(r1.raft_info()['current_index'], 1)
-    ok_(r1.client.execute_command('SET', 'key', 'value'))
-    eq_(r1.raft_info()['current_index'], 2)
+        assert r1.raft_config_set('raftize-all-commands', 'yes')
+    except ResponseError:
+        skip('Not supported on this Redis')
+    assert r1.raft_info()['current_index'] == 1
+    assert r1.client.execute_command('SET', 'key', 'value')
+    assert r1.raft_info()['current_index'] == 2
 
 
-@with_setup_args(_setup, _teardown)
-def test_raftize_does_not_affect_lua(c):
+def test_raftize_does_not_affect_lua(cluster):
     """
     Make sure raftize-all-commands does not affect Lua commands.
     """
 
-    r1 = c.add_node()
+    r1 = cluster.add_node()
     try:
-        ok_(r1.raft_config_set('raftize-all-commands', 'yes'))
-    except redis.ResponseError:
-        raise SkipTest('Not supported on this Redis')
-    eq_(r1.raft_info()['current_index'], 1)
-    eq_(r1.client.execute_command('EVAL', """
+        assert r1.raft_config_set('raftize-all-commands', 'yes')
+    except ResponseError:
+        skip('Not supported on this Redis')
+    assert r1.raft_info()['current_index'] == 1
+    assert r1.client.execute_command('EVAL', """
 redis.call('SET','key1','value1');
 redis.call('SET','key2','value2');
 redis.call('SET','key3','value3');
-return 1234;""", '0'), 1234)
-    eq_(r1.raft_info()['current_index'], 2)
-    eq_(r1.client.get('key1'), b'value1')
-    eq_(r1.client.get('key2'), b'value2')
-    eq_(r1.client.get('key3'), b'value3')
+return 1234;""", '0') == 1234
+    assert r1.raft_info()['current_index'] == 2
+    assert r1.client.get('key1') == b'value1'
+    assert r1.client.get('key2') == b'value2'
+    assert r1.client.get('key3') == b'value3'

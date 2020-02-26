@@ -79,9 +79,7 @@ tests/test-%.o: %.c
 .PHONY: tests
 tests: unit-tests integration-tests
 
-NOSE_REDNOSE := 1
-export NOSE_REDNOSE
-NOSE_OPTS ?= tests/integration -v
+PYTEST_OPTS ?= tests/integration -v
 
 .PHONY: unit-tests
 ifeq ($(OS),Linux)
@@ -108,15 +106,15 @@ unit-lcov-report: tests/lcov.info
 
 .PHONY: integration-tests
 integration-tests:
-	PATH=../redis/src:${PATH} nosetests $(NOSE_OPTS)
+	PATH=../redis/src:${PATH} pytest $(PYTEST_OPTS)
 
 .PHONY: valgrind-tests
 valgrind-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests $(NOSE_OPTS)
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests $(PYTEST_OPTS)
 
 .PHONY: valgrind-show-possibly-lost-tests
 valgrind-show-possibly-lost-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig nosetests $(NOSE_OPTS)
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig nosetests $(PYTEST_OPTS)
 
 .PHONY: integration-lcov-report
 integration-lcov-report:
