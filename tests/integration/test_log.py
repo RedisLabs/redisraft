@@ -1,129 +1,116 @@
 import time
-import redis
-from nose.tools import (eq_, ok_, assert_regex, assert_greater)
+from re import match
+from redis import ResponseError
 from raftlog import RaftLog
 
-from test_tools import with_setup_args
-import sandbox
+from fixtures import cluster
 
 
-def _setup():
-    return [sandbox.Cluster()], {}
-
-
-def _teardown(c):
-    c.destroy()
-
-
-@with_setup_args(_setup, _teardown)
-def test_log_rollback(c):
+def test_log_rollback(cluster):
     """
     Rollback of log entries that were written in the minority.
     """
 
-    c.create(3)
-    eq_(c.leader, 1)
-    eq_(c.raft_exec('SET', 'key', 'value1'), b'OK')
+    cluster.create(3)
+    assert cluster.leader == 1
+    assert cluster.raft_exec('SET', 'key', 'value1') ==  b'OK'
 
     # Break cluster
-    c.node(2).terminate()
-    c.node(3).terminate()
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
 
     # Load a command which can't be committed
-    eq_(c.node(1).current_index(), 6)
-    conn = c.node(1).client.connection_pool.get_connection('RAFT')
+    assert cluster.node(1).current_index() == 6
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
     conn.send_command('RAFT', 'SET', 'key', 'value2')
-    eq_(c.node(1).current_index(), 7)
-    c.node(1).terminate()
+    assert cluster.node(1).current_index() == 7
+    cluster.node(1).terminate()
 
     # We want to be sure the last entry is in the log
-    log = RaftLog(c.node(1).raftlog)
+    log = RaftLog(cluster.node(1).raftlog)
     log.read()
-    eq_(log.entry_count(), 7)
+    assert log.entry_count() == 7
 
     # Restart the cluster without node 1, make sure the write was
     # not committed.
-    c.node(2).start()
-    c.node(3).start()
-    c.node(2).wait_for_election()
-    eq_(c.node(2).current_index(), 6)
+    cluster.node(2).start()
+    cluster.node(3).start()
+    cluster.node(2).wait_for_election()
+    assert cluster.node(2).current_index() == 6
 
     # Restart node 1
-    c.node(1).start()
-    c.node(1).wait_for_election()
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
 
     # Make another write and make sure it overwrites the previous one in
     # node 1's log
-    c.raft_exec('SET', 'key', 'value3')
-    eq_(c.node(1).current_index(), 7)
+    cluster.raft_exec('SET', 'key', 'value3')
+    assert cluster.node(1).current_index() == 7
 
     # Make sure log reflects the change
     log.reset()
     log.read()
-    assert_regex(str(log.entries[7].data()), '.*SET.*value3')
+    assert match(r'.*SET.*value3', str(log.entries[7].data()))
 
 
-@with_setup_args(_setup, _teardown)
-def test_raft_log_max_file_size(c):
+def test_raft_log_max_file_size(cluster):
     """
     Raft log size configuration affects compaction.
     """
 
-    r1 = c.add_node()
-    eq_(r1.raft_info()['log_entries'], 1)
-    ok_(r1.raft_config_set('raft-log-max-file-size', '1kb'))
+    r1 = cluster.add_node()
+    assert r1.raft_info()['log_entries'] == 1
+    assert r1.raft_config_set('raft-log-max-file-size', '1kb')
     for _ in range(10):
-        ok_(r1.raft_exec('SET', 'testkey', 'x'*500))
+        assert r1.raft_exec('SET', 'testkey', 'x'*500)
     time.sleep(1)
-    assert_greater(10, r1.raft_info()['log_entries'])
+    assert r1.raft_info()['log_entries'] < 10
 
 
-@with_setup_args(_setup, _teardown)
-def test_raft_log_max_cache_size(c):
+def test_raft_log_max_cache_size(cluster):
     """
     Raft log cache configuration in effect.
     """
 
-    r1 = c.add_node()
-    eq_(r1.raft_info()['cache_entries'], 1)
+    r1 = cluster.add_node()
+    assert r1.raft_info()['cache_entries'] == 1
 
-    ok_(r1.raft_config_set('raft-log-max-cache-size', '1kb'))
-    ok_(r1.raft_exec('SET', 'testkey', 'testvalue'))
+    assert r1.raft_config_set('raft-log-max-cache-size', '1kb')
+    assert r1.raft_exec('SET', 'testkey', 'testvalue')
 
     info = r1.raft_info()
-    eq_(info['cache_entries'], 2)
-    assert_greater(info['cache_memory_size'], 0)
+    assert info['cache_entries'] == 2
+    assert info['cache_memory_size'] > 0
 
     for _ in range(10):
-        ok_(r1.raft_exec('SET', 'testkey', 'x' * 500))
+        assert r1.raft_exec('SET', 'testkey', 'x' * 500)
 
     time.sleep(1)
     info = r1.raft_info()
-    eq_(info['log_entries'], 12)
-    assert_greater(5, info['cache_entries'])
+    assert info['log_entries'] == 12
+    assert info['cache_entries'] < 5
 
 
-@with_setup_args(_setup, _teardown)
-def test_reply_to_cache_invalidated_entry(c):
+def test_reply_to_cache_invalidated_entry(cluster):
     """
     Reply a RAFT redis command that have its entry already removed
     from the cache.
     """
 
-    c.create(3)
-    eq_(c.leader, 1)
+    cluster.create(3)
+    assert cluster.leader == 1
 
     # Configure a small cache
-    ok_(c.node(1).raft_config_set('raft-log-max-cache-size', '1kb'))
+    assert cluster.node(1).raft_config_set('raft-log-max-cache-size', '1kb')
 
     # Break cluster to avoid commits
-    c.node(2).terminate()
-    c.node(3).terminate()
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
 
     # Send commands that are guarnateed to overflow the cache
     conns = []
     for i in range(10):
-        conn = c.node(1).client.connection_pool.get_connection('RAFT')
+        conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
         conn.send_command('RAFT', 'SET', 'key%s' % i, 'x' * 1000)
         conns.append(conn)
 
@@ -132,21 +119,21 @@ def test_reply_to_cache_invalidated_entry(c):
 
     # confirm all raft entries were created but some have been evicted
     # from cache already.
-    info = c.node(1).raft_info()
-    eq_(info['log_entries'], 15)
-    assert_greater(10, info['cache_entries'])
+    info = cluster.node(1).raft_info()
+    assert info['log_entries'] == 15
+    assert info['cache_entries'] < 10
 
     # Repair cluster and wait
-    c.node(2).start()
-    c.node(3).start()
-    c.node(1).wait_for_num_voting_nodes(3)
+    cluster.node(2).start()
+    cluster.node(3).start()
+    cluster.node(1).wait_for_num_voting_nodes(3)
     time.sleep(1)
-    eq_(c.node(1).commit_index(), 15)
+    assert cluster.node(1).commit_index() == 15
 
     # Expect TIMEOUT or OK for all
     for conn in conns:
-        ok_(conn.can_read(timeout=1))
+        assert conn.can_read(timeout=1)
         try:
-            eq_(conn.read_response(), b'OK')
-        except redis.ResponseError as err:
-            ok_(str(err).startswith('TIMEOUT'))
+            assert conn.read_response() == b'OK'
+        except ResponseError as err:
+            assert str(err).startswith('TIMEOUT')
