@@ -31,7 +31,7 @@ To compile you will need:
 * GNU autotools (autoconf, automake, libtool)
 * libbsd-dev (on Debian/Ubuntu) or an equivalent for `bsd/sys/queue.h`.
 
-To build, simple run
+To build, simply run:
 
     git submodule init
     git submodule update
