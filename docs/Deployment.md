@@ -89,6 +89,11 @@ object.
 Cluster Setup
 -------------
 
+### Supported Redis Versions
+
+Redis Raft requires Redis 6, as it uses Module API capabilities that were not
+available in earlier versions.
+
 ### Starting RedisRaft
 
 To create the cluster, first launch the `redis-server` processes that will make

@@ -39,6 +39,10 @@ To build, simply run:
 
 ### Starting a cluster
 
+Note: Make sure you're using a recent Redis 6.0 release candidate or a private
+build from the `unstable branch. Redis Raft depends on Module API capabilities
+not available in earlier versions.
+
 To create a three node cluster, start the first node and initialize the
 cluster:
 
