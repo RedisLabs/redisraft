@@ -172,7 +172,9 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
 }
 
 /*
- * Execution of Raft log on the local instance.  There are two variants:
+ * Execution of Raft log on the local instance.
+ *
+ * There are two variants:
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
