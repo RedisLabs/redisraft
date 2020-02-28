@@ -133,6 +133,7 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
     static char *excluded_commands[] = {
         "auth",
         "ping",
+        "save",
         "module",
         "raft",
         "info",
