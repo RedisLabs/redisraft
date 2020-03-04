@@ -361,6 +361,33 @@ typedef struct SnapshotResult {
     char err[256];
 } SnapshotResult;
 
+/* Command filtering re-entrancy counter handling.
+ *
+ * This mechanim tracks calls from Redis Raft into Redis and used by the
+ * command filtering hook to avoid raftizing commands as they're pushed from the log
+ * to the FSM.
+ *
+ * Redis Module API provides the REDISMODULE_CMDFILTER_NOSELF flag which does
+ * the same thing, but does not apply to executions from a thread safe context.
+ *
+ * This must wrap every call to RedisModule_Call(), after the Redis lock has been
+ * acquired, and unless the called command is known to be excluded from raftizing.
+ */
+
+extern int redis_raft_in_rm_call;   /* defined in common.c */
+
+static void inline enterRedisModuleCall(void) {
+    redis_raft_in_rm_call++;
+}
+
+static void inline exitRedisModuleCall(void) {
+    redis_raft_in_rm_call--;
+}
+
+static int inline checkInRedisModuleCall(void) {
+    return redis_raft_in_rm_call;
+}
+
 /* common.c */
 const char *getStateStr(RedisRaftCtx *rr);
 const char *raft_logtype_str(int type);

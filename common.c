@@ -2,6 +2,8 @@
 
 #include "redisraft.h"
 
+int redis_raft_in_rm_call = 0;
+
 const char *getStateStr(RedisRaftCtx *rr)
 {
     static const char *state_str[] = { "uninitialized", "up", "loading", "joining" };
@@ -143,6 +145,13 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
         "command",
         NULL
     };
+
+    /* If we're intercepting an RM_Call() processing a Raft entry,
+     * skip.
+     */
+    if (checkInRedisModuleCall()) {
+        return;
+    }
 
     size_t cmdname_len;
     const char *cmdname = RedisModule_StringPtrLen(

@@ -2,7 +2,7 @@ from redis import ResponseError
 from pytest import raises, skip
 from fixtures import cluster
 from sandbox import RedisRaft
-
+import time
 
 def test_add_node_as_a_single_leader(cluster):
     """
@@ -182,3 +182,34 @@ return 1234;""", '0') == 1234
     assert r1.client.get('key1') == b'value1'
     assert r1.client.get('key2') == b'value2'
     assert r1.client.get('key3') == b'value3'
+
+def test_proxying_with_raftize(cluster):
+    """
+    Test follower proxy mode together with raftize enabled.
+
+    This is a regression test for issues #13, #14 and basically ensures
+    that command filtering does not trigger re-entrancy when processing
+    a log entry over a thread safe context.
+    """
+    cluster.create(3)
+    assert cluster.leader == 1
+
+    assert cluster.node(1).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+    assert cluster.node(2).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+    assert cluster.node(3).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+    assert cluster.node(1).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
+    assert cluster.node(2).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
+    assert cluster.node(3).client.execute_command(
+        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
+
+    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 1
+    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 2
+    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 3
+
+    time.sleep(1)
+    assert cluster.node(1).raft_info()['current_index'] == 8
