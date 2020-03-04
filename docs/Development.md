@@ -27,15 +27,14 @@ To run tests in a Python virtualenv, follow these steps:
 Integration tests are based on Python nose, and specific parameters can be
 provided to configure tests.
 
-For example, running a single test with no logging capture, so output is printed
-in runtime:
+For example, here's how to run a single test with no logging capture, so that output is printed in runtime:
 
     NOSE_OPTS="-v --nologcapture \
         --logging-config=tests/integration/logging.ini \
         --tests tests/integration/test_snapshots.py:test_new_snapshot_with_old_log" \
     make integration-tests
 
-### Unit Tests Coverage
+### Unit Test Coverage
 
 To run unit tests and see a detailed coverage report:
 
@@ -43,7 +42,7 @@ To run unit tests and see a detailed coverage report:
     $ make COVERAGE=1 unit-tests
     $ make unit-lcov-report
 
-### Integration tests coverage
+### Integration Tests Coverage
 
 To see coverage reports for the entire set of integration tests, you'll first
 need to build Redis with gcov support:
@@ -70,31 +69,30 @@ General Design
 
 ### Overview
 
-A single `RAFT` command is implemented as a prefix command for users to submit
+A single `RAFT` command is implemented as a prefix command for clients to submit
 requests to the Raft log.
 
 This triggers the following series of events:
 
-1. The command is appended to the local Raft log (in memory cache and file).
-2. The log is replicated to the majority of cluster members. This is done by the
-   Raft module communicating with the other Raft modules using module-specific
-   commands.
-3. When a majority has been reached and Raft determines the entry can be
-   committed, it is executed locally as a regular Redis command and the response
-   is sent to the user.
+1. The command is appended as an entry to the local Raft log (in-memory cache and
+   file).
+2. The log is replicated to the majority of cluster members. The RedisRaft module
+   uses module-specific commands against other nodes to accomplish this.
+3. Once the log has been replicated to a majority of nodes and RedisRaft
+   determines that the entry can be committed, then the command is executed locally on all nodes as a regular Redis command, and the response is sent to the user.
 
 Raft communication between cluster members is handled by `RAFT.AE` and
-`RAFT.REQUESTVOTE` commands which are also implemented by the module.
+`RAFT.REQUESTVOTE` commands, which are also implemented by the RedisRaft module.
 
-The module starts a background thread which handles all Raft related tasks, such
+The module starts a background thread which handles all Raft-related tasks, such
 as:
-* Maintain connections with all cluster members
-* Periodically send heartbeats (leader) or initiate vote if heartbeats are not
-  seen (follower/candidate).
-* Process committed entries (deliver to Redis through a thread safe context)
+* Maintaining connections with all cluster members
+* Periodically sending heartbeats (leader) or initiating an election if
+  heartbeats are not seen (follower/candidate).
+* Processing committed entries (delivering to Redis in a thread-safe context)
 
 All received Raft commands are placed on a queue and handled by the Raft thread
-itself, using the blocking API and a thread safe context.
+itself, using the blocking API and a thread-safe context.
 
 ### Node Membership
 

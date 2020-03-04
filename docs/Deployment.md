@@ -14,9 +14,7 @@ failure affecting multiple nodes. For example, on most cloud environments that
 would mean compute instances located in different availability zones in the same
 region.
 
-As with most consensus-based systems, the preferred number of nodes is an odd
-number (e.g. 3, 5). This prevents a "split brain" situation where a single
-network split results with loss of quorum.
+As with most consensus-based systems, RedisRaft should be deployed with an odd number of nodes (e.g. 3 or 5). This prevents the classic "split-brain" scenario, in which a single network split results with loss of quorum.
 
 ### Persistence
 
