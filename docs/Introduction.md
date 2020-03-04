@@ -13,7 +13,7 @@ Redis has traditionally offered a couple of distributed deployment options:
 
 These deployments do not offer a strong consistency guarantee, since they trade it for better performance and availability. To be sure, there are certain controls, such as the `WAIT` command, that provide better consistency assurances, but these controls aren't designed to elevate traditional Redis deployments to the level of strong consistency.
 
-Strong consistency generally implies that changes to a distributed system can be made immediately visible, even when reading from a replica.
+Strong consistency implies that acknowledged writes will be immediately visible to all readers.
 
 Traditional Redis deployments, and, indeed, most database systems, trade strong consistency guarantees for improved performance and greater availability. RedisRaft was created for those occasions where strong consistency is required.
 
