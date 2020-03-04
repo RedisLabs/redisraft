@@ -31,11 +31,17 @@ To compile you will need:
 * GNU autotools (autoconf, automake, libtool)
 * libbsd-dev (on Debian/Ubuntu) or an equivalent for `bsd/sys/queue.h`.
 
-To build, simple run
+To build, simply run:
 
+    git submodule init
+    git submodule update
     make
 
 ### Starting a cluster
+
+Note: Make sure you're using a recent Redis 6.0 release candidate or a private
+build from the `unstable branch. Redis Raft depends on Module API capabilities
+not available in earlier versions.
 
 To create a three node cluster, start the first node and initialize the
 cluster:

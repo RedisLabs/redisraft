@@ -154,8 +154,10 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
             continue;
         }
 
+        enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(
                 ctx, cmd, "v", &c->argv[1], c->argc - 1);
+        exitRedisModuleCall();
 
         if (reply_ctx) {
             if (reply) {
@@ -172,12 +174,14 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
 }
 
 /*
- * Execution of Raft log on the local instance.  There are two variants:
+ * Execution of Raft log on the local instance.
+ *
+ * There are two variants:
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
 
-static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
+static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
@@ -193,8 +197,20 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry)
     RaftReq *req = entry->user_data;
     RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
+    /* Redis Module API requires commands executing on a locked thread
+     * safe context.
+     */
+
     RedisModule_ThreadSafeContextLock(ctx);
     executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
+
+    /* Update snapshot info in Redis dataset. This must be done now so it's
+     * always consistent with what we applied and we never end up applying
+     * an entry onto a snapshot where it was applied already.
+     */
+    rr->snapshot_info.last_applied_term = entry->term;
+    rr->snapshot_info.last_applied_idx = entry_idx;
+
     RedisModule_ThreadSafeContextUnlock(ctx);
     RaftRedisCommandArrayFree(&entry_cmds);
 
@@ -406,16 +422,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             }
             break;
         case RAFT_LOGTYPE_NORMAL:
-            executeLogEntry(rr, entry);
+            executeLogEntry(rr, entry, entry_idx);
             break;
         default:
             break;
     }
 
-    /* Update snapshot info in Redis dataset. This must be done now so it's
-     * always consistent with what we applied and we never end up applying
-     * an entry onto a snapshot where it was applied already.
-     */
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 

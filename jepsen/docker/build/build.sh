@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-REDIS_REPO=${REDIS_REPO:-yossigo/redis}
-REDIS_VERSION=${REDIS_VERSION:-blocking-api-fix}
+REDIS_REPO=${REDIS_REPO:-antirez/redis}
+REDIS_VERSION=${REDIS_VERSION:-unstable}
 if [ -z "$VERSION" ]; then
     echo "Missing VERSION environment variable!"
     exit 1
@@ -32,4 +32,4 @@ cp redis/src/redis-server $DISTDIR
 cp redis/src/redis-cli $DISTDIR
 cp redisraft/redisraft.so $DISTDIR
 
-tar cvfz /dist/redisraft-$VERSION-linux-amd64.tar.gz $DISTDIR
+tar cvfz /dist/redisraft-$VERSION-linux-$(dpkg --print-architecture).tar.gz $DISTDIR

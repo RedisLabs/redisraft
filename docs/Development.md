@@ -13,7 +13,7 @@ The module includes a basic set of unit tests and integration tests. To run
 them you'll need:
 
 * lcov (for coverage analysis, on Linux)
-* Python and a few packages (e.g. nose, redis, etc.)
+* Python and a few packages (e.g. pytest, redis, etc.)
 * redis-server in your PATH, or in `../redis/src`.
 
 To run tests in a Python virtualenv, follow these steps:
@@ -24,14 +24,13 @@ To run tests in a Python virtualenv, follow these steps:
     $ pip install -r tests/integration/requirements.txt
     $ make tests
 
-Integration tests are based on Python nose, and specific parameters can be
-provided to configure tests.
+Integration tests are based on pytest, and specific parameters can be provided
+to configure tests.
 
-For example, here's how to run a single test with no logging capture, so that output is printed in runtime:
+For example, running a single test with live logging of all output:
 
-    NOSE_OPTS="-v --nologcapture \
-        --logging-config=tests/integration/logging.ini \
-        --tests tests/integration/test_snapshots.py:test_new_snapshot_with_old_log" \
+    PYTEST_OPTS="-v --log-cli-level=debug \
+        tests/integration/test_snapshots.py::test_snapshot_delivery" \
     make integration-tests
 
 ### Unit Test Coverage

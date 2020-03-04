@@ -1,81 +1,63 @@
-import redis
-from nose.tools import eq_, assert_raises_regex
-from test_tools import with_setup_args
-
-import sandbox
+from redis import ResponseError
+from pytest import raises
+from fixtures import cluster
 
 
-def _setup():
-    return [sandbox.Cluster()], {}
-
-
-def _teardown(c):
-    c.destroy()
-
-
-@with_setup_args(_setup, _teardown)
-def test_config_sanity(c):
+def test_config_sanity(cluster):
     """
     Configuration sanity check.
     """
 
-    r1 = c.add_node()
+    r1 = cluster.add_node()
     r1.raft_config_set('raft-interval', 999)
-    eq_(r1.raft_config_get('raft-interval'), {'raft-interval': '999'})
+    assert r1.raft_config_get('raft-interval') == {'raft-interval': '999'}
 
     r1.raft_config_set('request-timeout', 888)
-    eq_(r1.raft_config_get('request-timeout'), {'request-timeout': '888'})
+    assert r1.raft_config_get('request-timeout') == {'request-timeout': '888'}
 
     r1.raft_config_set('election-timeout', 777)
-    eq_(r1.raft_config_get('election-timeout'), {'election-timeout': '777'})
+    assert (r1.raft_config_get('election-timeout') ==
+            {'election-timeout': '777'})
 
     r1.raft_config_set('reconnect-interval', 111)
-    eq_(r1.raft_config_get('reconnect-interval'),
-        {'reconnect-interval': '111'})
+    assert (r1.raft_config_get('reconnect-interval') ==
+            {'reconnect-interval': '111'})
 
     r1.raft_config_set('raft-log-max-file-size', '64mb')
-    eq_(r1.raft_config_get('raft-log-max-file-size'),
-        {'raft-log-max-file-size': '64MB'})
+    assert (r1.raft_config_get('raft-log-max-file-size') ==
+            {'raft-log-max-file-size': '64MB'})
 
     r1.raft_config_set('loglevel', 'debug')
-    eq_(r1.raft_config_get('loglevel'), {'loglevel': 'debug'})
+    assert r1.raft_config_get('loglevel') == {'loglevel': 'debug'}
 
 
-@with_setup_args(_setup, _teardown)
-def test_config_startup_only_params(c):
+def test_config_startup_only_params(cluster):
     """
     Configuration startup-only params.
     """
 
-    r1 = c.add_node()
-    with assert_raises_regex(redis.ResponseError,
-                             '.*only supported at load time'):
+    r1 = cluster.add_node()
+    with raises(ResponseError, match='.*only supported at load time'):
         r1.raft_config_set('id', 2)
 
-    with assert_raises_regex(redis.ResponseError,
-                             '.*only supported at load time'):
+    with raises(ResponseError, match='.*only supported at load time'):
         r1.raft_config_set('raft-log-filename', 'filename')
 
 
-@with_setup_args(_setup, _teardown)
-def test_invalid_configs(c):
+def test_invalid_configs(cluster):
     """
     Invalid configurations.
     """
 
-    r1 = c.add_node()
-    with assert_raises_regex(redis.ResponseError,
-                             '.*invalid addr'):
+    r1 = cluster.add_node()
+    with raises(ResponseError, match='.*invalid addr'):
         r1.raft_config_set('addr', 'host')
 
-    with assert_raises_regex(redis.ResponseError,
-                             '.*invalid addr'):
+    with raises(ResponseError, match='.*invalid addr'):
         r1.raft_config_set('addr', 'host:0')
 
-    with assert_raises_regex(redis.ResponseError,
-                             '.*invalid addr'):
+    with raises(ResponseError, match='.*invalid addr'):
         r1.raft_config_set('addr', 'host:99999')
 
-    with assert_raises_regex(redis.ResponseError,
-                             '.*invalid .*value'):
+    with raises(ResponseError, match='.*invalid .*value'):
         r1.raft_config_set('request-timeout', 'nonint')

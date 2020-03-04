@@ -603,6 +603,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
+    /* Sanity check Redis version */
+    if (RedisModule_SubscribeToServerEvent == NULL ||
+            RedisModule_RegisterCommandFilter == NULL) {
+        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0 or newer!");
+        return REDISMODULE_ERR;
+    }
+
     /* Report arguments */
     size_t str_len = 1024;
     char *str = RedisModule_Calloc(1, str_len);
