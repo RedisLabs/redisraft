@@ -1,3 +1,4 @@
+import time
 from pytest import raises
 from redis import ResponseError
 from fixtures import cluster
@@ -38,3 +39,27 @@ def test_leader_removal_not_allowed(cluster):
     assert cluster.leader == 1
     with raises(ResponseError, match='cannot remove leader'):
         cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '1')
+
+
+def test_single_voting_change_enforced(cluster):
+    """
+    A single concurrent voting change is enforced when removing nodes.
+    """
+
+    cluster.create(5)
+    assert cluster.leader == 1
+
+    # Simulate a partition
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+    cluster.node(4).terminate()
+
+    assert cluster.node(1).client.execute_command(
+        'RAFT.NODE', 'REMOVE', '5') == b'OK'
+    with raises(ResponseError,
+            match='a voting change is already in progress'):
+        assert cluster.node(1).client.execute_command(
+            'RAFT.NODE', 'REMOVE', '4') == b'OK'
+
+    time.sleep(1)
+    assert cluster.node(1).raft_info()['num_nodes'] == 5
