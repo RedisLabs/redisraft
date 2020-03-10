@@ -1179,6 +1179,7 @@ int raft_apply_all(raft_server_t* me_)
 int raft_entry_is_voting_cfg_change(raft_entry_t* ety)
 {
     return RAFT_LOGTYPE_ADD_NODE == ety->type ||
+           RAFT_LOGTYPE_REMOVE_NODE == ety->type ||
            RAFT_LOGTYPE_DEMOTE_NODE == ety->type;
 }
 

@@ -149,7 +149,7 @@ class Snapshot(object):
         self.members = []
 
 
-SnapshotMember = collections.namedtuple('SnapshotMember', ['id', 'voting'], verbose=False)
+SnapshotMember = collections.namedtuple('SnapshotMember', ['id', 'voting'])
 
 
 def raft_send_requestvote(raft, udata, node, msg):
@@ -575,7 +575,7 @@ class Network(object):
             return
 
         # Create a new configuration entry to be processed by the leader
-        ety = self.add_entry(lib.RAFT_LOGTYPE_DEMOTE_NODE,
+        ety = self.add_entry(lib.RAFT_LOGTYPE_REMOVE_NODE,
                              ChangeRaftEntry(server.id))
         assert server.connection_status == NODE_CONNECTED
         assert(lib.raft_entry_is_cfg_change(ety))
