@@ -3,3 +3,7 @@
 *~
 libcraft.so
 libcraft.a
+CLinkedListQueue/
+.env/
+.hypothesis/
+**/__pycache__
