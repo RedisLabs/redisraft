@@ -1,4 +1,6 @@
+import sys
 import os
+import struct
 import logging
 from enum import Enum
 
@@ -85,8 +87,8 @@ class LogEntry(RawEntry):
         NORMAL = 0
         ADD_NONVOTING_NODE = 1
         ADD_NODE = 2
-        DEMOTE_NODE = 2
-        REMOVE_NODE = 2
+        DEMOTE_NODE = 3
+        REMOVE_NODE = 4
 
     def term(self):
         return int(self.args[1])
@@ -97,13 +99,29 @@ class LogEntry(RawEntry):
     def type(self):
         return self.LogType(int(self.args[3]))
 
+    def type_is_cfgchange(self):
+        _type = self.type()
+        return _type in (self.LogType.ADD_NONVOTING_NODE,
+                         self.LogType.ADD_NODE,
+                         self.LogType.DEMOTE_NODE,
+                         self.LogType.REMOVE_NODE)
+
+    @staticmethod
+    def parse_cfgchange(data):
+        node_id, port, addr = struct.unpack_from('iH255s', data)
+        return '<CfgChange:node_id=%s,port=%s,addr=%s>' % (
+            node_id, port, addr.decode('ascii').split('\0', 1)[0])
+
     def data(self):
-        return self.args[4]
+        value = self.args[4]
+        if self.type_is_cfgchange():
+            return self.parse_cfgchange(value)
+        else:
+            return value
 
     def __repr__(self):
         return '<LogEntry:%s:id=%s,term=%s,data=%s>' % (
             self.type(), self.id(), self.term(), self.data())
-
 
 class RaftLog(object):
     def __init__(self, filename):
@@ -143,3 +161,10 @@ class RaftLog(object):
         for entry in self.entries:
             logging.info(repr(entry))
         logging.info('===== End Raft Log Dump =====')
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+
+    log = RaftLog(sys.argv[1])
+    log.read()
+    log.dump()
