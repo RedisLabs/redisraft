@@ -90,6 +90,8 @@ def logtype2str(log_type):
         return 'add_nonvoting'
     elif log_type == lib.RAFT_LOGTYPE_ADD_NODE:
         return 'add'
+    elif log_type == lib.RAFT_LOGTYPE_NO_OP:
+        return 'no_op'
     else:
         return 'unknown'
 
@@ -812,6 +814,9 @@ class RaftServer(object):
         if e is not None:
             return e
 
+        if ety.type == lib.RAFT_LOGTYPE_NO_OP:
+            return 0
+
         change = ffi.from_handle(lib.raft_entry_getdata(ety))
 
         if ety.type == lib.RAFT_LOGTYPE_NORMAL:
@@ -965,11 +970,23 @@ class RaftServer(object):
         This is a virtraft specific check to make sure entry passing is
         working correctly.
         """
+        if ety.type == lib.RAFT_LOGTYPE_NO_OP:
+            return
+
         ci = lib.raft_get_current_idx(self.raft)
         if 0 < ci and not lib.raft_get_snapshot_last_idx(self.raft) == ci:
             try:
                 prev_ety = lib.raft_get_entry_from_idx(self.raft, ci)
                 assert prev_ety
+                if prev_ety.type == lib.RAFT_LOGTYPE_NO_OP:
+                    if lib.raft_get_snapshot_last_idx(self.raft) != ci - 1:
+                        lib.raft_entry_release(prev_ety)
+                        prev_ety = lib.raft_get_entry_from_idx(self.raft,
+                            ci - 1)
+                        assert prev_ety
+                    else:
+                        lib.raft_entry_release(prev_ety)
+                        return
                 other_id = prev_ety.id
                 assert other_id < ety.id
                 lib.raft_entry_release(prev_ety)
@@ -1016,6 +1033,9 @@ class RaftServer(object):
 
         self.fsm_log.pop()
         self.network.log_pops += 1
+
+        if ety.type == lib.RAFT_LOGTYPE_NO_OP:
+            return 0
 
         change = ffi.from_handle(lib.raft_entry_getdata(ety))
         if ety.type == lib.RAFT_LOGTYPE_DEMOTE_NODE:

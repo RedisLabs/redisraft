@@ -3696,7 +3696,7 @@ void TestRaft_read_action_callback(
      * from past terms */
     raft_become_leader(r);
     aer.msg_id = 2;
-    aer.term = 2;
+    aer.term = 3;
     CuAssertIntEquals(tc, 0, raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer));
 
     raft_periodic(r, 1);
@@ -3705,6 +3705,7 @@ void TestRaft_read_action_callback(
 
     /* entry 3 */
     __RAFT_APPEND_ENTRY(r, 3, 1, "aaa");
+
     ra.calls = 0;
     raft_queue_read_request(r, __read_request_callback, &ra);
 

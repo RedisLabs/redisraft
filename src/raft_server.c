@@ -160,12 +160,24 @@ int raft_election_start(raft_server_t* me_)
     return raft_become_candidate(me_);
 }
 
-void raft_become_leader(raft_server_t* me_)
+int raft_become_leader(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
     int i;
 
     __log(me_, NULL, "becoming leader term:%d", raft_get_current_term(me_));
+
+    raft_index_t next_idx = raft_get_current_idx(me_) + 1;
+
+    if (raft_get_current_term(me_) > 1) {
+        raft_entry_t *noop = raft_entry_new(0);
+        noop->term = raft_get_current_term(me_);
+        noop->type = RAFT_LOGTYPE_NO_OP;
+        int e = raft_append_entry(me_, noop);
+        if (0 != e)
+            return e;
+        raft_entry_release(noop);
+    }
 
     raft_set_state(me_, RAFT_STATE_LEADER);
     me->timeout_elapsed = 0;
@@ -176,10 +188,12 @@ void raft_become_leader(raft_server_t* me_)
         if (me->node == node || !raft_node_is_active(node))
             continue;
 
-        raft_node_set_next_idx(node, raft_get_current_idx(me_) + 1);
+        raft_node_set_next_idx(node, next_idx);
         raft_node_set_match_idx(node, 0);
         raft_send_appendentries(me_, node);
     }
+
+    return 0;
 }
 
 int raft_become_candidate(raft_server_t* me_)
@@ -234,8 +248,11 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
     /* Only one voting node means it's safe for us to become the leader */
     if (1 == raft_get_num_voting_nodes(me_) &&
         raft_node_is_voting(raft_get_my_node((void*)me)) &&
-        !raft_is_leader(me_))
-        raft_become_leader(me_);
+        !raft_is_leader(me_)) {
+            int e = raft_become_leader(me_);
+            if (e != 0)
+                return e;
+    }
 
     if (me->state == RAFT_STATE_LEADER)
     {
@@ -718,8 +735,11 @@ int raft_recv_requestvote_response(raft_server_t* me_,
             if (node)
                 raft_node_vote_for_me(node, 1);
             int votes = raft_get_nvotes_for_me(me_);
-            if (raft_votes_is_majority(raft_get_num_voting_nodes(me_), votes))
-                raft_become_leader(me_);
+            if (raft_votes_is_majority(raft_get_num_voting_nodes(me_), votes)) {
+                int e = raft_become_leader(me_);
+                if (0 != e)
+                    return e;
+            }
             break;
 
         case RAFT_REQUESTVOTE_ERR_NOT_GRANTED:
@@ -1659,6 +1679,22 @@ void raft_process_read_queue(raft_server_t* me_)
      */
     if (!raft_is_leader(me_))
         return;
+
+    /* Quickly bail if nothing to do */
+    if (!me->read_queue_head)
+        return;
+
+    if (raft_get_num_voting_nodes(me_) > 1) {
+        raft_entry_t *ety = raft_get_entry_from_idx(me_, raft_get_commit_idx(me_));
+        if (!ety)
+            return;
+
+        raft_term_t ety_term = ety->term;
+        raft_entry_release(ety);
+
+        if (ety_term < me->current_term)
+            return;
+    }
 
     raft_msg_id_t acked_msgid = quorum_msg_id(me_);
     while (me->read_queue_head &&

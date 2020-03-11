@@ -78,6 +78,11 @@ typedef enum {
      * Users can piggyback the entry mechanism by specifying log types that
      * are higher than RAFT_LOGTYPE_NUM.
      */
+    RAFT_LOGTYPE_NO_OP,
+    /**
+     * A no-op entry appended automatically when a leader begins a new term,
+     * in order to determine the current commit index.
+     */
     RAFT_LOGTYPE_NUM=100,
 } raft_logtype_e;
 
@@ -946,7 +951,7 @@ int raft_apply_all(raft_server_t* me_);
 /** Become leader
  * WARNING: this is a dangerous function call. It could lead to your cluster
  * losing it's consensus guarantees. */
-void raft_become_leader(raft_server_t* me);
+int raft_become_leader(raft_server_t* me);
 
 /** Become follower. This may be used to give up leadership. It does not change
  * currentTerm. */
