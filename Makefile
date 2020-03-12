@@ -110,11 +110,11 @@ integration-tests:
 
 .PHONY: valgrind-tests
 valgrind-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig nosetests $(PYTEST_OPTS)
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig pytest $(PYTEST_OPTS)
 
 .PHONY: valgrind-show-possibly-lost-tests
 valgrind-show-possibly-lost-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig nosetests $(PYTEST_OPTS)
+	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig pytest $(PYTEST_OPTS)
 
 .PHONY: integration-lcov-report
 integration-lcov-report:
