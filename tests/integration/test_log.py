@@ -2,7 +2,6 @@ import time
 from re import match
 from redis import ResponseError
 from raftlog import RaftLog
-
 from fixtures import cluster
 
 
@@ -13,7 +12,7 @@ def test_log_rollback(cluster):
 
     cluster.create(3)
     assert cluster.leader == 1
-    assert cluster.raft_exec('SET', 'key', 'value1') ==  b'OK'
+    assert cluster.raft_exec('SET', 'key', 'value1') == b'OK'
 
     # Break cluster
     cluster.node(2).terminate()
@@ -36,7 +35,7 @@ def test_log_rollback(cluster):
     cluster.node(2).start()
     cluster.node(3).start()
     cluster.node(2).wait_for_election()
-    assert cluster.node(2).current_index() == 6
+    assert cluster.node(2).current_index() == 7 # 6 + 1 no-op entry
 
     # Restart node 1
     cluster.node(1).start()
@@ -45,12 +44,12 @@ def test_log_rollback(cluster):
     # Make another write and make sure it overwrites the previous one in
     # node 1's log
     cluster.raft_exec('SET', 'key', 'value3')
-    assert cluster.node(1).current_index() == 7
+    assert cluster.node(1).current_index() == 8
 
     # Make sure log reflects the change
     log.reset()
     log.read()
-    assert match(r'.*SET.*value3', str(log.entries[7].data()))
+    assert match(r'.*SET.*value3', str(log.entries[8].data()))
 
 
 def test_raft_log_max_file_size(cluster):
@@ -137,3 +136,30 @@ def test_reply_to_cache_invalidated_entry(cluster):
             assert conn.read_response() == b'OK'
         except ResponseError as err:
             assert str(err).startswith('TIMEOUT')
+
+
+def test_read_before_commits(cluster):
+    """
+    """
+
+    cluster.create(3)
+    assert cluster.raft_exec('GET', 'somekey') is None
+
+
+def test_stale_reads_on_leader_election(cluster):
+    """
+    """
+    cluster.create(3)
+
+    # Try 10 times
+    for _ in range(10):
+        val_written = cluster.raft_exec("INCR", "counter-1")
+
+        leader = cluster.node(cluster.leader)
+        leader.terminate()
+        leader.start(verify=False)
+
+        val_read = cluster.raft_exec('GET', 'counter-1')
+        assert val_read is not None
+        assert val_written == int(val_read)
+        time.sleep(1)

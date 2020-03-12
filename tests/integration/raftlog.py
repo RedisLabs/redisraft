@@ -89,6 +89,7 @@ class LogEntry(RawEntry):
         ADD_NODE = 2
         DEMOTE_NODE = 3
         REMOVE_NODE = 4
+        NO_OP = 5
 
     def term(self):
         return int(self.args[1])

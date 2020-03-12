@@ -165,7 +165,7 @@ class RedisRaft(object):
         self.cluster('join', *addresses)
         return self
 
-    def start(self, extra_raft_args=None):
+    def start(self, extra_raft_args=None, verify=True):
         if extra_raft_args is None:
             extra_raft_args = []
         args = [self.executable] + self.args + self.raft_args + extra_raft_args
@@ -178,6 +178,8 @@ class RedisRaft(object):
         self.stderr = PipeLogger(self.process.stderr,
                                  '{}/stderr'.format(self.id))
 
+        if not verify:
+            return
         self.verify_up()
         LOG.info('RedisRaft<%s> is up, pid=%s', self.id, self.process.pid)
 
@@ -499,7 +501,7 @@ class Cluster(object):
                     if no_leader_first:
                         LOG.info("-NOLEADER response received, will retry"
                                  " for %s seconds", self.noleader_timeout)
-                        no_leader_first = False
+                        #no_leader_first = False
                     time.sleep(0.5)
                 else:
                     raise
