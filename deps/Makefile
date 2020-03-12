@@ -5,9 +5,9 @@ endif
 all:	libuv hiredis raft cmocka
 
 clean:
-	$(MAKE) -C hiredis clean
-	$(MAKE) -C libuv distclean
-	$(MAKE) -C raft clean
+	-$(MAKE) -C hiredis clean
+	-$(MAKE) -C libuv distclean
+	-$(MAKE) -C raft clean
 	-rm -rf cmocka/build
 
 ##
