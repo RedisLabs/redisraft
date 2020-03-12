@@ -575,7 +575,7 @@ class Network(object):
             return
 
         # Create a new configuration entry to be processed by the leader
-        ety = self.add_entry(lib.RAFT_LOGTYPE_REMOVE_NODE,
+        ety = self.add_entry(lib.RAFT_LOGTYPE_DEMOTE_NODE,
                              ChangeRaftEntry(server.id))
         assert server.connection_status == NODE_CONNECTED
         assert(lib.raft_entry_is_cfg_change(ety))
