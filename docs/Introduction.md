@@ -1,7 +1,7 @@
 Introduction
 ============
 
-RedisRaft is a Redis module that allows you to create strongly-consistent clustered Redis deployments. This module provides strong consistency for Redis using a variation of the [Raft Consensus
+RedisRaft is a Redis module that allows you to create strongly-consistent clustered Redis deployments. This module provides strong consistency for Redis using the [Raft Consensus
 Algorithm](https://raft.github.io/).
 
 ## Background
@@ -13,9 +13,9 @@ Redis has traditionally offered a couple of distributed deployment options:
 
 These deployments do not offer a strong consistency guarantee, since they trade it for better performance and availability. To be sure, there are certain controls, such as the `WAIT` command, that provide better consistency assurances, but these controls aren't designed to elevate traditional Redis deployments to the level of strong consistency.
 
-Strong consistency implies that acknowledged writes will be immediately visible to all readers.
+Strong consistency implies that acknowledged writes will be immediately visible to all readers and that writes will not be lost once acknowledged.
 
-Traditional Redis deployments, and, indeed, most database systems, trade strong consistency guarantees for improved performance and greater availability. RedisRaft was created for those occasions where strong consistency is required.
+Traditional Redis deployments trade strong consistency guarantees for improved performance and greater availability. RedisRaft was created for those occasions where strong consistency is required.
 
 ## What can RedisRaft do?
 
@@ -31,7 +31,20 @@ The cluster uses heartbeat messages to detect failed nodes. In the event of a fa
 
 A RedisRaft cluster will remain available (i.e., able to process reads and writes) as long as the majority of its nodes remains online and able to communicate with each other. If this is not the case, the cluster becomes unavailable.
 
-RedisRaft nodes may persist data to disk for better durability or operate in-memory only. If an in-memory node goes down (i.e., the process is stopped or crashes or the host OS is restarted), then this node will longer be able to join the cluster. Such nodes should be removed and replaced by a new node; this is the equivalent of a disk-based node losing its files.
+RedisRaft nodes may persist data to disk for better durability or operate in-memory only.
+
+The RedisRaft consensus algorithm enforces the following invariants:
+
+    1. A node must never lose the data it has acknowledged (i.e., written in the log)
+    2. A cluster may lose up to (N/2)-1 nodes while continuing to remain available. A cluster becomes unavailable when it loses a majority (>= 50%) of its nodes.
+
+So long as a node persists its log data to disk, it will survive crashes, OS restarts, etc. This is true as long as the files are still present and can be loaded when the node goes back online.
+
+However, if a node's log files are lost or corrupted, then that node needs to be removed from the cluster and re-joined.
+
+Every cluster node is identified by a unique, logical ID. So re-joining a node involves logically removing the old ID and re-joining the node with new ID.
+
+An in-memory node will naturally lose its data on every process crash/restart. In other words, a simple re-start of an in-memory node is the equivalent of losing a disk on a persistent node.
 
 ## What are RedisRaft's limitations?
 
@@ -42,4 +55,4 @@ First, RedisRaft does not support every Redis command and capability.
 Second, to achieve strong consistency, RedisRaft sacrifices some of the performance you get in traditional Redis and Redis Cluster deployments. This is because:
 
 1. The RedisRaft consensus algorithm requires several network round trips between nodes, which increases response times.
-2. When persisting to disk, RedisRaft records changes to disk immediately using the Redis AOF `always` persistence strategy (which is not the default for traditional Redis deployments).
+2.  RedisRaft records changes to disk immediately using its own persistence mechanism. This mechanism's impact on performance is comparable to the Redis AOF `always` persistence strategy.

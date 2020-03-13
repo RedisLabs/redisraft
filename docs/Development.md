@@ -228,6 +228,56 @@ WATCH:
 At the moment this is not implemented.
 
 
+Special Modes
+----------------
+
+RedisRaft supports two experimental and/or for-testing-only modes, which are described below.
+
+### Follower Proxy Mode
+
+Follower Proxy mode allows a follower (non-leader) node to proxy user commands
+to the leader, wait for them to complete, and send the reply back to the client.
+
+The benefit of this **experimental** mode of operation is that a client no
+longer needs to deal with `-MOVED` redirect replies.
+
+This mode has several limitations:
+* It cannot preserve and manage state across commands. This affects commands
+  like `MULTI/EXEC` and `WATCH` which will exhibit undefined behavior if
+  proxied to a leader (or even different leaders over time).
+
+* It uses a single connection and therefore may introduce additional performance
+  limitations.
+
+To enable Follower Proxy mode, use specify `follower-proxy=yes` as a
+configuration directive.
+
+### Explicit Mode
+
+By default, RedisRaft works transparently by intercepting all user commands and
+processing them through the Raft Log.
+
+***Explicit Mode*** disables this automatic interception and allows the client to decide which commands should be run through the Raft log on a command-by-command basis.
+
+To allow for this this, RedisRaft's **explicit mode** exposes the `RAFT` command.
+
+For example:
+
+    RAFT SET mykey myvalue
+
+This sends the `SET mykey myvalue` Redis command to RedisRaft, causing it
+to execute with the strongly-consistent guarantees.
+
+On the other hand, performing the same operation without the `RAFT` command
+prefix causes it to execute locally **with no such guarantees** and, what's more, **without being replicated to other nodes**.
+
+To disable automatic interception and work in explicit mode, use the
+`raftize-all-commands=no` configuration directive.
+
+> :warning: Unless you really know what you're doing, there's probably no reason
+> to use this mode.
+
+
 TODO/Wish List
 --------------
 

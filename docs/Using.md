@@ -1,8 +1,7 @@
 Using RedisRaft
 ===============
 
-This chapter describes how RedisRaft handles Redis commands and how it differs from the familiar Redis behavior.
-
+This chapter describes how RedisRaft handles Redis commands and how it differs from standard Redis.
 
 Basic Guarantees
 ----------------
@@ -181,16 +180,15 @@ The following table summarizes the supported commands along with any caveats:
 
 Notes:
 
-1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as active expire logic; thus, volatile keys may violate consistency.
+1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as active expiry logic; thus, volatile keys may violate consistency.
 
 2. Blocking operations are not supported.
 
 3. `MULTI/EXEC` and `WATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below).
 
-4. Lua scripts are supported but should be written as pure functions (i.e., as
-   required when script replication rather than command replication is in use).
+4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
-   For example, using non-deterministic commands such as `RANDOMKEY`, `SRANDMEMBER`, `TIME` must be avoided.
+   For example, avoid using non-deterministic commands such as `RANDOMKEY`, `SRANDMEMBER`, and `TIME`, as these will produce different values when executed on follower nodes.
 
 Read Consistency
 ----------------
@@ -239,54 +237,3 @@ reads don't modify the dataset).
 
 It's possible to disable quorum reads to trade consistency and the
 risk of stale reads for better read performance. To do disable quorum reads, use the `quorum-reads=no` configuration directive.
-
-
-Additional Modes
-----------------
-
-RedisRaft supports additional experimental and/or for-testing-only modes, which
-are described below.
-
-### Follower Proxy Mode
-
-Follower Proxy mode allows a follower (non-leader) node to proxy user commands
-to the leader, wait for them to complete, and send the reply back to the client.
-
-The benefit of this **experimental** mode of operation is that a client no
-longer needs to deal with `-MOVED` redirect replies.
-
-This mode has several limitations:
-* It cannot preserve and manage state across commands. This affects commands
-  like `MULTI/EXEC` and `WATCH` which will exhibit undefined behavior if
-  proxied to a leader (or even different leaders over time).
-
-* It uses a single connection and therefore may introduce additional performance
-  limitations.
-
-To enable Follower Proxy mode, use specify `follower-proxy=yes` as a
-configuration directive.
-
-### Explicit Mode
-
-By default, RedisRaft works transparently by intercepting all user commands and
-processing them through the Raft Log.
-
-***Explicit Mode*** disables this automatic interception and allows the client to decide which commands should be run through the Raft log on a command-by-command basis.
-
-To allow for this this, RedisRaft's **explicit mode** exposes the `RAFT` command.
-
-For example:
-
-    RAFT SET mykey myvalue
-
-This sends the `SET mykey myvalue` Redis command to RedisRaft, causing it
-to execute with the strongly-consistent guarantees.
-
-On the other hand, performing the same operation without the `RAFT` command
-prefix causes it to execute locally **with no such guarantees** and, what's more, **without being replicated to other nodes**.
-
-To disable automatic interception and work in explicit mode, use the
-`raftize-all-commands=no` configuration directive.
-
-> :warning: Unless you really know what you're doing, there's probably no reason
-> to use this mode.
