@@ -17,25 +17,25 @@ RedisRaft clusters should be deployed in a way that reduces the chance of a sing
 
 > :warning: RedisRaft does not use Redis RDB or AOF files; these persistence strategies must be disabled in RedisRaft deployments.
 
-RedisRaft implements its own persistence mechanism implemented as a replicated log (as described in the Raft specification). All cluster configuration changes and writes to the dataset are recorded in this replicated log.
+RedisRaft implements its own persistence mechanism using a replicated log (as described in the Raft specification). All cluster configuration changes and writes to the dataset are recorded in this replicated log.
 
-To prevent the log from growing infinitely, RedisRaft periodically generates a snapshot and then truncates the log to include only those operations performed after the snapshot has been taken.
+To prevent the log from growing infinitely, RedisRaft periodically generates a snapshot of its dataset and then truncates the Raft log to include only those operations performed post-snapshot.
 
-When a RedisRaft node is restarted, it will attempt to load its snapshot and log files to restore its last state. If this cannot be done (e.g., data is lost or corrupted), the node will not be able to start. In this case, the node must be removed and re-added to the cluster as a new node.
+When a RedisRaft node is restarted, it will attempt to load its snapshot and log files to restore its last state. If this cannot be done (e.g., data is lost or corrupted), the node will not be able to start. In this case, the node must be removed and re-added to the cluster as a new node (how to do this is described below).
 
 ### Performance Tradeoffs
 
-By default, RedisRaft opts for the highest level of durability. This means logging all writes to disk and calling `fsync()` on the log after each write. For applications willing to trade greater performance for reduced durability, there are two options: disabling `fsync()` and running RedisRaft entirely in memory.
+By default, RedisRaft opts for the highest level of durability. This means logging all writes to disk and calling `fsync()` on the log after each write. For applications willing to trade greater performance for reduced durability, there are two options: disabling `fsync()` or running RedisRaft entirely in memory.
 
 #### Disabling `fsync()`
 
-`fsync()` is a system call that forces buffered data to be written to disk. RedisRaft syncs logs to disk using `fsync()`. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
+`fsync()` is a system call that forces buffered data in a file to be written to disk. RedisRaft syncs logs to disk using `fsync()`. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
 
 With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added.
 
 #### In-Memory Mode
 
-RedisRaft supports an in-memory mode, which disables the disk-based log altogether. This mode is designed for applications willing trade durabiliy for the best possible performance.
+RedisRaft supports an in-memory mode, which disables the disk-based Raft log altogether. This mode is designed for applications willing trade durability for the best possible performance.
 
 It's important to note that an in-memory RedisRaft node cannot be restarted. As soon as the node's `redis-server` process is down for any reason, the node must be removed and re-added to the cluster, since it will have lost its state.
 
@@ -43,7 +43,7 @@ It's important to note that an in-memory RedisRaft node cannot be restarted. As 
 
 RedisRaft is not currently optimized for very large datasets.
 
-The process of distributing snapshots between RedisRaft nodes relies on store-and-forward delivery of the entire dataset as a single blob, and this requires a significant memory overhead.
+The process of distributing snapshots between RedisRaft nodes relies on a store-and-forward delivery of the entire dataset as a single blob, and this requires significant memory overhead.
 
 As a rule of thumb, make sure the amount of memory available for Redis is at least 3 times larger than the expected dataset size.
 
@@ -75,24 +75,23 @@ RedisRaft works only on Redis 6.0 and above.
 
 To create a RedisRaft cluster, first launch the `redis-server` processes that comprise the cluster nodes. As mentioned earlier, you should use an odd number of nodes.
 
-Redis configuration is provided in the usual way, using the `redis.conf` configuration file or by specifying configuration directives via command line arguments.
+The configuration of each Redis instance is performed in the usual way, using the `redis.conf` configuration file or by specifying configuration directives via command line arguments.
 
-The RedisRaft configuration is provided as additional arguments to the module following the `loadmodule` directive (in a file or as arguments).
+The RedisRaft configuration is provided as additional arguments to the module following the `loadmodule` directive (in a file or as command-line arguments).
 
-For example:
+For example, here's how to start a Redis instance and configure RedisRaft via the command line:
 
     redis-server \
         --bind 0.0.0.0 --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog1.db addr=127.0.0.1:5001
 
-Notes:
-* The `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (disabling Redis protected mode) on port 5001.
-* The `--dbfilename` argument configures the name of the RDB file used for Raft snapshot storage.
-* The `--loadmodule` argument loads the RedisRaft module and passes additional configuration as arguments.
-* The `raft-log-filename=` argument configures the name of the RedisRaft log file.
-* The `addr=` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as
-  we're going to run our nodes as local processes for educational purposes.
+Note the following:
+* Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to 0.0.0.0, disabling Redis protected mode) and to listen on port 5001.
+* The `--dbfilename` argument sets the name of the RDB file used for Raft snapshots.
+* The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `raft-log-filename` and `addr`).
+* The module-specific `raft-log-filename=` argument set the name of the RedisRaft log file.
+* The module-specific `addr=` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
 
 ### Redis Configuration
 
@@ -132,7 +131,7 @@ To create the cluster, run the `RAFT.CLUSTER INIT` command:
     $ redis-cli -p 5001 RAFT.CLUSTER INIT
     OK a8c5ffb374268551fd4ad0188fedcf93
 
-The `OK` responses indicates that the cluster has been created.
+The `OK` response indicates that the cluster has been created.
 
 The response after the `OK` is the ID of the cluster (in this case, `a8c5ffb374268551fd4ad0188fedcf93`). Every RedisRaft cluster has a unique ID, which helps to prevent configuration mishaps such as reading the Raft log of the wrong cluster.
 
@@ -149,14 +148,14 @@ The command to launch a new node should look familiar. Since we're running this 
 
 As before, we can confirm the new node has also started in `uninitialized` state and is waiting to become part of a cluster.
 
-Since the cluster already exists, we don't need to use the `RAFT.CLUSTER INIT` command. Instead, we use `RAFT.CLUSTER JOIN` to join the new node to the existing cluster:
+Since the cluster already exists, we don't need to run `RAFT.CLUSTER INIT`. Instead, we run `RAFT.CLUSTER JOIN` to join the new node to the existing cluster:
 
     $ redis-cli -p 5002 RAFT.CLUSTER JOIN 127.0.0.1:5001
     OK
 
-> :bulb: Notice we use `redis-cli` to communicate with the new node, but we specify the host and port of the existing node as the argument to the `RAFT.CLUSTER JOIN` command.
+> :bulb: Notice we use `redis-cli` to communicate with the new node, but we specify the host and port of the existing leader node as the argument to the `RAFT.CLUSTER JOIN` command.
 
-At this point we can use `RAFT.INFO` again to query the status of our cluster. Querying the second node should result in a response something similar to this:
+At this point we can run `RAFT.INFO` again to query the status of our cluster. Querying the second node should result in a response similar to this:
 
     $ redis-cli -p 5002 --raw RAFT.INFO
     # Raft
@@ -206,7 +205,7 @@ The `last_conn_secs`, `conn_errors`, and `conn_oks`, along with `state`, provide
 
 ### Removing Nodes
 
-There are a few reasons you might want to remove a node from a RedisRaft cluster:
+There are a couple of reasons why you might want to remove a node from a RedisRaft cluster:
 
   1. You're scaling down the cluster.
   2. You need to replace one node with another (e.g., when replacing a node that has permanently lost its state)
@@ -274,7 +273,7 @@ The number of milliseconds to wait before sending an AppendEntries request as a 
 The number of milliseconds the cluster will to wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
 
 This value should be sufficiently greater than `raft-interval` and
-`request-timeout` to avoid false positives that would lead to cluster instability.
+`request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
 
 *Default*: 500
 
@@ -286,7 +285,7 @@ The number of milliseconds to wait to reconnect to a node when a node connection
 
 ### `follower-proxy`
 
-Whether to enable Follower Proxy mode, as described in the [Follower Proxy Mode](Using.md#follower-proxy-mode) section. Valid values for this setting are *yes* and *no*.
+Whether to enable Follower Proxy mode, as described in the [Follower Proxy Mode](Development.md#follower-proxy-mode) section. Valid values for this setting are *yes* and *no*.
 
 If enabled, a follower node will attempt to proxy client commands to the leader node. This has the benefit of allowing clients to perform operations on all cluster nodes.
 
@@ -309,10 +308,10 @@ The memory limit for the in-memory Raft log cache.
 RedisRaft keeps an in-memory cache of the most recent Raft log entries. The behavior of RedisRaft when the cache reaches the max cache size depends on whether RedisRaft is using a persistent Raft log.
 
 #### Persistent Raft Log
-Once the in-memory log cache reaches the limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
+Once the in-memory log cache reaches the specified limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
 
 #### In-memory Mode
-Once the in-memory log cache reaches the limit, the cluster compacts the in-memory log.
+Once the in-memory log cache reaches the specified limit, the cluster compacts the in-memory log.
 
 *Default*: 8000000 (8MB)
 
