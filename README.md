@@ -1,32 +1,30 @@
-# Redis Raft Module
+# RedisRaft
+### Strongly-Consistent Redis Deployments
 
-This is a Redis module that implements the [Raft Consensus
-Algorithm](https://raft.github.io/) as a Redis module, making it possible to
-create strongly consistent clusters of Redis servers.
+RedisRaft is a Redis module that implements the [Raft Consensus
+Algorithm](https://raft.github.io/), making it possible to create strongly-consistent clusters of Redis servers.
 
-The Raft algorithm is implemented by a [standalone Raft
+The Raft algorithm is provided by a [standalone Raft
 library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 
 ## Main Features
 
-* Create a Raft cluster of Redis processes that replicate a dataset while
-  offering strong consistency, effectively a CP system.
-* Most Redis data types and commands are supported as-is.
-* Dynamic cluster configuration (adding / removing nodes).
-* Persistent or in-memory Raft log.
-* Snapshots for log compaction.
-* Configurable quorum or fast reads.
-* Follower proxy support.
+* Strong consistency (in the language of [CAP](https://en.wikipedia.org/wiki/CAP_theorem), this system prioritizes consistency and partition-tolerance).
+* Support for most Redis data types and commands
+* Dynamic cluster configuration (adding / removing nodes)
+* Persistent or in-memory Raft log
+* Snapshots for log compaction
+* Configurable quorum or fast reads
 
 ## Getting Started
 
 ### Building
 
-The module is mostly self contained and comes with its dependencies as git
+The module is mostly self-contained and comes with its dependencies as git
 submodules under `deps`.
 
-To compile you will need:
-* Obvious build essentials (compiler, GNU make, etc.)
+To compile the module, you will need:
+* Build essentials (a compiler, GNU make, etc.)
 * CMake
 * GNU autotools (autoconf, automake, libtool)
 * libbsd-dev (on Debian/Ubuntu) or an equivalent for `bsd/sys/queue.h`.
@@ -37,11 +35,9 @@ To build, simply run:
     git submodule update
     make
 
-### Starting a cluster
+### Creating a RedisRaft Cluster
 
-Note: Make sure you're using a recent Redis 6.0 release candidate or a private
-build from the `unstable branch. Redis Raft depends on Module API capabilities
-not available in earlier versions.
+Note: Make sure you're using a recent Redis 6.0 release candidate or a private build from the `unstable` branch. RedisRaft depends on Module API capabilities not available versions of Redis < 6.0.
 
 To create a three node cluster, start the first node and initialize the
 cluster:
@@ -52,29 +48,27 @@ cluster:
             raft-log-filename=raftlog1.db addr=localhost:5001
     redis-cli -p 5001 raft.cluster init
 
-Then start the second node and make it join the cluster:
+Then start the second node, and run the `RAFT.CLUSTER JOIN` command to join it to the cluster:
 
     redis-server \
         --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog2.db addr=localhost:5002
-    redis-cli -p 5002 raft.cluster join localhost:5001
+    redis-cli -p 5002 RAFT.CLUSTER JOIN localhost:5001
 
-And the third node:
+Now add the third node in the same way:
 
     redis-server \
         --port 5003 --dbfilename raft3.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog3.db addr=localhost:5003
-    redis-cli -p 5003 raft.cluster join localhost:5001
+    redis-cli -p 5003 RAFT.CLUSTER JOIN localhost:5001
 
-To query the cluster state:
+To query the cluster state, run the `RAFT.INFO` command:
 
     redis-cli --raw -p 5001 RAFT.INFO
 
-And to submit a Raft operation:
-
-    redis-cli -p 5001 SET mykey myvalue
+Now you can start using this RedisRaft cluster. All [supported Redis commands](docs/Using.md) will be executed in a strongly-consistent manner using the Raft protocol.
 
 ## Documentation
 
