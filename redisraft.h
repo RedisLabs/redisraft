@@ -178,6 +178,11 @@ typedef struct {
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
     RedisModuleCommandFilter *registered_filter;
+    /* General stats */
+    unsigned long long proxy_reqs;              /* Number of proxied requests */
+    unsigned long long proxy_failed_reqs;       /* Number of failed proxy requests, i.e. did not send */
+    unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
+    unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
@@ -316,7 +321,7 @@ typedef struct RaftReq {
             msg_requestvote_t msg;
         } requestvote;
         struct {
-            redisAsyncContext *proxy_conn;
+            Node *proxy_node;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
@@ -401,6 +406,7 @@ RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
 void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
+void NodeMarkDisconnected(Node *node);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
 void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);

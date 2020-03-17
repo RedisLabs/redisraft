@@ -121,10 +121,13 @@ class RedisRaft(object):
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
-        raft_args['addr'] = 'localhost:{}'.format(self.port)
-        raft_args['raft-log-filename'] = self.raftlog
-        raft_args['loglevel'] = config.raft_loglevel
-        raft_args['raftize-all-commands'] = 'no'
+        default_args = {'addr': 'localhost:{}'.format(self.port),
+                        'raft-log-filename': self.raftlog,
+                        'loglevel': config.raft_loglevel,
+                        'raftize-all-commands': 'no'}
+        for defkey, defval in default_args.items():
+            if defkey not in raft_args:
+                raft_args[defkey] = defval
 
         self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
         self.client = redis.Redis(host='localhost', port=self.port)
@@ -442,6 +445,9 @@ class Cluster(object):
 
     def node(self, _id):
         return self.nodes[_id]
+
+    def random_node(self):
+        return self.nodes[self.random_node_id()]
 
     def leader_node(self):
         return self.nodes[self.leader]
