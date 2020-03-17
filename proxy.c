@@ -1,5 +1,7 @@
 #include "redisraft.h"
 
+extern RedisRaftCtx redis_raft;
+
 static RRStatus hiredisReplyToModule(redisReply *reply, RedisModuleCtx *ctx)
 {
     int i;
@@ -48,8 +50,13 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
          *
          * Ideally the connection should be dropped but Module API does not provide for that.
          */
+        NodeMarkDisconnected(req->r.redis.proxy_node);
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT no reply from leader");
         redis_raft.proxy_failed_responses++;
+        goto exit;
+    }
+
+    if (RedisModule_BlockedClientDisconnected(req->ctx)) {
         goto exit;
     }
 
@@ -69,6 +76,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
         return RR_ERROR;
     }
 
+    req->r.redis.proxy_node = leader;
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     if (redisAsyncCommand(leader->rc, handleProxiedCommandResponse,
                 req, "RAFT.ENTRY %b", entry->data, entry->data_len) != REDIS_OK) {

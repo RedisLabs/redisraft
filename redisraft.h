@@ -321,7 +321,7 @@ typedef struct RaftReq {
             msg_requestvote_t msg;
         } requestvote;
         struct {
-            redisAsyncContext *proxy_conn;
+            Node *proxy_node;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
@@ -406,6 +406,7 @@ RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
 void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
+void NodeMarkDisconnected(Node *node);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
 void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);

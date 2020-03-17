@@ -233,6 +233,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
 
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: %s\n", reply ? reply->str : "connection dropped.");
+        NodeMarkDisconnected(node);
         return;
     }
     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2 ||
@@ -294,6 +295,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     redisReply *reply = r;
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         NODE_TRACE(node, "RAFT.AE failed: %s\n", reply ? reply->str : "connection dropped.");
+        NodeMarkDisconnected(node);
         return;
     }
 

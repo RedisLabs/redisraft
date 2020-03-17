@@ -85,6 +85,9 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     uv_freeaddrinfo(res);
 
     /* Initiate connection */
+    if (node->rc != NULL) {
+        redisAsyncFree(node->rc);
+    }
     node->rc = redisAsyncConnect(node->ipaddr, node->addr.port);
     if (node->rc->err) {
         node->state = NODE_CONNECT_ERROR;
@@ -101,6 +104,15 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     redisLibuvAttach(node->rc, node->rr->loop);
     redisAsyncSetConnectCallback(node->rc, handleNodeConnect);
     redisAsyncSetDisconnectCallback(node->rc, handleNodeDisconnect);
+}
+
+void NodeMarkDisconnected(Node *node)
+{
+    node->state = NODE_DISCONNECTED;
+    if (node->rc) {
+        redisAsyncFree(node->rc);
+        node->rc = NULL;
+    }
 }
 
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback)
