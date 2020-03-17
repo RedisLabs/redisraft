@@ -1413,7 +1413,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     /* Proxy */
     if (leader_proxy) {
         if (ProxyCommand(rr, req, leader_proxy) != RR_OK) {
-            RedisModule_ReplyWithError(rr->ctx, "NOTLEADER Failed to proxy command");
+            RedisModule_ReplyWithError(req->ctx, "NOTLEADER Failed to proxy command");
             goto exit;
         }
         return;
