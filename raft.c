@@ -34,6 +34,7 @@ static void __setProcessExiting(void) {
     processExiting = true;
 }
 
+/* A dict that maps client ID to MultiClientState structs */
 static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Command Classification ------------------------------------ */
@@ -1282,17 +1283,35 @@ static bool checkReadOnlyCommandArray(RaftRedisCommandArray *array)
  *    of commands to a leader: the follower handles the user interaction and
  *    the leader only handles the execution (when the user issued the final
  *    EXEC).
+ *
+ * Error handling rules (derived from Redis):
+ * 1) MULTI and DISCARD should always succeed.
+ * 2) If we encounter errors inside a MULTI context, we need to flag that
+ *    transaction as failed but keep going until EXEC/DISCARD.
+ * 3) RAFT related state checks can be postponed and evaluated only at the
+ *    time of EXEC.
  */
+
+typedef struct MultiState {
+    RaftRedisCommandArray cmds;
+    bool error;
+} MultiState;
+
+static void freeMultiState(MultiState *multiState)
+{
+    RaftRedisCommandArrayFree(&multiState->cmds);
+    RedisModule_Free(multiState);
+}
 
 static void freeMultiExecState(unsigned long long client_id)
 {
 
-    RaftRedisCommandArray *multiState = NULL;
+    MultiState *multiState = NULL;
 
     if (RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id),
                &multiState) == REDISMODULE_OK) {
        if (multiState) {
-        RaftRedisCommandArrayFree(multiState);
+           freeMultiState(multiState);
        }
     }
 }
@@ -1301,9 +1320,8 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 {
     unsigned long long client_id = RedisModule_GetClientId(req->ctx);
 
-
     /* Get Multi state */
-    RaftRedisCommandArray *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
+    MultiState *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
 
     /* Is this a MULTI command? */
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
@@ -1313,13 +1331,13 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
         if (multiState) {
             RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
         } else {
-            multiState = RedisModule_Calloc(sizeof(RaftRedisCommandArray), 1);
+            multiState = RedisModule_Calloc(sizeof(MultiState), 1);
             RedisModule_DictSetC(multiClientState, &client_id, sizeof(client_id), multiState);
 
             /* We put the MULTI as the first command in the array, as we still need to
              * distinguish single-MULTI array from a single command.
              */
-            RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+            RaftRedisCommandArrayMove(&multiState->cmds, &req->r.redis.cmds);
 
             RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         }
@@ -1335,20 +1353,28 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             return true;
         }
 
-        /* Client is connected, we need to make sure it's not CAS dirty */
         int ctx_flags = RedisModule_GetContextFlags(req->ctx);
-        if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI_DIRTY) {
+
+        /* Check if we can execute:
+         * 1) No errors in the transaction so far;
+         * 2) No dirty watch.
+         */
+        if (multiState->error) {
+            RedisModule_ReplyWithError(req->ctx, "EXECABORT Transaction discarded because of previous errors.");
+            RaftReqFree(req);
+            req = NULL;
+        } else if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI_DIRTY) {
             RedisModule_ReplyWithNull(req->ctx);
             RaftReqFree(req);
             req = NULL;
         } else {
             /* Just swap our commands with the EXEC command and proceed. */
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
-            RaftRedisCommandArrayMove(&req->r.redis.cmds, multiState);
+            RaftRedisCommandArrayMove(&req->r.redis.cmds, &multiState->cmds);
         }
 
         RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
-        RaftRedisCommandArrayFree(multiState);
+        freeMultiState(multiState);
         return req == NULL;
     }
 
@@ -1357,7 +1383,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             RedisModule_ReplyWithError(req->ctx, "ERR DISCARD without MULTI");
         } else {
             RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
-            RaftRedisCommandArrayFree(multiState);
+            freeMultiState(multiState);
 
             RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         }
@@ -1368,7 +1394,10 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 
     /* Are we in MULTI? */
     if (multiState) {
-        RaftRedisCommandArrayMove(multiState, &req->r.redis.cmds);
+        /* TODO: Add command checks and set multiState->error if necessary; This probably requires
+         * Module API extensions.
+         */
+        RaftRedisCommandArrayMove(&multiState->cmds, &req->r.redis.cmds);
         RedisModule_ReplyWithSimpleString(req->ctx, "QUEUED");
 
         RaftReqFree(req);
@@ -1381,11 +1410,6 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
-
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
-        goto exit;
-    }
 
     /* If this is a request from a local client which is no longer connected,
      * dont process it.
@@ -1408,6 +1432,11 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         if (handleMultiExec(rr, req)) {
             return;
         }
+    }
+
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
+        goto exit;
     }
 
     /* Proxy */
