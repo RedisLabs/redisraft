@@ -1398,8 +1398,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         goto exit;
     }
 
-    if (handleMultiExec(rr, req)) {
-        return;
+    /* MULTI/EXEC bundling takes place only if we have a single command. If we have multiple
+     * commands we've received this as a RAFT.ENTRY input and bundling, probably through a
+     * proxy, and bundling was done before.
+     */
+    if (req->r.redis.cmds.len == 1) {
+        if (handleMultiExec(rr, req)) {
+            return;
+        }
     }
 
     /* Proxy */
