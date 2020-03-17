@@ -178,6 +178,11 @@ typedef struct {
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
     RedisModuleCommandFilter *registered_filter;
+    /* General stats */
+    unsigned long long proxy_reqs;              /* Number of proxied requests */
+    unsigned long long proxy_failed_reqs;       /* Number of failed proxy requests, i.e. did not send */
+    unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
+    unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
 } RedisRaftCtx;
 
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"

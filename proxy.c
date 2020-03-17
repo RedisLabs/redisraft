@@ -40,6 +40,8 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
     RaftReq *req = privdata;
     redisReply *reply = r;
 
+    redis_raft.proxy_outstanding_reqs--;
+
     if (!reply) {
         /* Connection have dropped.  The state of the request is unknown at this point
          * and this must be reflected to the user.
@@ -47,6 +49,7 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
          * Ideally the connection should be dropped but Module API does not provide for that.
          */
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT no reply from leader");
+        redis_raft.proxy_failed_responses++;
         goto exit;
     }
 
@@ -62,6 +65,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
 {
     /* TODO: Fail if any key is watched. */
     if (!leader->rc || leader->state != NODE_CONNECTED) {
+        redis_raft.proxy_failed_reqs++;
         return RR_ERROR;
     }
 
@@ -70,6 +74,9 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
                 req, "RAFT.ENTRY %b", entry->data, entry->data_len) != REDIS_OK) {
         return RR_ERROR;
     }
+
+    rr->proxy_reqs++;
+    rr->proxy_outstanding_reqs++;
 
     return RR_OK;
 }

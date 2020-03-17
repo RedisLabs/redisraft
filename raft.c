@@ -1563,8 +1563,16 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     s = catsnprintf(s, &slen,
             "\r\n# Clients\r\n"
-            "clients_in_multi_state:%d\r\n",
-            RedisModule_DictSize(multiClientState));
+            "clients_in_multi_state:%d\r\n"
+            "proxy_reqs:%llu\r\n"
+            "proxy_failed_reqs:%llu\r\n"
+            "proxy_failed_responses:%llu\r\n"
+            "proxy_outstanding_reqs:%ld\r\n",
+            RedisModule_DictSize(multiClientState),
+            rr->proxy_reqs,
+            rr->proxy_failed_reqs,
+            rr->proxy_failed_responses,
+            rr->proxy_outstanding_reqs);
 
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);
