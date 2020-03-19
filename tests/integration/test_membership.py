@@ -63,3 +63,37 @@ def test_single_voting_change_enforced(cluster):
 
     time.sleep(1)
     assert cluster.node(1).raft_info()['num_nodes'] == 5
+
+
+def test_removed_node_remains_dead(cluster):
+    """
+    A removed node stays down and does not resurrect in any case.
+    """
+
+    cluster.create(3)
+
+    # Some baseline data
+    for _ in range(100):
+        cluster.raft_exec('INCR', 'counter')
+
+    # Remove node 3
+    cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '3')
+    cluster.node(1).wait_for_num_voting_nodes(2)
+
+    # Add more data
+    for _ in range(100):
+        cluster.raft_exec('INCR', 'counter')
+
+    # Check
+    node = cluster.node(3)
+
+    # Verify node 3 does not accept writes
+    with raises(ResponseError):
+        node.client.execute_command('RAFT', 'INCR', 'counter')
+
+    # Verify node 3 still does not accept writes after a restart
+    node.terminate()
+    node.start()
+
+    with raises(ResponseError):
+        node.client.execute_command('RAFT', 'INCR', 'counter')
