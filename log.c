@@ -976,6 +976,19 @@ void RaftLogRemoveFiles(const char *filename)
     RedisModule_Free(idx_filename);
 }
 
+void RaftLogArchiveFiles(RedisRaftCtx *rr)
+{
+    char *idx_filename = getIndexFilename(rr->config->raft_log_filename);
+    unlink(idx_filename);
+    RedisModule_Free(idx_filename);
+
+    char bak_filename_maxlen = strlen(rr->config->raft_log_filename) + 100;
+    char bak_filename[bak_filename_maxlen];
+    snprintf(bak_filename, bak_filename_maxlen - 1,
+            "%s.%d.bak", rr->config->raft_log_filename, raft_get_nodeid(rr->raft));
+    rename(rr->config->raft_log_filename, bak_filename);
+}
+
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries)
 {
     /* Rename Raft log.  If we fail, we can assume the old log is still
