@@ -418,6 +418,21 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     RaftCfgChange *req;
 
     switch (entry->type) {
+        case RAFT_LOGTYPE_DEMOTE_NODE:
+            if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
+                raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
+                msg_entry_response_t resp;
+
+                rem_entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+                rem_entry->id = rand();
+                ((RaftCfgChange *) rem_entry->data)->id = ((RaftCfgChange *) entry->data)->id;
+
+                int e = raft_recv_entry(rr->raft, rem_entry, &resp);
+                assert (e == 0);
+
+                raft_entry_release(rem_entry);
+                break;
+            }
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
             if (req->id == raft_get_nodeid(raft)) {
@@ -710,8 +725,21 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
+    if (ret ==0) {
+        ret = raft_apply_all(rr->raft);
+    }
+
+    if (ret == RAFT_ERR_SHUTDOWN) {
+        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+
+        if (rr->config->raft_log_filename)
+            RaftLogArchiveFiles(rr);
+        if (rr->config->rdb_filename)
+            archiveSnapshot(rr);
+        exit(0);
+    }
+
     assert(ret == 0);
-    raft_apply_all(rr->raft);
 
     /* Compact cache */
     if (rr->config->raft_log_max_cache_size) {
@@ -1154,6 +1182,8 @@ exit:
 static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t *entry;
+    msg_entry_response_t response;
+    int e;
 
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
@@ -1177,15 +1207,14 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             }
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+            entry->type = RAFT_LOGTYPE_DEMOTE_NODE;
             break;
         default:
             assert(0);
     }
 
     memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
-    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
-    if (e != 0) {
+    if ((e = raft_recv_entry(rr->raft, entry, &response)) != 0) {
         replyRaftError(req->ctx, e);
     } else {
         if (req->type == RR_CFGCHANGE_REMOVENODE) {

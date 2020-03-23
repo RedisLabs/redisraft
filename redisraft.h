@@ -460,6 +460,7 @@ raft_index_t RaftLogCurrentIdx(RaftLog *log);
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename);
 long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx);
 void RaftLogRemoveFiles(const char *filename);
+void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 
 typedef struct EntryCache {
@@ -499,6 +500,7 @@ void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node);
+void archiveSnapshot(RedisRaftCtx *rr);
 
 /* proxy.c */
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);

@@ -805,3 +805,12 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
     return 0;
 }
 
+void archiveSnapshot(RedisRaftCtx *rr)
+{
+    size_t bak_rdb_filename_maxlen = strlen(rr->config->rdb_filename);
+    char bak_rdb_filename[bak_rdb_filename_maxlen];
+
+    snprintf(bak_rdb_filename, bak_rdb_filename_maxlen - 1,
+            "%s.bak.%d", rr->config->rdb_filename, raft_get_nodeid(rr->raft));
+    rename(rr->config->rdb_filename, bak_rdb_filename);
+}

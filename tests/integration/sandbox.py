@@ -186,6 +186,13 @@ class RedisRaft(object):
         self.verify_up()
         LOG.info('RedisRaft<%s> is up, pid=%s', self.id, self.process.pid)
 
+    def process_is_up(self):
+        if not self.process:
+            return False
+
+        self.process.poll()
+        return self.process.returncode is None
+
     def verify_up(self):
         retries = self.up_timeout
         if retries is not None:
@@ -348,15 +355,26 @@ class RedisRaft(object):
                                  timeout)
         LOG.debug("Finished waiting for num_voting_nodes == %d", count)
 
-    def wait_for_node_voting(self, timeout=10):
+    def wait_for_num_nodes(self, count, timeout=10):
+        def num_nodes_match():
+            info = self.raft_info()
+            return bool(info['num_nodes'] == count)
+
+        def raise_not_added():
+            raise RedisRaftTimeout('Nodes count did not modify')
+
+        self._wait_for_condition(num_nodes_match, raise_not_added, timeout)
+        LOG.debug("Finished waiting for num_nodes == %d", count)
+
+    def wait_for_node_voting(self, value='yes', timeout=10):
         def check_voting():
             info = self.raft_info()
-            return bool(info['is_voting'] == 'yes')
+            return bool(info['is_voting'] == value)
 
         def raise_not_voting():
             info = self.raft_info()
             LOG.debug("Non voting node: %s", str(info))
-            raise RedisRaftTimeout('Node is not voting')
+            raise RedisRaftTimeout('Node voting != %s' % value)
 
         self._wait_for_condition(check_voting, raise_not_voting, timeout)
 

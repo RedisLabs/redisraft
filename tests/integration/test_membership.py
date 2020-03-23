@@ -1,6 +1,6 @@
 import time
 from pytest import raises
-from redis import ResponseError
+from redis import ResponseError, RedisError
 from fixtures import cluster
 
 def test_node_join_iterates_all_addrs(cluster):
@@ -88,12 +88,48 @@ def test_removed_node_remains_dead(cluster):
     node = cluster.node(3)
 
     # Verify node 3 does not accept writes
-    with raises(ResponseError):
+    with raises(RedisError):
         node.client.execute_command('RAFT', 'INCR', 'counter')
 
     # Verify node 3 still does not accept writes after a restart
     node.terminate()
     node.start()
 
-    with raises(ResponseError):
+    with raises(RedisError):
         node.client.execute_command('RAFT', 'INCR', 'counter')
+
+
+def test_full_cluster_remove_and_rejoin(cluster):
+    """
+    Remove all cluster nodes, then attempt rejoin.
+    """
+
+    cluster.create(5)
+    for _ in range(100):
+        cluster.raft_exec('INCR', 'counter')
+
+    leader = cluster.node(1)
+    expected_nodes = 5
+    for node_id in (2, 3, 4, 5):
+        leader.client.execute_command('RAFT.NODE', 'REMOVE', str(node_id))
+        expected_nodes -= 1
+        leader.wait_for_num_nodes(expected_nodes)
+        leader.wait_for_commit_index(leader.current_index())
+
+    # more changes
+    for _ in range(10):
+        cluster.raft_exec('INCR', 'counter')
+
+    # make sure other nodes are down
+    time.sleep(3)
+    for node_id in (2, 3, 4, 5):
+        assert not cluster.node(node_id).process_is_up()
+
+    # and make sure they start up in uninitialized state
+    for node_id in (2, 3, 4, 5):
+        cluster.node(node_id).terminate()
+        cluster.node(node_id).start()
+
+    time.sleep(3)
+    for node_id in (2, 3, 4, 5):
+        assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
