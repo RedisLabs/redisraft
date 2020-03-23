@@ -880,17 +880,6 @@ int raft_apply_entry(raft_server_t* me_)
           log_idx, ety->id, ety->data_len);
 
     me->last_applied_idx++;
-
-    /* voting cfg change is now complete. we have to update it before calling
-     * applylog to allow the callback to push a new membership change entry
-     * if needed (e.g. remove after demote).
-     *
-     * TODO: is there possibly an off-by-one bug hidden here? requiring
-     * checking log_idx >= voting_cfg_change_log_idx rather than plain ==.
-     */
-    if (log_idx >= me->voting_cfg_change_log_idx)
-        me->voting_cfg_change_log_idx = -1;
-
     if (me->cb.applylog)
     {
         int e = me->cb.applylog(me_, me->udata, ety, me->last_applied_idx);
@@ -899,6 +888,13 @@ int raft_apply_entry(raft_server_t* me_)
             return RAFT_ERR_SHUTDOWN;
         }
     }
+
+    /* voting cfg change is now complete.
+     * TODO: there seem to be a possible off-by-one bug hidden here, requiring
+     * checking log_idx >= voting_cfg_change_log_idx rather than plain ==.
+     */
+    if (log_idx >= me->voting_cfg_change_log_idx)
+        me->voting_cfg_change_log_idx = -1;
 
     if (!raft_entry_is_cfg_change(ety))
         goto exit;
@@ -1203,7 +1199,6 @@ int raft_apply_all(raft_server_t* me_)
 int raft_entry_is_voting_cfg_change(raft_entry_t* ety)
 {
     return RAFT_LOGTYPE_ADD_NODE == ety->type ||
-           RAFT_LOGTYPE_REMOVE_NODE == ety->type ||
            RAFT_LOGTYPE_DEMOTE_NODE == ety->type;
 }
 
