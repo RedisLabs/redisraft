@@ -81,6 +81,15 @@ class LogHeader(RawEntry):
                    self.snapshot_term(), self.snapshot_index(),
                    self.last_term(), self.last_vote())
 
+    def __str__(self):
+        return '#### node_id={} dbid={} version={}\n' \
+        '        #### last_term={} last_vote={}\n' \
+        '        #### snapshot-term={} snapshot-index={}'.format(
+            self.node_id().decode(encoding='ascii'),
+            self.dbid().decode(encoding='ascii'),
+            self.version(),
+            self.last_term(), self.last_vote(),
+            self.snapshot_term(), self.snapshot_index())
 
 class LogEntry(RawEntry):
     class LogType(Enum):
@@ -113,16 +122,38 @@ class LogEntry(RawEntry):
         return '<CfgChange:node_id=%s,port=%s,addr=%s>' % (
             node_id, port, addr.decode('ascii').split('\0', 1)[0])
 
-    def data(self):
+    @staticmethod
+    def parse_cmdlist(data):
+        cmds = []
+        cmd_count = int(data[0][1:])
+        i = 1
+        for _ in range(cmd_count):
+            args_count = int(data[i][1:])
+            i_end = i + 1 + (args_count)*2
+            cmds.append(' '.join(data[i+2:i_end:2]))
+            i = i_end
+        return '|'.join(cmds)
+
+    def data(self, decode=False):
         value = self.args[4]
         if self.type_is_cfgchange():
             return self.parse_cfgchange(value)
         else:
-            return value
+            if decode:
+                if not value:
+                    return ''
+                return self.parse_cmdlist(value.decode(encoding='ascii').
+                                          split('\n'))
+            else:
+                return value
 
     def __repr__(self):
         return '<LogEntry:%s:id=%s,term=%s,data=%s>' % (
             self.type(), self.id(), self.term(), self.data())
+
+    def __str__(self):
+        return '{:4d} {:10d} {} {}'.format(
+            self.term(), self.id(), self.type().name, self.data(decode=True))
 
 class RaftLog(object):
     def __init__(self, filename):
@@ -164,8 +195,9 @@ class RaftLog(object):
         logging.info('===== End Raft Log Dump =====')
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
-
     log = RaftLog(sys.argv[1])
     log.read()
-    log.dump()
+    i = 0
+    for entry in log.entries:
+        print('{:7d} {}'.format(i, str(entry)))
+        i += 1
