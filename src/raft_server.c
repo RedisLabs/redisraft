@@ -792,11 +792,8 @@ int raft_recv_entry(raft_server_t* me_,
     {
         raft_node_t* node = me->nodes[i];
 
-        if (me->node == node ||
-            !node ||
-            !raft_node_is_active(node) ||
-            !raft_node_is_voting(node))
-            continue;
+        if (me->node == node || !node)
+           continue;
 
         /* Only send new entries.
          * Don't send the entry to peers who are behind, to prevent them from
@@ -1023,19 +1020,20 @@ int raft_send_appendentries_all(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
     int i, e;
+    int ret = 0;
 
     me->timeout_elapsed = 0;
     for (i = 0; i < me->num_nodes; i++)
     {
-        if (me->node == me->nodes[i] || !raft_node_is_active(me->nodes[i]))
+        if (me->node == me->nodes[i])
             continue;
 
         e = raft_send_appendentries(me_, me->nodes[i]);
         if (0 != e)
-            return e;
+            ret = e;
     }
 
-    return 0;
+    return ret;
 }
 
 raft_node_t* raft_add_node_internal(raft_server_t* me_, raft_entry_t *ety, void* udata, raft_node_id_t id, int is_self)
