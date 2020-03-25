@@ -475,6 +475,10 @@ static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raf
 
 static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
 {
+    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+    if (rr->state == REDIS_RAFT_LOADING)
+        return 0;
+
     Node *node = raft_node_get_udata(raft_node);
     assert (node != NULL);
 
@@ -587,7 +591,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     /* Special case: if no other nodes, set commit index to the latest
      * entry in the log.
      */
-    if (raft_get_num_nodes(rr->raft) == 1) {
+    if (raft_get_num_voting_nodes(rr->raft) == 1 || raft_get_num_nodes(rr->raft) == 1) {
         raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
     }
 

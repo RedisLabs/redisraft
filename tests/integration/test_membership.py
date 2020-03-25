@@ -1,4 +1,6 @@
 import time
+import logging
+import threading
 from pytest import raises
 from redis import ResponseError, RedisError
 from fixtures import cluster
@@ -133,3 +135,59 @@ def test_full_cluster_remove_and_rejoin(cluster):
     time.sleep(3)
     for node_id in (2, 3, 4, 5):
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
+
+
+def test_node_history_with_same_address(cluster):
+    ""
+    ""
+    cluster.create(5)
+
+    # Remove nodes 4-5
+    cluster.raft_exec("INCR", "step-counter")
+    ports = []
+    for node_id in [2, 3, 4, 5]:
+        ports.append(cluster.node(node_id).port)
+        cluster.remove_node(node_id)
+    cluster.node(cluster.leader).wait_for_num_nodes(1)
+
+    # Add nodes with the same addresses
+    temp_nodes = []
+    for port in ports:
+        temp_nodes.append(cluster.add_node(port=port))
+    cluster.node(cluster.leader).wait_for_num_voting_nodes(5)
+
+    # ... and remove
+    for node in temp_nodes:
+        cluster.remove_node(node.id)
+        cluster.node(cluster.leader).wait_for_log_applied()
+
+    cluster.node(cluster.leader).wait_for_num_voting_nodes(1)
+
+    # Create a new node that collides with one of the ports
+    new_node = cluster.add_node(port=5002)
+    cluster.node(cluster.leader).wait_for_num_voting_nodes(2)
+
+    # Now try to demote leader and remove it
+    while cluster.leader == 1:
+        cluster.node(cluster.leader).restart()
+        new_node.wait_for_election()
+        cluster.raft_exec("INCR", "wait-for-leader")
+
+    cluster.remove_node(1)
+    new_node.wait_for_num_voting_nodes(1)
+
+    # Add enough data in the log to satisfy timing
+    for _ in range(3000):
+        cluster.raft_exec("INCR", "step-counter")
+
+    # Terminate all
+    cluster.terminate()
+
+    # Start new node
+    new_node.start()
+    new_node.wait_for_num_voting_nodes(1)
+
+    # need some time to start applying logs..
+    time.sleep(2)
+
+    assert cluster.raft_exec("GET", "step-counter") == b'3001'
