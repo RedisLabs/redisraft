@@ -222,3 +222,58 @@ def test_proxy_with_multi_and_reconnections(cluster):
         threads.pop().join()
     assert results['good'] > 0
     assert results['bad'] == 0
+
+
+def test_stale_reads_on_restarts(cluster):
+    """
+    Test proxy mode with MULTI transactions safety checks and
+    reconnections (dropping clients with CLIENT KILL).
+    """
+
+    cluster.create(3, raft_args={'follower-proxy': 'yes',
+                                 'raftize-all-commands': 'yes'})
+    finished = False
+    thread_count = 50
+    cycles = 20
+    results = {'good': 0, 'bad': 0}
+
+    def writer(node, tid, results):
+        client = cluster.node(node).client
+        cname = 'counter-%s' % tid
+        val = 0
+        run = 0
+        while not finished:
+            try:
+                new_val = client.incr(cname)
+                assert new_val > val
+                val = new_val
+                run += 1
+                results['good'] += 1
+            except RedisError as err:
+                continue
+            except AssertionError:
+                logging.error('node: %s tid %s: run %s: Bad reply: %s',
+                    node, tid, run, new_val)
+                results['bad'] += 1
+        logging.info('Thread %s exiting after %s runs on node %s', tid, run,
+                     node)
+
+    threads = []
+    for tid in range(thread_count):
+        _thread = threading.Thread(target=writer, args=[
+            cluster.random_node_id(), tid + 1, results])
+        _thread.start()
+        threads.append(_thread)
+
+    for _ in range(cycles):
+        time.sleep(1)
+        cluster.restart()
+
+    logging.info('All cycles finished')
+
+    finished = True
+
+    while threads:
+        threads.pop().join()
+    assert results['good'] > 0
+    assert results['bad'] == 0

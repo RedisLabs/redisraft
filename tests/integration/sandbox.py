@@ -406,6 +406,9 @@ class Cluster(object):
     def nodes_count(self):
         return len(self.nodes)
 
+    def node_ids(self):
+        return self.nodes.keys()
+
     def node_ports(self):
         return [n.port for n in self.nodes.values()]
 
@@ -432,10 +435,12 @@ class Cluster(object):
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
 
-    def add_node(self, raft_args=None, cluster_setup=True):
+    def add_node(self, raft_args=None, port=None, cluster_setup=True):
         _id = self.next_id
         self.next_id += 1
-        node = RedisRaft(_id, self.base_port + _id, raft_args=raft_args)
+        if port is None:
+            port = self.base_port + _id
+        node = RedisRaft(_id, port, raft_args=raft_args)
         if cluster_setup:
             if self.nodes:
                 node.join(self.node_addresses())
@@ -460,6 +465,12 @@ class Cluster(object):
 
     def random_node_id(self):
         return random.choice(list(self.nodes.keys()))
+
+    def find_node_id_by_port(self, port):
+        for node in self.nodes.values():
+            if node.port == port:
+                return node.id
+        return None
 
     def node(self, _id):
         return self.nodes[_id]
@@ -514,7 +525,8 @@ class Cluster(object):
                 elif str(err).startswith('MOVED'):
                     start_time = time.time()
                     port = int(str(err).split(':')[-1])
-                    new_leader = port - 5000
+                    new_leader = self.find_node_id_by_port(port)
+                    assert new_leader is not None
                     assert new_leader != self.leader
 
                     # When removing a leader there can be a race condition,
@@ -539,3 +551,13 @@ class Cluster(object):
     def destroy(self):
         for node in self.nodes.values():
             node.destroy()
+
+    def terminate(self):
+        for node in self.nodes.values():
+            node.terminate()
+
+    def restart(self):
+        for node in self.nodes.values():
+            node.terminate()
+        for node in self.nodes.values():
+            node.start()

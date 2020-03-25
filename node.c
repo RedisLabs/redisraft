@@ -318,6 +318,9 @@ void HandleNodeStates(RedisRaftCtx *rr)
         return;
     }
 
+    if (rr->state == REDIS_RAFT_LOADING)
+        return;
+
     /* Iterate nodes and find nodes that require reconnection */
     Node *node, *tmp;
     LIST_FOREACH_SAFE(node, &node_list, entries, tmp) {
@@ -326,7 +329,10 @@ void HandleNodeStates(RedisRaftCtx *rr)
                 LIST_REMOVE(node, entries);
                 NodeFree(node);
             } else {
-                NodeConnect(node, rr, NULL);
+                raft_node_t *n = raft_get_node(rr->raft, node->id);
+                if (n != NULL && raft_node_is_active(n)) {
+                    NodeConnect(node, rr, NULL);
+                }
             }
         }
     }
