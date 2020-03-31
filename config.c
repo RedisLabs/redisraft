@@ -97,6 +97,22 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->election_timeout = val;
+    } else if (!strcmp(keyword, "raft-response-timeout")) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val <= 0) {
+            snprintf(errbuf, errbuflen-1, "invalid 'raft-response-timeout' value");
+            return RR_ERROR;
+        }
+        target->raft_response_timeout = val;
+    } else if (!strcmp(keyword, "proxy-response-timeout")) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val <= 0) {
+            snprintf(errbuf, errbuflen-1, "invalid 'proxy-response-timeout' value");
+            return RR_ERROR;
+        }
+        target->proxy_response_timeout = val;
     } else if (!strcmp(keyword, "reconnect-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -254,6 +270,14 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, "election-timeout", config->election_timeout);
     }
+    if (stringmatch(pattern, "raft-response-timeout", 1)) {
+        len++;
+        replyConfigInt(ctx, "raft-response-timeout", config->raft_response_timeout);
+    }
+    if (stringmatch(pattern, "proxy-response-timeout", 1)) {
+        len++;
+        replyConfigInt(ctx, "proxy-response-timeout", config->proxy_response_timeout);
+    }
     if (stringmatch(pattern, "reconnect-interval", 1)) {
         len++;
         replyConfigInt(ctx, "reconnect-interval", config->reconnect_interval);
@@ -304,6 +328,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
+    config->raft_response_timeout = REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT;
+    config->proxy_response_timeout = REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT;
     config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
     config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
     config->raft_log_fsync = true;

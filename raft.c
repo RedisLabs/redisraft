@@ -218,6 +218,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     if (req) {
         /* Free request now, we don't need it anymore */
         entry->user_data = NULL;
+        rr->client_attached_entries--;
         RaftReqFree(req);
     }
 }
@@ -232,11 +233,13 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
 
     redisReply *reply = r;
 
+    NodeDismissPendingResponse(node);
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
         NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: %s\n", reply ? reply->str : "connection dropped.");
         NodeMarkDisconnected(node);
         return;
     }
+
     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2 ||
             reply->element[0]->type != REDIS_REPLY_INTEGER ||
             reply->element[1]->type != REDIS_REPLY_INTEGER) {
@@ -268,7 +271,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
     if (node->state != NODE_CONNECTED) {
-        NODE_TRACE(node, "not connected, state=%u\n", node->state);
+        NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
 
@@ -283,6 +286,8 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
         NODE_TRACE(node, "failed requestvote");
     }
 
+    NodeAddPendingResponse(node, false);
+
     return 0;
 }
 
@@ -292,6 +297,8 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 {
     Node *node = privdata;
     RedisRaftCtx *rr = node->rr;
+
+    NodeDismissPendingResponse(node);
 
     redisReply *reply = r;
     if (!reply || reply->type == REDIS_REPLY_ERROR) {
@@ -341,7 +348,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     size_t argvlen[argc];
 
     if (node->state != NODE_CONNECTED) {
-        NODE_TRACE(node, "not connected, state=%u\n", node->state);
+        NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
 
@@ -375,6 +382,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
                 node, argc, (const char **)argv, argvlen) != REDIS_OK) {
         NODE_TRACE(node, "failed appendentries");
     }
+    NodeAddPendingResponse(node, false);
 
     for (i = 0; i < msg->n_entries; i++) {
         RedisModule_Free(argv[4 + i*2]);
@@ -1242,6 +1250,7 @@ static void freeRedisCommandRaftEntry(raft_entry_t *ety)
     ety->user_data = NULL;
 
     if (req) {
+        redis_raft.client_attached_entries--;
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
         RaftReqFree(req);
     }
@@ -1498,6 +1507,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     entry->type = RAFT_LOGTYPE_NORMAL;
     entry->user_data = req;
     entry->free_func = freeRedisCommandRaftEntry;
+    rr->client_attached_entries++;
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     raft_entry_release(entry);
 
@@ -1568,7 +1578,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0);
 
     int i;
-    time_t now = time(NULL);
+    long long now = RedisModule_Milliseconds();
     int num_nodes = rr->raft ? raft_get_num_nodes(rr->raft) : 0;
     for (i = 0; i < num_nodes; i++) {
         raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
@@ -1577,34 +1587,12 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             continue;
         }
 
-        char state[40];
-        switch (node->state) {
-            case NODE_DISCONNECTED:
-                strcpy(state, "disconnected");
-                break;
-            case NODE_RESOLVING:
-                strcpy(state, "resolving");
-                break;
-            case NODE_CONNECTING:
-                strcpy(state, "connecting");
-                break;
-            case NODE_CONNECTED:
-                strcpy(state, "connected");
-                break;
-            case NODE_CONNECT_ERROR:
-                strcpy(state, "connect_error");
-                break;
-            default:
-                strcpy(state, "--");
-                break;
-        }
-
         s = catsnprintf(s, &slen,
                 "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d,last_conn_secs=%ld,conn_errors=%lu,conn_oks=%lu\r\n",
-                i, node->id, state,
+                i, node->id, NodeStateStr[node->state],
                 raft_node_is_voting(rnode) ? "yes" : "no",
                 node->addr.host, node->addr.port,
-                node->last_connected_time ? now - node->last_connected_time : -1,
+                node->last_connected_time ? (now - node->last_connected_time)/1000 : -1,
                 node->connect_errors, node->connect_oks);
     }
 
@@ -1616,14 +1604,16 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "last_applied_index:%d\r\n"
             "file_size:%lu\r\n"
             "cache_memory_size:%lu\r\n"
-            "cache_entries:%lu\r\n",
+            "cache_entries:%lu\r\n"
+            "client_attached_entries:%lu\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
             rr->raft ? raft_get_last_applied_idx(rr->raft) : 0,
             rr->log ? rr->log->file_size : 0,
             rr->logcache ? rr->logcache->entries_memsize : 0,
-            rr->logcache ? rr->logcache->len : 0);
+            rr->logcache ? rr->logcache->len : 0,
+            rr->client_attached_entries);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"

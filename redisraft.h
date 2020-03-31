@@ -179,17 +179,22 @@ typedef struct {
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
     RedisModuleCommandFilter *registered_filter;
     /* General stats */
+    unsigned long client_attached_entries;      /* Number of log entries attached to user connections */
     unsigned long long proxy_reqs;              /* Number of proxied requests */
     unsigned long long proxy_failed_reqs;       /* Number of failed proxy requests, i.e. did not send */
     unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
 } RedisRaftCtx;
 
+extern RedisRaftCtx redis_raft;
+
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
-#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          250
-#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         500
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          200
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         1000
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
+#define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT   10000
+#define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT    1000
 #define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE       8*1000*1000
 #define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE        64*1000*1000
 
@@ -206,6 +211,8 @@ typedef struct RedisRaftConfig {
     int request_timeout;
     int election_timeout;
     int reconnect_interval;
+    int proxy_response_timeout;
+    int raft_response_timeout;
     /* Cache and file comapction */
     unsigned long raft_log_max_cache_size;
     unsigned long raft_log_max_file_size;
@@ -224,6 +231,8 @@ typedef enum NodeState {
     NODE_CONNECT_ERROR
 } NodeState;
 
+extern const char *NodeStateStr[];
+
 typedef enum NodeFlags {
     NODE_TERMINATING    = 1 << 0
 } NodeFlags;
@@ -232,6 +241,13 @@ typedef enum NodeFlags {
     ((x) == NODE_DISCONNECTED || \
      (x) == NODE_CONNECT_ERROR)
 
+typedef struct PendingResponse {
+    bool proxy;
+    int id;
+    long long request_time;
+    STAILQ_ENTRY(PendingResponse) entries;
+} PendingResponse;
+
 /* Maintains all state about peer nodes */
 typedef struct Node {
     raft_node_id_t id;                  /* Raft unique node ID */
@@ -239,7 +255,7 @@ typedef struct Node {
     NodeFlags flags;                    /* See: enum NodeFlags */
     NodeAddr addr;                      /* Node's address */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Node's resolved IP */
-    time_t last_connected_time;         /* Last connection time */
+    long long last_connected_time;      /* Last connection time */
     unsigned int connect_oks;           /* Successful connects */
     unsigned int connect_errors;        /* Connection errors since last connection */
     redisAsyncContext *rc;              /* hiredis async context */
@@ -255,6 +271,9 @@ typedef struct Node {
     char *snapshot_buf;             /* Snapshot buffer; TODO: Currently we buffer the entire RDB
                                      * because hiredis will not stream it for us. */
     uv_buf_t uv_snapshot_buf;       /* libuv wrapper for snapshot_buf */
+    long pending_raft_response_num;     /* Number of pending Raft responses */
+    long pending_proxy_response_num;    /* Number of pending proxy responses */
+    STAILQ_HEAD(pending_responses, PendingResponse) pending_responses;
     LIST_ENTRY(Node) entries;
 } Node;
 
@@ -411,6 +430,8 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
 void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);
 void HandleNodeStates(RedisRaftCtx *rr);
+void NodeAddPendingResponse(Node *node, bool proxy);
+void NodeDismissPendingResponse(Node *node);
 
 /* serialization.c */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source);

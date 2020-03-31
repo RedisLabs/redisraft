@@ -1,3 +1,4 @@
+#include <time.h>
 #include "redisraft.h"
 #include "hiredis/adapters/libuv.h"
 
@@ -5,9 +6,18 @@
 
 static LIST_HEAD(node_list, Node) node_list = LIST_HEAD_INITIALIZER(node_list);
 
+const char *NodeStateStr[] = {
+    "disconnected",
+    "resolving",
+    "connecting",
+    "connected",
+    "connect_error"
+};
+
 Node *NodeInit(int id, const NodeAddr *addr)
 {
     Node *node = RedisModule_Calloc(1, sizeof(Node));
+    STAILQ_INIT(&node->pending_responses);
 
     node->id = id;
     strcpy(node->addr.host, addr->host);
@@ -18,11 +28,25 @@ Node *NodeInit(int id, const NodeAddr *addr)
     return node;
 }
 
+static void clearPendingResponses(Node *node)
+{
+    node->pending_raft_response_num = 0;
+    node->pending_proxy_response_num = 0;
+
+    while (!STAILQ_EMPTY(&node->pending_responses)) {
+        PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
+        STAILQ_REMOVE_HEAD(&node->pending_responses, entries);
+        RedisModule_Free(resp);
+    }
+}
+
 void NodeFree(Node *node)
 {
     if (!node) {
         return;
     }
+
+    clearPendingResponses(node);
 
     LIST_REMOVE(node, entries);
     RedisModule_Free(node);
@@ -34,7 +58,10 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
     if (status == REDIS_OK) {
         node->state = NODE_CONNECTED;
         node->connect_oks++;
-        node->last_connected_time = time(NULL);
+        node->last_connected_time = RedisModule_Milliseconds();
+        clearPendingResponses(node);
+
+        NODE_TRACE(node, "Node connection established.\n");
     } else {
         node->state = NODE_CONNECT_ERROR;
         node->rc = NULL;
@@ -304,6 +331,44 @@ static void initiateNodeAdd(RedisRaftCtx *rr)
     NodeConnect(rr->join_state->node, rr, sendNodeAddRequest);
 }
 
+void NodeAddPendingResponse(Node *node, bool proxy)
+{
+    static int response_id = 0;
+
+    PendingResponse *resp = RedisModule_Calloc(1, sizeof(PendingResponse));
+    resp->proxy = proxy;
+    resp->request_time = RedisModule_Milliseconds();
+    resp->id = ++response_id;
+
+    if (proxy) {
+        node->pending_proxy_response_num++;
+    } else {
+        node->pending_raft_response_num++;
+    }
+    STAILQ_INSERT_TAIL(&node->pending_responses, resp, entries);
+
+    NODE_TRACE(node, "NodeAddPendingResponse: id=%d, type=%s, request_time=%lld\n",
+            resp->id, proxy ? "proxy" : "raft", resp->request_time);
+}
+
+void NodeDismissPendingResponse(Node *node)
+{
+    PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
+    STAILQ_REMOVE_HEAD(&node->pending_responses, entries);
+
+    if (resp->proxy) {
+        node->pending_proxy_response_num--;
+    } else {
+        node->pending_raft_response_num--;
+    }
+
+    NODE_TRACE(node, "NodeDismissPendingResponse: id=%d, type=%s, latency=%lld\n",
+            resp->id, resp->proxy ? "proxy" : "raft",
+            RedisModule_Milliseconds() - resp->request_time);
+
+    RedisModule_Free(resp);
+}
+
 void HandleNodeStates(RedisRaftCtx *rr)
 {
 
@@ -324,6 +389,23 @@ void HandleNodeStates(RedisRaftCtx *rr)
     /* Iterate nodes and find nodes that require reconnection */
     Node *node, *tmp;
     LIST_FOREACH_SAFE(node, &node_list, entries, tmp) {
+        if (node->state == NODE_CONNECTED && !STAILQ_EMPTY(&node->pending_responses)) {
+            PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
+            long timeout;
+
+            if (raft_is_leader(rr->raft)) {
+                timeout = rr->config->raft_response_timeout;
+            } else {
+                timeout = resp->proxy ? rr->config->proxy_response_timeout : rr->config->raft_response_timeout;
+            }
+
+            if (timeout && resp->request_time + timeout < RedisModule_Milliseconds()) {
+                NODE_TRACE(node, "Pending %s response timeout expired, reconnecting.\n",
+                        resp->proxy ? "proxy" : "raft");
+                NodeMarkDisconnected(node);
+            }
+        }
+
         if (NODE_STATE_IDLE(node->state)) {
             if (node->flags & NODE_TERMINATING) {
                 LIST_REMOVE(node, entries);

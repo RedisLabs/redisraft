@@ -1,7 +1,5 @@
 #include "redisraft.h"
 
-extern RedisRaftCtx redis_raft;
-
 static RRStatus hiredisReplyToModule(redisReply *reply, RedisModuleCtx *ctx)
 {
     int i;
@@ -43,6 +41,7 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
     redisReply *reply = r;
 
     redis_raft.proxy_outstanding_reqs--;
+    NodeDismissPendingResponse(req->r.redis.proxy_node);
 
     if (!reply) {
         /* Connection have dropped.  The state of the request is unknown at this point
@@ -83,9 +82,11 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
     raft_entry_release(entry);
 
     if (ret != REDIS_OK) {
+        redis_raft.proxy_failed_reqs++;
         return RR_ERROR;
     }
 
+    NodeAddPendingResponse(leader, true);
     rr->proxy_reqs++;
     rr->proxy_outstanding_reqs++;
 
