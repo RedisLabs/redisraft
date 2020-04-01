@@ -2,7 +2,7 @@ from fixtures import cluster
 from raftlog import RaftLog, LogEntry
 
 
-def test_snapshot_delivery(cluster):
+def test_snapshot_delivery_to_new_node(cluster):
     """
     Ability to properly deliver and load a snapshot.
     """
@@ -21,6 +21,41 @@ def test_snapshot_delivery(cluster):
     r2 = cluster.add_node()
     cluster.wait_for_unanimity()
     assert r2.client.get('testkey') == b'4'
+
+
+def test_snapshot_delivery(cluster):
+    """
+    Ability to properly deliver and load a snapshot.
+    """
+
+    cluster.create(3, raft_args={'raftize-all-commands': 'yes'})
+    n1 = cluster.node(1)
+    n1.raft_exec('INCR', 'testkey')
+    n1.raft_exec('INCR', 'testkey')
+    n1.raft_exec('INCR', 'testkey')
+    for i in range(1000):
+        pipe = n1.client.pipeline(transaction=True)
+        for j in range(100):
+            pipe.rpush('list-%s' % i, 'elem-%s' % j)
+        pipe.execute()
+    cluster.node(3).terminate()
+    n1.raft_exec('SETRANGE', 'bigkey', '104857600', 'x')
+    n1.raft_exec('INCR', 'testkey')
+    assert n1.client.get('testkey') == b'4'
+
+    assert n1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n1.raft_info()['log_entries'] == 0
+
+    n3 = cluster.node(3)
+    n3.start()
+    n1.raft_exec('INCR', 'testkey')
+
+    n3.wait_for_node_voting()
+    cluster.wait_for_unanimity()
+
+    n3.client.execute_command('RAFT.CONFIG', 'SET',
+                              'raftize-all-commands', 'no')
+    assert n3.client.get('testkey') == b'5'
 
 
 def test_log_fixup_after_snapshot_delivery(cluster):
