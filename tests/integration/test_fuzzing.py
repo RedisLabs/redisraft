@@ -2,9 +2,10 @@ import random
 import logging
 import threading
 import time
+import pytest
 from redis import ResponseError, RedisError
-from fixtures import cluster
-
+from fixtures import cluster, workload
+from workload import MultiWithLargeReply, MonotonicIncrCheck
 
 def test_fuzzing_with_restarts(cluster):
     """
@@ -78,7 +79,7 @@ def test_fuzzing_with_config_changes(cluster):
     assert int(cluster.raft_exec('GET', 'counter')) == cycles
 
 
-def test_fuzzing_with_proxy_multi_and_restarts(cluster):
+def test_fuzzing_with_proxy_multi_and_restarts(cluster, workload):
     """
     Test proxy with transaction safety and random node restarts.
     """
@@ -89,125 +90,31 @@ def test_fuzzing_with_proxy_multi_and_restarts(cluster):
 
     cluster.create(nodes, raft_args={'raftize-all-commands': 'yes',
                                      'follower-proxy': 'yes'})
-    results = {'good': 0, 'bad': 0}
-    finished = False
-
-    def thread(node, tid, results):
-        cname = 'counter-%s' % tid
-        lname = 'list-%s' % tid
-
-        run = 1
-        while not finished:
-            client = cluster.random_node().client
-            try:
-                pipeline = client.pipeline(transaction=True)
-                pipeline.incr(cname)
-                pipeline.rpush(lname, run)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                reply = pipeline.execute()
-                run += 1
-                assert reply[0] == reply[1] # count == length of list
-                results['good'] += 1
-            except RedisError as err:
-                continue
-            except AssertionError:
-                logging.error('node: %s tid %s: run %s: Bad reply: %s',
-                    node, tid, run, reply)
-                results['bad'] += 1
-                break
-
-        logging.info('Thread %s exiting after %s runs on node %s', tid, run,
-                     node)
-
-    threads = []
-    for tid in range(thread_count):
-        _thread = threading.Thread(target=thread, args=[
-            cluster.random_node_id(), tid + 1, results])
-        _thread.start()
-        threads.append(_thread)
-
+    workload.start(thread_count, cluster, MultiWithLargeReply)
     for i in range(cycles):
         time.sleep(1)
         try:
-            logging.info('Cycle %s: %s', i, results)
+            logging.info('Cycle %s: %s', i, workload.stats())
             cluster.random_node().restart()
         except ResponseError as err:
             logging.error('Remove node: %s', err)
             continue
-
     logging.info('All cycles finished')
-
-    finished = True
-
-    while threads:
-        threads.pop().join()
-    assert results['good'] > 0
-    assert results['bad'] == 0
+    workload.stop()
 
 
-def test_proxy_with_multi_and_reconnections(cluster):
+def test_proxy_with_multi_and_reconnections(cluster, workload):
     """
     Test proxy mode with MULTI transactions safety checks and
     reconnections (dropping clients with CLIENT KILL).
     """
 
-    cluster.create(3, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes'})
-    finished = False
     thread_count = 100
     cycles = 20
-    results = {'good': 0, 'bad': 0}
 
-    def writer(node, tid, results):
-        client = cluster.node(node).client
-        cname = 'counter-%s' % tid
-        lname = 'list-%s' % tid
-        run = 1
-        while not finished:
-            try:
-                pipeline = client.pipeline(transaction=True)
-                pipeline.incr(cname)
-                pipeline.rpush(lname, run)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                pipeline.lrange(lname, 0, -1)
-                reply = pipeline.execute()
-                run += 1
-                assert reply[0] == reply[1] # count == length of list
-                results['good'] += 1
-            except RedisError as err:
-                continue
-            except AssertionError:
-                logging.error('node: %s tid %s: run %s: Bad reply: %s',
-                    node, tid, run, reply)
-                results['bad'] += 1
-        logging.info('Thread %s exiting after %s runs on node %s', tid, run,
-                     node)
-
-    threads = []
-    for tid in range(thread_count):
-        _thread = threading.Thread(target=writer, args=[
-            cluster.random_node_id(), tid + 1, results])
-        _thread.start()
-        threads.append(_thread)
-
+    cluster.create(3, raft_args={'follower-proxy': 'yes',
+                                 'raftize-all-commands': 'yes'})
+    workload.start(thread_count, cluster, MultiWithLargeReply)
     for _ in range(cycles):
         time.sleep(1)
         logging.info('Initiating client kill cycle')
@@ -215,65 +122,48 @@ def test_proxy_with_multi_and_reconnections(cluster):
             'CLIENT', 'KILL', 'TYPE', 'normal')
 
     logging.info('All cycles finished')
-
-    finished = True
-
-    while threads:
-        threads.pop().join()
-    assert results['good'] > 0
-    assert results['bad'] == 0
+    workload.stop()
 
 
-def test_stale_reads_on_restarts(cluster):
+def test_stale_reads_on_restarts(cluster, workload):
     """
     Test proxy mode with MULTI transactions safety checks and
     reconnections (dropping clients with CLIENT KILL).
     """
 
-    cluster.create(3, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes'})
-    finished = False
     thread_count = 50
     cycles = 20
-    results = {'good': 0, 'bad': 0}
-
-    def writer(node, tid, results):
-        client = cluster.node(node).client
-        cname = 'counter-%s' % tid
-        val = 0
-        run = 0
-        while not finished:
-            try:
-                new_val = client.incr(cname)
-                assert new_val > val
-                val = new_val
-                run += 1
-                results['good'] += 1
-            except RedisError as err:
-                continue
-            except AssertionError:
-                logging.error('node: %s tid %s: run %s: Bad reply: %s',
-                    node, tid, run, new_val)
-                results['bad'] += 1
-        logging.info('Thread %s exiting after %s runs on node %s', tid, run,
-                     node)
-
-    threads = []
-    for tid in range(thread_count):
-        _thread = threading.Thread(target=writer, args=[
-            cluster.random_node_id(), tid + 1, results])
-        _thread.start()
-        threads.append(_thread)
-
+    cluster.create(3, raft_args={'follower-proxy': 'yes',
+                                 'raftize-all-commands': 'yes'})
+    workload.start(thread_count, cluster, MonotonicIncrCheck)
     for _ in range(cycles):
         time.sleep(1)
         cluster.restart()
-
     logging.info('All cycles finished')
+    workload.stop()
 
-    finished = True
 
-    while threads:
-        threads.pop().join()
-    assert results['good'] > 0
-    assert results['bad'] == 0
+@pytest.mark.slow
+def test_proxy_stability_under_load(cluster, workload):
+    """
+    Test stability of the cluster with follower proxy under load.
+    """
+
+    thread_count = 500
+    duration = 300
+
+    cluster.create(5, raft_args={'follower-proxy': 'yes',
+                                 'raftize-all-commands': 'yes'})
+
+    workload.start(thread_count, cluster, MultiWithLargeReply)
+
+    # Monitor progress
+    start = time.time()
+    last_commit_index = 0
+    while start + duration > time.time():
+        time.sleep(2)
+        new_commit_index = cluster.node(cluster.leader).commit_index()
+        assert new_commit_index > last_commit_index
+        last_commit_index = new_commit_index
+
+    workload.stop()
