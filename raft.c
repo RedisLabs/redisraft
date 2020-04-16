@@ -552,6 +552,26 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
 
 }
 
+static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
+{
+    switch (state) {
+        case RAFT_STATE_FOLLOWER:
+            LOG_INFO("State change: Node is now a follower, term %d\n",
+                    raft_get_current_term(raft));
+            break;
+        case RAFT_STATE_CANDIDATE:
+            LOG_INFO("State change: Election starting, node is now a candidate, term %d\n",
+                    raft_get_current_term(raft));
+            break;
+        case RAFT_STATE_LEADER:
+            LOG_INFO("State change: Node is now a leader, term %d\n",
+                    raft_get_current_term(raft));
+            break;
+        default:
+            break;
+    }
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -562,7 +582,8 @@ raft_cbs_t redis_raft_callbacks = {
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
-    .notify_membership_event = raftNotifyMembershipEvent
+    .notify_membership_event = raftNotifyMembershipEvent,
+    .notify_state_event = raftNotifyStateEvent
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
