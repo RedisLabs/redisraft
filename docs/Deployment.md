@@ -31,7 +31,7 @@ By default, RedisRaft opts for the highest level of durability. This means loggi
 
 `fsync()` is a system call that forces buffered data in a file to be written to disk. RedisRaft syncs logs to disk using `fsync()`. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
 
-With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added.
+With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added. More specifically, disabling `fsync()` limits corruption or data loss to kernel-level crash or a full system/VM crash. Data is still safe in the event of a restart or crash at the process level.
 
 #### In-Memory Mode
 
@@ -103,7 +103,7 @@ RedisRaft is indirectly affected by Redis's own configuration, and there are sev
 | save                   | ""             | RedisRaft uses the RDB file as its own snapshot and manages the BGSAVE operation, so Redis needs to be configured in a way that does not interfere. |
 | dbfilename             | user defined   | You are free to configure the filename as desired. |
 | replicaof              | <none>         | RedisRaft implements its own replication mechanism; traditional Redis replication may not be enabled. |
-| requirepass            | <none>         | RedisRaft cluster nodes currently exchange messages on the same Redis port and do not implement authentication. |
+| requirepass            | <none>         | RedisRaft cluster nodes exchange messages on same Redis port that the client uses; however, RedisRaft does not implement authentication. |
 | maxmemory-policy       | noeviction     | Eviction must be disabled, as it is not compatible with RedisRaft's consistency guarantees. |
 | appendonly             | no             | Append-only file should not be used. |
 | cluster-enabled        | no             | RedisRaft is not compatible with Redis Cluster. |
@@ -256,9 +256,9 @@ RedisRaft uses this as the base name of the Raft log files, and creates addition
 
 ### `raft-interval`
 
-The number of milliseconds between internal RedisRaft cluster chores such as heartbeats, etc.
+The number of milliseconds between internal RedisRaft cluster events such as heartbeats, message retransmissions, and re-election announcements.
 
-If the timeout values are reduced for faster failure detection, it may be necessary to reduce this value as well. Reducing this value will result with more network traffic.
+If the `request-timeout` or `election-timeout` values must be reduced for faster failure detection, you'll also want to reduce this value as well. However, reducing this value will result with more network traffic.
 
 *Default*: 100
 
