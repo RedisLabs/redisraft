@@ -166,6 +166,8 @@ int raft_become_leader(raft_server_t* me_)
     int i;
 
     __log(me_, NULL, "becoming leader term:%d", raft_get_current_term(me_));
+    if (me->cb.notify_state_event)
+        me->cb.notify_state_event(me_, raft_get_udata(me_), RAFT_STATE_LEADER);
 
     raft_index_t next_idx = raft_get_current_idx(me_) + 1;
 
@@ -202,6 +204,8 @@ int raft_become_candidate(raft_server_t* me_)
     int i;
 
     __log(me_, NULL, "becoming candidate");
+    if (me->cb.notify_state_event)
+        me->cb.notify_state_event(me_, raft_get_udata(me_), RAFT_STATE_CANDIDATE);
 
     int e = raft_set_current_term(me_, raft_get_current_term(me_) + 1);
     if (0 != e)
@@ -234,6 +238,9 @@ void raft_become_follower(raft_server_t* me_)
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     __log(me_, NULL, "becoming follower");
+    if (me->cb.notify_state_event)
+        me->cb.notify_state_event(me_, raft_get_udata(me_), RAFT_STATE_FOLLOWER);
+
     raft_set_state(me_, RAFT_STATE_FOLLOWER);
     raft_randomize_election_timeout(me_);
     me->timeout_elapsed = 0;

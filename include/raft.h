@@ -376,6 +376,22 @@ typedef void (
     raft_membership_e type
     );
 
+/** Callback for being notified of state changes.
+ *
+ * Implementing this callback is optional.
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] state The new cluster state. */
+typedef void (
+*func_state_event_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_state_e state
+    );
+
+
 typedef struct
 {
     /** Callback for sending request vote messages */
@@ -411,6 +427,9 @@ typedef struct
 
     /** Callback for being notified of membership changes (optional). */
     func_membership_event_f notify_membership_event;
+
+    /** Callback for being notified of state changes (optional). */
+    func_state_event_f notify_state_event;
 
     /** Callback for catching debugging log messages
      * This callback is optional */
