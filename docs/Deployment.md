@@ -266,7 +266,7 @@ If the `request-timeout` or `election-timeout` values must be reduced for faster
 
 The number of milliseconds to wait before sending an AppendEntries request as a heartbeat or a re-transmission of a previously unacknowledged request.
 
-*Default*: 250
+*Default*: 200
 
 ### `election-timeout`
 
@@ -275,13 +275,25 @@ The number of milliseconds the cluster will to wait for a heartbeat from the lea
 This value should be sufficiently greater than `raft-interval` and
 `request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
 
-*Default*: 500
+*Default*: 1000
 
 ### `reconnect-interval`
 
 The number of milliseconds to wait to reconnect to a node when a node connection attempt fails.
 
 *Default*: 100
+
+### `proxy-response-timeout`
+
+The number of milliseconds to wait for a response to a proxy request sent to a leader, before giving up and dropping the connection.
+
+*Default*: 10000
+
+### `raft-response-timeout`
+
+The number of millieconds to wait for a response to a Raft message exchanged between nodes, before giving up and dropping the connection.
+
+*Default*: 1000
 
 ### `follower-proxy`
 

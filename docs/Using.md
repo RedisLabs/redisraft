@@ -184,7 +184,7 @@ Notes:
 
 2. Blocking operations are not supported.
 
-3. `MULTI/EXEC` and `WATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below).
+3. `WATCH` and `UNWATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below). `MUTLTI/EXEC/DISCARD` not supported in *Explicit Mode* but can be used with *Follower Proxy*.
 
 4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
