@@ -1,50 +1,37 @@
 Using RedisRaft
 ===============
 
-This chapter describes how RedisRaft handles Redis commands and how it differs
-from the familiar Redis behavior.
-
+This chapter describes how RedisRaft handles Redis commands and how it differs from standard Redis.
 
 Basic Guarantees
 ----------------
 
-User commands received by RedisRaft are not sent immediately to Redis for
-processing. Instead, they are first added to the distributed Raft log and
-replicated to all cluster nodes.
+User commands received by RedisRaft are not sent immediately to Redis for processing. Instead, they are first added to the distributed Raft log and replicated to all cluster nodes.
 
-RedisRaft will block the Redis client until the command has been replicated to a
-majority of cluster nodes (N/2+1), and only then pass the command to Redis for
-processing and deliver a reply to the client.
+RedisRaft will block the Redis client until the command has been replicated to a majority of cluster nodes (N/2+1), and only then pass the command to Redis for processing and reply to the client.
 
 > :bulb: Receiving a reply is an indication that the operation has completed
-> successful. However, not receiving a reply (e.g. a dropped connection) does
-> not necessarily mean the operation was **not** completed.
+> successfully. Conversely, not receiving a reply (e.g. a dropped connection) does
+> not necessarily mean that the operation did **not** complete.
 
 
 Leader Redirection
 ------------------
 
-RedisRaft requires all user interaction to be performed against the cluster's
+RedisRaft requires clients to execute all commands against the cluster's
 current leader.
 
-A client should be aware to the addresses of all cluster nodes, but cannot
-determine which node is the leader at any given time. Sending a Redis command to
-a non-leader node would result with a redirect response such as this:
+A client should be aware of the addresses of all cluster nodes, but cannot automatically determine which node is the leader at any given time. Sending a Redis command to a non-leader node results in a redirect response:
 
     -MOVED <addr>:<port>
 
-The client is then expected to establish a connection with the specified node
-and re-send the command.
+The client is then expected to establish a connection with the specified node and re-send the command.
 
-It is also possible that the cluster currently has no leader: it may be in the
-process of re-electing a new leader, or it may even be down due to loss of
-quorum. If that happens, the client will receive an error response such as this
-one:
+It is also possible for a RedisRaft cluster to have no leader. In this case, the cluster may be in the process of electing a new leader, or the cluster may be down due to a loss of quorum. If no leader is present, the client will receive an error response such as this one:
 
     -NOLEADER No Raft leader
 
-In this case the client should simply re-try the operation at a later time.
-
+In this case, the client should retry the operation at a later time.
 
 Supported Commands
 ------------------
@@ -54,10 +41,9 @@ following general exceptions:
 
 * Multiple databases (i.e. `SELECT`) are not supported.
 * Blocking commands (e.g. `BLPOP`) are not supported.
-* Publish/Subscribe and Streams are not supported (yet).
+* Publish/Subscribe and Streams are not yet supported.
 
-The following table summarizes the supported commands along with caveats, where
-applicable:
+The following table summarizes the supported commands along with any caveats:
 
 | Command           | Supported | Comments |
 | ----------------- | --------- | -------- |
@@ -194,127 +180,60 @@ applicable:
 
 Notes:
 
-1. Expiration is performed as a local and independent operation on different
-   cluster nodes. Because it depends on local clock as well as active expire
-   logic, it may violate consistency for anything that involves volatile keys.
+1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as active expiry logic; thus, volatile keys may violate consistency.
 
-2. Blocking operations are not supported. You may use the command but only in
-   its non blocking form.
+2. Blocking operations are not supported.
 
-3. `MULTI/EXEC` and `WATCH` are not supported in *Explicit Mode* or if *Follower
-   Proxy* is enabled.
+3. `MULTI/EXEC` and `WATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below).
 
-4. Lua scripts are supported but should be written as pure functions, i.e. as
-   required when script replication rather than command replication is in use.
+4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
-   For example, using commands such as `RANDOMKEY`, `SRANDMEMBER`, `TIME` or
-   other non-deterministic operations must be avoided.
+   For example, avoid using non-deterministic commands such as `RANDOMKEY`, `SRANDMEMBER`, and `TIME`, as these will produce different values when executed on follower nodes.
 
 Read Consistency
 ----------------
 
-So far the handling of commands was discussed without further distinction
-between write commands (that modify the dataset) and read-only commands.
+When discussing strongly-consistent systems, it's important clarify the read and write semantics.
 
-By now it's clear that the main consistency concern for a write is to only apply
-it after it has been replicated to a majority, in order to guarantee it will not
-be lost.
+Writes to RedisRaft are consistent because they are applied only after being replicated to a majority of nodes.
 
-### What are stale reads?
+Reads are also consistent since they're implemented as quorum reads. However, it's possible to disable quorum reads if you want to trade consistency for improved performance. This is discussed in detail below.
 
-The main consistency concern for a read, which may be less obvious, is avoiding
-a stale read: reading from a node which is no longer a cluster leader.
+### Stale reads
 
-Most of the time a node that is not the cluster's leader will be aware of that,
-refuse the read and redirect the client to the true leader. This is, however,
-not **always** the case. Consider the following scenario:
+The main consistency concern for a read is to avoid a stale read: that is, reading from a node which is no longer a cluster leader.
 
-1. Node A is the current elected leader in a cluster of 5 nodes.
-2. The network partitions and node A is no longer able to communicate with the
-   other nodes.
-3. The other nodes detect that node A is no longer available, and elect a new
-   leader - node B.
-4. Clients in the partitioned network immediately begin sending their writes to
-   node B.
-5. Node A is not yet aware that it is partitioned and thus no longer a leader,
-   and is therefore willing to handle reads from clients on its side of the
+Most of the time, a node that is not the cluster's leader will be aware of this,
+refuse the read, and redirect the client to the true leader. This is, however,
+not **always** the case. Consider the following scenario in a 5-node cluster:
+
+1. Node A is the current leader.
+2. A network partition occurs, and node A is no longer able to communicate with  
+   the other nodes (i.e., nodes B, C, D, E, and F).
+3. The other nodes detect that node A is no longer available, and they elect a
+   new leader: node B.
+4. Clients in the same network partition as node B immediately begin sending
+   their writes to node B.
+5. Node A is not yet aware that it is partitioned and thus no longer a leader;
+   therefore, node A is willing to handle reads from clients on its side of the
    network partition. These are *stale reads*.
 
 There are two things to note about this scenario:
 
 1. One could claim the node A relies on the same time-based thresholds as the
-   rest of the cluster and it should therefore initiate re-election (and fail)
-   at the same time. While practically this may be true in many cases, it makes
-   dangerous assumptions about the behavior of clocks and system time.
+   rest of the cluster and that it should therefore initiate re-election (and fail) at the same time. While practically this may be true in many cases, it makes dangerous assumptions about the behavior of clocks and system time.
 2. The reason this applies to reads but not writes is that writes require an
    explicit consensus.
 
 ### Quorum Reads
 
 By default, RedisRaft uses quorum reads to eliminate the risk of stale reads.
-Quorum reads are handled in a very similar way to writes: the leader needs to
-confirm with a majority of the cluster nodes that it is still a leader, before
+Quorum reads are handled in a very similar way to writes: the leader confirms with a majority of the cluster nodes that it is still a leader before
 replying to the client.
 
-Technically quorum reads could go through the Raft Log, but that would be
-extremely inefficient as it would bloat the log with meaningless entries (as
+(Technically, quorum reads could go through the Raft Log, but that would be
+extremely inefficient as it would bloat the log with meaningless entries, as
 reads don't modify the dataset).
 
-It is possible to disable quorum reads in order to trade consistency and the
-risk of stale reads for better read performance. To do that, use the
-`quorum-reads=no` configuration directive.
-
-
-Additional Modes
-----------------
-
-RedisRaft supports additional experimental and/or for-testing only modes, which
-are described below.
-
-### Follower Proxy Mode
-
-Follower Proxy mode allows a follower (non-leader) node to proxy user commands
-to the leader, wait for them to complete and send the reply back to the client.
-
-The benefit of this **experimental** mode of operation is that a client no
-longer needs to deal with `-MOVED` redirect replies.
-
-This mode has several limitations:
-* It cannot preserve and manage state across commands. This affects commands
-  like `MULTI/EXEC` or `WATCH` which will experience undefined behavior if
-  proxied to a leader (or even different leaders over time).
-
-* It uses a single connection and therefore may introduce additional performance
-  limitations.
-
-To enable Follower Proxy mode, use specify `follower-proxy=yes` as a
-configuration directive.
-
-### Explicit Mode
-
-By default, RedisRaft works transparently by intercepting all user commands and
-processing them through the Raft Log.
-
-It is possible to disable automatic interception and make the choice of
-processing a command through Raft or directly more explicit.
-
-RedisRaft exposes a Redis command named `RAFT` which prefixes commands Redis
-commands that need to go through Raft.
-
-For example:
-
-    RAFT SET mykey myvalue
-
-This would send the `SET mykey myvalue` Redis command to RedisRaft, causing it
-to execute with the above guarantees.
-
-On the other hand, performing the same operation without the `RAFT` command
-prefix would cause it to execute locally **with no such guarantees** and even
-more, **without being replicated to other nodes**.
-
-To disable automatic interception and work in explicit mode, use the
-`raftize-all-commands=no` configuration directive.
-
-> :warning: Unless you really know what you're doing, there's probably no reason
-> to use this mode.
-
+It's possible to disable quorum reads to trade consistency and the
+risk of stale reads for better read performance. To do disable quorum reads, use the `quorum-reads=no` configuration directive.

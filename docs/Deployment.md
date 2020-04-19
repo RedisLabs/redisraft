@@ -4,155 +4,119 @@ Deploying RedisRaft
 Planning
 --------
 
-### Number of nodes
+### Number of Nodes
 
-A RedisRaft cluster consists of multiple nodes in order to maximize the
-availability and durability of the dataset it maintains.
+A RedisRaft cluster consists of multiple nodes. This maximizes the
+availability and durability of its dataset.
 
-Ideally it should be deployed in a way that reduces the chance of a single
-failure affecting multiple nodes. For example, on most cloud environments that
-would mean compute instances located in different availability zones in the same
-region.
+As with most consensus-based systems, RedisRaft should be deployed with an odd number of nodes (e.g., 3 or 5). This prevents the classic "split-brain" scenario in which a cluster having an even number of nodes is split down the middle by a network partition.
 
-As with most consensus-based systems, the preferred number of nodes is an odd
-number (e.g. 3, 5). This prevents a "split brain" situation where a single
-network split results with loss of quorum.
+RedisRaft clusters should be deployed in a way that reduces the chance of a single failure affecting multiple nodes. For example, in most cloud environments, this would mean locating nodes in multiple availability zones within the same region.
 
 ### Persistence
 
-> :warning: RedisRaft does not use Redis RDB or AOF files, and these must be
-> turned off in the Redis configuration file.
+> :warning: RedisRaft does not use Redis RDB or AOF files; these persistence strategies must be disabled in RedisRaft deployments.
 
-RedisRaft implements its own persistence mechanism, which is the Raft log of
-operations. Every time a cluster configuration or dataset write operation is
-performed, it is appended to the Raft log file.
+RedisRaft implements its own persistence mechanism using a replicated log (as described in the Raft specification). All cluster configuration changes and writes to the dataset are recorded in this replicated log.
 
-In order to prevent the log from growing infinitely, RedisRaft implements a
-snapshot mechanism which generates a snapshot file and trims the log to only
-include operations that were performed after the snapshot is taken.
+To prevent the log from growing infinitely, RedisRaft periodically generates a snapshot of its dataset and then truncates the Raft log to include only those operations performed post-snapshot.
 
-When a RedisRaft node is restarted, it will attempt to load its snapshot and
-Raft log files in order to restore its last state. If this cannot be done (e.g.
-data is lost or corrupted), the node will not be able to start and it should be
-removed and re-added to the cluster as a new node (if desired).
+When a RedisRaft node is restarted, it will attempt to load its snapshot and log files to restore its last state. If this cannot be done (e.g., data is lost or corrupted), the node will not be able to start. In this case, the node must be removed and re-added to the cluster as a new node (how to do this is described below).
 
-#### Disabling Persistence
+### Performance Tradeoffs
 
-It is possible to use RedisRaft in a pure in-memory mode in order to trade
-dataset durability for better performance.
+By default, RedisRaft opts for the highest level of durability. This means logging all writes to disk and calling `fsync()` on the log after each write. For applications willing to trade greater performance for reduced durability, there are two options: disabling `fsync()` or running RedisRaft entirely in memory.
 
-An in-memory RedisRaft node cannot be restarted. As soon as the `redis-server`
-process is down for any reason, the node needs to be removed and re-added to the
-cluster as it loses its state.
+#### Disabling `fsync()`
 
-#### Disabling fsync
+`fsync()` is a system call that forces buffered data in a file to be written to disk. RedisRaft syncs logs to disk using `fsync()`. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
 
-By default, RedisRaft uses `fsync()` in order to guarantee that writes have
-indeed been flushed from the operating system's memory to disk before
-acknowledging them.
+With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added. More specifically, disabling `fsync()` limits corruption or data loss to kernel-level crash or a full system/VM crash. Data is still safe in the event of a restart or crash at the process level.
 
-It is possible to disable the use of `fsync()` and trade durability for better
-performance. The result is durability that is still better than being purely
-in-memory, as a restart (or even crash) of the process would not result with
-data loss or corruption.
+#### In-Memory Mode
+
+RedisRaft supports an in-memory mode, which disables the disk-based Raft log altogether. This mode is designed for applications willing trade durability for the best possible performance.
+
+It's important to note that an in-memory RedisRaft node cannot be restarted. As soon as the node's `redis-server` process is down for any reason, the node must be removed and re-added to the cluster, since it will have lost its state.
 
 ### Dataset Size
 
-Currently RedisRaft is not optimized for very large datasets.
+RedisRaft is not currently optimized for very large datasets.
 
-The process of distributing snapshots between RedisRaft nodes relies on
-store-and-forward delivery of the entire dataset as a single blob, which
-involves a significant memory overhead.
+The process of distributing snapshots between RedisRaft nodes relies on a store-and-forward delivery of the entire dataset as a single blob, and this requires significant memory overhead.
 
-As a rule of thumb, make sure the amount of memory available for Redis is at
-least 3 times larger than the expected dataset size.
+As a rule of thumb, make sure the amount of memory available for Redis is at least 3 times larger than the expected dataset size.
 
 Building
 --------
 
-The module is mostly self contained and comes with its dependencies as git
-submodules under `deps`.
+The RedisRaft module is mostly self-contained; all of its dependencies are provided as git submodules under `deps`.
 
-To compile you will need:
-* Obvious build essentials (compiler, GNU make, etc.)
+To compile the module you will need:
+* Build essentials (a compiler, GNU make, etc.)
 * CMake
 * GNU autotools (autoconf, automake, libtool)
 * libbsd-dev (on Debian/Ubuntu) or an equivalent for `bsd/sys/queue.h`.
 
-To build, simple run
+To build, simply run:
 
     make
 
-If successful, this should result with a `redisraft.so` Redis module shared
-object.
+If successful, this should result in the creation of the `redisraft.so` shared libary.
 
 Cluster Setup
 -------------
 
 ### Supported Redis Versions
 
-Redis Raft requires Redis 6, as it uses Module API capabilities that were not
-available in earlier versions.
+RedisRaft works only on Redis 6.0 and above.
 
 ### Starting RedisRaft
 
-To create the cluster, first launch the `redis-server` processes that will make
-up the cluster nodes.
+To create a RedisRaft cluster, first launch the `redis-server` processes that comprise the cluster nodes. As mentioned earlier, you should use an odd number of nodes.
 
-Redis configuration is provided in the usual way, using a configuration file or
-by specifying configuration directives directly as command line arguments.
+The configuration of each Redis instance is performed in the usual way, using the `redis.conf` configuration file or by specifying configuration directives via command line arguments.
 
-RedisRaft configuration is provided as additional arguments to the module
-following the `loadmodule` directive (in a file or as arguments).
+The RedisRaft configuration is provided as additional arguments to the module following the `loadmodule` directive (in a file or as command-line arguments).
 
-For example:
+For example, here's how to start a Redis instance and configure RedisRaft via the command line:
 
     redis-server \
         --bind 0.0.0.0 --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog1.db addr=127.0.0.1:5001
 
-Notes:
-* The `--bind` and `--port` configure Redis to accept incoming connections on
-  all network interfaces (disabling Redis protected mode) on port 5001.
-* The `--dbfilename` argument configures the name of the RDB file, used for Raft
-  snapshot storage.
-* The `--loadmodule` argument loads the RedisRaft module and passes additional
-  configuration as arguments.
-* The `raft-log-filename=` argument configures the name of the Raft log file.
-* The `addr=` argument indicates how RedisRaft should advertise itself. This
-  generally an optional argument - if not supplied it would be inferred from the
-  network interfaces and Redis configuration. In this case we use localhost as
-  we're going to run our nodes as local processes for educational purposes.
+Note the following:
+* Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to 0.0.0.0, disabling Redis protected mode) and to listen on port 5001.
+* The `--dbfilename` argument sets the name of the RDB file used for Raft snapshots.
+* The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `raft-log-filename` and `addr`).
+* The module-specific `raft-log-filename=` argument set the name of the RedisRaft log file.
+* The module-specific `addr=` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
 
 ### Redis Configuration
 
-RedisRaft is indirectly affected by Redis's own configuration, and there are
-several limitations and requirements that must be met:
+RedisRaft is indirectly affected by Redis's own configuration, and there are several limitations and requirements that must be met:
 
 | Redis Config Parameter | Required Value | Notes |
 | ---------------------- | -------------- | ----- |
-| databases              | 1              | Multiple databases are not supported. It is okay to have a larger value configured as long as `SELECT` is not used to use other databases. |
+| databases              | 1              | Multiple databases are not supported. |
 | save                   | ""             | RedisRaft uses the RDB file as its own snapshot and manages the BGSAVE operation, so Redis needs to be configured in a way that does not interfere. |
 | dbfilename             | user defined   | You are free to configure the filename as desired. |
-| replicaof              | <none>         | RedisRaft implements its own replication mechanism and requires all nodes to operate as a standalone Redis master. |
-| requirepass            | <none>         | RedisRaft cluster nodes currently exchange messages on the same Redis port and do not implement an authentication mechanism. |
-| maxmemory-policy       | noeviction     | Eviction must be disabled, as it is not compatible with the consistency guarantee. |
-| appendonly             | no             | Append-only file should not be used, and is generally redundant and not needed when a Raft Log is persisted to disk. |
+| replicaof              | <none>         | RedisRaft implements its own replication mechanism; traditional Redis replication may not be enabled. |
+| requirepass            | <none>         | RedisRaft cluster nodes exchange messages on same Redis port that the client uses; however, RedisRaft does not implement authentication. |
+| maxmemory-policy       | noeviction     | Eviction must be disabled, as it is not compatible with RedisRaft's consistency guarantees. |
+| appendonly             | no             | Append-only file should not be used. |
 | cluster-enabled        | no             | RedisRaft is not compatible with Redis Cluster. |
 
-### Creating the cluster
+### Creating the RedisRaft Cluster
 
-We view the RedisRaft cluster as a logical entity which is associated with one
-or more cluster nodes.
+A RedisRaft cluster is a logical entity which is associated with one or more cluster nodes.
 
 #### First Node
 
-Before creating the cluster, the first node has to be launched. A node that is
-launched with no existing Raft log/snapshot persistent data goes into an
-`uninitialized` state, as it does not belong to any cluster.
+Before creating the cluster, the first node must be launched. Initially, a node launched without an existing Raft log and snapshot will start in an `uninitialized` state, as it does not belong to any cluster.
 
-We can validate our node is indeed in this state:
+We can validate our node is indeed `uninitialized` as follows:
 
     $ redis-cli --raw -p 5001 RAFT.INFO
     # Raft
@@ -160,53 +124,38 @@ We can validate our node is indeed in this state:
     state:uninitialized
     [...]
 
-You can see the `state` indicates the node is uninitialized and its `node_id` is
-`0`.
+You can see the `state` indicates the node is uninitialized. Notice also that its `node_id` is `0`.
 
-To create the cluster, we initiate the `RAFT.CLUSTER INIT` command:
+To create the cluster, run the `RAFT.CLUSTER INIT` command:
 
     $ redis-cli -p 5001 RAFT.CLUSTER INIT
     OK a8c5ffb374268551fd4ad0188fedcf93
 
-The cluster has been created!
+The `OK` response indicates that the cluster has been created.
 
-The second argument is the ID of the cluster. Every RedisRaft cluster has a
-unique ID, which helps to prevent configuration mishaps such as reading the Raft
-Log of the wrong cluster.
+The response after the `OK` is the ID of the cluster (in this case, `a8c5ffb374268551fd4ad0188fedcf93`). Every RedisRaft cluster has a unique ID, which helps to prevent configuration mishaps such as reading the Raft log of the wrong cluster.
 
 #### Additional Nodes
 
-A RedisRaft cluster with a single node is not very useful, so we have to add
-additional nodes to the cluster.
+A single-node RedisRaft cluster is not very useful. Here's how to add another node.
 
-We'll launch their Redis process in a similar way to the way we've launched the
-first node:
+The command to launch a new node should look familiar. Since we're running this second node on the same host as the first node, we need to ensure that the filenames and ports are unique:
 
     redis-server \
         --bind 0.0.0.0 --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog2.db addr=127.0.0.1:5002
 
-> :warning: For educational purposes it is possible to run multiple nodes on the
-> same OS instance. To do so, just make sure every node is assigned a different
-> port, and that the `dbfilename` and `raft-log-filename` configuration
-> parameters point to different, unique files per node.
+As before, we can confirm the new node has also started in `uninitialized` state and is waiting to become part of a cluster.
 
-As before, we can confirm the new node has also started in `uninitialized` state
-and is waiting to become part of a cluster.
-
-As the cluster already exists by now, we don't want to use `RAFT.CLUSTER INIT`
-but instead use `RAFT.CLUSTER JOIN` in order to make the new node join an
-existing cluster:
+Since the cluster already exists, we don't need to run `RAFT.CLUSTER INIT`. Instead, we run `RAFT.CLUSTER JOIN` to join the new node to the existing cluster:
 
     $ redis-cli -p 5002 RAFT.CLUSTER JOIN 127.0.0.1:5001
     OK
 
-> :bulb: Notice we use `redis-cli` to communicate with the new node, and we
-> specify the address port of the existing node.
+> :bulb: Notice we use `redis-cli` to communicate with the new node, but we specify the host and port of the existing leader node as the argument to the `RAFT.CLUSTER JOIN` command.
 
-At this point we can use `RAFT.INFO` again to query the status of our cluster.
-Querying the second node should result with something similar to this:
+At this point we can run `RAFT.INFO` again to query the status of our cluster. Querying the second node should result in a response similar to this:
 
     $ redis-cli -p 5002 --raw RAFT.INFO
     # Raft
@@ -220,192 +169,176 @@ Querying the second node should result with something similar to this:
     num_voting_nodes:2
     node1:id=1733428433,state=connected,voting=yes,addr=localhost,port=5001,last_conn_secs=5,conn_errors=0,conn_oks=1
 
-Some things to notice now:
-* When joining the cluster, our node has been assigned with a `node_id`.
+Some things to notice:
+* When joining the cluster, our node has been assigned a unique `node_id`.
 * Its `state` has transitioned from `uninitialized` to `up`.
-* It is a `follower` node, as it has joined the cluster when the first node was
-  already a leader and there was no reason for re-election to take place.
+* It is a `follower` node because it joined the cluster when the first node was already designated as a leader, and there was no reason for re-election to take place.
 
-We can now proceed to add additional nodes. While an even number of nodes is
-generally not recommended for real world production systems, technically we
-already have a RedisRaft cluster.
+We can now proceed to add additional nodes. While an even number of nodes is generally not recommended for real-world production systems, we now have a bona-fide RedisRaft cluster.
 
 Cluster Management
 ------------------
 
 ### Monitoring
 
-The primary tool for monitoring the status and health of a RedisRaft cluster is
-the `RAFT.INFO` command.
+The primary tool for monitoring the status and health of a RedisRaft cluster is the `RAFT.INFO` command.
 
-RedisRaft nodes communicate with each other over the Redis port, using dedicated
-commands for the implementation of the Raft RPC. It is important to verify the
-network configuration is correct:
+RedisRaft nodes communicate with each other over the Redis port, using dedicated commands for the implementation of the Raft RPC. It is important to verify the network configuration is correct. In particular:
 
-* The port Redis listens on is not blocked.
-* The address and port advertised by each node is correct. RedisRaft infers this
-  from the network interface's address and the port configured by Redis. In some
-  cases it may be wrong though, e.g. if multiple network interfaces are in use,
-  a container network that involves NAT, etc. In these cases, the `addr=`
-  argument can be used to specify the correct address and port.
+* The port Redis listens must not be blocked.
+* The address and port advertised by each node must be correct. RedisRaft infers this from the network interface's address and the port configured by Redis. In some
+  cases, this inference may be wrong (e.g., when multiple network interfaces are in use, on container network that involves NAT, etc.) In these cases, the `addr=` argument can be used to specify the correct address and port.
 
-The `node<n>:` fields describe the various nodes as currently configured,
-including:
+The `node<n>:` fields describe the various nodes as currently configured, including:
 
 | Field             | Description |
 | -----             |------------ |
 | state             | The current state of connection between the local and the specified node. |
-| voting            | Indicates the remote node is up to date and can participate in voting for a new leader, if election is called for. |
+| voting            | Indicates the remote node is up to date and can participate in voting for a new leader if election is called for. |
 | addr              | The address of the node as advertised. |
 | port              | The port of the node as advertised. |
-| last_conn_secs    | The number of seconds passed since last successful connection was made. |
+| last_conn_secs    | The number of seconds elapsed since the last successful connection was made. |
 | conn_errors       | A connection error counter. |
 | conn_oks          | A successful connections counter. |
 
-The `last_conn_secs`, `conn_errors` and `conn_oks` along with `state` provide an
-quick way to identify connectivity issues.
+The `last_conn_secs`, `conn_errors`, and `conn_oks`, along with `state`, provide a quick way to identify connectivity issues.
 
 ### Removing Nodes
 
-A node can be removed from the cluster as it is scaled down, if a node gets
-replaced by a new node, or if a node has permanently lost its state and can no
-longer recover.
+There are a couple of reasons why you might want to remove a node from a RedisRaft cluster:
 
-To remove a node, use `RAFT.NODE REMOVE <node_id>`. For example:
+  1. You're scaling down the cluster.
+  2. You need to replace one node with another (e.g., when replacing a node that has permanently lost its state)
+
+To remove a node, run `RAFT.NODE REMOVE <node_id>`. For example:
 
     $ redis-cli -p 5001 RAFT.NODE REMOVE 595100767
     OK
 
-Once removed, all remaining cluster nodes will drop connections to the removed
-node and it will no longer be considered part of the cluster.
+Once the node is removed, the remaining cluster nodes will drop their connections to the removed node
 
-> :warning: The removed node itself should be terminated manually. RedisRaft
-> does not handle this, and until it is shut down it may maintain stale state
+> :warning: The removed node itself must be terminated manually after being removed. It's especially important to shut down the node if it's still operational, as it it may maintain stale state
 > about the RedisRaft cluster it belonged to.
 
 Configuration
 -------------
 
-RedisRaft has its own set of configuration parameters, which can be controlled
-in different ways:
+RedisRaft has its own set of configuration parameters, which can be set in two different ways:
 
-1. Passed as `param`=`value` pairs as module arguments.
-2. Using `RAFT.CONFIG SET` and `RAFT.CONFIG GET`, which behave the same as as
-   Redis `CONFIG` commands.
+1. You can pass them in as module arguments in the form of `param`=`value` pairs.
+2. You can run `RAFT.CONFIG SET` and `RAFT.CONFIG GET`, which behave just like the Redis `CONFIG SET` and `CONFIG GET` commands.
 
-The following configuration parameters are supported:
+RedisRaft supports the following configuration options:
 
 ### `id`
 
-This option is used only for testing purposes, where a predictable or
-easy-to-track ID is required. If it is not specified, RedisRaft allocates a
-random ID which is validated unique when a node joins a cluster.
+A node's unique ID.
+
+This is recommended **only for testing**, where a predictable or easy-to-track ID is required.
+
+*Default*: When not specified, RedisRaft allocates a random, cluster-unique ID when the node joins the cluster.
 
 ### `addr`
 
-Address and port the node advertises itself with. Other nodes should be able to
-establish connections to the local node using this address and port.
+The address and port on which the node will be advertised. Other nodes must be able to establish connections to the local node using this address and port.
 
-*Default: The IP address of the first non-local network interface, and the Redis
-`port` parameter*.
+*Example*: 127.0.0.1:5001
+
+*Default*: When not specified, `addr` will be set to the first non-local network interface as its host and will use the value of the Redis `port` for the port.
 
 ### `raft-log-filename`
 
-The name of the Raft Log file.
-RedisRaft uses this as the base name of the Raft Log, and creates additional
-files including `<filename>.idx`, `<filename>.tmp.idx` and `<filename>.tmp`.
+The name of the Raft log file.
 
-*Default: `redisraft.db.`*
+RedisRaft uses this as the base name of the Raft log files, and creates additional files including `<filename>.idx`, `<filename>.tmp.idx` and `<filename>.tmp`.
+
+*Default*: `redisraft.db.`
 
 ### `raft-interval`
 
-The interval (in ms) in which RedisRaft wakes up and handles various cluster
-chores such as heartbeats, etc.
+The number of milliseconds between internal RedisRaft cluster events such as heartbeats, message retransmissions, and re-election announcements.
 
-If the timeout values are reduced for faster failure detection, it may be
-necessary to reduce this value as well. Reducing this value will result with
-more network traffic.
+If the `request-timeout` or `election-timeout` values must be reduced for faster failure detection, you'll also want to reduce this value as well. However, reducing this value will result with more network traffic.
 
-*Default: 100 (ms)*
+*Default*: 100
 
 ### `request-timeout`
 
-The interval time (in ms) for sending an AppendEntries request, as a heartbeat
-or a re-transmission of a previously unacknowledged request.
+The number of milliseconds to wait before sending an AppendEntries request as a heartbeat or a re-transmission of a previously unacknowledged request.
 
-*Default: 250 (ms)*
+*Default*: 250
 
 ### `election-timeout`
 
-The amount of time (in ms) we're willing to wait for a heartbeat from the
-leader, before we assume it is down and initiate re-election.
+The number of milliseconds the cluster will to wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
 
-This value should be sufficiently larger than `raft-interval` and
-`request-timeout` in order to avoid false positives that would lead to cluster
-instability.
+This value should be sufficiently greater than `raft-interval` and
+`request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
 
-*Default: 500 (ms)*
+*Default*: 500
 
 ### `reconnect-interval`
 
-The amount of time (in ms) we're holding back when a connection with another
-node fails.
+The number of milliseconds to wait to reconnect to a node when a node connection attempt fails.
 
-*Default: 100 (ms)*
+*Default*: 100
 
 ### `follower-proxy`
 
-Enables the Follower Proxy mode, as described in the [Follower Proxy Mode](Using.md#follower-proxy-mode) section.
+Whether to enable Follower Proxy mode, as described in the [Follower Proxy Mode](Development.md#follower-proxy-mode) section. Valid values for this setting are *yes* and *no*.
 
-If enabled, a follower node will attempt to proxy client commands to the leader
-node. This has the benefit of allowing clients to perform operations on all
-cluster nodes, but not all Redis commands are supported.
+If enabled, a follower node will attempt to proxy client commands to the leader node. This has the benefit of allowing clients to perform operations on all cluster nodes.
 
-If disabled, a follower node will respond with a redirect message.
+Keep in mind that not all Redis commands are supported in this mode.
 
-*Default: no*
+If disabled, commands issued against a follower node will reply with a redirect message.
+
+*Default*: no
 
 ### `raft-log-max-file-size`
 
-The maximum desired Raft Log file size (in bytes). Once the file has grown
-beyond this size, local compaction will be initiated.
+The maximum desired Raft log file size (in bytes). Once the file has grown beyond this size, the cluster will initiate local compaction.
 
-*Default: 64000000 (64MB)*
+*Default*: 64000000 (64MB)
 
 ### `raft-log-max-cache-size`
 
-The memory limit for the in-memory Raft Log cache.
+The memory limit for the in-memory Raft log cache.
 
-When RedisRaft operates using a persistent Raft Log, once the in-memory cache
-reaches this limit older entries are evicted (as they also exist in the Raft Log
-file).
+RedisRaft keeps an in-memory cache of the most recent Raft log entries. The behavior of RedisRaft when the cache reaches the max cache size depends on whether RedisRaft is using a persistent Raft log.
 
-If RedisRaft operates without a persistent Raft Log file, once the in-memory
-cache reaches this limit compaction takes place.
+#### Persistent Raft Log
+Once the in-memory log cache reaches the specified limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
 
-*Default: 8000000 (8MB)*
+#### In-memory Mode
+Once the in-memory log cache reaches the specified limit, the cluster compacts the in-memory log.
+
+*Default*: 8000000 (8MB)
 
 ### `raft-log-fsync`
 
-Determines if Raft Log file writes must be synced. See [Disabling
+Determines if Raft log file writes must be synced. See [Disabling
 fsync](#disabling-fsync) for more information.
+
+Valid values for this setting are *yes* and *no*.
 
 *Default: yes*
 
 ### `quorum-reads`
 
-Determines if quorum reads are used to prevent stale reads, trading off
-performance for consistency. See [Quorum Reads](Using.md#quorum-reads) for
-more information.
+Determines if quorum reads are used to prevent stale reads, trading off performance for consistency. See [Quorum Reads](Using.md#quorum-reads) for more information.
+
+Valid values for this setting are *yes* and *no*.
 
 *Default: yes*
 
 ### `raftize-all-commands`
 
-Determines if RedisRaft automatically intercepts all Redis commands and
-processes them through the Raft Log.
+Determines if RedisRaft automatically intercepts all Redis commands and processes them through the Raft Log.
 
 See [Explicit Mode](Using.md#explicit-mode) for more information.
+
+Valid values for this setting are *yes* and *no*.
 
 *Default: yes*
 

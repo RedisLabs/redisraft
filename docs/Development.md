@@ -33,7 +33,7 @@ For example, running a single test with live logging of all output:
         tests/integration/test_snapshots.py::test_snapshot_delivery" \
     make integration-tests
 
-### Unit Tests Coverage
+### Unit Test Coverage
 
 To run unit tests and see a detailed coverage report:
 
@@ -41,7 +41,7 @@ To run unit tests and see a detailed coverage report:
     $ make COVERAGE=1 unit-tests
     $ make unit-lcov-report
 
-### Integration tests coverage
+### Integration Tests Coverage
 
 To see coverage reports for the entire set of integration tests, you'll first
 need to build Redis with gcov support:
@@ -68,31 +68,30 @@ General Design
 
 ### Overview
 
-A single `RAFT` command is implemented as a prefix command for users to submit
+A single `RAFT` command is implemented as a prefix command for clients to submit
 requests to the Raft log.
 
 This triggers the following series of events:
 
-1. The command is appended to the local Raft log (in memory cache and file).
-2. The log is replicated to the majority of cluster members. This is done by the
-   Raft module communicating with the other Raft modules using module-specific
-   commands.
-3. When a majority has been reached and Raft determines the entry can be
-   committed, it is executed locally as a regular Redis command and the response
-   is sent to the user.
+1. The command is appended as an entry to the local Raft log (in-memory cache and
+   file).
+2. The log is replicated to the majority of cluster members. The RedisRaft module
+   uses module-specific commands against other nodes to accomplish this.
+3. Once the log has been replicated to a majority of nodes and RedisRaft
+   determines that the entry can be committed, then the command is executed locally on all nodes as a regular Redis command, and the response is sent to the user.
 
 Raft communication between cluster members is handled by `RAFT.AE` and
-`RAFT.REQUESTVOTE` commands which are also implemented by the module.
+`RAFT.REQUESTVOTE` commands, which are also implemented by the RedisRaft module.
 
-The module starts a background thread which handles all Raft related tasks, such
+The module starts a background thread which handles all Raft-related tasks, such
 as:
-* Maintain connections with all cluster members
-* Periodically send heartbeats (leader) or initiate vote if heartbeats are not
-  seen (follower/candidate).
-* Process committed entries (deliver to Redis through a thread safe context)
+* Maintaining connections with all cluster members
+* Periodically sending heartbeats (leader) or initiating an election if
+  heartbeats are not seen (follower/candidate).
+* Processing committed entries (delivering to Redis in a thread-safe context)
 
 All received Raft commands are placed on a queue and handled by the Raft thread
-itself, using the blocking API and a thread safe context.
+itself, using the blocking API and a thread-safe context.
 
 ### Node Membership
 
@@ -227,6 +226,56 @@ WATCH:
    commands as the `WATCH` state will be invalid on the new leader.
 
 At the moment this is not implemented.
+
+
+Special Modes
+----------------
+
+RedisRaft supports two experimental and/or for-testing-only modes, which are described below.
+
+### Follower Proxy Mode
+
+Follower Proxy mode allows a follower (non-leader) node to proxy user commands
+to the leader, wait for them to complete, and send the reply back to the client.
+
+The benefit of this **experimental** mode of operation is that a client no
+longer needs to deal with `-MOVED` redirect replies.
+
+This mode has several limitations:
+* It cannot preserve and manage state across commands. This affects commands
+  like `MULTI/EXEC` and `WATCH` which will exhibit undefined behavior if
+  proxied to a leader (or even different leaders over time).
+
+* It uses a single connection and therefore may introduce additional performance
+  limitations.
+
+To enable Follower Proxy mode, use specify `follower-proxy=yes` as a
+configuration directive.
+
+### Explicit Mode
+
+By default, RedisRaft works transparently by intercepting all user commands and
+processing them through the Raft Log.
+
+***Explicit Mode*** disables this automatic interception and allows the client to decide which commands should be run through the Raft log on a command-by-command basis.
+
+To allow for this this, RedisRaft's **explicit mode** exposes the `RAFT` command.
+
+For example:
+
+    RAFT SET mykey myvalue
+
+This sends the `SET mykey myvalue` Redis command to RedisRaft, causing it
+to execute with the strongly-consistent guarantees.
+
+On the other hand, performing the same operation without the `RAFT` command
+prefix causes it to execute locally **with no such guarantees** and, what's more, **without being replicated to other nodes**.
+
+To disable automatic interception and work in explicit mode, use the
+`raftize-all-commands=no` configuration directive.
+
+> :warning: Unless you really know what you're doing, there's probably no reason
+> to use this mode.
 
 
 TODO/Wish List
