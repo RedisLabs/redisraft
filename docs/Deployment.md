@@ -23,21 +23,11 @@ To prevent the log from growing infinitely, RedisRaft periodically generates a s
 
 When a RedisRaft node is restarted, it will attempt to load its snapshot and log files to restore its last state. If this cannot be done (e.g., data is lost or corrupted), the node will not be able to start. In this case, the node must be removed and re-added to the cluster as a new node (how to do this is described below).
 
-### Performance Tradeoffs
+### FSync Control
 
-By default, RedisRaft opts for the highest level of durability. This means logging all writes to disk and calling `fsync()` on the log after each write. For applications willing to trade greater performance for reduced durability, there are two options: disabling `fsync()` or running RedisRaft entirely in memory.
-
-#### Disabling `fsync()`
-
-`fsync()` is a system call that forces buffered data in a file to be written to disk. RedisRaft syncs logs to disk using `fsync()`. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
+By default, RedisRaft opts for the highest level of durability. This means calling `fsync()` on the log after each write. `fsync()` is a system call that forces buffered data in a file to be written to disk. However, users can disable the use of `fsync()` to achieve better performance at the cost of reduced durability.
 
 With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added. More specifically, disabling `fsync()` limits corruption or data loss to kernel-level crash or a full system/VM crash. Data is still safe in the event of a restart or crash at the process level.
-
-#### In-Memory Mode
-
-RedisRaft supports an in-memory mode, which disables the disk-based Raft log altogether. This mode is designed for applications willing trade durability for the best possible performance.
-
-It's important to note that an in-memory RedisRaft node cannot be restarted. As soon as the node's `redis-server` process is down for any reason, the node must be removed and re-added to the cluster, since it will have lost its state.
 
 ### Dataset Size
 
@@ -317,20 +307,13 @@ The maximum desired Raft log file size (in bytes). Once the file has grown beyon
 
 The memory limit for the in-memory Raft log cache.
 
-RedisRaft keeps an in-memory cache of the most recent Raft log entries. The behavior of RedisRaft when the cache reaches the max cache size depends on whether RedisRaft is using a persistent Raft log.
-
-#### Persistent Raft Log
-Once the in-memory log cache reaches the specified limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
-
-#### In-memory Mode
-Once the in-memory log cache reaches the specified limit, the cluster compacts the in-memory log.
+RedisRaft keeps an in-memory cache of the most recent Raft log entries. Once the in-memory log cache reaches the specified limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
 
 *Default*: 8000000 (8MB)
 
 ### `raft-log-fsync`
 
-Determines if Raft log file writes must be synced. See [Disabling
-fsync](#disabling-fsync) for more information.
+Determines if Raft log file writes must be synced. See [FSync Control](#fsync-control) for more information.
 
 Valid values for this setting are *yes* and *no*.
 
