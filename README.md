@@ -12,7 +12,6 @@ library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 * Strong consistency (in the language of [CAP](https://en.wikipedia.org/wiki/CAP_theorem), this system prioritizes consistency and partition-tolerance).
 * Support for most Redis data types and commands
 * Dynamic cluster configuration (adding / removing nodes)
-* Persistent or in-memory Raft log
 * Snapshots for log compaction
 * Configurable quorum or fast reads
 
