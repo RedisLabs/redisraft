@@ -6,7 +6,7 @@
 	url = https://github.com/redis/hiredis
 [submodule "deps/raft"]
 	path = deps/raft
-	url = https://github.com/yossigo/raft
+	url = https://github.com/redislabs/raft
 [submodule "deps/cmocka"]
 	path = deps/cmocka
 	url = git://git.cryptomilk.org/projects/cmocka.git
