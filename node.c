@@ -1,4 +1,14 @@
+/*
+ * This file is part of RedisRaft.
+ *
+ * Copyright (c) 2020 Redis Labs
+ *
+ * RedisRaft is dual licensed under the GNU General Public License version 3
+ * (AGPLv3) or the Redis Source Available License (RSAL).
+ */
+
 #include <time.h>
+
 #include "redisraft.h"
 #include "hiredis/adapters/libuv.h"
 
