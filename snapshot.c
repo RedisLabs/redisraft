@@ -140,7 +140,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
-
     /* Finalize snapshot */
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
@@ -471,6 +470,30 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    /* Verify snapshot index and term before attempting to load it. */
+    if (req->r.loadsnapshot.idx < raft_get_last_applied_idx(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, already applied %d\n",
+            req->r.loadsnapshot.idx, raft_get_last_applied_idx(rr->raft));
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        goto exit;
+    }
+
+    if (req->r.loadsnapshot.idx < raft_get_current_idx(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, current idx is %ld\n",
+            req->r.loadsnapshot.idx, raft_get_current_idx(rr->raft));
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        goto exit;
+    }
+
+    if (req->r.loadsnapshot.term == raft_get_snapshot_last_term(rr->raft) &&
+        req->r.loadsnapshot.idx == raft_get_snapshot_last_idx(rr->raft)) {
+            LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with identical term %ld index %ld\n",
+                raft_get_snapshot_last_term(rr->raft),
+                raft_get_snapshot_last_idx(rr->raft));
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+            goto exit;
+    }
+
     if (storeSnapshotData(rr, req->r.loadsnapshot.snapshot) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to store snapshot");
         goto exit;
@@ -710,8 +733,9 @@ static int snapshotSendData(Node *node)
         return -1;
     }
 
-    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes\n",
-                node->snapshot_size);
+    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld\n",
+                node->snapshot_size, raft_get_snapshot_last_term(rr->raft),
+                raft_get_snapshot_last_idx(rr->raft));
     return 0;
 }
 
@@ -802,13 +826,14 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
         return 0;
     }
 
-    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %ld, node idx %ld\n",
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: snapshot_last_idx %ld term %ld, node next_idx %ld\n",
             raft_get_snapshot_last_idx(raft),
+            raft_get_snapshot_last_term(raft),
             raft_node_get_next_idx(raft_node));
 
     if (node->state != NODE_CONNECTED) {
         NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
-        return -1;
+        return 0;
     }
 
     /* Initiate loading of snapshot.  We use libuv to handle loading in the background

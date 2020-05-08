@@ -424,6 +424,8 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
     RaftReq *req = RaftReqInit(ctx, RR_LOADSNAPSHOT);
     req->r.loadsnapshot.snapshot = argv[3];
+    req->r.loadsnapshot.idx = idx;
+    req->r.loadsnapshot.term = term;
     RedisModule_RetainString(ctx, req->r.loadsnapshot.snapshot);
 
     RaftReqSubmit(&redis_raft, req);
