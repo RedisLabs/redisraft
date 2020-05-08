@@ -984,7 +984,12 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
                 c->id, c->addr.host, c->addr.port, c->active, c->voting);
     }
 
+    /* Load configuration loaded from the snapshot into Raft library.
+     */
     configRaftFromSnapshotInfo(rr);
+    raft_end_load_snapshot(rr->raft);
+    raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
 }
 
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)

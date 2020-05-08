@@ -176,3 +176,28 @@ def test_proxy_stability_under_load(cluster, workload):
         last_commit_index = new_commit_index
 
     workload.stop()
+
+
+@pytest.mark.slow
+def test_stability_with_snapshots_and_restarts(cluster, workload):
+    """
+    Test stability of the cluster with frequent snapshoting.
+    """
+
+    thread_count = 100
+    duration = 300
+
+    cluster.create(5, raft_args={'follower-proxy': 'yes',
+                                 'raftize-all-commands': 'yes',
+                                 'raft-log-max-file-size': '2000'})
+
+    workload.start(thread_count, cluster, MultiWithLargeReply)
+
+    # Monitor progress
+    start = time.time()
+    last_commit_index = 0
+    while start + duration > time.time():
+        time.sleep(2)
+        cluster.random_node().restart()
+
+    workload.stop()

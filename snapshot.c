@@ -498,6 +498,18 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
                 rr->config);
     }
 
+    /* Recreate the snapshot key in keyspace, to be sure we'll get a chance to
+     * serialize it into the RDB file when it is saved.
+     *
+     * Note: this is just a precaution, because the snapshot we load should contain
+     * the meta-key anyway so we should be safe either way.
+     *
+     * Future improvement: consider using hooks to automatically handle this. It
+     * won't be just cleaner, but also be fool-proof in case someone decides to
+     * manually dump an RDB file etc.
+     */
+    initializeSnapshotInfo(rr);
+
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     RedisModule_ReplyWithLongLong(req->ctx, 1);
 
