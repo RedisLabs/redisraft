@@ -1046,7 +1046,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * or RAFT.CLUSTER JOIN command.
      */
 
-    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config)) != NULL) {
+    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
         rr->state = REDIS_RAFT_LOADING;
     } else {
         rr->state = REDIS_RAFT_UNINITIALIZED;

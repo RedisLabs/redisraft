@@ -97,10 +97,18 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * entries to the temporary log and switch.
      */
     if (rr->log) {
-        long long int n = RaftLogRewriteAppend(rr, sr->log_filename, rr->snapshot_rewrite_last_idx + 1);
+        new_log = RaftLogOpen(sr->log_filename, rr->config, RAFTLOG_KEEP_INDEX);
+        if (!new_log) {
+            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+            cancelSnapshot(rr, sr);
+            return -1;
+        }
+
+        long long int n = RaftLogRewriteAppend(rr, new_log, rr->snapshot_rewrite_last_idx + 1);
         if (n < 0) {
             LOG_ERROR("Failed to append entries to rewritten log, aborting snapshot.\n");
             cancelSnapshot(rr, sr);
+            RaftLogClose(new_log);
             return -1;
         }
 
@@ -108,12 +116,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         LOG_VERBOSE("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
                 raft_get_snapshot_last_idx(rr->raft));
 
-        new_log = RaftLogOpen(sr->log_filename, rr->config);
-        if (!new_log) {
-            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
-            cancelSnapshot(rr, sr);
-            return -1;
-        }
     }
 
     /* We now have to switch temp files. We need to rename two files in a non-atomic
@@ -138,9 +140,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
-    /* Clear cached entries */
-    EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
 
+    /* Finalize snapshot */
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
 
@@ -488,6 +489,8 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    assert(raft_get_current_idx(rr->raft) == rr->snapshot_info.last_applied_idx + 1);
+
     /* Restart the log where the snapshot ends */
     if (rr->log) {
         RaftLogClose(rr->log);
@@ -496,6 +499,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
                 rr->snapshot_info.last_applied_term,
                 rr->snapshot_info.last_applied_idx,
                 rr->config);
+        EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
     /* Recreate the snapshot key in keyspace, to be sure we'll get a chance to

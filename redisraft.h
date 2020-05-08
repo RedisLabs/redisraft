@@ -366,6 +366,9 @@ typedef struct RaftReq {
 
 #define RAFTLOG_VERSION     1
 
+/* Flags for RaftLogOpen */
+#define RAFTLOG_KEEP_INDEX  1                   /* Index was written by this process, safe to use. */
+
 typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
@@ -473,7 +476,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index, RedisRaftConfig *config);
-RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config);
+RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
@@ -488,7 +491,7 @@ raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename);
-long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx);
+long long int RaftLogRewriteAppend(RedisRaftCtx *rr, RaftLog *target_log, raft_index_t from_idx);
 void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);

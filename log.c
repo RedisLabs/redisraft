@@ -388,7 +388,7 @@ static char *getIndexFilename(const char *filename)
     return idx_filename;
 }
 
-static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config)
+static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config, int flags)
 {
     FILE *file = fopen(filename, "a+");
     if (!file) {
@@ -398,7 +398,7 @@ static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config)
 
     /* Index file */
     char *idx_filename = getIndexFilename(filename);
-    FILE *idxfile = fopen(idx_filename, "w+");
+    FILE *idxfile = fopen(idx_filename, (flags & RAFTLOG_KEEP_INDEX) ? "r+" : "w+");
     if (!idxfile) {
         LOG_ERROR("Raft Log: %s: %s\n", idx_filename, strerror(errno));
         RedisModule_Free(idx_filename);
@@ -471,7 +471,7 @@ int updateLogHeader(RaftLog *log)
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
         raft_index_t index, RedisRaftConfig *config)
 {
-    RaftLog *log = prepareLog(filename, config);
+    RaftLog *log = prepareLog(filename, config, 0);
     if (!log) {
         return NULL;
     }
@@ -588,9 +588,9 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
-RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config)
+RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags)
 {
-    RaftLog *log = prepareLog(filename, config);
+    RaftLog *log = prepareLog(filename, config, flags);
     RawLogEntry *e = NULL;
 
     if (!log) {
@@ -938,39 +938,31 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename)
 /* Append to the specified Raft log entries from the in-memory log, starting from
  * a specific index.
  */
-long long int RaftLogRewriteAppend(RedisRaftCtx *rr, const char *filename, raft_index_t from_idx)
+long long int RaftLogRewriteAppend(RedisRaftCtx *rr, RaftLog *target_log, raft_index_t from_idx)
 {
     long long int num_entries = 0;
-    RaftLog *log = RaftLogOpen(filename, rr->config);
-    if (!log) {
-        num_entries = -1;
-        goto exit;
-    }
 
     raft_index_t i;
     for (i = from_idx; i <= RaftLogCurrentIdx(rr->log); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(log, ety) != RR_OK) {
+        if (RaftLogWriteEntry(target_log, ety) != RR_OK) {
             num_entries = -1;
             goto exit;
         }
         raft_entry_release(ety);
     }
 
-    if (RaftLogSetTerm(log, rr->log->term, rr->log->vote) != RR_OK) {
-        RaftLogClose(log);
+    if (RaftLogSetTerm(target_log, rr->log->term, rr->log->vote) != RR_OK) {
+        RaftLogClose(target_log);
         return -1;
     }
 
-    if (RaftLogSync(log) != RR_OK) {
+    if (RaftLogSync(target_log) != RR_OK) {
         num_entries = -1;
     }
 
 exit:
-    if (log) {
-        RaftLogClose(log);
-    }
 
     return num_entries;
 }
