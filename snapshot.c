@@ -699,6 +699,11 @@ static int snapshotSendData(Node *node)
     node->load_snapshot_in_progress = true;
     node->load_snapshot_last_time = now;
 
+    if (node->state != NODE_CONNECTED || !node->rc) {
+        node->load_snapshot_in_progress = false;
+        return -1;
+    }
+
     if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
         node->state = NODE_CONNECT_ERROR;
         node->load_snapshot_in_progress = false;
