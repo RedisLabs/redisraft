@@ -97,10 +97,18 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * entries to the temporary log and switch.
      */
     if (rr->log) {
-        long long int n = RaftLogRewriteAppend(rr, sr->log_filename, rr->snapshot_rewrite_last_idx + 1);
+        new_log = RaftLogOpen(sr->log_filename, rr->config, RAFTLOG_KEEP_INDEX);
+        if (!new_log) {
+            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+            cancelSnapshot(rr, sr);
+            return -1;
+        }
+
+        long long int n = RaftLogRewriteAppend(rr, new_log, rr->snapshot_rewrite_last_idx + 1);
         if (n < 0) {
             LOG_ERROR("Failed to append entries to rewritten log, aborting snapshot.\n");
             cancelSnapshot(rr, sr);
+            RaftLogClose(new_log);
             return -1;
         }
 
@@ -108,12 +116,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         LOG_VERBOSE("Log rewrite complete, %lld entries appended (from idx %lu).\n", n,
                 raft_get_snapshot_last_idx(rr->raft));
 
-        new_log = RaftLogOpen(sr->log_filename, rr->config);
-        if (!new_log) {
-            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
-            cancelSnapshot(rr, sr);
-            return -1;
-        }
     }
 
     /* We now have to switch temp files. We need to rename two files in a non-atomic
@@ -138,9 +140,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
-    /* Clear cached entries */
-    EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
-
+    /* Finalize snapshot */
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
 
@@ -470,6 +470,30 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    /* Verify snapshot index and term before attempting to load it. */
+    if (req->r.loadsnapshot.idx < raft_get_last_applied_idx(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, already applied %d\n",
+            req->r.loadsnapshot.idx, raft_get_last_applied_idx(rr->raft));
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        goto exit;
+    }
+
+    if (req->r.loadsnapshot.idx < raft_get_current_idx(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, current idx is %ld\n",
+            req->r.loadsnapshot.idx, raft_get_current_idx(rr->raft));
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        goto exit;
+    }
+
+    if (req->r.loadsnapshot.term == raft_get_snapshot_last_term(rr->raft) &&
+        req->r.loadsnapshot.idx == raft_get_snapshot_last_idx(rr->raft)) {
+            LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with identical term %ld index %ld\n",
+                raft_get_snapshot_last_term(rr->raft),
+                raft_get_snapshot_last_idx(rr->raft));
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+            goto exit;
+    }
+
     if (storeSnapshotData(rr, req->r.loadsnapshot.snapshot) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to store snapshot");
         goto exit;
@@ -488,6 +512,8 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    assert(raft_get_current_idx(rr->raft) == rr->snapshot_info.last_applied_idx + 1);
+
     /* Restart the log where the snapshot ends */
     if (rr->log) {
         RaftLogClose(rr->log);
@@ -496,7 +522,20 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
                 rr->snapshot_info.last_applied_term,
                 rr->snapshot_info.last_applied_idx,
                 rr->config);
+        EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
+
+    /* Recreate the snapshot key in keyspace, to be sure we'll get a chance to
+     * serialize it into the RDB file when it is saved.
+     *
+     * Note: this is just a precaution, because the snapshot we load should contain
+     * the meta-key anyway so we should be safe either way.
+     *
+     * Future improvement: consider using hooks to automatically handle this. It
+     * won't be just cleaner, but also be fool-proof in case someone decides to
+     * manually dump an RDB file etc.
+     */
+    initializeSnapshotInfo(rr);
 
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     RedisModule_ReplyWithLongLong(req->ctx, 1);
@@ -683,14 +722,20 @@ static int snapshotSendData(Node *node)
     node->load_snapshot_in_progress = true;
     node->load_snapshot_last_time = now;
 
+    if (node->state != NODE_CONNECTED || !node->rc) {
+        node->load_snapshot_in_progress = false;
+        return -1;
+    }
+
     if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
         node->state = NODE_CONNECT_ERROR;
         node->load_snapshot_in_progress = false;
         return -1;
     }
 
-    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes\n",
-                node->snapshot_size);
+    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld\n",
+                node->snapshot_size, raft_get_snapshot_last_term(rr->raft),
+                raft_get_snapshot_last_idx(rr->raft));
     return 0;
 }
 
@@ -781,13 +826,14 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
         return 0;
     }
 
-    NODE_LOG_DEBUG(node, "raftSendSnapshot: idx %ld, node idx %ld\n",
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: snapshot_last_idx %ld term %ld, node next_idx %ld\n",
             raft_get_snapshot_last_idx(raft),
+            raft_get_snapshot_last_term(raft),
             raft_node_get_next_idx(raft_node));
 
     if (node->state != NODE_CONNECTED) {
         NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
-        return -1;
+        return 0;
     }
 
     /* Initiate loading of snapshot.  We use libuv to handle loading in the background

@@ -153,7 +153,7 @@ static void test_log_index_rebuild(void **state)
     unlink(LOGNAME ".idx");
 
     /* Reopen the log */
-    RaftLog *log2 = RaftLogOpen(LOGNAME, NULL);
+    RaftLog *log2 = RaftLogOpen(LOGNAME, NULL, 0);
     RaftLogLoadEntries(log2, NULL, NULL);
 
     /* Invalid out of bound reads */
@@ -240,7 +240,7 @@ static void test_log_voting_persistence(void **state)
     assert_int_equal(ety->id, 3);
     raft_entry_release(ety);
 
-    RaftLog *templog = RaftLogOpen(LOGNAME, NULL);
+    RaftLog *templog = RaftLogOpen(LOGNAME, NULL, 0);
     assert_int_equal(templog->term, 0xffffffff);
     assert_int_equal(templog->vote, INT32_MAX);
     RaftLogClose(templog);

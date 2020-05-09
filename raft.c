@@ -614,7 +614,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.\n",
                     rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
         }
-        if (rr->snapshot_info.last_applied_idx < rr->log->snapshot_last_idx) {
+        if (rr->snapshot_info.last_applied_idx + 1 < rr->log->snapshot_last_idx) {
             PANIC("Log initial index (%lu) does not match snapshot last index (%lu), aborting.\n",
                     rr->log->snapshot_last_idx, rr->snapshot_info.last_applied_idx);
         }
@@ -984,7 +984,12 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
                 c->id, c->addr.host, c->addr.port, c->active, c->voting);
     }
 
+    /* Load configuration loaded from the snapshot into Raft library.
+     */
     configRaftFromSnapshotInfo(rr);
+    raft_end_load_snapshot(rr->raft);
+    raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
+            rr->snapshot_info.last_applied_idx);
 }
 
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
@@ -1041,7 +1046,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * or RAFT.CLUSTER JOIN command.
      */
 
-    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config)) != NULL) {
+    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
         rr->state = REDIS_RAFT_LOADING;
     } else {
         rr->state = REDIS_RAFT_UNINITIALIZED;

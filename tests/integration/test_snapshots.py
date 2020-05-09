@@ -309,3 +309,37 @@ def test_loading_log_tail_after_rewrite(cluster):
     # Log contains last 3 entries
     # Snapshot has first 3 entries
     assert r1.client.get('testkey') == b'6'
+
+
+def test_config_from_second_generation_snapshot(cluster):
+    """
+    A regression test for #44: confirm that if we load a snapshot
+    on startup, do nothing, then re-create a snapshot we don't end
+    up with a messed up nodes config.
+    """
+    cluster.create(3)
+
+    # Bump the log a bit
+    for _ in range(20):
+        assert cluster.raft_exec('INCR', 'testkey')
+
+    # Compact to get rid of logs
+    node3 = cluster.node(3)
+    assert node3.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    # Restart node
+    node3.restart()
+    node3.wait_for_node_voting()
+
+    # Bump the log a bit
+    for _ in range(20):
+        assert cluster.raft_exec('INCR', 'testkey')
+
+    # Recompact
+    cluster.wait_for_unanimity()
+    assert node3.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    node3.restart()
+    node3.wait_for_node_voting()
+
+    assert node3.raft_info()['num_nodes'] == 3
