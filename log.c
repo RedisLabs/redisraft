@@ -907,16 +907,14 @@ raft_index_t RaftLogCount(RaftLog *log)
  * 2. All entries
  * 3. Current term and vote
  */
-long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename)
+long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term)
 {
     RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
-            rr->snapshot_info.last_applied_term,
-            rr->snapshot_info.last_applied_idx,
-            rr->config);
+            last_term, last_idx, rr->config);
     long long int num_entries = 0;
 
     raft_index_t i;
-    for (i = rr->snapshot_info.last_applied_idx + 1; i <= RaftLogCurrentIdx(rr->log); i++) {
+    for (i = last_idx + 1; i <= RaftLogCurrentIdx(rr->log); i++) {
         num_entries++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
         if (RaftLogWriteEntry(log, ety) != RR_OK) {

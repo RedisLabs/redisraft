@@ -181,7 +181,8 @@ typedef struct {
     struct RedisRaftConfig *config;     /* User provided configuration */
     RaftJoinState *join_state;  /* Tracks state while we're in REDIS_RAFT_JOINING */
     bool snapshot_in_progress;  /* Indicates we're creating a snapshot in the background */
-    raft_index_t snapshot_rewrite_last_idx; /* TODO: Needed? */
+    raft_index_t last_snapshot_idx;
+    raft_term_t last_snapshot_term;
     struct RaftReq *compact_req;    /* Current RAFT.DEBUG COMPACT request */
     bool callbacks_set;         /* TODO: Needed? */
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
@@ -490,18 +491,18 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);
-long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename);
+long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term);
 long long int RaftLogRewriteAppend(RedisRaftCtx *rr, RaftLog *target_log, raft_index_t from_idx);
 void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 
 typedef struct EntryCache {
-    unsigned long int size;
-    unsigned long int len;
-    unsigned long int start_idx;
-    unsigned long int start;
-    unsigned long int entries_memsize;
+    unsigned long int size;             /* Size of ptrs */
+    unsigned long int len;              /* Number of entries in cache */
+    unsigned long int start_idx;        /* Log index of first entry */
+    unsigned long int start;            /* ptrs array index of first entry */
+    unsigned long int entries_memsize;  /* Total memory used by entries */
     raft_entry_t **ptrs;
 } EntryCache;
 
