@@ -680,7 +680,12 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
         NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld\n",
                 reply->integer);
         raft_node_t *n = raft_get_node(rr->raft, node->id);
-        raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
+        if (n != NULL) {
+            raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
+        } else {
+            NODE_LOG_DEBUG(node, "Node %d no longer exists, not updating next_idx",
+                    node->id);
+        }
     }
 }
 
