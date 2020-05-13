@@ -671,9 +671,12 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
 
     node->load_snapshot_in_progress = false;
 
-    if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: %s\n",
-                reply ? reply->str : "connection dropped.");
+    NodeDismissPendingResponse(node);
+    if (!reply) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: connection dropped\n");
+        NodeMarkDisconnected(node);
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT error: %s\n", reply->str);
     } else if (reply->type != REDIS_REPLY_INTEGER) {
         NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT invalid response type\n");
     } else {
@@ -717,16 +720,17 @@ static int snapshotSendData(Node *node)
     node->load_snapshot_in_progress = true;
     node->load_snapshot_last_time = now;
 
-    if (node->state != NODE_CONNECTED || !node->rc) {
+    if (!NODE_IS_CONNECTED(node)) {
         node->load_snapshot_in_progress = false;
         return -1;
     }
 
     if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
-        node->state = NODE_CONNECT_ERROR;
         node->load_snapshot_in_progress = false;
         return -1;
     }
+
+    NodeAddPendingResponse(node, false);
 
     NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld\n",
                 node->snapshot_size, raft_get_snapshot_last_term(rr->raft),
@@ -826,7 +830,7 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
             raft_get_snapshot_last_term(raft),
             raft_node_get_next_idx(raft_node));
 
-    if (node->state != NODE_CONNECTED) {
+    if (!NODE_IS_CONNECTED(node)) {
         NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
         return 0;
     }

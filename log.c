@@ -969,6 +969,7 @@ void RaftLogRemoveFiles(const char *filename)
 {
     char *idx_filename = getIndexFilename(filename);
 
+    LOG_DEBUG("Removing Raft Log files: %s", filename);
     unlink(filename);
     unlink(idx_filename);
 

@@ -65,6 +65,9 @@ void NodeFree(Node *node)
 static void handleNodeConnect(const redisAsyncContext *c, int status)
 {
     Node *node = (Node *) c->data;
+
+    NODE_TRACE(node, "handleNodeConnect() callback called, status=%d\n", status);
+
     if (status == REDIS_OK) {
         node->state = NODE_CONNECTED;
         node->connect_oks++;
@@ -80,9 +83,7 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
 
     /* If we're terminating, abort now */
     if (node->flags & NODE_TERMINATING) {
-        if (status == REDIS_OK) {
-            redisAsyncDisconnect(node->rc);
-        }
+        NodeMarkRemoved(node);
         return;
     }
 
@@ -95,15 +96,40 @@ static void handleNodeConnect(const redisAsyncContext *c, int status)
 static void handleNodeDisconnect(const redisAsyncContext *c, int status)
 {
     Node *node = (Node *) c->data;
+
+    NODE_TRACE(node, "handleNodeDisconnect() callback called, rc=%p\n",
+        node ? node->rc : NULL);
+
     if (node) {
-        node->rc = NULL;
         node->state = NODE_DISCONNECTED;
     }
+}
+
+static void freeNodeOnRemoval(void *privdata)
+{
+    Node *node = (Node *) privdata;
+
+    NODE_TRACE(node, "freeNodeOnRemoval() callback called, flags=%d, rc=%p\n",
+         node ? node->flags : 0,
+         node ? node->rc : NULL);
+
+    node->rc = NULL;
+    if (!node || !(node->flags & NODE_TERMINATING)) {
+        return;
+    }
+
+    NodeFree(node);
 }
 
 static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
 {
     Node *node = uv_req_get_data((uv_req_t *)resolver);
+
+    NODE_TRACE(node, "handleNodeResolved(), flags=%d, state=%s, rc=%p\n",
+        node->flags,
+        NodeStateStr[node->state],
+        node->rc);
+
     if (node->flags & NODE_TERMINATING) {
         node->state = NODE_DISCONNECTED;
         uv_freeaddrinfo(res);
@@ -136,7 +162,9 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
     }
 
     node->rc->data = node;
+    node->rc->dataCleanup = freeNodeOnRemoval;
     node->state = NODE_CONNECTING;
+    node->flags &= ~NODE_TERMINATING;
 
     redisLibuvAttach(node->rc, node->rr->loop);
     redisAsyncSetConnectCallback(node->rc, handleNodeConnect);
@@ -145,11 +173,33 @@ static void handleNodeResolved(uv_getaddrinfo_t *resolver, int status, struct ad
 
 void NodeMarkDisconnected(Node *node)
 {
+    NODE_TRACE(node, "NodeMarkDisconnected() called, rc=%p\n",
+        node->rc);
+
     node->state = NODE_DISCONNECTED;
     if (node->rc) {
         redisAsyncFree(node->rc);
         node->rc = NULL;
     }
+}
+
+void NodeMarkRemoved(Node *node)
+{
+    NODE_TRACE(node, "NodeMarkRemoved() called, rc=%p\n",
+        node->rc);
+
+    node->flags |= NODE_TERMINATING;
+    /*
+     * Consider doing this immediately rather than delaying; in some
+     * cases we would still want to delay this to deliver outgoing
+     * messages, so a deferred flag could be used.
+     *
+    LIST_REMOVE(node, entries);
+    if (node->rc) {
+        redisAsyncFree(node->rc);
+        node->rc = NULL;
+    }
+    */
 }
 
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback)
@@ -160,6 +210,8 @@ bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_c
         .ai_protocol = IPPROTO_TCP,
         .ai_flags = 0
     };
+
+    NODE_TRACE(node, "NodeConnect() called.\n");
 
     assert(NODE_STATE_IDLE(node->state));
 
@@ -341,6 +393,10 @@ static void initiateNodeAdd(RedisRaftCtx *rr)
     NodeConnect(rr->join_state->node, rr, sendNodeAddRequest);
 }
 
+/* Track a new pending response for a request that was sent to the node.
+ * This is used to track connection liveness and decide when it should be
+ * dropped.
+ */
 void NodeAddPendingResponse(Node *node, bool proxy)
 {
     static int response_id = 0;
@@ -361,6 +417,9 @@ void NodeAddPendingResponse(Node *node, bool proxy)
             resp->id, proxy ? "proxy" : "raft", resp->request_time);
 }
 
+/* Acknowledge a response that has been received and remove it from the
+ * node's list of pending responses.
+ */
 void NodeDismissPendingResponse(Node *node)
 {
     PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
@@ -399,7 +458,7 @@ void HandleNodeStates(RedisRaftCtx *rr)
     /* Iterate nodes and find nodes that require reconnection */
     Node *node, *tmp;
     LIST_FOREACH_SAFE(node, &node_list, entries, tmp) {
-        if (node->state == NODE_CONNECTED && !STAILQ_EMPTY(&node->pending_responses)) {
+        if (NODE_IS_CONNECTED(node) && !STAILQ_EMPTY(&node->pending_responses)) {
             PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
             long timeout;
 
@@ -419,7 +478,16 @@ void HandleNodeStates(RedisRaftCtx *rr)
         if (NODE_STATE_IDLE(node->state)) {
             if (node->flags & NODE_TERMINATING) {
                 LIST_REMOVE(node, entries);
-                NodeFree(node);
+                if (node->rc) {
+                    /* Note: redisAsyncFree will call the freeNodeOnRemoval()
+                     * callback which will free the Node structure.
+                     */
+                    redisAsyncContext *ac = node->rc;
+                    node->rc = NULL;
+                    redisAsyncFree(ac);
+                } else {
+                    NodeFree(node);
+                }
             } else {
                 raft_node_t *n = raft_get_node(rr->raft, node->id);
                 if (n != NULL && raft_node_is_active(n)) {

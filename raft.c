@@ -243,9 +243,13 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
     redisReply *reply = r;
 
     NodeDismissPendingResponse(node);
-    if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: %s\n", reply ? reply->str : "connection dropped.");
+    if (!reply) {
+        NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: connection dropped.\n");
         NodeMarkDisconnected(node);
+        return;
+    }
+    if (reply->type == REDIS_REPLY_ERROR) {
+        NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE error: %s\n", reply->str);
         return;
     }
 
@@ -279,7 +283,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 {
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
-    if (node->state != NODE_CONNECTED) {
+    if (!NODE_IS_CONNECTED(node)) {
         NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
@@ -293,9 +297,9 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
                 msg->last_log_idx,
                 msg->last_log_term) != REDIS_OK) {
         NODE_TRACE(node, "failed requestvote");
+    } else {
+        NodeAddPendingResponse(node, false);
     }
-
-    NodeAddPendingResponse(node, false);
 
     return 0;
 }
@@ -310,12 +314,15 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     NodeDismissPendingResponse(node);
 
     redisReply *reply = r;
-    if (!reply || reply->type == REDIS_REPLY_ERROR) {
-        NODE_TRACE(node, "RAFT.AE failed: %s\n", reply ? reply->str : "connection dropped.");
+    if (!reply) {
+        NODE_TRACE(node, "RAFT.AE failed: connection dropped.\n");
         NodeMarkDisconnected(node);
         return;
     }
-
+    if (reply->type == REDIS_REPLY_ERROR) {
+        NODE_TRACE(node, "RAFT.AE error: %s\n", reply->str);
+        return;
+    }
     if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 4 ||
             reply->element[0]->type != REDIS_REPLY_INTEGER ||
             reply->element[1]->type != REDIS_REPLY_INTEGER ||
@@ -356,7 +363,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     char *argv[argc];
     size_t argvlen[argc];
 
-    if (node->state != NODE_CONNECTED) {
+    if (!NODE_IS_CONNECTED(node)) {
         NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
@@ -390,8 +397,9 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     if (redisAsyncCommandArgv(node->rc, handleAppendEntriesResponse,
                 node, argc, (const char **)argv, argvlen) != REDIS_OK) {
         NODE_TRACE(node, "failed appendentries");
+    } else{
+        NodeAddPendingResponse(node, false);
     }
-    NodeAddPendingResponse(node, false);
 
     for (i = 0; i < msg->n_entries; i++) {
         RedisModule_Free(argv[4 + i*2]);
@@ -550,7 +558,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
         case RAFT_MEMBERSHIP_REMOVE:
             node = raft_node_get_udata(raft_node);
             if (node != NULL) {
-                node->flags |= NODE_TERMINATING;
+                NodeMarkRemoved(node);
                 raft_node_set_udata(raft_node, NULL);
             }
             break;
@@ -630,6 +638,8 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
      * entry in the log.
      */
     if (raft_get_num_voting_nodes(rr->raft) == 1 || raft_get_num_nodes(rr->raft) == 1) {
+        LOG_DEBUG("No other voting nodes, setting commit index to %ld\n",
+            raft_get_current_idx(rr->raft));
         raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
     }
 
@@ -767,7 +777,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
-    if (ret ==0) {
+    if (ret == 0) {
         ret = raft_apply_all(rr->raft);
     }
 

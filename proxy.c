@@ -79,7 +79,7 @@ exit:
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
 {
     /* TODO: Fail if any key is watched. */
-    if (!leader->rc || leader->state != NODE_CONNECTED) {
+    if (!leader->rc || !NODE_IS_CONNECTED(leader)) {
         redis_raft.proxy_failed_reqs++;
         return RR_ERROR;
     }

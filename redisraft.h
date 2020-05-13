@@ -73,21 +73,24 @@ void raft_module_log(const char *fmt, ...);
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n" \
                     "REDIS RAFT PANIC\n" \
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" \
-                    fmt, ##__VA_ARGS__); abort()); } while (0)
+                    fmt, ##__VA_ARGS__); abort(); } while (0)
 
 #ifdef ENABLE_TRACE
 #define TRACE(fmt, ...) \
     LOG(LOGLEVEL_DEBUG, "%s:%d: " fmt, __FILE__, __LINE__, ##__VA_ARGS__)
+#define NODE_TRACE(node, fmt, ...) \
+    LOG(LOGLEVEL_DEBUG, "%s:%d {node:%p/%d} " fmt, \
+            __FILE__, __LINE__, \
+            (node), \
+            (node) ? (node->id) : 0, \
+            ##__VA_ARGS__)
 #else
+#define NODE_TRACE(node, fmt, ...)
 #define TRACE(fmt, ...)
 #endif
 
-#define NODE_TRACE(node, fmt, ...) \
-    NODE_LOG(LOGLEVEL_DEBUG, node, "%s:%d: " fmt, \
-            __FILE__, __LINE__, ##__VA_ARGS__)
-
 #define NODE_LOG(level, node, fmt, ...) \
-    LOG(level, "node:%d: " fmt, (node)->id, ##__VA_ARGS__)
+    LOG(level, "{node:%d} " fmt, (node) ? (node)->id : 0, ##__VA_ARGS__)
 
 #define NODE_LOG_ERROR(node, fmt, ...) NODE_LOG(LOGLEVEL_ERROR, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_INFO(node, fmt, ...) NODE_LOG(LOGLEVEL_INFO, node, fmt, ##__VA_ARGS__)
@@ -250,6 +253,9 @@ typedef enum NodeFlags {
 #define NODE_STATE_IDLE(x) \
     ((x) == NODE_DISCONNECTED || \
      (x) == NODE_CONNECT_ERROR)
+
+#define NODE_IS_CONNECTED(node) \
+    ((node->state == NODE_CONNECTED) && !(node->flags & NODE_TERMINATING))
 
 typedef struct PendingResponse {
     bool proxy;
@@ -439,6 +445,7 @@ void NodeFree(Node *node);
 Node *NodeInit(int id, const NodeAddr *addr);
 bool NodeConnect(Node *node, RedisRaftCtx *rr, NodeConnectCallbackFunc connect_callback);
 void NodeMarkDisconnected(Node *node);
+void NodeMarkRemoved(Node *node);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
 void NodeAddrListAddElement(NodeAddrListElement **head, NodeAddr *addr);
 void NodeAddrListFree(NodeAddrListElement *head);
