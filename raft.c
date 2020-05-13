@@ -714,8 +714,8 @@ static void handleLoadingState(RedisRaftCtx *rr)
             /* If log is behind our snapshot, reset it now.  Besides efficiency,
              * this is also required for raft_set_commit_idx() to succeed below.
              */
-            if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx + 1) {
-                RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx + 1,
+            if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
+                RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx,
                         rr->snapshot_info.last_applied_term);
             }
 
