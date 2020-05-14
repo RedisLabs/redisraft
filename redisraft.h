@@ -73,7 +73,7 @@ void raft_module_log(const char *fmt, ...);
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n" \
                     "REDIS RAFT PANIC\n" \
                     "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" \
-                    fmt, ##__VA_ARGS__); exit(1); } while (0)
+                    fmt, ##__VA_ARGS__); abort()); } while (0)
 
 #ifdef ENABLE_TRACE
 #define TRACE(fmt, ...) \
