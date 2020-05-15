@@ -65,7 +65,7 @@ RedisRaft works only on Redis 6.0 and above.
 
 To create a RedisRaft cluster, first launch the `redis-server` processes that comprise the cluster nodes. As mentioned earlier, you should use an odd number of nodes.
 
-The configuration of each Redis instance is performed in the usual way, using the `redis.conf` configuration file or by specifying configuration directives via command line arguments.
+The configuration of each Redis instance is performed in the usual way, using the `redis.conf` configuration file or by specifying configuration directives via command-line arguments.
 
 The RedisRaft configuration is provided as additional arguments to the module following the `loadmodule` directive (in a file or as command-line arguments).
 
@@ -77,7 +77,7 @@ For example, here's how to start a Redis instance and configure RedisRaft via th
             raft-log-filename=raftlog1.db addr=127.0.0.1:5001
 
 Note the following:
-* Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to 0.0.0.0, disabling Redis protected mode) and to listen on port 5001.
+* Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to `0.0.0.0`, disabling Redis protected mode) and to listen on port 5001.
 * The `--dbfilename` argument sets the name of the RDB file used for Raft snapshots.
 * The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `raft-log-filename` and `addr`).
 * The module-specific `raft-log-filename=` argument set the name of the RedisRaft log file.
