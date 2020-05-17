@@ -281,10 +281,10 @@ static void test_log_delete(void **state)
     assert_int_equal(RaftLogDelete(log, 0, NULL, NULL), RR_ERROR);
 
     /* Delete last two elements */
-    expect_value(mock_notify_func, ety_id, 20);
-    expect_value(mock_notify_func, idx, 52);
     expect_value(mock_notify_func, ety_id, 30);
     expect_value(mock_notify_func, idx, 53);
+    expect_value(mock_notify_func, ety_id, 20);
+    expect_value(mock_notify_func, idx, 52);
     assert_int_equal(RaftLogDelete(log, 52, mock_notify_func, NULL), RR_OK);
 
     /* Check log sanity after delete */

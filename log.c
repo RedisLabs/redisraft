@@ -822,18 +822,23 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
 RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
 {
     off_t offset;
-    raft_index_t idx = from_idx;
     RRStatus ret = RR_OK;
+    unsigned long removed = 0;
 
-    if (!(offset = seekEntry(log, from_idx))) {
+    if (from_idx <= log->snapshot_last_idx) {
         return RR_ERROR;
     }
 
-    do {
+    while (log->index >= from_idx) {
+        if (!(offset = seekEntry(log, log->index))) {
+            return RR_ERROR;
+        }
+
         RawLogEntry *re;
         raft_entry_t *e;
 
         if (readRawLogEntry(log, &re) < 0) {
+            ret = RR_ERROR;
             break;
         }
 
@@ -844,19 +849,20 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
                 break;
             }
             if (cb) {
-                cb(cb_arg, e, idx);
+                cb(cb_arg, e, log->index);
             }
-            idx++;
+
+            removed++;
+            log->index--;
+            log->num_entries--;
 
             raft_entry_release(e);
-            freeRawLogEntry(re);
-        }
-    } while(1);
 
-    ftruncate(fileno(log->file), offset);
-    unsigned long removed = log->index - from_idx + 1;
-    log->num_entries -= removed;
-    log->index = from_idx - 1;
+            ftruncate(fileno(log->file), offset);
+        }
+
+        freeRawLogEntry(re);
+    }
 
     return ret;
 }
