@@ -989,8 +989,8 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
             rr->snapshot_info.last_applied_idx);
 
     for (c = rr->snapshot_info.cfg; c != NULL; c = c->next) {
-        LOG_INFO("Loading: Snapshot config: node id=%u [%s:%u], active=%u, voting=%u\n",
-                c->id, c->addr.host, c->addr.port, c->active, c->voting);
+        LOG_INFO("Loading: Snapshot config: node id=%u [%s:%u], voting=%u\n",
+                c->id, c->addr.host, c->addr.port, c->voting);
     }
 
     /* Load configuration loaded from the snapshot into Raft library.

@@ -46,7 +46,6 @@ static SnapshotCfgEntry *generateSnapshotCfgEntryList(RedisRaftCtx *rr)
         SnapshotCfgEntry *e = *entry;
 
         e->id = raft_node_get_id(rnode);
-        e->active = raft_node_is_active(rnode);
         e->voting = raft_node_is_voting_committed(rnode);
         e->addr = *na;
 
@@ -311,77 +310,67 @@ exit:
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
 
-static void removeAllNodes(RedisRaftCtx *rr)
+static int updateNodeFromSnapshot(RedisRaftCtx *rr, raft_node_t *node, SnapshotCfgEntry *cfg)
 {
-    int i;
+    int ret = 0;
 
-    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
-        raft_node_t *rn = raft_get_node_from_idx(rr->raft, i);
-        assert(rn != NULL);
-
-        /* Leave our node */
-        if (raft_node_get_id(rn) == raft_get_nodeid(rr->raft)) {
-            continue;
-        }
-
-        Node *n = raft_node_get_udata(rn);
-        if (n != NULL) {
-            NodeFree(n);
-        }
-        raft_remove_node(rr->raft, rn);
+    if (cfg->voting != raft_node_is_voting(node)) {
+        raft_node_set_voting(node, cfg->voting);
+        raft_node_set_voting_committed(node, cfg->voting);
+        ret = 1;
     }
+
+    /* NOTE: We currently assume address and port cannot be configured on the fly,
+     * so they'll always involve a node id change.
+     */
+    return ret;
 }
 
-/* Load node configuration from snapshot metadata.  We assume no duplicate nodes
- * here, so removeAllNodes() should be called beforehand.
- */
-static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
+static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
+    Node *n = NodeInit(cfg->id, &cfg->addr);
+    raft_node_t *rn;
+
+    if (cfg->voting) {
+        rn = raft_add_node(rr->raft, n, cfg->id, 0);
+    } else {
+        rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
+    }
+
+    assert(rn != NULL);
+
+    LOG_DEBUG("Snapshot Load: adding node %d: %s: voting=%s\n",
+        cfg->id,
+        cfg->addr,
+        cfg->voting ? "yes" : "no");
+}
+
+
+/* Load node configuration from snapshot metadata.
+ *
+ * We assume we're being called right after raft_begin_load_snapshot()
+ * so all nodes except self have been removed.
+ */
+void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
+{
+    SnapshotCfgEntry *cfg = rr->snapshot_info.cfg;
+    int added = 0;
+
     while (cfg != NULL) {
-        Node *n = NULL;
-
-        /* Skip myself */
         if (cfg->id == raft_get_nodeid(rr->raft)) {
-            n = NULL;
-        } else {
-            n = NodeInit(cfg->id, &cfg->addr);
-        }
+            raft_node_t *rn = raft_get_node(rr->raft, cfg->id);
+            assert(rn != NULL);
+            assert(rn == raft_get_my_node(rr->raft));
 
-        /* Set up new node */
-        raft_node_t *rn;
-        if (cfg->voting) {
-            rn = raft_add_node(rr->raft, n, cfg->id, 0);
+            updateNodeFromSnapshot(rr, rn, cfg);
         } else {
-            rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
-        }
-
-        if (rn) {
-            raft_node_set_active(rn, cfg->active);
+            createNodeFromSnapshot(rr, cfg);
+            added++;
         }
         cfg = cfg->next;
     }
 
-}
-
-void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
-{
-    /* Load node configuration */
-    removeAllNodes(rr);
-    loadSnapshotNodes(rr, rr->snapshot_info.cfg);
-
-    LOG_DEBUG("Snapshot configuration loaded. Raft state:\n");
-    int i;
-    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
-        raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
-        Node *node = raft_node_get_udata(rnode);
-
-        if (!node) {
-            LOG_DEBUG("  node <unknown?>\n", i);
-        } else {
-            LOG_DEBUG("  node id=%d,addr=%s,port=%d\n",
-                    node->id, node->addr.host, node->addr.port);
-        }
-    }
+    assert(raft_get_num_nodes(rr->raft) == added + 1);
 }
 
 /* After a snapshot is received (becomes the Redis dataset), load it into the Raft
@@ -604,7 +593,6 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
 
         /* Populate */
         entry->id = _id;
-        entry->active = RedisModule_LoadUnsigned(rdb);
         entry->voting = RedisModule_LoadUnsigned(rdb);
 
         buf = RedisModule_LoadStringBuffer(rdb, &len);
@@ -635,7 +623,6 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
     SnapshotCfgEntry *cfg = info->cfg;
     while (cfg != NULL) {
         RedisModule_SaveUnsigned(rdb, cfg->id);
-        RedisModule_SaveUnsigned(rdb, cfg->active);
         RedisModule_SaveUnsigned(rdb, cfg->voting);
         RedisModule_SaveStringBuffer(rdb, cfg->addr.host, strlen(cfg->addr.host));
         RedisModule_SaveUnsigned(rdb, cfg->addr.port);

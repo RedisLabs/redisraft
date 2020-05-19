@@ -128,7 +128,6 @@ typedef enum RedisRaftState {
  */
 typedef struct SnapshotCfgEntry {
     raft_node_id_t  id;
-    int             active;
     int             voting;
     NodeAddr        addr;
     struct SnapshotCfgEntry *next;
