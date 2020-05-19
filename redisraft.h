@@ -186,7 +186,7 @@ typedef struct {
     bool snapshot_in_progress;  /* Indicates we're creating a snapshot in the background */
     raft_index_t last_snapshot_idx;
     raft_term_t last_snapshot_term;
-    struct RaftReq *compact_req;    /* Current RAFT.DEBUG COMPACT request */
+    struct RaftReq *debug_req;    /* Current RAFT.DEBUG request context, if processing one */
     bool callbacks_set;         /* TODO: Needed? */
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
@@ -200,6 +200,8 @@ typedef struct {
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
+
+extern raft_log_impl_t RaftLogImpl;
 
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
 #define REDIS_RAFT_DEFAULT_INTERVAL                 100
@@ -230,8 +232,6 @@ typedef struct RedisRaftConfig {
     unsigned long raft_log_max_cache_size;
     unsigned long raft_log_max_file_size;
     bool raft_log_fsync;
-    /* Debug options */
-    int compact_delay;
 } RedisRaftConfig;
 
 typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);
@@ -315,7 +315,7 @@ enum RaftReqType {
     RR_REDISCOMMAND,
     RR_INFO,
     RR_LOADSNAPSHOT,
-    RR_COMPACT,
+    RR_DEBUG,
     RR_CLIENT_DISCONNECT,
 };
 
@@ -336,6 +336,22 @@ typedef struct {
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
 } RaftRedisCommandArray;
+
+/* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
+ * requests.
+ */
+enum RaftDebugReqType {
+    RR_DEBUG_COMPACT
+};
+
+typedef struct RaftDebugReq {
+    enum RaftDebugReqType type;
+    union {
+        struct {
+            int delay;
+        } compact;
+    } d;
+} RaftDebugReq;
 
 typedef struct RaftReq {
     int type;
@@ -368,6 +384,7 @@ typedef struct RaftReq {
         struct {
             unsigned long long client_id;
         } client_disconnect;
+        RaftDebugReq debug;
     } r;
 } RaftReq;
 

@@ -169,17 +169,19 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
     ret = 1;
 
 exit:
-    /* If this is a result of a RAFT.COMPACT request, we need to reply. */
-    if (rr->compact_req) {
+    /* If this is a result of a RAFT.DEBUG COMPACT request, we need to reply. */
+    if (rr->debug_req) {
+        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
+
         if (ret == 1) {
             LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.\n");
-            RedisModule_ReplyWithSimpleString(rr->compact_req->ctx, "OK");
+            RedisModule_ReplyWithSimpleString(rr->debug_req->ctx, "OK");
         } else {
             LOG_DEBUG("RAFT.DEBUG COMPACT failed: %s\n", sr->err);
-            RedisModule_ReplyWithError(rr->compact_req->ctx, sr->err);
+            RedisModule_ReplyWithError(rr->debug_req->ctx, sr->err);
         }
-        RaftReqFree(rr->compact_req);
-        rr->compact_req = NULL;
+        RaftReqFree(rr->debug_req);
+        rr->debug_req = NULL;
     }
 
     close(rr->snapshot_child_fd);
@@ -194,7 +196,12 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
        return RR_ERROR;
     }
 
-    LOG_DEBUG("Initiating snapshot%s.\n", rr->compact_req ? ", trigerred by COMPACT" : "");
+    if (rr->debug_req) {
+        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
+        LOG_DEBUG("Initiating RAFT.DEBUG COMPACT initiated snapshot.\n");
+    } else {
+        LOG_DEBUG("Initiating snapshot.\n");
+    }
 
     if (raft_begin_snapshot(rr->raft, RAFT_SNAPSHOT_NONBLOCKING_APPLY) < 0) {
         LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.\n");
@@ -251,8 +258,11 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         redis_raft_logfile = NULL;
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
-        if (rr->compact_req && rr->config->compact_delay) {
-            sleep(rr->config->compact_delay);
+        if (rr->debug_req) {
+            int delay = rr->debug_req->r.debug.d.compact.delay;
+            if (delay) {
+                sleep(delay);
+            }
         }
 
         sr.magic = SNAPSHOT_RESULT_MAGIC;
@@ -533,19 +543,6 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 exit:
     RaftReqFree(req);
 }
-
-void handleCompact(RedisRaftCtx *rr, RaftReq *req)
-{
-    rr->compact_req = req;
-
-    if (initiateSnapshot(rr) != RR_OK) {
-        LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
-        RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
-        RaftReqFree(req);
-        return;
-    }
-}
-
 
 /* ------------------------------------ Snapshot metadata type ------------------------------------ */
 

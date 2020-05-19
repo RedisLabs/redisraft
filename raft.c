@@ -36,7 +36,6 @@ const char *RaftReqTypeStr[] = {
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static RaftReqHandler RaftReqHandlers[];
-extern raft_log_impl_t RaftLogImpl;
 
 static bool processExiting = false;
 static void __setProcessExiting(void) {
@@ -1775,6 +1774,28 @@ static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
+extern void raft_handle_remove_cfg_change(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
+
+void handleDebug(RedisRaftCtx *rr, RaftReq *req)
+{
+    switch (req->r.debug.type) {
+        case RR_DEBUG_COMPACT:
+            rr->debug_req = req;
+
+            if (initiateSnapshot(rr) != RR_OK) {
+                LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.\n");
+                RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
+                rr->debug_req = NULL;
+                RaftReqFree(req);
+                return;
+            }
+            break;
+        default:
+            assert(0);
+    }
+}
+
+
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
     handleClusterInit,      /* RR_CLUSTER_INIT */
@@ -1786,9 +1807,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleRedisCommand,     /* RR_REDISOCMMAND */
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
-    handleCompact,          /* RR_COMPACT */
+    handleDebug,            /* RR_DEBUG */
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     NULL
 };
-
-

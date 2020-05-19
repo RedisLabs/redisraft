@@ -499,8 +499,6 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisRaftCtx *rr = &redis_raft;
-
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
@@ -521,9 +519,10 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
             }
         }
-        rr->config->compact_delay = delay;
 
-        RaftReq *req = RaftReqInit(ctx, RR_COMPACT);
+        RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
+        req->r.debug.type = RR_DEBUG_COMPACT;
+        req->r.debug.d.compact.delay = delay;
         RaftReqSubmit(&redis_raft, req);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
