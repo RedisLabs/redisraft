@@ -311,63 +311,118 @@ exit:
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
 
-static void removeAllNodes(RedisRaftCtx *rr)
+static SnapshotCfgEntry *findCfgEntry(SnapshotCfgEntry *cfg, raft_node_id_t node_id)
+{
+    while (cfg != NULL) {
+        if (cfg->id == node_id) {
+            return cfg;
+        }
+        cfg = cfg->next;
+    }
+
+    return NULL;
+}
+
+static int updateNodeFromSnapshot(RedisRaftCtx *rr, raft_node_t *node, SnapshotCfgEntry *cfg)
+{
+    int ret = 0;
+
+    if (cfg->voting != raft_node_is_voting(node)) {
+        raft_node_set_voting(node, cfg->voting);
+        raft_node_set_voting_committed(node, cfg->voting);
+        ret = 1;
+    }
+    if (cfg->active != raft_node_is_active(node)) {
+        raft_node_set_active(node, cfg->active);
+        ret = 1;
+    }
+
+    /* NOTE: We currently assume address and port cannot be configured on the fly,
+     * so they'll always involve a node id change.
+     */
+    return ret;
+}
+
+static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
+{
+    Node *n = NodeInit(cfg->id, &cfg->addr);
+    raft_node_t *rn;
+
+    if (cfg->voting) {
+        rn = raft_add_node(rr->raft, n, cfg->id, 0);
+    } else {
+        rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
+    }
+    if (rn) {
+        raft_node_set_active(rn, cfg->active);
+    }
+
+    LOG_DEBUG("Snapshot: adding node %d: %s: voting=%s, active=%s\n",
+        cfg->id,
+        cfg->addr,
+        cfg->voting ? "yes" : "no",
+        cfg->active ? "yes" : "no");
+}
+
+static int removeUnlistedNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
     int i;
+    int removed = 0;
 
     for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *rn = raft_get_node_from_idx(rr->raft, i);
         assert(rn != NULL);
 
-        /* Leave our node */
-        if (raft_node_get_id(rn) == raft_get_nodeid(rr->raft)) {
-            continue;
-        }
+        raft_node_id_t node_id = raft_node_get_id(rn);
+        if (!findCfgEntry(cfg, node_id)) {
+            if (rn == raft_get_my_node(rr->raft)) {
+                continue;
+            }
 
-        Node *n = raft_node_get_udata(rn);
-        if (n != NULL) {
-            NodeFree(n);
+            LOG_DEBUG("Snapshot: removig node %d\n", node_id);
+            /* Remove node; Removal of the Node structure will be done by the
+             * membership callbacks.
+             */
+            raft_remove_node(rr->raft, rn);
+            removed++;
         }
-        raft_remove_node(rr->raft, rn);
     }
+
+    return removed;
 }
 
 /* Load node configuration from snapshot metadata.  We assume no duplicate nodes
  * here, so removeAllNodes() should be called beforehand.
  */
-static void loadSnapshotNodes(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
+static void configureNodesFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
-    while (cfg != NULL) {
-        Node *n = NULL;
+    SnapshotCfgEntry *ci = cfg;
+    int added = 0;
+    int updated = 0;
+    int removed = 0;
 
-        /* Skip myself */
-        if (cfg->id == raft_get_nodeid(rr->raft)) {
-            n = NULL;
-        } else {
-            n = NodeInit(cfg->id, &cfg->addr);
-        }
-
-        /* Set up new node */
-        raft_node_t *rn;
-        if (cfg->voting) {
-            rn = raft_add_node(rr->raft, n, cfg->id, 0);
-        } else {
-            rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
-        }
-
+    while (ci != NULL) {
+        raft_node_t *rn = raft_get_node(rr->raft, ci->id);
         if (rn) {
-            raft_node_set_active(rn, cfg->active);
+            if (updateNodeFromSnapshot(rr, rn, ci)) {
+                updated++;
+            }
+        } else {
+            createNodeFromSnapshot(rr, ci);
+            added++;
         }
-        cfg = cfg->next;
+        ci = ci->next;
     }
 
+    removed = removeUnlistedNodes(rr, cfg);
+    LOG_VERBOSE("Node configuration updated from snapshot: %d added, %d updated, %d removed nodes.\n",
+        added, updated, removed);
 }
 
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
 {
     /* Load node configuration */
-    removeAllNodes(rr);
-    loadSnapshotNodes(rr, rr->snapshot_info.cfg);
+    configureNodesFromSnapshot(rr, rr->snapshot_info.cfg);
 
     LOG_DEBUG("Snapshot configuration loaded. Raft state:\n");
     int i;

@@ -200,3 +200,15 @@ def test_node_history_with_same_address(cluster):
     time.sleep(2)
 
     assert cluster.raft_exec("GET", "step-counter") == b'3001'
+
+
+def test_update_self_voting_state_from_snapshot(cluster):
+    cluster.create(3)
+
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'NODECFG', '2', '-voting') == b'OK'
+    assert cluster.node(2).raft_info()['is_voting'] == 'yes'
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    cluster.node(1).client.execute_command('RAFT.DEBUG', 'SENDSNAPSHOT', '2')
+    cluster.node(2).wait_for_info_param('snapshots_loaded', 1)
+    assert cluster.node(2).raft_info()['is_voting'] == 'no'
