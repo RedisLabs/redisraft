@@ -810,7 +810,7 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
     /* Don't attempt to send a snapshot if we're in the process of creating one */
     if (rr->snapshot_in_progress) {
         NODE_LOG_DEBUG(node, "not sending snapshot, snapshot_in_progress\n");
-        return 0;
+        return -1;
     }
 
     /* We don't attempt to load a snapshot before we receive a response.
@@ -819,7 +819,7 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
      * but it's not a blocking operation.  See RAFT.LOADSNAPSHOT for more info.
      */
     if (node->load_snapshot_in_progress) {
-        return 0;
+        return -1;
     }
 
     NODE_LOG_DEBUG(node, "raftSendSnapshot: snapshot_last_idx %ld term %ld, node next_idx %ld\n",
@@ -829,7 +829,7 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
 
     if (!NODE_IS_CONNECTED(node)) {
         NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
-        return 0;
+        return -1;
     }
 
     /* Initiate loading of snapshot.  We use libuv to handle loading in the background

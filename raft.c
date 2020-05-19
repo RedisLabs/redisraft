@@ -1116,6 +1116,19 @@ void RaftReqFree(RaftReq *req)
         case RR_CLUSTER_JOIN:
             NodeAddrListFree(req->r.cluster_join.addr);
             break;
+        case RR_DEBUG:
+            switch (req->r.debug.type) {
+                case RR_DEBUG_COMPACT:
+                    break;
+                case RR_DEBUG_NODECFG:
+                    if (req->r.debug.d.nodecfg.str) {
+                        RedisModule_Free(req->r.debug.d.nodecfg.str);
+                    }
+                    break;
+                case RR_DEBUG_SENDSNAPSHOT:
+                    break;
+            }
+            break;
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -1137,6 +1150,14 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p\n",
             req, RaftReqTypeStr[req->type], req->client, req->ctx);
+
+    return req;
+}
+
+RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type)
+{
+    RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
+    req->r.debug.type = type;
 
     return req;
 }
@@ -1774,7 +1795,60 @@ static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-extern void raft_handle_remove_cfg_change(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
+static void handleDebugNodeCfg(RedisRaftCtx *rr, RaftReq *req)
+{
+    char *saveptr = NULL;
+    char *tok;
+
+    raft_node_t *node = raft_get_node(rr->raft, req->r.debug.d.nodecfg.id);
+    if (!node) {
+        RedisModule_ReplyWithError(req->ctx, "ERR node does not exist");
+        goto exit;
+    }
+
+    tok = strtok_r(req->r.debug.d.nodecfg.str, " ", &saveptr);
+    while (tok != NULL) {
+        if (!strcasecmp(tok, "+voting")) {
+            raft_node_set_voting(node, 1);
+            raft_node_set_voting_committed(node, 1);
+        } else if (!strcasecmp(tok, "-voting")) {
+            raft_node_set_voting(node, 0);
+            raft_node_set_voting_committed(node, 0);
+        } else if (!strcasecmp(tok, "+active")) {
+            raft_node_set_active(node, 1);
+        } else if (!strcasecmp(tok, "-active")) {
+            raft_node_set_active(node, 0);
+        } else {
+            RedisModule_ReplyWithError(req->ctx, "ERR invalid nodecfg option specified");
+            goto exit;
+        }
+        tok = strtok_r(NULL, " ", &saveptr);
+    }
+
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
+
+static void handleDebugSendSnapshot(RedisRaftCtx *rr, RaftReq *req)
+{
+    raft_node_t *node = raft_get_node(rr->raft, req->r.debug.d.nodecfg.id);
+    if (!node) {
+        RedisModule_ReplyWithError(req->ctx, "ERR node does not exist");
+        goto exit;
+    }
+
+    if (raftSendSnapshot(rr->raft, rr, node) != 0) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to send snapshot");
+        goto exit;
+    }
+
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
 
 void handleDebug(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -1787,8 +1861,13 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
                 RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
                 rr->debug_req = NULL;
                 RaftReqFree(req);
-                return;
             }
+            break;
+        case RR_DEBUG_NODECFG:
+            handleDebugNodeCfg(rr, req);
+            break;
+        case RR_DEBUG_SENDSNAPSHOT:
+            handleDebugSendSnapshot(rr, req);
             break;
         default:
             assert(0);

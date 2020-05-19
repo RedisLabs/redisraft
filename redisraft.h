@@ -341,7 +341,9 @@ typedef struct {
  * requests.
  */
 enum RaftDebugReqType {
-    RR_DEBUG_COMPACT
+    RR_DEBUG_COMPACT,
+    RR_DEBUG_NODECFG,
+    RR_DEBUG_SENDSNAPSHOT
 };
 
 typedef struct RaftDebugReq {
@@ -350,6 +352,13 @@ typedef struct RaftDebugReq {
         struct {
             int delay;
         } compact;
+        struct {
+            raft_node_id_t id;
+            char *str;
+        } nodecfg;
+        struct {
+            raft_node_id_t id;
+        } sendsnapshot;
     } d;
 } RaftDebugReq;
 
@@ -486,6 +495,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr);
 
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
+RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
 void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
 void RaftReqHandleQueue(uv_async_t *handle);
 
