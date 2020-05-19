@@ -197,6 +197,7 @@ typedef struct {
     unsigned long long proxy_failed_reqs;       /* Number of failed proxy requests, i.e. did not send */
     unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
+    unsigned long snapshots_loaded;             /* Number of snapshots loaded */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;

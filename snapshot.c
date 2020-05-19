@@ -106,7 +106,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
             return -1;
         }
 
-        LOG_VERBOSE("Log rewrite complete, %lld entries rewritten (from idx %lu).\n", 
+        LOG_VERBOSE("Log rewrite complete, %lld entries rewritten (from idx %lu).\n",
                 num_log_entries, raft_get_snapshot_last_idx(rr->raft));
 
     }
@@ -539,6 +539,8 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     RedisModule_ReplyWithLongLong(req->ctx, 1);
+
+    rr->snapshots_loaded++;
 
 exit:
     RaftReqFree(req);
