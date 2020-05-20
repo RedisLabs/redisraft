@@ -525,6 +525,14 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    /* Verify snapshot term */
+    if (req->r.loadsnapshot.term < raft_get_current_term(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with old term %d\n",
+            req->r.loadsnapshot.term);
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        goto exit;
+    }
+
     /* Verify snapshot index and term before attempting to load it. */
     if (req->r.loadsnapshot.idx < raft_get_last_applied_idx(rr->raft)) {
         LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, already applied %d\n",
