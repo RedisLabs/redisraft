@@ -265,7 +265,10 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
     };
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
-    assert(raft_node != NULL);
+    if (!raft_node) {
+        NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE stale reply.\n");
+        return;
+    }
 
     int ret;
     if ((ret = raft_recv_requestvote_response(
