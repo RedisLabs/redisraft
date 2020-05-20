@@ -12,6 +12,15 @@
 #include <assert.h>
 #include "redisraft.h"
 
+/* These are ugly hacks to work around missing Redis Module API calls!
+ * 
+ * For rdbSave() we could use SAVE, but we'd anyway stay with rdbLoad() so
+ * we have both.
+ */
+
+int rdbLoad(const char *filename, void *info, int flags);
+int rdbSave(const char *filename, void *info);
+
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
 /* Generate a configuration field string from the current Raft configuration state.
@@ -68,6 +77,23 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
+/* Returns the number of nodes currently being pushed snapshots */
+static int snapshotSendInProgress(RedisRaftCtx *rr)
+{
+    int i;
+    int count = 0;
+
+    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+        raft_node_t *rn = raft_get_node_from_idx(rr->raft, i);
+        Node *n = raft_node_get_udata(rn);
+        if (n && n->load_snapshot_in_progress) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     assert(rr->snapshot_in_progress);
@@ -79,7 +105,6 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         if (sr->rdb_filename[0]) {
             unlink(sr->rdb_filename);
         }
-        RaftLogRemoveFiles(sr->log_filename);
     }
 }
 
@@ -87,6 +112,10 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     RaftLog *new_log = NULL;
     unsigned long num_log_entries;
+
+    char temp_log_filename[256];
+    snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
+        rr->config->raft_log_filename);
 
     assert(rr->snapshot_in_progress);
 
@@ -96,9 +125,10 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * entries to the temporary log and switch.
      */
     if (rr->log) {
-        num_log_entries = RaftLogRewrite(rr, sr->log_filename, rr->last_snapshot_idx, rr->last_snapshot_term);
+        num_log_entries = RaftLogRewrite(rr, temp_log_filename,
+            rr->last_snapshot_idx, rr->last_snapshot_term);
 
-        new_log = RaftLogOpen(sr->log_filename, rr->config, RAFTLOG_KEEP_INDEX);
+        new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
         if (!new_log) {
             LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
             cancelSnapshot(rr, sr);
@@ -164,7 +194,7 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
         goto exit;
     }
 
-    LOG_VERBOSE("Snapshot created, %lld log entries rewritten to log.\n", sr->num_entries);
+    LOG_VERBOSE("Snapshot created successfuly.\n");
     ret = 1;
 
 exit:
@@ -193,6 +223,11 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 {
     if (rr->snapshot_in_progress) {
        return RR_ERROR;
+    }
+
+    if (snapshotSendInProgress(rr) > 0) {
+        LOG_DEBUG("Delaying snapshot as snapshot delivery is in progress.\n");
+        return RR_ERROR;
     }
 
     if (rr->debug_req) {
@@ -245,7 +280,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         RaftLogSync(rr->log);
     }
 
-    pid_t child = fork();
+    pid_t child = RedisModule_Fork(NULL, NULL);
     if (child < 0) {
         LOG_ERROR("Failed to fork snapshot child: %s\n", strerror(errno));
         cancelSnapshot(rr, NULL);
@@ -265,41 +300,20 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         }
 
         sr.magic = SNAPSHOT_RESULT_MAGIC;
-        snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp", rr->config->rdb_filename);
-        snprintf(sr.log_filename, sizeof(sr.log_filename) - 1, "%s.tmp", rr->config->raft_log_filename);
+        snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
+            rr->config->rdb_filename, getpid());
 
-        /* Configure Redis to dump to our temporary file */
-        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "CONFIG", "ccc", "SET", "dbfilename",
-                sr.rdb_filename);
-        if (!reply || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
-            snprintf(sr.err, sizeof(sr.err) - 1, "%s", "CONFIG SET dbfilename failed");
-            goto exit;
-        }
-        RedisModule_FreeCallReply(reply);
-
-        /* Save */
-        reply = RedisModule_Call(rr->ctx, "SAVE", "");
-        if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
-            snprintf(sr.err, sizeof(sr.err) - 1, "%s", "SAVE failed");
+        if (rdbSave(sr.rdb_filename, NULL) != 0) {
+            snprintf(sr.err, sizeof(sr.err) - 1, "%s", "rdbSave() failed");
             goto exit;
         }
 
-        size_t len;
-        const char *s = RedisModule_CallReplyStringPtr(reply, &len);
-        if (len != 2 && memcmp(s, "OK", 2)) {
-            snprintf(sr.err, sizeof(sr.err) - 1, "SAVE failed: %.*s", (int) len, s);
-            goto exit;
-        }
-        RedisModule_FreeCallReply(reply);
-
-        /* Now create a compact log file */
-        sr.num_entries = 0;
         sr.success = 1;
 
 exit:
         write(snapshot_fds[1], &sr, sizeof(sr));
 
-        _exit(0);
+        RedisModule_ExitFromChild(0);
     }
 
     /* Close pipe's other side */
@@ -435,8 +449,6 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     return RR_OK;
 }
 
-int rdbLoad(const char *filename, void *info, int flags);
-
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftState(rr, req) == RR_ERROR) {
@@ -456,6 +468,14 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     if (rr->snapshot_in_progress) {
         LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
         RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");
+        goto exit;
+    }
+
+    /* Verify snapshot term */
+    if (req->r.loadsnapshot.term < raft_get_current_term(rr->raft)) {
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with old term %d\n",
+            req->r.loadsnapshot.term);
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
         goto exit;
     }
 
@@ -684,15 +704,15 @@ static int snapshotSendData(Node *node)
     time_t now = time(NULL);
 
     /* Load snapshot data */
-    char last_term[30];
-    snprintf(last_term, sizeof(last_term) - 1, "%lu", raft_get_snapshot_last_term(rr->raft));
-    char last_idx[30];
-    snprintf(last_idx, sizeof(last_idx) - 1, "%lu", raft_get_snapshot_last_idx(rr->raft));
+    char term[30];
+    snprintf(term, sizeof(term) - 1, "%lu", raft_get_current_term(rr->raft));
+    char idx[30];
+    snprintf(idx, sizeof(idx) - 1, "%lu", raft_get_snapshot_last_idx(rr->raft));
 
     const char *args[4] = {
         "RAFT.LOADSNAPSHOT",
-        last_term,
-        last_idx,
+        term,
+        idx,
         node->snapshot_buf
     };
     size_t args_len[4] = {

@@ -398,7 +398,7 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
 }
 
-/* RAFT.LOADSNAPSHOT [snapshot-last-term] [snapshot-last-index] [data]
+/* RAFT.LOADSNAPSHOT [current-term] [snapshot-last-index] [data]
  *   Load the specified snapshot (e.g. Raft paper's InstallSnapshot RPC).
  *
  *  Reply:

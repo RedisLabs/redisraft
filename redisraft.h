@@ -424,9 +424,7 @@ typedef struct RaftLog {
 typedef struct SnapshotResult {
     int magic;
     int success;
-    long long int num_entries;
     char rdb_filename[256];
-    char log_filename[256];
     char err[256];
 } SnapshotResult;
 

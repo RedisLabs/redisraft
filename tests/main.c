@@ -22,6 +22,7 @@ extern struct CMUnitTest serialization_tests[];
 
 /* Redis symbols to keep linker happy */
 void *rdbLoad;
+void *rdbSave;
 
 int tests_count(struct CMUnitTest *tests)
 {
