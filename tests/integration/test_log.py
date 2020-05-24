@@ -21,7 +21,7 @@ def test_log_rollback(cluster):
 
     cluster.create(3)
     assert cluster.leader == 1
-    assert cluster.raft_exec('SET', 'key', 'value1') == b'OK'
+    assert cluster.raft_exec('INCRBY', 'key', '111') == 111
 
     # Break cluster
     cluster.node(2).terminate()
@@ -30,7 +30,7 @@ def test_log_rollback(cluster):
     # Load a command which can't be committed
     assert cluster.node(1).current_index() == 6
     conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'SET', 'key', 'value2')
+    conn.send_command('RAFT', 'INCRBY', 'key', '222')
     assert cluster.node(1).current_index() == 7
     cluster.node(1).terminate()
 
@@ -52,13 +52,13 @@ def test_log_rollback(cluster):
 
     # Make another write and make sure it overwrites the previous one in
     # node 1's log
-    cluster.raft_exec('SET', 'key', 'value3')
-    assert cluster.node(1).current_index() == 8
+    assert cluster.raft_exec('INCRBY', 'key', '333') == 444
+    cluster.wait_for_unanimity()
 
     # Make sure log reflects the change
     log.reset()
     log.read()
-    assert match(r'.*SET.*value3', str(log.entries[8].data()))
+    assert match(r'.*INCRBY.*333', str(log.entries[-1].data()))
 
 
 def test_raft_log_max_file_size(cluster):
