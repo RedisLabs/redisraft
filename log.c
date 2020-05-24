@@ -468,18 +468,18 @@ int updateLogHeader(RaftLog *log)
     return ret;
 }
 
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term,
-        raft_index_t index, RedisRaftConfig *config)
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term,
+        raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config)
 {
     RaftLog *log = prepareLog(filename, config, 0);
     if (!log) {
         return NULL;
     }
 
-    log->index = log->snapshot_last_idx = index;
-    log->snapshot_last_term = term;
-    log->term = 1;
-    log->vote = -1;
+    log->index = log->snapshot_last_idx = snapshot_index;
+    log->snapshot_last_term = snapshot_term;
+    log->term = current_term;
+    log->vote = last_vote;
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
@@ -916,7 +916,10 @@ raft_index_t RaftLogCount(RaftLog *log)
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term)
 {
     RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
-            last_term, last_idx, rr->config);
+            last_term, last_idx,
+            raft_get_current_term(rr->raft),
+            raft_get_voted_for(rr->raft),
+            rr->config);
     long long int num_entries = 0;
 
     raft_index_t i;

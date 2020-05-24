@@ -508,7 +508,7 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 
 /* log.c */
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t term, raft_index_t index, RedisRaftConfig *config);
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);

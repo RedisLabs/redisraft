@@ -28,7 +28,7 @@ static int setup_create_log(void **state)
         .id = 1
     };
 
-    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, &cfg);
+    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, 1, -1, &cfg);
     assert_non_null(*state);
     return 0;
 }

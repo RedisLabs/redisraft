@@ -922,7 +922,7 @@ static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
 RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
-            1, 0, rr->config);
+            1, 0, 1, -1, rr->config);
     if (!rr->log) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
         return RR_ERROR;
@@ -1775,7 +1775,7 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
     rr->state = REDIS_RAFT_UP;
     RedisModule_ReplyWithSimpleString(req->ctx, reply);
 
-    LOG_INFO("Raft Cluster initialized, dbid: %s\n", rr->snapshot_info.dbid);
+    LOG_INFO("Raft Cluster initialized, node id: %ld, dbid: %s\n", rr->config->id, rr->snapshot_info.dbid);
 exit:
     RaftReqFree(req);
 }
@@ -1813,6 +1813,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
      */
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
+            1, -1,
             rr->config);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
