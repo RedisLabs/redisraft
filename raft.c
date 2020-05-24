@@ -490,7 +490,7 @@ static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, con
             return;
         }
     }
-    LOG_DEBUG("<raftlib> %s\n", buf);
+    TRACE("<raftlib> %s\n", buf);
 }
 
 static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
@@ -820,7 +820,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     if (ret == RAFT_ERR_SHUTDOWN) {
-        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.\n");
 
         if (rr->config->raft_log_filename)
             RaftLogArchiveFiles(rr);

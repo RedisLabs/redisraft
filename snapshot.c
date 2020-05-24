@@ -190,7 +190,7 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
     }
 
     if (!sr->success) {
-        LOG_ERROR("Snapshot failed: %s", sr->err);
+        LOG_ERROR("Snapshot failed: %s\n", sr->err);
         goto exit;
     }
 
@@ -425,7 +425,7 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     int fd = open(rr->config->rdb_filename, O_CREAT|O_TRUNC|O_RDWR, 0666);
 
     if (fd < 0) {
-        LOG_ERROR("Failed to open snapshot file: %s: %s",
+        LOG_ERROR("Failed to open snapshot file: %s: %s\n",
                 rr->config->rdb_filename, strerror(errno));
         return RR_ERROR;
     }
@@ -433,10 +433,10 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     int r = write(fd, data, data_len);
     if (r < data_len) {
         if (r < 0) {
-            LOG_ERROR("Failed to write snapshot file: %s: %s", rr->config->rdb_filename,
+            LOG_ERROR("Failed to write snapshot file: %s: %s\n", rr->config->rdb_filename,
                     strerror(errno));
         } else {
-            LOG_ERROR("Short write on snapshot file: %s", rr->config->rdb_filename);
+            LOG_ERROR("Short write on snapshot file: %s\n", rr->config->rdb_filename);
         }
         close(fd);
 
@@ -460,13 +460,13 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
      */
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
-        LOG_VERBOSE("Skipping RAFT.LOADSNAPSHOT as I am the leader.");
+        LOG_VERBOSE("Skipping RAFT.LOADSNAPSHOT as I am the leader.\n");
         RedisModule_ReplyWithError(req->ctx, "ERR leader does not accept snapshots");
         goto exit;
     }
 
     if (rr->snapshot_in_progress) {
-        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress");
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress.\n");
         RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");
         goto exit;
     }
@@ -515,7 +515,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     if (rdbLoad(rr->config->rdb_filename, NULL, 0) != 0 ||
             !rr->snapshot_info.loaded ||
             loadSnapshot(rr) < 0) {
-        LOG_ERROR("Failed to load snapshot");
+        LOG_ERROR("Failed to load snapshot\n");
         RedisModule_ReplyWithError(req->ctx, "ERR failed to load snapshot");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
         goto exit;
@@ -692,7 +692,7 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
         if (n != NULL) {
             raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
         } else {
-            NODE_LOG_DEBUG(node, "Node %d no longer exists, not updating next_idx",
+            NODE_LOG_DEBUG(node, "Node %d no longer exists, not updating next_idx\n",
                     node->id);
         }
     }
