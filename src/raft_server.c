@@ -1486,7 +1486,8 @@ int raft_begin_load_snapshot(
     if (last_included_term == me->snapshot_last_term && last_included_index == me->snapshot_last_idx)
         return RAFT_ERR_SNAPSHOT_ALREADY_LOADED;
 
-    me->current_term = last_included_term;
+    if (me->current_term < last_included_term)
+        me->current_term = last_included_term;
     me->voted_for = -1;
     raft_set_state((raft_server_t*)me, RAFT_STATE_FOLLOWER);
     me->current_leader = NULL;
