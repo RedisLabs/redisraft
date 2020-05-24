@@ -222,3 +222,126 @@ def test_proxying_with_raftize(cluster):
 
     time.sleep(1)
     assert cluster.node(1).raft_info()['current_index'] == 8
+
+
+def test_rolled_back_reply(cluster):
+    """
+    Watch the reply to a write operation that ends up being discarded
+    due to election change before commit.
+    """
+
+    cluster.create(3)
+
+    cluster.node(2).pause()
+    cluster.node(3).pause()
+
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
+    conn.send_command('RAFT', 'INCR', 'key')
+
+    cluster.node(1).pause()
+
+    cluster.node(2).kill()
+    cluster.node(3).kill()
+    cluster.node(2).start()
+    cluster.node(3).start()
+
+    cluster.node(2).wait_for_election()
+    cluster.node(1).resume()
+
+    with raises(ResponseError, match='TIMEOUT'):
+        conn.read_response()
+
+
+def test_rolled_back_read_only_reply(cluster):
+    """
+    Watch the reply to a read-only operation that ends up being discarded
+    due to election change before commit.
+    """
+
+    cluster.create(3)
+    cluster.node(1).raft_exec('SET', 'key', 'value')
+
+    cluster.node(2).pause()
+    cluster.node(3).pause()
+
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
+    conn.send_command('RAFT', 'GET', 'key')
+
+    cluster.node(1).pause()
+
+    cluster.node(2).kill()
+    cluster.node(3).kill()
+    cluster.node(2).start()
+    cluster.node(3).start()
+
+    cluster.node(2).wait_for_election()
+    cluster.node(1).resume()
+
+    with raises(ResponseError, match='TIMEOUT'):
+        conn.read_response()
+
+
+def test_rolled_back_multi_reply(cluster):
+    """
+    Watch the reply to a MULTI operation that ends up being discarded
+    due to election change before commit.
+    """
+
+    cluster.create(3)
+    cluster.node(1).raft_exec('SET', 'key', 'value')
+
+    cluster.node(2).pause()
+    cluster.node(3).pause()
+
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
+    conn.send_command('RAFT', 'MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('RAFT', 'INCR', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('RAFT', 'EXEC')
+
+    cluster.node(1).pause()
+
+    cluster.node(2).kill()
+    cluster.node(3).kill()
+    cluster.node(2).start()
+    cluster.node(3).start()
+
+    cluster.node(2).wait_for_election()
+    cluster.node(1).resume()
+
+    with raises(ResponseError, match='TIMEOUT'):
+        assert conn.read_response() == None
+
+
+def test_rolled_back_read_only_multi_reply(cluster):
+    """
+    Watch the reply to a MULTI operation that ends up being discarded
+    due to election change before commit.
+    """
+
+    cluster.create(3)
+    cluster.node(1).raft_exec('SET', 'key', 'value')
+
+    cluster.node(2).pause()
+    cluster.node(3).pause()
+
+    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
+    conn.send_command('RAFT', 'MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('RAFT', 'GET', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('RAFT', 'EXEC')
+
+    cluster.node(1).pause()
+
+    cluster.node(2).kill()
+    cluster.node(3).kill()
+    cluster.node(2).start()
+    cluster.node(3).start()
+
+    cluster.node(2).wait_for_election()
+    cluster.node(1).resume()
+
+    with raises(ResponseError, match='TIMEOUT'):
+        assert conn.read_response() == None

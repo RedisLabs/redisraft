@@ -15,6 +15,7 @@ import subprocess
 import threading
 import random
 import logging
+import signal
 import uuid
 import redis
 
@@ -255,6 +256,14 @@ class RedisRaft(object):
                 retries -= 1
                 time.sleep(0.5)
                 continue
+
+    def pause(self):
+        if self.process is not None:
+            self.process.send_signal(signal.SIGSTOP)
+
+    def resume(self):
+        if self.process is not None:
+            self.process.send_signal(signal.SIGCONT)
 
     def cleanup(self):
         files = [self.raftlog, self.raftlogidx, self.dbfilename]
