@@ -1375,7 +1375,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
     RaftReq *req = (RaftReq *) arg;
 
     if (!can_read) {
-        RedisModule_ReplyWithError(req->ctx, "NOTLEADER leadership not guaranteed");
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
         goto exit;
     }
 
