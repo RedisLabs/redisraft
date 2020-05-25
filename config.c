@@ -345,6 +345,36 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->quorum_reads = true;
     config->raftize_all_commands = true;
 }
+static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
+{
+    size_t len;
+    const char *str;
+    RedisModuleCallReply *reply = NULL;
+    RRStatus ret = RR_OK;
+
+    if (!(reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value))) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 2 || memcmp(str, "OK", 2)) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+exit:
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return ret;
+}
 
 static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
 {
@@ -432,6 +462,15 @@ RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)
             PANIC("Failed to determine local address, please use addr=.");
             return RR_ERROR;
         }
+    }
+
+    return RR_OK;
+}
+
+RRStatus ConfigureRedis(RedisModuleCtx *ctx)
+{
+    if (setRedisConfig(ctx, "save", "") != RR_OK) {
+        return RR_ERROR;
     }
 
     return RR_OK;

@@ -552,6 +552,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
+RRStatus ConfigureRedis(RedisModuleCtx *ctx);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

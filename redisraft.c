@@ -674,6 +674,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
+    /* Configure Redis */
+    if (ConfigureRedis(ctx) == RR_ERROR) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed set Redis configuration!");
+        return REDISMODULE_ERR;
+    }
+
     if (registerRaftCommands(ctx) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
