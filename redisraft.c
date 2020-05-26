@@ -158,7 +158,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -172,19 +172,26 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    if (argc != 3) {
+    if (argc != 4) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
+    int target_node_id;
+    if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
+        target_node_id != rr->config->id) {
+            RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
+            return REDISMODULE_OK;
+    }
+
     RaftReq *req = RaftReqInit(ctx, RR_REQUESTVOTE);
-    if (RedisModuleStringToInt(argv[1], &req->r.requestvote.src_node_id) == REDISMODULE_ERR) {
+    if (RedisModuleStringToInt(argv[2], &req->r.requestvote.src_node_id) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "invalid source node id");
         goto error_cleanup;
     }
 
     size_t tmplen;
-    const char *tmpstr = RedisModule_StringPtrLen(argv[2], &tmplen);
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
     if (sscanf(tmpstr, "%ld:%d:%ld:%ld",
                 &req->r.requestvote.msg.term,
                 &req->r.requestvote.msg.candidate_id,
@@ -281,7 +288,7 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
-/* RAFT.AE [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
+/* RAFT.AE [target_node_id] [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
  *      [n_entries] [<term>:<id>:<type> <entry>]...
  *   A leader request to append entries to the Raft log (per Raft paper).
  * Reply:
@@ -298,30 +305,37 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    if (argc < 4) {
+    if (argc < 5) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
+    int target_node_id;
+    if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
+        target_node_id != rr->config->id) {
+            RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
+            return REDISMODULE_OK;
+    }
+
     long long n_entries;
-    if (RedisModule_StringToLongLong(argv[3], &n_entries) != REDIS_OK) {
+    if (RedisModule_StringToLongLong(argv[4], &n_entries) != REDIS_OK) {
         RedisModule_ReplyWithError(ctx, "invalid n_entries value");
         return REDISMODULE_OK;
     }
-    if (argc != 4 + 2 * n_entries) {
+    if (argc != 5 + 2 * n_entries) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_APPENDENTRIES);
-    if (RedisModuleStringToInt(argv[1], &req->r.appendentries.src_node_id) == REDISMODULE_ERR) {
+    if (RedisModuleStringToInt(argv[2], &req->r.appendentries.src_node_id) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "invalid source node id");
         goto error_cleanup;
     }
 
     int i;
     size_t tmplen;
-    const char *tmpstr = RedisModule_StringPtrLen(argv[2], &tmplen);
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
     if (sscanf(tmpstr, "%ld:%ld:%ld:%ld:%lu",
                 &req->r.appendentries.msg.term,
                 &req->r.appendentries.msg.prev_log_idx,
@@ -338,12 +352,12 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
     for (i = 0; i < n_entries; i++) {
         /* Create entry with payload */
-        tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
+        tmpstr = RedisModule_StringPtrLen(argv[6 + 2*i], &tmplen);
         msg_entry_t *e = raft_entry_new(tmplen);
         memcpy(e->data, tmpstr, tmplen);
 
         /* Parse additional entry fields */
-        tmpstr = RedisModule_StringPtrLen(argv[4 + 2*i], &tmplen);
+        tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
         if (sscanf(tmpstr, "%ld:%d:%hd",
                     &e->term,
                     &e->id,
@@ -398,7 +412,7 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
 }
 
-/* RAFT.LOADSNAPSHOT [current-term] [snapshot-last-index] [data]
+/* RAFT.LOADSNAPSHOT [target-node-id] [current-term] [snapshot-last-index] [data]
  *   Load the specified snapshot (e.g. Raft paper's InstallSnapshot RPC).
  *
  *  Reply:
@@ -409,21 +423,30 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    if (argc != 4) {
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc != 5) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
+    int target_node_id;
+    if (RedisModuleStringToInt(argv[1], &target_node_id) != REDISMODULE_OK ||
+        target_node_id != rr->config->id) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
+            return REDISMODULE_OK;
+        }
+
     long long term;
     long long idx;
-    if (RedisModule_StringToLongLong(argv[1], &term) != REDISMODULE_OK ||
-        RedisModule_StringToLongLong(argv[2], &idx) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "-ERR invalid numeric values");
+    if (RedisModule_StringToLongLong(argv[2], &term) != REDISMODULE_OK ||
+        RedisModule_StringToLongLong(argv[3], &idx) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid numeric values");
         return REDISMODULE_OK;
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_LOADSNAPSHOT);
-    req->r.loadsnapshot.snapshot = argv[3];
+    req->r.loadsnapshot.snapshot = argv[4];
     req->r.loadsnapshot.idx = idx;
     req->r.loadsnapshot.term = term;
     RedisModule_RetainString(ctx, req->r.loadsnapshot.snapshot);

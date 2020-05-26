@@ -292,7 +292,8 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(node->rc, handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d:%d:%d:%d",
+                node, "RAFT.REQUESTVOTE %d %d %d:%d:%d:%d",
+                raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->term,
                 msg->candidate_id,
@@ -361,7 +362,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 {
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
-    int argc = 4 + msg->n_entries * 2;
+    int argc = 5 + msg->n_entries * 2;
     char *argv[argc];
     size_t argvlen[argc];
 
@@ -370,30 +371,38 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
         return 0;
     }
 
-    char argv1_buf[12];
-    char argv2_buf[50];
-    char argv3_buf[12];
+    char target_node_str[12];
+    char source_node_str[12];
+    char msg_str[100];
+    char nentries_str[12];
+
     argv[0] = "RAFT.AE";
     argvlen[0] = strlen(argv[0]);
-    argv[1] = argv1_buf;
-    argvlen[1] = snprintf(argv1_buf, sizeof(argv1_buf)-1, "%d", raft_get_nodeid(raft));
-    argv[2] = argv2_buf;
-    argvlen[2] = snprintf(argv2_buf, sizeof(argv2_buf)-1, "%ld:%ld:%ld:%ld:%lu",
+
+    argv[1] = target_node_str;
+    argvlen[1] = snprintf(target_node_str, sizeof(target_node_str)-1, "%d", raft_node_get_id(raft_node));
+
+    argv[2] = source_node_str;
+    argvlen[2] = snprintf(source_node_str, sizeof(source_node_str)-1, "%d", raft_get_nodeid(raft));
+
+    argv[3] = msg_str;
+    argvlen[3] = snprintf(msg_str, sizeof(msg_str)-1, "%ld:%ld:%ld:%ld:%lu",
             msg->term,
             msg->prev_log_idx,
             msg->prev_log_term,
             msg->leader_commit,
             msg->msg_id);
-    argv[3] = argv3_buf;
-    argvlen[3] = snprintf(argv3_buf, sizeof(argv3_buf)-1, "%d", msg->n_entries);
+
+    argv[4] = nentries_str;
+    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%d", msg->n_entries);
 
     int i;
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = msg->entries[i];
-        argv[4 + i*2] = RedisModule_Alloc(64);
-        argvlen[4 + i*2] = snprintf(argv[4 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
-        argvlen[5 + i*2] = e->data_len;
-        argv[5 + i*2] = e->data;
+        argv[5 + i*2] = RedisModule_Alloc(64);
+        argvlen[5 + i*2] = snprintf(argv[5 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
+        argvlen[6 + i*2] = e->data_len;
+        argv[6 + i*2] = e->data;
     }
 
     if (redisAsyncCommandArgv(node->rc, handleAppendEntriesResponse,
@@ -404,7 +413,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     }
 
     for (i = 0; i < msg->n_entries; i++) {
-        RedisModule_Free(argv[4 + i*2]);
+        RedisModule_Free(argv[5 + i*2]);
     }
     return 0;
 }

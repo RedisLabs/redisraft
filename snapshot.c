@@ -706,21 +706,27 @@ static int snapshotSendData(Node *node)
     time_t now = time(NULL);
 
     /* Load snapshot data */
+    char target_node_id[30];
+    snprintf(target_node_id, sizeof(target_node_id) - 1, "%d", node->id);
+
     char term[30];
     snprintf(term, sizeof(term) - 1, "%lu", raft_get_current_term(rr->raft));
+
     char idx[30];
     snprintf(idx, sizeof(idx) - 1, "%lu", raft_get_snapshot_last_idx(rr->raft));
 
-    const char *args[4] = {
+    const char *args[5] = {
         "RAFT.LOADSNAPSHOT",
+        target_node_id,
         term,
         idx,
         node->snapshot_buf
     };
-    size_t args_len[4] = {
+    size_t args_len[5] = {
         strlen(args[0]),
         strlen(args[1]),
         strlen(args[2]),
+        strlen(args[3]),
         node->snapshot_size
     };
 
@@ -733,7 +739,7 @@ static int snapshotSendData(Node *node)
         return -1;
     }
 
-    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 4, args, args_len) != REDIS_OK) {
+    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 5, args, args_len) != REDIS_OK) {
         node->load_snapshot_in_progress = false;
         return -1;
     }
