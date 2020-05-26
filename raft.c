@@ -679,6 +679,8 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
         LOG_DEBUG("No other voting nodes, setting commit index to %ld\n",
             raft_get_current_idx(rr->raft));
         raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
+    } else {
+        raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
     }
 
     memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
@@ -766,11 +768,6 @@ static void handleLoadingState(RedisRaftCtx *rr)
                 RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx,
                         rr->snapshot_info.last_applied_term);
             }
-
-            raft_set_current_term(rr->raft, rr->snapshot_info.last_applied_term);
-            raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
-            raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
-                    rr->snapshot_info.last_applied_idx);
 
             rr->state = REDIS_RAFT_UP;
         } else {
