@@ -1626,7 +1626,7 @@ void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb
 
     raft_read_request_t *req = __raft_malloc(sizeof(raft_read_request_t));
 
-    req->read_idx = raft_get_commit_idx(me_);
+    req->read_idx = raft_get_current_idx(me_);
     req->read_term = raft_get_current_term(me_);
     req->msg_id = ++me->msg_id;
     req->cb = cb;
