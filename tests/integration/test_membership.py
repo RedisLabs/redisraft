@@ -157,6 +157,7 @@ def test_node_history_with_same_address(cluster):
     for node_id in [2, 3, 4, 5]:
         ports.append(cluster.node(node_id).port)
         cluster.remove_node(node_id)
+        cluster.leader_node().wait_for_log_applied()
     cluster.node(cluster.leader).wait_for_num_nodes(1)
 
     # Add nodes with the same addresses
@@ -168,7 +169,7 @@ def test_node_history_with_same_address(cluster):
     # ... and remove
     for node in temp_nodes:
         cluster.remove_node(node.id)
-        cluster.node(cluster.leader).wait_for_log_applied()
+        cluster.leader_node().wait_for_log_applied()
 
     cluster.node(cluster.leader).wait_for_num_voting_nodes(1)
 

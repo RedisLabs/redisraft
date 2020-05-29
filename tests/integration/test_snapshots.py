@@ -61,6 +61,7 @@ def test_snapshot_delivery(cluster):
 
     n3.wait_for_node_voting()
     cluster.wait_for_unanimity()
+    n3.wait_for_log_applied()
 
     n3.client.execute_command('RAFT.CONFIG', 'SET',
                               'raftize-all-commands', 'no')
