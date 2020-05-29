@@ -574,6 +574,10 @@ class Cluster(object):
         for node in self.nodes.values():
             node.terminate()
 
+    def start(self):
+        for node in self.nodes.values():
+            node.start()
+
     def restart(self):
         for node in self.nodes.values():
             node.terminate()

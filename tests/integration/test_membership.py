@@ -150,9 +150,9 @@ def test_node_history_with_same_address(cluster):
     ""
     ""
     cluster.create(5)
-
-    # Remove nodes 4-5
     cluster.raft_exec("INCR", "step-counter")
+
+    # Remove nodes
     ports = []
     for node_id in [2, 3, 4, 5]:
         ports.append(cluster.node(node_id).port)
@@ -160,42 +160,29 @@ def test_node_history_with_same_address(cluster):
         cluster.leader_node().wait_for_log_applied()
     cluster.node(cluster.leader).wait_for_num_nodes(1)
 
-    # Add nodes with the same addresses
-    temp_nodes = []
-    for port in ports:
-        temp_nodes.append(cluster.add_node(port=port))
-    cluster.node(cluster.leader).wait_for_num_voting_nodes(5)
-
-    # ... and remove
-    for node in temp_nodes:
-        cluster.remove_node(node.id)
-        cluster.leader_node().wait_for_log_applied()
-
-    cluster.node(cluster.leader).wait_for_num_voting_nodes(1)
-
-    # Create a new node that collides with one of the ports
-    new_node = cluster.add_node(port=5002)
-    cluster.node(cluster.leader).wait_for_num_voting_nodes(2)
-
-    # Now try to demote leader and remove it
-    while cluster.leader == 1:
-        cluster.node(cluster.leader).restart()
-        new_node.wait_for_election()
-        cluster.raft_exec("INCR", "wait-for-leader")
-
-    cluster.remove_node(1)
-    new_node.wait_for_num_voting_nodes(1)
+    # Now add and remove several more times
+    for _ in range(5):
+        for port in ports:
+            n = cluster.add_node(port=port)
+            cluster.leader_node().wait_for_num_nodes(2)
+            cluster.leader_node().wait_for_log_applied()
+            cluster.remove_node(n.id)
+            cluster.leader_node().wait_for_num_nodes(1)
+            cluster.leader_node().wait_for_log_applied()
 
     # Add enough data in the log to satisfy timing
     for _ in range(3000):
         cluster.raft_exec("INCR", "step-counter")
 
+    # Add another node
+    new_node = cluster.add_node(port=ports[0])
+    new_node.wait_for_node_voting()
+
     # Terminate all
     cluster.terminate()
 
     # Start new node
-    new_node.start()
-    new_node.wait_for_num_voting_nodes(1)
+    cluster.start()
 
     # need some time to start applying logs..
     time.sleep(2)
