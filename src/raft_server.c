@@ -1695,14 +1695,29 @@ void raft_process_read_queue(raft_server_t* me_)
         raft_term_t ety_term = ety->term;
         raft_entry_release(ety);
 
+        /* Don't read if we did not commit an entry this term yet!
+         * A new term has a NO_OP committed so if everything is well
+         * we can except that to happen.
+         */
         if (ety_term < me->current_term)
             return;
     }
 
-    raft_msg_id_t acked_msgid = quorum_msg_id(me_);
+    raft_msg_id_t last_acked_msgid = quorum_msg_id(me_);
+    raft_index_t last_applied_idx = me->last_applied_idx;
+
+    /* Special case: the log's first index is 1, so we need to account
+     * for that in case we read before anything was ever committed.
+     *
+     * Note that this also implies a single node because adding nodes would
+     * bump the log and commit index.
+     */
+    if (!me->commit_idx && !me->last_applied_idx && raft_get_current_idx(me_) == 1)
+        last_applied_idx = 1;
+
     while (me->read_queue_head &&
-            me->read_queue_head->msg_id <= acked_msgid &&
-            me->read_queue_head->read_idx <= me->last_applied_idx) {
+            me->read_queue_head->msg_id <= last_acked_msgid &&
+            me->read_queue_head->read_idx <= last_applied_idx) {
         pop_read_queue(me, me->read_queue_head->read_term == me->current_term);
     }
 }
