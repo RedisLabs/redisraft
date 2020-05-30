@@ -19,7 +19,7 @@ library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 
 ### Building
 
-The module is mostly self-contained and comes with its dependencies as git
+The module is mostly self-contained; its few dependencies are available as git
 submodules under `deps`.
 
 To compile the module, you will need:
@@ -36,23 +36,26 @@ To build, simply run:
 
 ### Creating a RedisRaft Cluster
 
-Note: Make sure you're using a recent Redis 6.0 release candidate or a private build from the `unstable` branch. RedisRaft depends on Module API capabilities not available versions of Redis < 6.0.
+Note: RedisRaft requires Redis 6.0 or above.
 
-To create a three node cluster, start the first node and initialize the
-cluster:
+To create a three-node cluster, start the first node:
 
     redis-server \
         --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog1.db addr=localhost:5001
+
+Then initialize the cluster:
+
     redis-cli -p 5001 raft.cluster init
 
-Then start the second node, and run the `RAFT.CLUSTER JOIN` command to join it to the cluster:
+Now start the second node, and run the `RAFT.CLUSTER JOIN` command to join it to the existing cluster:
 
     redis-server \
         --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog2.db addr=localhost:5002
+
     redis-cli -p 5002 RAFT.CLUSTER JOIN localhost:5001
 
 Now add the third node in the same way:
@@ -61,6 +64,7 @@ Now add the third node in the same way:
         --port 5003 --dbfilename raft3.rdb \
         --loadmodule <path-to>/redisraft.so \
             raft-log-filename=raftlog3.db addr=localhost:5003
+
     redis-cli -p 5003 RAFT.CLUSTER JOIN localhost:5001
 
 To query the cluster state, run the `RAFT.INFO` command:
@@ -75,4 +79,4 @@ Please consult the [documentation](docs/TOC.md) for more information.
 
 ## License
 
-RedisRaft is dual licensed under the [GNU Affero General Public License (AGPL) Version 3](LICENSE.agpl) or the [Redis Source Available License (RSAL)](LICENSE.rsal).
+RedisRaft is dual-licensed under the [GNU Affero General Public License (AGPL) Version 3](LICENSE.agpl) and the [Redis Source Available License (RSAL)](LICENSE.rsal).
