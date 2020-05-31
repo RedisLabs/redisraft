@@ -469,7 +469,6 @@ static void test_entry_cache_delete_tail(void **state)
 
     /* Try invalid indexes */
     assert_int_equal(EntryCacheDeleteTail(cache, 104), -1);
-    assert_int_equal(EntryCacheDeleteTail(cache, 99), -1);
 
     /* Delete last entry */
     assert_int_equal(EntryCacheDeleteTail(cache, 103), 1);
@@ -481,6 +480,14 @@ static void test_entry_cache_delete_tail(void **state)
 
     /* Delete all entries */
     assert_int_equal(EntryCacheDeleteTail(cache, 100), 3);
+    assert_int_equal(cache->len, 0);
+
+    /* Delete an index that precedes start_idx */
+    ety = raft_entry_new(0);
+    EntryCacheAppend(cache, ety, 100);
+    raft_entry_release(ety);
+
+    assert_int_equal(EntryCacheDeleteTail(cache, 1), 1);
     assert_int_equal(cache->len, 0);
 
     EntryCacheFree(cache);

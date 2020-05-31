@@ -127,6 +127,12 @@ long EntryCacheDeleteHead(EntryCache *cache, raft_index_t first_idx)
     return deleted;
 }
 
+/* Remove entries from the tail of the cache, starting from (and including)
+ * entry @ index.
+ *
+ * Returns the number of entries removed, or -1 if the specified index is
+ * beyond the tail.
+ */
 long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index)
 {
     long deleted = 0;
@@ -136,7 +142,7 @@ long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index)
         return -1;
     }
     if (index < cache->start_idx) {
-        return -1;
+        index = cache->start_idx;
     }
 
     for (i = index; i < cache->start_idx + cache->len; i++) {
