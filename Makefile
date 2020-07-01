@@ -2,7 +2,7 @@
 #
 # Copyright (c) 2020 Redis Labs
 #
-# RedisRaft is dual licensed under the GNU General Public License version 3
+# RedisRaft is dual licensed under the GNU Affero General Public License version 3
 # (AGPLv3) or the Redis Source Available License (RSAL).
 
 OS := $(shell sh -c 'uname -s 2>/dev/null || echo none')
