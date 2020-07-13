@@ -433,7 +433,7 @@ class Cluster(object):
     def node_addresses(self):
         return ['localhost:{}'.format(n.port) for n in self.nodes.values()]
 
-    def create(self, node_count, raft_args=None):
+    def create(self, node_count, raft_args=None, prepopulate_log=0):
         if raft_args is None:
             raft_args = {}
         assert self.nodes == {}
@@ -449,6 +449,10 @@ class Cluster(object):
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
         self.node(1).wait_for_log_applied()
+
+        # Pre-populate if asked
+        for _ in range(prepopulate_log):
+            assert self.raft_exec('INCR', 'log-prepopulate-key')
 
     def add_initialized_node(self, node):
         self.nodes[node.id] = node

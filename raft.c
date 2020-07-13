@@ -681,6 +681,12 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
         }
     }
 
+    /* Reset the log if snapshot is more advanced */
+    if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
+        RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx,
+            rr->snapshot_info.last_applied_term);
+    }
+
     /* Special case: if no other nodes, set commit index to the latest
      * entry in the log.
      */
@@ -769,15 +775,6 @@ static void handleLoadingState(RedisRaftCtx *rr)
             }
 
             applyLoadedRaftLog(rr);
-
-            /* If log is behind our snapshot, reset it now.  Besides efficiency,
-             * this is also required for raft_set_commit_idx() to succeed below.
-             */
-            if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
-                RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx,
-                        rr->snapshot_info.last_applied_term);
-            }
-
             rr->state = REDIS_RAFT_UP;
         } else {
             rr->state = REDIS_RAFT_UNINITIALIZED;

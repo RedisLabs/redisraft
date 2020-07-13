@@ -7,6 +7,10 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
 
+import shutil
+import os
+import time
+import logging
 from fixtures import cluster
 from raftlog import RaftLog, LogEntry
 
@@ -344,3 +348,28 @@ def test_config_from_second_generation_snapshot(cluster):
     node3.wait_for_node_voting()
 
     assert node3.raft_info()['num_nodes'] == 3
+
+
+def test_stale_log_trim(cluster):
+    """
+    When starting up, if log is older than snapshot it should be trimmed.
+    """
+
+    cluster.create(3, prepopulate_log=20)
+
+    # Stop node 3 and advance the log; then overwrite node3
+    # with a recent snapshot and start it. This simulates delivery of snapshot
+    # and a crash sometime before the log is adjusted.
+    cluster.node(3).terminate()
+    for _ in range(20):
+        assert cluster.raft_exec('INCR', 'testkey')
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    for _ in range(20):
+        assert cluster.raft_exec('INCR', 'testkey')
+    shutil.copyfile(os.path.join(os.curdir, cluster.node(1).dbfilename),
+        os.path.join(os.curdir, cluster.node(3).dbfilename))
+
+    cluster.node(3).start()
+    cluster.node(3).wait_for_node_voting()
+
+    assert cluster.raft_exec('INCR', 'last-key')
