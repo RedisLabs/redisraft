@@ -948,38 +948,6 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
     return num_entries;
 }
 
-/* Append to the specified Raft log entries from the in-memory log, starting from
- * a specific index.
- */
-long long int RaftLogRewriteAppend(RedisRaftCtx *rr, RaftLog *target_log, raft_index_t from_idx)
-{
-    long long int num_entries = 0;
-
-    raft_index_t i;
-    for (i = from_idx; i <= RaftLogCurrentIdx(rr->log); i++) {
-        num_entries++;
-        raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
-        if (RaftLogWriteEntry(target_log, ety) != RR_OK) {
-            num_entries = -1;
-            goto exit;
-        }
-        raft_entry_release(ety);
-    }
-
-    if (RaftLogSetTerm(target_log, rr->log->term, rr->log->vote) != RR_OK) {
-        RaftLogClose(target_log);
-        return -1;
-    }
-
-    if (RaftLogSync(target_log) != RR_OK) {
-        num_entries = -1;
-    }
-
-exit:
-
-    return num_entries;
-}
-
 void RaftLogRemoveFiles(const char *filename)
 {
     char *idx_filename = getIndexFilename(filename);
