@@ -121,24 +121,21 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     TRACE("Finalizing snapshot.\n");
 
-    /* If a persistent log is in use, we now have to append any new
-     * entries to the temporary log and switch.
+    /* Rewrite any additional log entries beyond the snapshot to a new
+     * log file.
      */
-    if (rr->log) {
-        num_log_entries = RaftLogRewrite(rr, temp_log_filename,
-            rr->last_snapshot_idx, rr->last_snapshot_term);
+    num_log_entries = RaftLogRewrite(rr, temp_log_filename,
+        rr->last_snapshot_idx, rr->last_snapshot_term);
 
-        new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
-        if (!new_log) {
-            LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
-            cancelSnapshot(rr, sr);
-            return -1;
-        }
-
-        LOG_VERBOSE("Log rewrite complete, %lld entries rewritten (from idx %lu).\n",
-                num_log_entries, raft_get_snapshot_last_idx(rr->raft));
-
+    new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
+    if (!new_log) {
+        LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+        cancelSnapshot(rr, sr);
+        return -1;
     }
+
+    LOG_VERBOSE("Log rewrite complete, %lld entries rewritten (from idx %lu).\n",
+            num_log_entries, raft_get_snapshot_last_idx(rr->raft));
 
     /* We now have to switch temp files. We need to rename two files in a non-atomic
      * operation, so order is critical and we must rename the snapshot file first.
