@@ -373,3 +373,29 @@ def test_stale_log_trim(cluster):
     cluster.node(3).wait_for_node_voting()
 
     assert cluster.raft_exec('INCR', 'last-key')
+
+
+def test_log_reset_on_snapshot_load(cluster):
+    """
+    Test correct reset of log when a snapshot is received.
+    """
+
+    cluster.create(3, prepopulate_log=20)
+
+    # Stop node 3, advance the log, then compact.
+    cluster.node(3).terminate()
+    for _ in range(20):
+        assert cluster.raft_exec('INCR', 'testkey')
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    # Start node 3 and wait for it to receive a snapshot
+    cluster.node(3).start()
+    cluster.node(3).wait_for_node_voting()
+
+    # Restart node 3 and make sure it correctly started
+    cluster.node(3).terminate()
+    cluster.node(3).start()
+    cluster.node(3).wait_for_node_voting()
+
+    assert cluster.raft_exec('INCR', 'last-key')
+    cluster.wait_for_unanimity()

@@ -683,7 +683,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 
     /* Reset the log if snapshot is more advanced */
     if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
-        RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx,
+        RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx + 1,
             rr->snapshot_info.last_applied_term);
     }
 
