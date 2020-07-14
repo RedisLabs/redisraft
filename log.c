@@ -1064,7 +1064,12 @@ static void logImplFree(void *rr_)
 static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    RaftLogReset(rr->log, index, term);
+
+    /* Note: the RaftLogImpl API specifies the specified index is the one
+     * to be assigned to the *next* entry, hence the adjustments below.
+     */
+    assert(index >= 1);
+    RaftLogReset(rr->log, index - 1, term);
 
     TRACE_LOG_OP("Reset(index=%lu,term=%lu)\n", index, term);
 

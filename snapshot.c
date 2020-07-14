@@ -521,8 +521,6 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    assert(raft_get_current_idx(rr->raft) == rr->snapshot_info.last_applied_idx + 1);
-
     /* Restart the log where the snapshot ends */
     if (rr->log) {
         RaftLogClose(rr->log);
