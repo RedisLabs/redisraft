@@ -21,6 +21,7 @@ RUN wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
 
 RUN git clone https://github.com/jepsen-io/redis /jepsen && \
     cd /jepsen && \
+    sed -i 's#git@github.com:\(.*\)\.git#https://github.com/\1#g' src/jepsen/redis/db.clj && \
     lein install
 
 ADD entrypoint.sh /entrypoint.sh
