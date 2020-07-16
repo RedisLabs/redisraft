@@ -1,0 +1,32 @@
+name: Jepsen Sanity
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  jepsen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get revision
+      id: vars
+      run: echo "::set-output name=git_sha::$(git rev-parse --short HEAD)"
+    - name: Build containers
+      run: cd jepsen/docker && ./genkeys.sh && docker-compose build
+    - name: Start containers
+      run: cd jepsen/docker && docker-compose up -d
+    - name: Run test
+      run: |
+          docker exec -w /jepsen jepsen-control \
+              lein run test \
+                  --ssh-private-key /root/.ssh/id_rsa \
+                  --follower-proxy \
+                  --time-limit 60 \
+                  --test-count 1 \
+                  --concurrency 4n \
+                  --nemesis kill,pause,partition,member \
+                  --version 6.0.5 \
+                  --raft-version ${{ steps.vars.outputs.git_sha }}
