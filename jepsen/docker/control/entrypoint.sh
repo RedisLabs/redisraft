@@ -14,11 +14,5 @@ echo "$KNOWN_HOSTS" | sed 's/\\n/\
 /g' > /root/.ssh/known_hosts
 chmod 0600 /root/.ssh/known_hosts
 
-if [ ! -d /jepsen ]; then
-    git clone https://github.com/jepsen-io/redis /jepsen
-    cd /jepsen
-    lein install
-fi
-
 cd /jepsen
 lein run serve
