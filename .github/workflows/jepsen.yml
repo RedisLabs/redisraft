@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
+    - name: Install ripgrep
+      run: sudo apt-get install ripgrep
     - name: Get revision
       id: vars
       run: echo "::set-output name=git_sha::$(git rev-parse --short HEAD)"
@@ -27,4 +29,4 @@ jobs:
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
                   --version 6.0.5 \
-                  --raft-version ${{ steps.vars.outputs.git_sha }}
+                  --raft-version ${{ steps.vars.outputs.git_sha }} | rg --passthrough 'Everything looks good'
