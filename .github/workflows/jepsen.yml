@@ -5,10 +5,23 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+inputs:
+  redis_version:
+    description: 'Version of Redis to use'
+    required: false
+    default: '6.0.5'
+  test_time_limit:
+    description: 'Duration of single test, in seconds'
+    required: false
+    default: 600
+  test_count:
+    description: 'Number of tests to execute'
+    required: false
+    default: 20
+
 jobs:
   jepsen:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
     - uses: actions/checkout@v1
     - name: Get revision
@@ -24,9 +37,9 @@ jobs:
               lein run test-all \
                   --ssh-private-key /root/.ssh/id_rsa \
                   --follower-proxy \
-                  --time-limit 60 \
-                  --test-count 1 \
+                  --time-limit $INPUT_TEST_TIME_LIMIT \
+                  --test-count $INPUT_TEST_COUNT \
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
-                  --version 6.0.5 \
+                  --version $INPUT_REDIS_VERSION \
                   --raft-version ${{ steps.vars.outputs.git_sha }}
