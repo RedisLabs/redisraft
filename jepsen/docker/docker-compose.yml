@@ -1,0 +1,38 @@
+version: '2'
+services:
+  control:
+    container_name: jepsen-control
+    hostname: control
+    build: ./control
+    env_file:
+      - ./secret/keys.env
+    ports:
+      - "127.0.0.1:8080:8080"
+    links:
+      - n1
+      - n2
+      - n3
+      - n4
+      - n5
+  n1:
+    container_name: jepsen-n1
+    build: ./node
+    privileged: true
+    hostname: n1
+    env_file: ./secret/keys.env
+  n2:
+    extends: n1
+    container_name: jepsen-n2
+    hostname: n2
+  n3:
+    extends: n1
+    container_name: jepsen-n3
+    hostname: n3
+  n4:
+    extends: n1
+    container_name: jepsen-n4
+    hostname: n4
+  n5:
+    extends: n1
+    container_name: jepsen-n5
+    hostname: n5
