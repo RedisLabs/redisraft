@@ -2,22 +2,21 @@ name: Jepsen
 
 on:
   workflow_dispatch:
+    inputs:
+      redis_version:
+        description: 'Version of Redis to use'
+        required: false
+        default: '6.0.5'
+      test_time_limit:
+        description: 'Duration of single test, in seconds'
+        required: false
+        default: 600
+      test_count:
+        description: 'Number of tests to execute'
+        required: false
+        default: 20
   schedule:
     - cron: '0 0 * * *'
-
-inputs:
-  redis_version:
-    description: 'Version of Redis to use'
-    required: false
-    default: '6.0.5'
-  test_time_limit:
-    description: 'Duration of single test, in seconds'
-    required: false
-    default: 600
-  test_count:
-    description: 'Number of tests to execute'
-    required: false
-    default: 20
 
 jobs:
   jepsen:
@@ -37,9 +36,9 @@ jobs:
               lein run test-all \
                   --ssh-private-key /root/.ssh/id_rsa \
                   --follower-proxy \
-                  --time-limit $INPUT_TEST_TIME_LIMIT \
-                  --test-count $INPUT_TEST_COUNT \
+                  --time-limit ${INPUT_TEST_TIME_LIMIT:-600} \
+                  --test-count ${INPUT_TEST_COUNT:-20} \
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
-                  --version $INPUT_REDIS_VERSION \
+                  --version ${INPUT_REDIS_VERSION:-6.0.5} \
                   --raft-version ${{ steps.vars.outputs.git_sha }}
