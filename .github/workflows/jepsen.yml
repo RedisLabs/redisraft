@@ -1,4 +1,4 @@
-name: Jepsen Sanity
+name: Jepsen
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
     - name: Run test
       run: |
           docker exec -w /jepsen jepsen-control \
-              lein run test \
+              lein run test-all \
                   --ssh-private-key /root/.ssh/id_rsa \
                   --follower-proxy \
                   --time-limit 60 \
