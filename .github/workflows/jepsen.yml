@@ -7,6 +7,7 @@ on:
 jobs:
   jepsen:
     runs-on: ubuntu-20.04
+    if: github.repository == 'redislabs/redisraft'
     steps:
     - uses: actions/checkout@v1
     - name: Install ripgrep
