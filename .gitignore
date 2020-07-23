@@ -13,6 +13,6 @@ tests/lcov.info
 *.rdb
 .env/
 .vscode/
-jepsen/docker/dist/
+.ccls*
 jepsen/docker/secret/
-jepsen/docker/control/jepsen/
+tests.log
