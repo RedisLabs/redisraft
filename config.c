@@ -498,7 +498,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         char errbuf[256];
         if (processConfigParam(argbuf, val, target, true,
                     errbuf, sizeof(errbuf)) != RR_OK) {
-            RedisModule_Log(ctx, REDIS_WARNING, errbuf);
+            RedisModule_Log(ctx, REDIS_WARNING, "%s", errbuf);
             return RR_ERROR;
         }
     }
