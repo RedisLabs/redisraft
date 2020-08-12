@@ -15,4 +15,10 @@ tests/lcov.info
 .vscode/
 .ccls*
 jepsen/docker/secret/
-tests.log
+.idea/
+*.dbx
+*.log
+*.db
+*.idx
+CMakeLists.txt
+cmake-build-debug
