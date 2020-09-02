@@ -47,10 +47,13 @@ CFLAGS += -fprofile-arcs -ftest-coverage
 LIBS += -lgcov
 endif
 
+.PHONY: all
+all: redisraft.so
+
 redisraft.so: deps $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 
-clean:	clean-tests
+clean: clean-tests
 	rm -f redisraft.so $(OBJECTS)
 
 cleanall: clean
