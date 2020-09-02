@@ -460,7 +460,6 @@ RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)
         /* Get address from first non-internal interface */
         if (getInterfaceAddr(&rr->config->addr) == RR_ERROR) {
             PANIC("Failed to determine local address, please use addr=.");
-            return RR_ERROR;
         }
     }
 
