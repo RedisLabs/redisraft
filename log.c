@@ -22,7 +22,7 @@
 #ifdef RAFT_LOG_TRACE
 #  define TRACE_LOG_OP(fmt, ...) LOG_DEBUG("Log>>" fmt, ##__VA_ARGS__)
 #else
-#  define TRACE_LOG_OP(fmt, ...)
+#  define TRACE_LOG_OP(fmt, ...) do {} while(0)
 #endif
 
 /*

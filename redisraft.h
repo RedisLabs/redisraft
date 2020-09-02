@@ -85,8 +85,8 @@ void raft_module_log(const char *fmt, ...);
             (node) ? (node->id) : 0, \
             ##__VA_ARGS__)
 #else
-#define NODE_TRACE(node, fmt, ...)
-#define TRACE(fmt, ...)
+#define NODE_TRACE(node, fmt, ...) do {} while (0)
+#define TRACE(fmt, ...) do {} while (0)
 #endif
 
 #define NODE_LOG(level, node, fmt, ...) \
