@@ -10,12 +10,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v2
-    - name: Checkout submodules
-      shell: bash
-      run: |
-        auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-        git submodule sync --recursive
-        git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+      with:
+        submodules: true
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake libbsd-dev lcov
     - name: Build
@@ -23,7 +19,7 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'antirez/redis'
+        repository: 'redis/redis'
         ref: 'unstable'
         path: 'redis'
     - name: Build Redis
