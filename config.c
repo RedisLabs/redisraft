@@ -237,7 +237,7 @@ static void replyConfigInt(RedisModuleCtx *ctx, const char *name, int val)
     RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
 }
 
-static void replyConfigMemSize(RedisModuleCtx *ctx, const char *name, int val)
+static void replyConfigMemSize(RedisModuleCtx *ctx, const char *name, unsigned long val)
 {
     char str[64];
     formatExactMemorySize(val, str, sizeof(str));
