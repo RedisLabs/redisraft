@@ -146,9 +146,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     if (rename(sr->rdb_filename, rr->config->rdb_filename) < 0) {
         LOG_ERROR("Failed to switch snapshot filename (%s to %s): %s\n",
                 sr->rdb_filename, rr->config->rdb_filename, strerror(errno));
-        if (new_log) {
-            RaftLogClose(new_log);
-        }
+        RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
         return -1;
     }
