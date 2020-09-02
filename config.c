@@ -363,7 +363,7 @@ static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const cha
     }
 
     str = RedisModule_CallReplyStringPtr(reply, &len);
-    if (len != 2 || memcmp(str, "OK", 2)) {
+    if (len != 2 || memcmp(str, "OK", 2) != 0) {
         ret = RR_ERROR;
         goto exit;
     }
