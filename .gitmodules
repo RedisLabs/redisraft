@@ -9,4 +9,4 @@
 	url = https://github.com/redislabs/raft
 [submodule "deps/cmocka"]
 	path = deps/cmocka
-	url = git://git.cryptomilk.org/projects/cmocka.git
+	url = https://git.cryptomilk.org/projects/cmocka.git
