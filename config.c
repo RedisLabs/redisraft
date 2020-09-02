@@ -89,7 +89,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'raft-interval' value");
             return RR_ERROR;
         }
-        target->raft_interval = val;
+        target->raft_interval = (int)val;
     } else if (!strcmp(keyword, "request-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -97,7 +97,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'request-timeout' value");
             return RR_ERROR;
         }
-        target->request_timeout = val;
+        target->request_timeout = (int)val;
     } else if (!strcmp(keyword, "election-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -105,7 +105,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'election-timeout' value");
             return RR_ERROR;
         }
-        target->election_timeout = val;
+        target->election_timeout = (int)val;
     } else if (!strcmp(keyword, "raft-response-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -113,7 +113,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'raft-response-timeout' value");
             return RR_ERROR;
         }
-        target->raft_response_timeout = val;
+        target->raft_response_timeout = (int)val;
     } else if (!strcmp(keyword, "proxy-response-timeout")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -121,7 +121,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'proxy-response-timeout' value");
             return RR_ERROR;
         }
-        target->proxy_response_timeout = val;
+        target->proxy_response_timeout = (int)val;
     } else if (!strcmp(keyword, "reconnect-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -129,21 +129,21 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             snprintf(errbuf, errbuflen-1, "invalid 'reconnect-interval' value");
             return RR_ERROR;
         }
-        target->reconnect_interval = val;
+        target->reconnect_interval = (int)val;
     } else if (!strcmp(keyword, "raft-log-max-cache-size")) {
         unsigned long val;
         if (parseMemorySize(value, &val) != RR_OK) {
             snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-cache-size' value");
             return RR_ERROR;
         }
-        target->raft_log_max_cache_size = val;
+        target->raft_log_max_cache_size = (int)val;
     } else if (!strcmp(keyword, "raft-log-max-file-size")) {
         unsigned long val;
         if (parseMemorySize(value, &val) != RR_OK) {
             snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-file-size' value");
             return RR_ERROR;
         }
-        target->raft_log_max_file_size = val;
+        target->raft_log_max_file_size = (int)val;
     } else if (!strcmp(keyword, "raft-log-fsync")) {
         bool val;
         if (parseBool(value, &val) != RR_OK) {
@@ -205,7 +205,7 @@ void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **
 
     char errbuf[256] = "ERR ";
     if (processConfigParam(keybuf, valuebuf, rr->config, false,
-                errbuf + strlen(errbuf), sizeof(errbuf) - strlen(errbuf)) == RR_OK) {
+                errbuf + strlen(errbuf), (int)(sizeof(errbuf) - strlen(errbuf))) == RR_OK) {
 
         /* Special cases -- when configuration needs to be actively applied */
         if (old_config.raftize_all_commands != rr->config->raftize_all_commands) {
