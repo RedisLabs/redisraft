@@ -11,7 +11,6 @@ import time
 from re import match
 from redis import ResponseError
 from .raftlog import RaftLog
-from .fixtures import cluster
 
 
 def test_log_rollback(cluster):

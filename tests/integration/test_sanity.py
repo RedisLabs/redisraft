@@ -10,7 +10,6 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 import time
 from redis import ResponseError
 from pytest import raises, skip
-from .fixtures import cluster
 from .sandbox import RedisRaft
 
 

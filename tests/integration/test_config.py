@@ -9,7 +9,6 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 
 from redis import ResponseError
 from pytest import raises
-from .fixtures import cluster
 
 
 def test_config_sanity(cluster):

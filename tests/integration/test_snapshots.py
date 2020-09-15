@@ -9,9 +9,6 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 
 import shutil
 import os
-import time
-import logging
-from .fixtures import cluster
 from .raftlog import RaftLog, LogEntry
 
 
