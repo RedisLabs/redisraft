@@ -826,7 +826,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
             cancelSnapshot(rr, &sr);
         }  else if (ret) {
-            LOG_DEBUG("Snapshot operation completed successfuly.\n");
+            LOG_DEBUG("Snapshot operation completed successfully.\n");
             finalizeSnapshot(rr, &sr);
         } /* else we're still in progress */
     }
