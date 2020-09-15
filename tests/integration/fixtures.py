@@ -22,6 +22,7 @@ def cluster():
     yield _cluster
     _cluster.destroy()
 
+
 @pytest.fixture
 def workload():
     """

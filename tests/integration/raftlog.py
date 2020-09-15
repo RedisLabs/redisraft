@@ -100,6 +100,7 @@ class LogHeader(RawEntry):
             self.last_term(), self.last_vote(),
             self.snapshot_term(), self.snapshot_index())
 
+
 class LogEntry(RawEntry):
     class LogType(Enum):
         NORMAL = 0
@@ -164,6 +165,7 @@ class LogEntry(RawEntry):
         return '{:4d} {:10d} {} {}'.format(
             self.term(), self.id(), self.type().name, self.data(decode=True))
 
+
 class RaftLog(object):
     def __init__(self, filename):
         self.logfile = open(filename, 'rb')
@@ -202,6 +204,7 @@ class RaftLog(object):
         for entry in self.entries:
             logging.info(repr(entry))
         logging.info('===== End Raft Log Dump =====')
+
 
 if __name__ == '__main__':
     log = RaftLog(sys.argv[1])

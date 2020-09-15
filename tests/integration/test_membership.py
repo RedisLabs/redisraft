@@ -137,6 +137,7 @@ def test_full_cluster_remove(cluster):
     for node_id in (2, 3, 4, 5):
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
 
+
 def test_node_history_with_same_address(cluster):
     ""
     ""
