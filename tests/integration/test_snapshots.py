@@ -11,8 +11,8 @@ import shutil
 import os
 import time
 import logging
-from fixtures import cluster
-from raftlog import RaftLog, LogEntry
+from .fixtures import cluster
+from .raftlog import RaftLog, LogEntry
 
 
 def test_snapshot_delivery_to_new_node(cluster):

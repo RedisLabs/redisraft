@@ -10,7 +10,8 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 import time
 from pytest import raises, skip
 from redis import ResponseError
-from fixtures import cluster
+from .fixtures import cluster
+
 
 def test_multi_exec_invalid_use(cluster):
     r1 = cluster.add_node()

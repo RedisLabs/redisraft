@@ -8,8 +8,9 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 """
 
 import pytest
-from sandbox import Cluster
-from workload import Workload
+from .sandbox import Cluster
+from .workload import Workload
+
 
 @pytest.fixture
 def cluster():

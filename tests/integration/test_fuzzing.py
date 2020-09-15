@@ -13,8 +13,9 @@ import threading
 import time
 import pytest
 from redis import ResponseError, RedisError
-from fixtures import cluster, workload
-from workload import MultiWithLargeReply, MonotonicIncrCheck
+from .fixtures import cluster, workload
+from .workload import MultiWithLargeReply, MonotonicIncrCheck
+
 
 def test_fuzzing_with_restarts(cluster):
     """

@@ -7,11 +7,12 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
 
+import time
 from redis import ResponseError
 from pytest import raises, skip
-from fixtures import cluster
-from sandbox import RedisRaft
-import time
+from .fixtures import cluster
+from .sandbox import RedisRaft
+
 
 def test_add_node_as_a_single_leader(cluster):
     """
