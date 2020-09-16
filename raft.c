@@ -1944,7 +1944,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleCfgChange,        /* RR_CFGCHANGE_REMOVENODE */
     handleAppendEntries,    /* RR_APPENDENTRIES */
     handleRequestVote,      /* RR_REQUESTVOTE */
-    handleRedisCommand,     /* RR_REDISOCMMAND */
+    handleRedisCommand,     /* RR_REDISCOMMAND */
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     handleDebug,            /* RR_DEBUG */
