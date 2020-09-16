@@ -470,8 +470,8 @@ class Cluster(object):
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
 
-    def add_node(self, raft_args=None, port=None, cluster_setup=True):
-        _id = self.next_id
+    def add_node(self, raft_args=None, port=None, cluster_setup=True, node_id=None):
+        _id = self.next_id if node_id is None else node_id
         self.next_id += 1
         if port is None:
             port = self.base_port + _id
