@@ -427,6 +427,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
     }
 
     if (RaftLogSetVote(rr->log, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftLogSetVote\n");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -441,6 +442,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
     }
 
     if (RaftLogSetTerm(rr->log, term, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftLogSetTerm\n");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -471,6 +473,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
             if (req->id == raft_get_nodeid(raft)) {
+                LOG_DEBUG("Removing this node from the cluster\n");
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
