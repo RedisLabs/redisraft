@@ -136,10 +136,9 @@ integration-lcov-report:
 
 # ------------------------- Build dependencies -------------------------
 
-.PHONY: deps
-deps: $(BUILDDIR)/.deps_installed
+# FIXME: When modifying deps, this will prevent detecting picking up the changes.
 
-$(BUILDDIR)/.deps_installed:
+.PHONY: deps
+deps:
 	mkdir -p $(BUILDDIR)
 	$(MAKE) -C deps PREFIX=$(BUILDDIR)
-	touch $(BUILDDIR)/.deps_installed
