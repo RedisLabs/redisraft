@@ -6,10 +6,14 @@ Copyright (c) 2020 Redis Labs
 RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
-
+import logging
 import time
+import pytest
 from pytest import raises
+from .sandbox import RedisRaftTimeout
 from redis import ResponseError, RedisError
+
+logger = logging.getLogger("integration")
 
 
 def test_node_join_iterates_all_addrs(cluster):
@@ -132,6 +136,44 @@ def test_full_cluster_remove(cluster):
 
     for node_id in (2, 3, 4, 5):
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
+
+
+@pytest.mark.parametrize("use_snapshot", [False, True])
+def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
+    cluster.create(3)
+    node_ids = [node_id for node_id in cluster.nodes]
+
+    if use_snapshot:
+        n = cluster.node(1)
+        assert n.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+        assert n.raft_info()['log_entries'] == 0
+
+        logger.info("Restarting node from snapshot")
+        n.restart()
+
+    for node in cluster.nodes.values():
+        used_node_ids = node.client.execute_command('RAFT.DEBUG', 'USED_NODE_IDS')
+        assert set(used_node_ids) == set(node_ids), "Wrong used_node_ids for node {}".format(node.id)
+
+    if use_snapshot:
+        cluster.wait_for_unanimity()
+
+    logger.info("Remove node")
+    node_id = cluster.random_node_id()
+    port = cluster.node(node_id).port
+
+    cluster.remove_node(node_id)
+    cluster.leader_node().wait_for_log_applied()
+    cluster.node(cluster.leader).wait_for_num_nodes(2)
+
+    logger.info("Re-add node")
+    new_node = cluster.add_node(port=port, node_id=node_id)
+
+    logger.info("Waiting for timeout")
+
+    # TODO: Detect the error immediately (by inspecting the logs?) instead of retrying until timeout
+    with raises(RedisRaftTimeout):
+        new_node.wait_for_node_voting()
 
 
 def test_node_history_with_same_address(cluster):
