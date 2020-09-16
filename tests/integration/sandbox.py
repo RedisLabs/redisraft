@@ -178,9 +178,9 @@ class RedisRaft(object):
                 LOG.info(err)
                 if retries is not None:
                     retries -= 1
-                    if not retries:
-                        LOG.fatal('RAFT.CLUSTER %s failed', *args)
-                        break
+                    if retries <= 0:
+                        LOG.fatal('RAFT.CLUSTER %s failed', " ".join(args))
+                        raise
                 time.sleep(0.1)
 
     def init(self):
