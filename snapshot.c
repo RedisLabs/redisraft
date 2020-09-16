@@ -554,8 +554,6 @@ exit:
 
 static const char snapshot_info_metakey[] = "__raft_snapshot_info__";
 
-extern RedisRaftCtx redis_raft;
-
 void initializeSnapshotInfo(RedisRaftCtx *rr)
 {
     RedisModuleString *name = RedisModule_CreateString(rr->ctx, snapshot_info_metakey,
