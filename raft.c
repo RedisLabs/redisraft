@@ -557,7 +557,8 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t *raft_node,
         raft_entry_t *entry, raft_membership_e type)
 {
-    RaftCfgChange *cfgchange;
+    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+    raft_node_id_t my_id = raft_get_nodeid(raft);
     Node *node;
 
     switch (type) {
@@ -566,19 +567,22 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
              * have nothing to do.
              */
             if (!entry) {
+                addUsedNodeId(rr, my_id);
                 break;
             }
 
             /* Ignore our own node, as we don't maintain a Node structure for it */
             assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
-            cfgchange = (RaftCfgChange *) entry->data;
-            if (cfgchange->id == raft_get_nodeid(raft)) {
+            RaftCfgChange *cfgchange = (RaftCfgChange *) entry->data;
+            if (cfgchange->id == my_id) {
                 break;
             }
 
             /* Allocate a new node */
             node = NodeInit(cfgchange->id, &cfgchange->addr);
             assert(node != NULL);
+
+            addUsedNodeId(rr, cfgchange->id);
 
             raft_node_set_udata(raft_node, node);
             break;
@@ -934,7 +938,7 @@ static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
     do {
         RedisModule_GetRandomBytes((unsigned char *) &id, sizeof(id));
         id &= ~(1<<31);
-    } while (!id || (rr->raft && raft_get_node(rr->raft, id) != NULL));
+    } while (!id || (rr->raft && raft_get_node(rr->raft, id) != NULL) || hasNodeIdBeenUsed(rr, id));
 
     return id;
 }
@@ -961,6 +965,11 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     if (!config->id) {
         config->id = makeRandomNodeId(rr);
     }
+
+    /* This is the first node, so there are no used node ids yet */
+    rr->snapshot_info.used_node_ids = NULL;
+
+    addUsedNodeId(rr, config->id);
 
     /* Initialize log */
     if (initRaftLog(ctx, rr) == RR_ERROR) {
@@ -1000,6 +1009,23 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     return RR_OK;
 }
 
+bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id) {
+    for (NodeIdEntry *e = rr->snapshot_info.used_node_ids; e != NULL; e = e->next) {
+        if (e->id == node_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id) {
+    if (hasNodeIdBeenUsed(rr, node_id)) return;
+
+    NodeIdEntry *entry = RedisModule_Alloc(sizeof(NodeIdEntry));
+    entry->id = node_id;
+    entry->next = rr->snapshot_info.used_node_ids;
+    rr->snapshot_info.used_node_ids = entry;
+}
 
 static int loadEntriesCallback(void *arg, raft_entry_t *entry, raft_index_t idx)
 {
@@ -1815,6 +1841,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     initializeSnapshotInfo(rr);
 
     rr->state = REDIS_RAFT_JOINING;
+
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
 
 exit:

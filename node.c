@@ -329,14 +329,16 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         LOG_ERROR("RAFT.NODE ADD invalid reply.\n");
     } else {
-        LOG_INFO("Joined Raft cluster, node id: %lu, dbid: %.*s\n",
-                reply->element[0]->integer,
+        raft_node_id_t node_id = reply->element[0]->integer;
+
+        LOG_INFO("Joined Raft cluster, node id: %u, dbid: %.*s\n",
+                node_id,
                 reply->element[1]->len, reply->element[1]->str);
 
         strncpy(rr->snapshot_info.dbid, reply->element[1]->str, reply->element[1]->len);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
-        rr->config->id = reply->element[0]->integer;
+        rr->config->id = node_id;
 
         HandleClusterJoinCompleted(rr);
     }
