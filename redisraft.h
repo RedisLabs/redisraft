@@ -133,6 +133,11 @@ typedef struct SnapshotCfgEntry {
     struct SnapshotCfgEntry *next;
 } SnapshotCfgEntry;
 
+typedef struct NodeIdEntry {
+    raft_node_id_t id;
+    struct NodeIdEntry *next;
+} NodeIdEntry;
+
 #define RAFT_DBID_LEN   32
 
 /* Snapshot metadata.  There is a single instance of this struct available at all times,
@@ -150,6 +155,7 @@ typedef struct RaftSnapshotInfo {
     raft_term_t last_applied_term;
     raft_index_t last_applied_idx;
     SnapshotCfgEntry *cfg;
+    NodeIdEntry *used_node_ids;  /* All node ids that are, or have ever been, part of this cluster */
 } RaftSnapshotInfo;
 
 /* State of the RAFT.CLUSTER JOIN operation.
@@ -430,7 +436,7 @@ typedef struct SnapshotResult {
 
 /* Command filtering re-entrancy counter handling.
  *
- * This mechanim tracks calls from Redis Raft into Redis and used by the
+ * This mechanism tracks calls from Redis Raft into Redis and used by the
  * command filtering hook to avoid raftizing commands as they're pushed from the log
  * to the FSM.
  *
@@ -496,6 +502,8 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
 void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
 void RaftReqHandleQueue(uv_async_t *handle);
+void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
+bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);

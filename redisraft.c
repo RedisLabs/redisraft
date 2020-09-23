@@ -118,6 +118,11 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        if (hasNodeIdBeenUsed(rr, node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id has already been used in this cluster");
+            return REDISMODULE_OK;
+        }
+
         /* Parse address */
         NodeAddr node_addr = { 0 };
         if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == RR_ERROR) {
@@ -582,6 +587,16 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_SENDSNAPSHOT);
         req->r.debug.d.sendsnapshot.id = node_id;
         RaftReqSubmit(&redis_raft, req);
+    } else if (!strncasecmp(cmd, "used_node_ids", cmdlen)) {
+        RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+        int len = 0;
+        for (NodeIdEntry *e = redis_raft.snapshot_info.used_node_ids; e != NULL; e = e->next) {
+            RedisModule_ReplyWithLongLong(ctx, e->id);
+            len++;
+        }
+
+        RedisModule_ReplySetArrayLength(ctx, len);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
