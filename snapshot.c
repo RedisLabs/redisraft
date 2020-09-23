@@ -74,6 +74,15 @@ static void freeSnapshotCfgEntryList(SnapshotCfgEntry *head)
     }
 }
 
+static void freeNodeIdEntryList(NodeIdEntry *head)
+{
+    while (head != NULL) {
+        struct NodeIdEntry *next = head->next;
+        RedisModule_Free(head);
+        head = next;
+    }
+}
+
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
@@ -615,6 +624,25 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
         RedisModule_Free(buf);
     } while (1);
 
+    /* Load used node ids */
+    freeNodeIdEntryList(info->used_node_ids);
+    info->used_node_ids = NULL;
+    NodeIdEntry **np = &info->used_node_ids;
+
+    do {
+        unsigned long _id = RedisModule_LoadUnsigned(rdb);
+
+        if (!_id) {
+            break;
+        }
+
+        NodeIdEntry *entry = RedisModule_Calloc(1, sizeof(NodeIdEntry));
+        entry->id = _id;
+
+        *np = entry;
+        np = &entry->next;
+    } while (1);
+
     info->loaded = true;
 
     return info;
@@ -643,6 +671,16 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
     }
 
     /* Last node marker */
+    RedisModule_SaveUnsigned(rdb, 0);
+
+    /* Used node ids */
+    NodeIdEntry *e = info->used_node_ids;
+    while (e != NULL) {
+        RedisModule_SaveUnsigned(rdb, e->id);
+        e = e->next;
+    }
+
+    /* Last node id marker */
     RedisModule_SaveUnsigned(rdb, 0);
 }
 
