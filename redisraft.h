@@ -123,7 +123,7 @@ typedef enum RedisRaftState {
     REDIS_RAFT_JOINING              /* Processing a RAFT.CLUSTER JOIN command */
 } RedisRaftState;
 
-/* A node configuration entry that describe the known configuration of a specific
+/* A node configuration entry that describes the known configuration of a specific
  * node at the time of snapshot.
  */
 typedef struct SnapshotCfgEntry {
@@ -135,7 +135,7 @@ typedef struct SnapshotCfgEntry {
 
 #define RAFT_DBID_LEN   32
 
-/* Snapshot metadata.  There is a single instnace of this struct available at all times,
+/* Snapshot metadata.  There is a single instance of this struct available at all times,
  * which is accessed as follows:
  * 1. During cluster setup, it is initialized (e.g. with a unique dbid).
  * 2. The last applied term and index fields are updated every time we apply a log entry
@@ -228,7 +228,7 @@ typedef struct RedisRaftConfig {
     int reconnect_interval;
     int proxy_response_timeout;
     int raft_response_timeout;
-    /* Cache and file comapction */
+    /* Cache and file compaction */
     unsigned long raft_log_max_cache_size;
     unsigned long raft_log_max_file_size;
     bool raft_log_fsync;

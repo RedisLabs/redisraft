@@ -881,7 +881,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
 
 /* Main Raft thread, which handles:
  * 1. The libuv loop for managing all connections with other Raft nodes.
- * 2. All Raft periodics tasks.
+ * 2. All Raft periodic tasks.
  * 3. Processing of Raft request queue, for serving RAFT* commands issued
  *    locally on the main Redis thread.
  */
@@ -1805,6 +1805,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
     }
+
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
         RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
