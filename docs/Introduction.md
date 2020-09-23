@@ -33,14 +33,14 @@ A RedisRaft cluster will remain available (i.e., able to process reads and write
 
 The RedisRaft consensus algorithm enforces the following invariants:
 
-    1. A node must never lose the data it has acknowledged (i.e., written in the log)
-    2. A cluster may lose up to (N/2)-1 nodes while continuing to remain available. A cluster becomes unavailable when it loses a majority (>= 50%) of its nodes.
+  1. A node must never lose the data it has acknowledged (i.e., written in the log)
+  2. A cluster may lose up to (N/2)-1 nodes while continuing to remain available. A cluster becomes unavailable when it loses a majority (>= 50%) of its nodes.
 
 So long as a node persists its log data to disk, it will survive crashes, OS restarts, etc. This is true as long as the files are still present and can be loaded when the node goes back online.
 
 However, if a node's log files are lost or corrupted, then that node needs to be removed from the cluster and re-joined.
 
-Every cluster node is identified by a unique, logical ID. So re-joining a node involves logically removing the old ID and re-joining the node with new ID.
+Every cluster node is identified by a unique, logical ID. So re-joining a node involves logically removing the old ID and re-joining the node with a new ID.
 
 ## What are RedisRaft's limitations?
 
