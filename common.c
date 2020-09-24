@@ -73,14 +73,45 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
     }
 }
 
+/* Create a -MOVED reply.
+ *
+ * Depending on cluster_mode, we produce a Redis Cluster compatible or old-style
+ * reply. TODO: Consider always using Redis Cluser compatible replies.
+ *
+ * One anomaly here is that may redirect a client to the leader even for commands
+ * that have no keys (hash_slot is -1), which is something Redis Cluster never does.
+ *
+ * In this case we return an arbitrary (0) hash slot, but we still need to consider
+ * how this impacts clients which may not expect it.
+ */
+void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr)
+{
+    size_t reply_maxlen = strlen(addr->host) + 40;
+    char *reply = RedisModule_Alloc(reply_maxlen);
+    int slot = 0;
+    if (req->type == RR_REDISCOMMAND && req->r.redis.hash_slot != -1)
+        slot = req->r.redis.hash_slot;
+    if (rr->config->cluster_mode) {
+        snprintf(reply, reply_maxlen, "MOVED %d %s:%u", slot, addr->host, addr->port);
+    } else {
+        snprintf(reply, reply_maxlen, "MOVED %s:%u", addr->host, addr->port);
+    }
+    RedisModule_ReplyWithError(req->ctx, reply);
+    RedisModule_Free(reply);
+}
+
 /* Check that this node is a Raft leader.  If not, reply with -MOVED and
  * return an error.
  */
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
+    const char err_noleader[] = "NOLEADER No raft leader";
+    const char err_clusterdown[] = "CLUSTERDOWN No raft leader";
+
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (!leader) {
-        RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
+        RedisModule_ReplyWithError(req->ctx,
+                rr->config->cluster_mode ? err_clusterdown : err_noleader);
         return RR_ERROR;
     }
     if (raft_node_get_id(leader) != raft_get_nodeid(rr->raft)) {
@@ -92,13 +123,10 @@ RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
                 return RR_OK;
             }
 
-            size_t reply_maxlen = strlen(leader_node->addr.host) + 15;
-            char *reply = RedisModule_Alloc(reply_maxlen);
-            snprintf(reply, reply_maxlen, "MOVED %s:%u", leader_node->addr.host, leader_node->addr.port);
-            RedisModule_ReplyWithError(req->ctx, reply);
-            RedisModule_Free(reply);
+            replyRedirect(rr, req, &leader_node->addr);
         } else {
-            RedisModule_ReplyWithError(req->ctx, "NOLEADER No Raft leader");
+            RedisModule_ReplyWithError(req->ctx,
+                    rr->config->cluster_mode ? err_clusterdown : err_noleader);
         }
         return RR_ERROR;
     }

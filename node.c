@@ -303,6 +303,22 @@ void NodeAddrListFree(NodeAddrListElement *head)
     }
 }
 
+static bool parseMovedReply(const char *str, NodeAddr *addr)
+{
+    if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))
+        return false;
+
+    const char *tok = str + 6;
+    const char *tok2;
+
+    /* Handle current or cluster-style -MOVED replies. */
+    if ((tok2 = strchr(tok, ' ')) == NULL) {
+        return NodeAddrParse(tok, strlen(tok), addr);
+    } else {
+        return NodeAddrParse(tok2, strlen(tok2), addr);
+    }
+}
+
 void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
 {
     Node *node = privdata;
@@ -315,12 +331,11 @@ void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
-            const char *addrstr = reply->str + 6;
             NodeAddr addr;
-            if (!NodeAddrParse(addrstr, strlen(addrstr), &addr)) {
+            if (!parseMovedReply(reply->str, &addr)) {
                 LOG_ERROR("RAFT.NODE ADD failed: invalid MOVED response: %s\n", reply->str);
             } else {
-                LOG_VERBOSE("Join redirected to leader: %s\n", addrstr);
+                LOG_VERBOSE("Join redirected to leader: %s:%d\n", addr.host, addr.port);
                 NodeAddrListAddElement(&rr->join_state->addr, &addr);
             }
         } else {
