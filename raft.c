@@ -1128,6 +1128,11 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
         PANIC("Raft initialization failed: invalid Redis configuration!");
     }
 
+    /* Cluster configuration */
+    if (rr->config->cluster_mode && ShardingInfoInit(rr) == RR_ERROR) {
+        PANIC("Raft initialization failed: invalid sharding configuration!");
+    }
+
     /* Raft log exists -> go into RAFT_LOADING state:
      *
      * Redis will load RDB as a snapshot, if it exists. When done,
@@ -1601,6 +1606,71 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
     return false;
 }
 
+/* Handle interception of Redis commands that have a different
+ * implementation in RedisRaft.
+ *
+ * This is logically similar to handleMultiExec but implemented
+ * separately for readability purposes.
+ *
+ * Currently intercepted commands:
+ * - CLUSTER
+ *
+ * Returns true if the command was intercepted, in which case the RaftReq has
+ * been replied to and freed.
+ */
+
+static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
+{
+    const char _cmd_cluster[] = "CLUSTER";
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+
+    if (cmd_len == sizeof(_cmd_cluster) - 1 &&
+        !strncasecmp(cmd_str, _cmd_cluster, sizeof(_cmd_cluster) - 1)) {
+            handleClusterCommand(rr, req);
+            return true;
+    }
+
+    return false;
+}
+
+/* When cluster_mode is enabled, handle clustering aspects before processing
+ * the request:
+ *
+ * 1. Compute hash slot of all associated keys and validate there's no cross-slot
+ *    violation.
+ * 2. Update the request's hash_slot for future refrence.
+ * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
+ * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
+ */
+
+static RRStatus handleClustering(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (computeHashSlot(rr, req) != RR_OK) {
+        RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+        return RR_ERROR;
+    }
+
+    /* If command has no keys, continue */
+    if (req->r.redis.hash_slot == -1) return RR_OK;
+
+    /* Make sure hash slot is mapped and handled locally. */
+    int sgid = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
+    if (!sgid) {
+        RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
+        return RR_ERROR;
+    }
+
+    if (sgid != 1) {
+        ShardGroup *sg = &rr->sharding_info->shard_groups[sgid-1];
+        replyRedirect(rr, req, &sg->nodes[0].addr);
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
@@ -1628,8 +1698,22 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         }
     }
 
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
+    /* Check that we're part of a boostrapped cluster and not in the middle of joining
+     * or loading data.
+     */
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
+    /* Handle intercepted commands. We do this also on non-leader nodes or if we don't
+     * have a leader, so it's up to the commands to check these conditions if they have to.
+     */
+    if (handleInterceptedCommands(rr, req)) {
+        return;
+    }
+
+    /* Confirm that we're the leader and handle redirect or proxying if not. */
+    if (checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -1640,6 +1724,13 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
             goto exit;
         }
         return;
+    }
+
+    /* When we're in cluster mode, go through handleClustering. This will perform
+     * hash slot validation and return an error / redirection if necessary.
+     */
+    if (rr->config->cluster_mode && handleClustering(rr, req) != RR_OK) {
+        goto exit;
     }
 
     /* If command is read only we don't push it to the log, but queue it

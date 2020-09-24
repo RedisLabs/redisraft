@@ -473,7 +473,6 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
  *   +OK
  */
 
-
 static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -509,6 +508,21 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             }
             NodeAddrListAddElement(&req->r.cluster_join.addr, &addr);
         }
+    } else if (!strncasecmp(cmd, "ADDSHARDGROUP", cmd_len)) {
+        /* TODO: This is a TEMPORARY HACK to allow statically configuring ShardGroups.
+         * This should be replaced with a mechanism that registers the ShardGroup but
+         * periodically polls it to get an updated list of nodes.
+         */
+        if (argc < 4) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        /* Parse and add the ShardGroup. Errors and command reply are handled by
+         * addShardGroupFromArgs().
+         */
+        addShardGroupFromArgs(rr, ctx, &argv[2], argc-2);
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
         return REDISMODULE_OK;
@@ -517,6 +531,95 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     RaftReqSubmit(rr, req);
     return REDISMODULE_OK;
 }
+
+/* RAFT.SHARDGROUP GET
+ *   Returns the current cluster's local shard group configuration, in a format
+ *   that is compatible with RAFT.SHARDGROUP ADD.
+ * Reply:
+ *   [start-slot] [end-slot] [node-id node-addr] [node-id node-addr...]
+ *
+ * RAFT.SHARDGROUP ADD [start-slot] [end-slot] [node-id node-addr] [node-id ndoe-addr ...]
+ *   Adds a new shard group configuration.
+ * Reply:
+ *   +OK
+ *
+ * TODO: This is a TEMPORARY HACK to allow statically configuring ShardGroups.
+ * This should be replaced with a mechanism that registers the ShardGroup but
+ * periodically polls it to get an updated list of nodes.
+ *
+ * As this is a quick hack, we're processing everything in the main thread and not
+ * in a thread safe manner.
+ */
+
+static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    size_t cmd_len;
+    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+
+    if (!strncasecmp(cmd, "GET", cmd_len)) {
+        int alen;
+        int i;
+
+        RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+        RedisModule_ReplyWithLongLong(ctx, rr->config->cluster_start_hslot);
+        RedisModule_ReplyWithLongLong(ctx, rr->config->cluster_end_hslot);
+        alen = 2;
+
+        for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+            raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
+            if (!raft_node_is_active(raft_node))
+                continue;
+            
+            NodeAddr *addr = NULL;
+            if (raft_node == raft_get_my_node(rr->raft)) {
+                addr = &rr->config->addr;
+            } else {
+                Node *node = raft_node_get_udata(raft_node);
+                if (!node) continue;
+
+                addr = &node->addr;
+            }
+
+            char node_id[42];
+            snprintf(node_id, sizeof(node_id) - 1, "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+            RedisModule_ReplyWithStringBuffer(ctx, node_id, strlen(node_id));
+
+            char addrstr[512];
+            snprintf(addrstr, sizeof(addrstr) - 1, "%s:%u", addr->host, addr->port);
+            RedisModule_ReplyWithStringBuffer(ctx, addrstr, strlen(addrstr));
+
+            alen += 2;
+        }
+
+        RedisModule_ReplySetArrayLength(ctx, alen);
+        return REDISMODULE_OK;
+    } else if (!strncasecmp(cmd, "ADD", cmd_len)) {
+        if (argc < 4) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        /* Parse and add the ShardGroup. Errors and command reply are handled by
+         * addShardGroupFromArgs().
+         */
+        addShardGroupFromArgs(rr, ctx, &argv[2], argc-2);
+        return REDISMODULE_OK;
+    } else {
+        RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD only");
+        return REDISMODULE_OK;
+    }
+
+    return REDISMODULE_OK;
+}
+
 
 /* RAFT.DEBUG COMPACT [delay]
  *   Initiate an immediate rewrite of the Raft log + snapshot.
@@ -642,6 +745,11 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.cluster",
                 cmdRaftCluster, "admin",0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.shardgroup",
+                cmdRaftShardGroup, "admin",0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

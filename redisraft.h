@@ -102,6 +102,7 @@ struct RaftReq;
 struct EntryCache;
 struct RedisRaftConfig;
 struct Node;
+struct ShardingInfo;
 
 /* Node address specifier. */
 typedef struct node_addr {
@@ -196,6 +197,7 @@ typedef struct {
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
     RedisModuleCommandFilter *registered_filter;
+    struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
     /* General stats */
     unsigned long client_attached_entries;      /* Number of log entries attached to user connections */
     unsigned long long proxy_reqs;              /* Number of proxied requests */
@@ -219,6 +221,18 @@ extern raft_log_impl_t RaftLogImpl;
 #define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE       8*1000*1000
 #define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE        64*1000*1000
 
+#define REDIS_RAFT_HASH_SLOTS                       16384
+#define REDIS_RAFT_HASH_MIN_SLOT                    0
+#define REDIS_RAFT_HASH_MAX_SLOT                    16383
+
+#define REDIS_RAFT_VALID_HASH_SLOT(h)   \
+    ((h) >= REDIS_RAFT_HASH_MIN_SLOT && (h) <= REDIS_RAFT_HASH_MAX_SLOT)
+
+#define REDIS_RAFT_VALID_HASH_SLOT_RANGE(a, b) \
+    (REDIS_RAFT_VALID_HASH_SLOT(a) && \
+     REDIS_RAFT_VALID_HASH_SLOT(b) && \
+     (a) <= (b))
+
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */
@@ -238,6 +252,10 @@ typedef struct RedisRaftConfig {
     unsigned long raft_log_max_cache_size;
     unsigned long raft_log_max_file_size;
     bool raft_log_fsync;
+    /* Cluster mode */
+    bool cluster_mode;          /* Are we running in a cluster compatible mode? */
+    int cluster_start_hslot;    /* First cluster hash slot */
+    int cluster_end_hslot;      /* Last cluster hash slot */
 } RedisRaftConfig;
 
 typedef void (*NodeConnectCallbackFunc)(const redisAsyncContext *, int);
@@ -388,6 +406,7 @@ typedef struct RaftReq {
         } requestvote;
         struct {
             Node *proxy_node;
+            int hash_slot;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
@@ -434,6 +453,38 @@ typedef struct SnapshotResult {
     char err[256];
 } SnapshotResult;
 
+/* Describes a node in a ShardGroup (foreign RedisRaft cluster). */
+typedef struct ShardGroupNode {
+    char node_id[41];           /* Combined dbid + node_id */
+    NodeAddr addr;              /* Node address and port */
+} ShardGroupNode;
+
+/* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
+ * is assigned with a specific range of hash slots.
+ */
+typedef struct ShardGroup {
+    int start_slot;             /* First slot, inclusive */
+    int end_slot;               /* Last slot, inclusive */
+    int nodes_num;              /* Number of nodes listed */
+    ShardGroupNode *nodes;      /* Nodes array */
+} ShardGroup;
+
+/* Sharding information, used when cluster_mode is enabled and multiple
+ * RedisRaft clusters operate together to perform sharding.
+ */
+typedef struct ShardingInfo {
+    int shard_groups_num;       /* Number of shard groups */
+    ShardGroup *shard_groups;   /* Shard groups array */
+
+    /* Maps hash slots to ShardGroups indexes.
+     *
+     * Note that a one-based index into the shard_groups array is used,
+     * since a zero value indicates the slot is unassigned. The index
+     * should therefore be adjusted before refering the array.
+     */
+    int hash_slots_map[16384];
+} ShardingInfo;
+
 /* Command filtering re-entrancy counter handling.
  *
  * This mechanism tracks calls from Redis Raft into Redis and used by the
@@ -469,6 +520,7 @@ RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
 RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
+void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr);
 
 /* node.c */
 void NodeFree(Node *node);
@@ -578,5 +630,11 @@ void archiveSnapshot(RedisRaftCtx *rr);
 
 /* proxy.c */
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);
+
+/* cluster.c */
+RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
+void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
+RRStatus ShardingInfoInit(RedisRaftCtx *rr);
+void addShardGroupFromArgs(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #endif  /* _REDISRAFT_H */
