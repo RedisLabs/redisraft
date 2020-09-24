@@ -152,6 +152,7 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
         "config",
         "monitor",
         "command",
+        "shutdown",
         "quit",
         NULL
     };
