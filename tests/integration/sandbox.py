@@ -17,6 +17,7 @@ import random
 import logging
 import signal
 import uuid
+import shutil
 import redis
 
 LOG = logging.getLogger('sandbox')
@@ -53,7 +54,7 @@ class DefaultConfig(object):
     raftmodule = 'redisraft.so'
     up_timeout = 3
     raft_loglevel = 'debug'
-
+    workdir = 'tests/tmp'
 
 class VerboseConfig(DefaultConfig):
     raft_loglevel = 'debug'
@@ -76,7 +77,7 @@ class ValgrindConfig(DefaultConfig):
         '--show-reachable=no',
         '--suppressions=../redis/src/valgrind.sup',
         '--suppressions=libuv.supp',
-        '--log-file=valgrind-redis.%p',
+        '--log-file=tests/tmp/valgrind-redis.%p',
         'redis-server'
     ]
 
@@ -93,7 +94,7 @@ class ValgrindFullConfig(DefaultConfig):
         '--leak-check=full',
         '--show-leak-kinds=all',
         '--suppressions=../redis/src/valgrind.sup',
-        '--log-file=valgrind-redis.%p',
+        '--log-file=tests/tmp/valgrind-redis.%p',
         '--suppressions=redisraft.supp',
         'redis-server'
     ]
@@ -116,23 +117,27 @@ class RedisRaft(object):
         else:
             raft_args = raft_args.copy()
         self.id = _id
+        self.guid = str(uuid.uuid4())
         self.port = port
         self.executable = config.executable
         self.process = None
-        self.raftlog = 'redis{}.db'.format(self.id)
-        self.raftlogidx = '{}.idx'.format(self.raftlog)
-        self.dbfilename = 'redis{}.rdb'.format(self.id)
+        self.workdir = os.path.abspath(config.workdir)
+        self.serverdir = os.path.join(self.workdir, self.guid)
+        self._raftlog = 'redis{}.db'.format(self.id)
+        self._raftlogidx = '{}.idx'.format(self.raftlog)
+        self._dbfilename = 'redis{}.rdb'.format(self.id)
         self.up_timeout = config.up_timeout
         self.args = config.args.copy() if config.args else []
         self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
                       '--bind', '0.0.0.0',
-                      '--dbfilename', self.dbfilename]
+                      '--dir', self.serverdir,
+                      '--dbfilename', self._dbfilename]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
         default_args = {'addr': 'localhost:{}'.format(self.port),
-                        'raft-log-filename': self.raftlog,
+                        'raft-log-filename': self._raftlog,
                         'loglevel': config.raft_loglevel,
                         'raftize-all-commands': 'no'}
         for defkey, defval in default_args.items():
@@ -149,6 +154,18 @@ class RedisRaft(object):
         self.stdout = None
         self.stderr = None
         self.cleanup()
+
+    @property
+    def raftlog(self):
+        return os.path.join(self.serverdir, self._raftlog)
+
+    @property
+    def raftlogidx(self):
+        return os.path.join(self.serverdir, self._raftlogidx)
+
+    @property
+    def dbfilename(self):
+        return os.path.join(self.serverdir, self._dbfilename)
 
     def cluster(self, *args):
         retries = self.up_timeout
@@ -179,6 +196,11 @@ class RedisRaft(object):
         return self
 
     def start(self, extra_raft_args=None, verify=True):
+        try:
+            os.makedirs(self.serverdir)
+        except OSError:
+            pass
+
         if extra_raft_args is None:
             extra_raft_args = []
         args = [self.executable] + self.args + self.raft_args + extra_raft_args
@@ -194,7 +216,8 @@ class RedisRaft(object):
         if not verify:
             return
         self.verify_up()
-        LOG.info('RedisRaft<%s> is up, pid=%s', self.id, self.process.pid)
+        LOG.info('RedisRaft<%s> is up, pid=%s, guid=%s', self.id,
+                 self.process.pid, self.guid)
 
     def process_is_up(self):
         if not self.process:
@@ -266,18 +289,8 @@ class RedisRaft(object):
             self.process.send_signal(signal.SIGCONT)
 
     def cleanup(self):
-        files = [self.raftlog, self.raftlogidx, self.dbfilename]
-        if os.environ.get('SANDBOX_KEEPFILES'):
-            savedir = 'keepfiles_{}'.format(uuid.uuid4().hex)
-            os.mkdir(savedir)
-            LOG.info("Moving files ==> %s", savedir)
-            for _file in files:
-                if os.path.exists(_file):
-                    os.rename(_file, os.path.join(savedir, _file))
-        else:
-            for _file in files:
-                if os.path.exists(_file):
-                    os.unlink(_file)
+        if not os.environ.get('SANDBOX_KEEPFILES'):
+            shutil.rmtree(self.serverdir, ignore_errors=True)
 
     def raft_exec(self, *args):
         cmd = ['RAFT'] + list(args)
