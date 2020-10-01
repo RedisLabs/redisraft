@@ -112,9 +112,10 @@ fi
 
 if [ "$1" == "call" ]
 then
+    shift
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        ${REDIS_PATH}/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
+        ${REDIS_PATH}/redis-cli -p $PORT $@
     done
     exit 0
 fi
@@ -158,6 +159,6 @@ echo "tail <id>             -- Run tail -f of instance at base port + ID."
 echo "tailall               -- Run tail -f for all the log files at once."
 echo "clean                 -- Remove all instances data, logs, configs."
 echo "clean-logs            -- Remove just instances logs."
-echo "call <cmd>            -- Call a command (up to 7 arguments) on all instances."
+echo "call <cmd>            -- Call a command on all instances."
 echo "start-instance <id>   -- Start a RedisRaft instance that has been stopped."
 echo "stop-instance <id>    -- Stop a RedisRaft instance."
