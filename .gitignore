@@ -2,6 +2,7 @@
 **/*.gcda
 **/*.gcno
 tests/tests_main
+tests/tmp/
 **/__pycache__
 **/*.swp
 .build/

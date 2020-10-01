@@ -38,6 +38,7 @@ static int teardown_log(void **state)
     RaftLog *log = (RaftLog *) *state;
     RaftLogClose(log);
     unlink(LOGNAME);
+    unlink(LOGNAME ".idx");
     return 0;
 }
 
