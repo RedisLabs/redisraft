@@ -508,21 +508,6 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             }
             NodeAddrListAddElement(&req->r.cluster_join.addr, &addr);
         }
-    } else if (!strncasecmp(cmd, "ADDSHARDGROUP", cmd_len)) {
-        /* TODO: This is a TEMPORARY HACK to allow statically configuring ShardGroups.
-         * This should be replaced with a mechanism that registers the ShardGroup but
-         * periodically polls it to get an updated list of nodes.
-         */
-        if (argc < 4) {
-            RedisModule_WrongArity(ctx);
-            return REDISMODULE_OK;
-        }
-
-        /* Parse and add the ShardGroup. Errors and command reply are handled by
-         * addShardGroupFromArgs().
-         */
-        addShardGroupFromArgs(rr, ctx, &argv[2], argc-2);
-        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
         return REDISMODULE_OK;
