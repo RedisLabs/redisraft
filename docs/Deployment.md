@@ -9,7 +9,7 @@ Planning
 A RedisRaft cluster consists of multiple nodes. This maximizes the
 availability and durability of its dataset.
 
-As with most consensus-based systems, RedisRaft should be deployed with an odd number of nodes (e.g., 3 or 5). This prevents the classic "split-brain" scenario in which a cluster having an even number of nodes is split down the middle by a network partition.
+As with most consensus-based systems, RedisRaft should be deployed with an odd number of nodes (e.g., 3 or 5). This prevents the classic "split-brain" scenario in which a cluster having an even number of nodes is split down the middle by a network partition, leading to neither half being able to achieve quorum. With an odd number of nodes, one part will still include a majority of nodes.
 
 RedisRaft clusters should be deployed in a way that reduces the chance of a single failure affecting multiple nodes. For example, in most cloud environments, this would mean locating nodes in multiple availability zones within the same region.
 

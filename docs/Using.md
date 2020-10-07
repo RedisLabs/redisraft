@@ -220,7 +220,7 @@ refuse the read, and redirect the client to the true leader. This is, however,
 
 There are two things to note about this scenario:
 
-1. One could claim the node A relies on the same time-based thresholds as the
+1. One could claim that node A relies on the same time-based thresholds as the
    rest of the cluster and that it should therefore initiate re-election (and fail) at the same time. While practically this may be true in many cases, it makes dangerous assumptions about the behavior of clocks and system time.
 2. The reason this applies to reads but not writes is that writes require an
    explicit consensus.
