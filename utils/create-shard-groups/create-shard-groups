@@ -1,0 +1,151 @@
+#!/bin/bash
+
+REDIS_PATH="${PWD}/../../../redis/src"
+REDISRAFT="${PWD}/../../redisraft.so"
+CREATE_CLUSTER_SCRIPT="${PWD}/../create-cluster/create-cluster"
+NUM_GROUPS=3
+ADDITIONAL_OPTIONS=
+
+# You may want to put the above config parameters into config.sh in order to
+# override the defaults without modifying this script.
+
+if [ -a config.sh ]
+then
+    source "config.sh"
+fi
+
+calc_hash_slot_config() {
+    local num_groups=$1
+    local group=$2
+
+    local slots_per_group=$((16384 / num_groups))
+    local start_slot=$(((group-1) * slots_per_group))
+    if [ "$group" = "$num_groups" ]; then
+        local end_slot=16383
+    else
+        local end_slot=$((start_slot + slots_per_group - 1))
+    fi
+
+    echo "cluster-start-hslot=$start_slot cluster-end-hslot=$end_slot"
+}
+
+setup() {
+    local group=1
+    while [ $((group <= NUM_GROUPS)) != "0" ]; do
+        local dirname=shard-group-$group
+        mkdir -p $dirname
+
+        cat > $dirname/config.sh <<_END_
+REDIS_PATH=${REDIS_PATH}
+REDISRAFT=${REDISRAFT}
+PORT=5${group}00
+CLUSTER_MODE=yes
+ADDITIONAL_OPTIONS="$(calc_hash_slot_config $NUM_GROUPS $group) ${ADDITIONAL_OPTIONS}"
+_END_
+        group=$((group + 1))
+    done
+}
+
+do_cluster_action() {
+    local group=$1
+    shift
+
+    ( cd shard-group-$group && $CREATE_CLUSTER_SCRIPT $@ )
+}
+
+do_create_cluster_action_on_all() {
+    local group=1
+    while [ $((group <= NUM_GROUPS)) != "0" ]; do
+        ( cd shard-group-$group && $CREATE_CLUSTER_SCRIPT $@ )
+        group=$((group + 1))
+    done
+}
+
+create() {
+    echo "Creating individual RedisRaft clusters..."
+    do_create_cluster_action_on_all "create"
+
+    # Wait a bit for all cluster nodes to join
+    sleep 3
+
+    # get shard group configuration from each shard group cluster and
+    # push it to all other nodes.
+    echo "Propagating ShardGroup configurations..."
+    local group=1
+    while [ $((group <= NUM_GROUPS)) != "0" ]; do
+        local shardgroup=$(cd shard-group-$group && $CREATE_CLUSTER_SCRIPT call-instance 1 --raw RAFT.SHARDGROUP GET)
+        
+        local target=1
+        while [ $((target <= NUM_GROUPS)) != "0" ]; do
+            if [ "$target" != "$group" ]; then
+                # Don't apply to self...
+                ( cd shard-group-$target && \
+                        $CREATE_CLUSTER_SCRIPT call RAFT.SHARDGROUP ADD $shardgroup )
+            fi
+            target=$((target + 1))
+        done
+        group=$((group + 1))
+    done
+}
+
+watch() {
+    while [ 1 ]; do
+        clear
+        local group=1
+        while [ $((group <= NUM_GROUPS)) != "0" ]; do
+            echo "------ shard-group $group ------"
+            ( cd shard-group-$group && \
+                $CREATE_CLUSTER_SCRIPT call-instance 1 --raw RAFT.INFO ) | egrep '^node_id|^role|^current_term|^num_|^node|^log_entries|^current_index|^commit_index|^last_applied_index'
+            echo ""
+            group=$((group + 1))
+        done
+        sleep 1
+    done
+}
+
+clean() {
+    rm -rf shard-group-*
+}
+
+case "$1" in
+    setup)
+        setup
+        ;;
+    clean)
+        clean
+        ;;
+    start)
+        do_create_cluster_action_on_all "start"
+        ;;
+    stop)
+        do_create_cluster_action_on_all "stop"
+        ;;
+    create)
+        create
+        ;;
+    group)
+        local group="$1"
+        if [ $((group > 0 && group <= NUM_GROUPS)) != "0" ]; then
+            echo "Invalid <id> specified."
+            exit 1
+        fi
+        shift
+        do_cluster_action $group $@
+        ;;
+    watch)
+        watch
+        ;;
+    *)
+        echo "Usage: $0 [setup|clean]"
+        echo "setup                 -- Set up the shard groups environment"
+        echo "start                 -- Start all shard group clusters"
+        echo "create                -- Create all clusters and configure as shard groups"
+        echo "stop                  -- Stop all shard group clusters"
+        echo "clean                 -- Remove all shard groups, instances data, logs, configs."
+        echo "watch                 -- Show abbreviated RAFT.INFO output from all groups."
+        echo "group <id> <cmd...>   -- Execute a create-cluster command on a specific group."
+        exit 2
+        ;;
+esac
+
+exit 0
