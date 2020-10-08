@@ -663,7 +663,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     return REDISMODULE_OK;
 }
 
-__unused int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+__attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     redis_raft_logfile = stdout;
 
