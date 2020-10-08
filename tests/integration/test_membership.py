@@ -8,11 +8,9 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 """
 
 import time
-import logging
-import threading
 from pytest import raises
 from redis import ResponseError, RedisError
-from fixtures import cluster
+
 
 def test_node_join_iterates_all_addrs(cluster):
     """
@@ -135,6 +133,7 @@ def test_full_cluster_remove(cluster):
 
     for node_id in (2, 3, 4, 5):
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
+
 
 def test_node_history_with_same_address(cluster):
     ""

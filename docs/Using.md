@@ -184,9 +184,9 @@ Notes:
 
 2. Blocking operations are not supported.
 
-3. `WATCH` and `UNWATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below). `MUTLTI/EXEC/DISCARD` not supported in *Explicit Mode* but can be used with *Follower Proxy*.
+3. `WATCH` and `UNWATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below). `MULTI/EXEC/DISCARD` are not supported in *Explicit Mode* but can be used with *Follower Proxy*.
 
-4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the the Lua script itself to each node, not the raw Redis commands that result from running the script.
+4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
    For example, avoid using non-deterministic commands such as `RANDOMKEY`, `SRANDMEMBER`, and `TIME`, as these will produce different values when executed on follower nodes.
 
@@ -205,11 +205,11 @@ The main consistency concern for a read is to avoid a stale read: that is, readi
 
 Most of the time, a node that is not the cluster's leader will be aware of this,
 refuse the read, and redirect the client to the true leader. This is, however,
-not **always** the case. Consider the following scenario in a 5-node cluster:
+**not always** the case. Consider the following scenario in a 5-node cluster:
 
 1. Node A is the current leader.
 2. A network partition occurs, and node A is no longer able to communicate with  
-   the other nodes (i.e., nodes B, C, D, E, and F).
+   the other nodes (i.e., nodes B, C, D, and E).
 3. The other nodes detect that node A is no longer available, and they elect a
    new leader: node B.
 4. Clients in the same network partition as node B immediately begin sending
@@ -220,7 +220,7 @@ not **always** the case. Consider the following scenario in a 5-node cluster:
 
 There are two things to note about this scenario:
 
-1. One could claim the node A relies on the same time-based thresholds as the
+1. One could claim that node A relies on the same time-based thresholds as the
    rest of the cluster and that it should therefore initiate re-election (and fail) at the same time. While practically this may be true in many cases, it makes dangerous assumptions about the behavior of clocks and system time.
 2. The reason this applies to reads but not writes is that writes require an
    explicit consensus.

@@ -9,12 +9,11 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 
 import random
 import logging
-import threading
 import time
 import pytest
-from redis import ResponseError, RedisError
-from fixtures import cluster, workload
-from workload import MultiWithLargeReply, MonotonicIncrCheck
+from redis import ResponseError
+from .workload import MultiWithLargeReply, MonotonicIncrCheck
+
 
 def test_fuzzing_with_restarts(cluster):
     """

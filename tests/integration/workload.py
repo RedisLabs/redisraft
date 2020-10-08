@@ -1,10 +1,12 @@
 import threading
 from redis import RedisError
 
+
 class AbstractWork(object):
     def __init__(self, thread_id, client):
         self.thread_id = thread_id
         self.client = client
+
 
 class MultiWithLargeReply(AbstractWork):
     def __init__(self, *args, **kwargs):
@@ -25,6 +27,7 @@ class MultiWithLargeReply(AbstractWork):
             pass
         return True
 
+
 class MonotonicIncrCheck(AbstractWork):
     def __init__(self, *args, **kwargs):
         super(MonotonicIncrCheck, self).__init__(*args, **kwargs)
@@ -40,6 +43,7 @@ class MonotonicIncrCheck(AbstractWork):
         except RedisError as err:
             pass
         return True
+
 
 class Workload(object):
     def __init__(self):

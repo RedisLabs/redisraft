@@ -427,6 +427,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
     }
 
     if (RaftLogSetVote(rr->log, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftLogSetVote\n");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -441,6 +442,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
     }
 
     if (RaftLogSetTerm(rr->log, term, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftLogSetTerm\n");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -471,6 +473,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
             if (req->id == raft_get_nodeid(raft)) {
+                LOG_DEBUG("Removing this node from the cluster\n");
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
@@ -826,7 +829,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
             LOG_ERROR("Snapshot operation failed, cancelling.\n");
             cancelSnapshot(rr, &sr);
         }  else if (ret) {
-            LOG_DEBUG("Snapshot operation completed successfuly.\n");
+            LOG_DEBUG("Snapshot operation completed successfully.\n");
             finalizeSnapshot(rr, &sr);
         } /* else we're still in progress */
     }
@@ -878,7 +881,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
 
 /* Main Raft thread, which handles:
  * 1. The libuv loop for managing all connections with other Raft nodes.
- * 2. All Raft periodics tasks.
+ * 2. All Raft periodic tasks.
  * 3. Processing of Raft request queue, for serving RAFT* commands issued
  *    locally on the main Redis thread.
  */
@@ -1802,6 +1805,7 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
     }
+
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
         RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
         goto exit;
@@ -1941,7 +1945,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleCfgChange,        /* RR_CFGCHANGE_REMOVENODE */
     handleAppendEntries,    /* RR_APPENDENTRIES */
     handleRequestVote,      /* RR_REQUESTVOTE */
-    handleRedisCommand,     /* RR_REDISOCMMAND */
+    handleRedisCommand,     /* RR_REDISCOMMAND */
     handleInfo,             /* RR_INFO */
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     handleDebug,            /* RR_DEBUG */

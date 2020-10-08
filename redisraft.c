@@ -333,7 +333,6 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         goto error_cleanup;
     }
 
-    int i;
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
     if (sscanf(tmpstr, "%ld:%ld:%ld:%ld:%lu",
@@ -346,11 +345,12 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         goto error_cleanup;
     }
 
-    req->r.appendentries.msg.n_entries = n_entries;
+    req->r.appendentries.msg.n_entries = (int)n_entries;
     if (n_entries > 0) {
-        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(req->r.appendentries.msg.entries[0]));
+        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(msg_entry_t));
     }
-    for (i = 0; i < n_entries; i++) {
+
+    for (int i = 0; i < n_entries; i++) {
         /* Create entry with payload */
         tmpstr = RedisModule_StringPtrLen(argv[6 + 2*i], &tmplen);
         msg_entry_t *e = raft_entry_new(tmplen);
@@ -663,7 +663,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     return REDISMODULE_OK;
 }
 
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+__attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     redis_raft_logfile = stdout;
 

@@ -394,13 +394,12 @@ static int loadSnapshot(RedisRaftCtx *rr)
         return -1;
     }
 
-    LOG_DEBUG("Begining snapshot load, term=%lu, last_included_index=%lu\n",
+    LOG_DEBUG("Beginning snapshot load, term=%lu, last_included_index=%lu\n",
             rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
 
-    int ret;
-    if ((ret = raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
-                rr->snapshot_info.last_applied_idx)) != 0) {
+    if (raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
+                                 rr->snapshot_info.last_applied_idx) != 0) {
         LOG_ERROR("Cannot load snapshot: already loaded?\n");
         return -1;
     }
@@ -553,8 +552,6 @@ exit:
 /* ------------------------------------ Snapshot metadata type ------------------------------------ */
 
 static const char snapshot_info_metakey[] = "__raft_snapshot_info__";
-
-extern RedisRaftCtx redis_raft;
 
 void initializeSnapshotInfo(RedisRaftCtx *rr)
 {
