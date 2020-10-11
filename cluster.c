@@ -161,7 +161,7 @@ RRStatus ShardingInfoInit(RedisRaftCtx *rr)
  * to fall back to use it.
  */
 
-RedisModuleCallReply *getCommandKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
+RedisModuleCallReply *execCommandGetKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
 {
     RedisModuleString *getkeys = RedisModule_CreateString(rr->ctx, "GETKEYS", 7);
     RedisModuleString *argv[cmd->argc + 1];
@@ -186,9 +186,12 @@ RedisModuleCallReply *getCommandKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
  * the entry.
+ *
+ * FIXME: This is a LEGACY VERSION based on 'COMMAND GETKEYS', which is here only
+ * to allow running older Redis versions < 6.2.
  */
 
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus legacy_computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
 {
     int i, j;
     int slot = -1;
@@ -198,7 +201,7 @@ RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
         RaftRedisCommand *cmd = cmds->commands[i];
 
         /* Iterate command keys */
-        RedisModuleCallReply *reply = getCommandKeys(rr, cmd);
+        RedisModuleCallReply *reply = execCommandGetKeys(rr, cmd);
         for (j = 0; j < RedisModule_CallReplyLength(reply); j++) {
             size_t key_len;
             const char *key = RedisModule_CallReplyStringPtr(
@@ -219,6 +222,50 @@ RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
     }
 
     req->r.redis.hash_slot = slot;
+
+    return RR_OK;
+}
+
+/* Compute the hash slot for a RaftRedisCommandArray list of commands and update
+ * the entry.
+ */
+
+RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
+{
+    int i, j;
+    int slot = -1;
+
+    if (RedisModule_GetCommandKeys == NULL)
+        return legacy_computeHashSlot(rr, req);
+
+    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
+    for (i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *cmd = cmds->commands[i];
+
+        /* Iterate command keys */
+        int num_keys = 0;
+        int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
+        for (j = 0; j < num_keys; j++) {
+            size_t key_len;
+            const char *key = RedisModule_StringPtrLen(cmd->argv[keyindex[j]], &key_len);
+            int thisslot = keyHashSlot(key, key_len);
+
+            if (slot == -1) {
+                /* First key */
+                slot = thisslot;
+            } else {
+                if (slot != thisslot) {
+                    RedisModule_Free(keyindex);
+                    return RR_ERROR;
+                }
+            }
+        }
+
+        RedisModule_Free(keyindex);
+    }
+
+    req->r.redis.hash_slot = slot;
+
 
     return RR_OK;
 }

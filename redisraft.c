@@ -828,6 +828,11 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
+    if (config.cluster_mode && !RedisModule_GetCommandKeys) {
+        RedisModule_Log(ctx, REDIS_WARNING,
+                "Warning: cluster-mode is enabled but the Redis server in use is missing critical API functions, affecting performance!");
+    }
+
     if (setRaftizeMode(&redis_raft, ctx, config.raftize_all_commands) != RR_OK) {
         RedisModule_Log(ctx, REDIS_WARNING, "Error: raftize-all-commands=yes is not supported on this Redis version.");
         return REDISMODULE_ERR;
