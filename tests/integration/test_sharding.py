@@ -31,3 +31,27 @@ def test_cross_slot_violation(cluster):
     txn.set('key2', 'val2')
     with raises(ResponseError, match='CROSSSLOT'):
         txn.execute()
+
+
+def test_shard_group_sanity(cluster):
+    # Create a cluster with just a single slot
+    cluster.create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '0'})
+
+    c = cluster.node(1).client
+
+    # Operations on unmapped slots should fail
+    with raises(ResponseError, match='CLUSTERDOWN'):
+        c.set('key', 'value')
+
+    # Add a fake shardgroup to get complete coverage
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'ADD',
+        '1', '16383',
+        '1234567890123456789012345678901234567890',
+        '1.1.1.1:1111') == b'OK'
+    with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
+        c.set('key', 'value')
