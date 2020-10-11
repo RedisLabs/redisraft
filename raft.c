@@ -1662,6 +1662,9 @@ static RRStatus handleClustering(RedisRaftCtx *rr, RaftReq *req)
         return RR_ERROR;
     }
 
+    /* FIXME: Redirection should be done to different nodes in a round-robin
+     * or random manner.
+     */
     if (sgid != 1) {
         ShardGroup *sg = &rr->sharding_info->shard_groups[sgid-1];
         replyRedirect(rr, req, &sg->nodes[0].addr);
