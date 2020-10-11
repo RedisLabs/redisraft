@@ -55,6 +55,8 @@
 #define REDISMODULE_ZADD_ADDED   (1<<2)
 #define REDISMODULE_ZADD_UPDATED (1<<3)
 #define REDISMODULE_ZADD_NOP     (1<<4)
+#define REDISMODULE_ZADD_GT      (1<<5)
+#define REDISMODULE_ZADD_LT      (1<<6)
 
 /* Hash API flags. */
 #define REDISMODULE_HASH_NONE       0
@@ -112,6 +114,8 @@
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
 /* The next EXEC will fail due to dirty CAS (touched keys). */
 #define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
+/* Redis is currently running inside background child process. */
+#define REDISMODULE_CTX_FLAGS_IS_CHILD (1<<20)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -190,6 +194,7 @@ typedef uint64_t RedisModuleTimerID;
 #define REDISMODULE_EVENT_CRON_LOOP 8
 #define REDISMODULE_EVENT_MODULE_CHANGE 9
 #define REDISMODULE_EVENT_LOADING_PROGRESS 10
+#define REDISMODULE_EVENT_SWAPDB 11
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -242,6 +247,10 @@ static const RedisModuleEvent
     },
     RedisModuleEvent_LoadingProgress = {
         REDISMODULE_EVENT_LOADING_PROGRESS,
+        1
+    },
+    RedisModuleEvent_SwapDB = {
+        REDISMODULE_EVENT_SWAPDB,
         1
     };
 
@@ -373,6 +382,17 @@ typedef struct RedisModuleLoadingProgressInfo {
 } RedisModuleLoadingProgressV1;
 
 #define RedisModuleLoadingProgress RedisModuleLoadingProgressV1
+
+#define REDISMODULE_SWAPDBINFO_VERSION 1
+typedef struct RedisModuleSwapDbInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    int32_t dbnum_first;    /* Swap Db first dbnum */
+    int32_t dbnum_second;   /* Swap Db second dbnum */
+} RedisModuleSwapDbInfoV1;
+
+#define RedisModuleSwapDbInfo RedisModuleSwapDbInfoV1
 
 /* ------------------------- End of common defines ------------------------ */
 
@@ -664,8 +684,10 @@ REDISMODULE_API void * (*RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_GetBlockedClientHandle)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AbortBlock)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
@@ -705,6 +727,8 @@ REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_GetClientCertificate)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
+REDISMODULE_API int *(*RedisModule_GetCommandKeys)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) REDISMODULE_ATTR;
 #endif
 
 #define RedisModule_IsAOFClient(id) ((id) == CLIENT_ID_AOF)
@@ -897,8 +921,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
+    REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
     REDISMODULE_GET_API(ThreadSafeContextLock);
+    REDISMODULE_GET_API(ThreadSafeContextTryLock);
     REDISMODULE_GET_API(ThreadSafeContextUnlock);
     REDISMODULE_GET_API(BlockClient);
     REDISMODULE_GET_API(UnblockClient);
@@ -945,6 +971,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DeauthenticateAndCloseClient);
     REDISMODULE_GET_API(AuthenticateClientWithACLUser);
     REDISMODULE_GET_API(AuthenticateClientWithUser);
+    REDISMODULE_GET_API(GetClientCertificate);
+    REDISMODULE_GET_API(GetCommandKeys);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
@@ -961,4 +989,4 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #define RedisModuleString robj
 
 #endif /* REDISMODULE_CORE */
-#endif /* REDISMOUDLE_H */
+#endif /* REDISMODULE_H */
