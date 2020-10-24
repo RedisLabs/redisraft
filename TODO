@@ -40,3 +40,7 @@ Cons:
 - Cannot use more descriptive errors like `-NOLEADER`
 - Ambiguous hash slot in `-MOVED <slot> <host:port>` replies.
 
+---
+
+Other stuff:
+* Consider changing config change log format encoding to make it more readable and architecture neutral.
