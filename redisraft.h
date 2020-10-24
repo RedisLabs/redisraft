@@ -103,6 +103,7 @@ struct EntryCache;
 struct RedisRaftConfig;
 struct Node;
 struct ShardingInfo;
+struct ShardGroup;
 
 /* Node address specifier. */
 typedef struct node_addr {
@@ -341,6 +342,8 @@ enum RaftReqType {
     RR_LOADSNAPSHOT,
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
+    RR_SHARDGROUP_ADD,
+    RR_SHARDGROUP_GET
 };
 
 extern const char *RaftReqTypeStr[];
@@ -360,6 +363,38 @@ typedef struct {
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
 } RaftRedisCommandArray;
+
+/* Describes a node in a ShardGroup (foreign RedisRaft cluster). */
+typedef struct ShardGroupNode {
+    char node_id[41];           /* Combined dbid + node_id */
+    NodeAddr addr;              /* Node address and port */
+} ShardGroupNode;
+
+/* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
+ * is assigned with a specific range of hash slots.
+ */
+typedef struct ShardGroup {
+    int start_slot;             /* First slot, inclusive */
+    int end_slot;               /* Last slot, inclusive */
+    int nodes_num;              /* Number of nodes listed */
+    ShardGroupNode *nodes;      /* Nodes array */
+} ShardGroup;
+
+/* Sharding information, used when cluster_mode is enabled and multiple
+ * RedisRaft clusters operate together to perform sharding.
+ */
+typedef struct ShardingInfo {
+    int shard_groups_num;       /* Number of shard groups */
+    ShardGroup *shard_groups;   /* Shard groups array */
+
+    /* Maps hash slots to ShardGroups indexes.
+     *
+     * Note that a one-based index into the shard_groups array is used,
+     * since a zero value indicates the slot is unassigned. The index
+     * should therefore be adjusted before refering the array.
+     */
+    int hash_slots_map[16384];
+} ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
  * requests.
@@ -418,6 +453,7 @@ typedef struct RaftReq {
         struct {
             unsigned long long client_id;
         } client_disconnect;
+        struct ShardGroup shardgroup_add;
         RaftDebugReq debug;
     } r;
 } RaftReq;
@@ -452,38 +488,6 @@ typedef struct SnapshotResult {
     char rdb_filename[256];
     char err[256];
 } SnapshotResult;
-
-/* Describes a node in a ShardGroup (foreign RedisRaft cluster). */
-typedef struct ShardGroupNode {
-    char node_id[41];           /* Combined dbid + node_id */
-    NodeAddr addr;              /* Node address and port */
-} ShardGroupNode;
-
-/* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
- * is assigned with a specific range of hash slots.
- */
-typedef struct ShardGroup {
-    int start_slot;             /* First slot, inclusive */
-    int end_slot;               /* Last slot, inclusive */
-    int nodes_num;              /* Number of nodes listed */
-    ShardGroupNode *nodes;      /* Nodes array */
-} ShardGroup;
-
-/* Sharding information, used when cluster_mode is enabled and multiple
- * RedisRaft clusters operate together to perform sharding.
- */
-typedef struct ShardingInfo {
-    int shard_groups_num;       /* Number of shard groups */
-    ShardGroup *shard_groups;   /* Shard groups array */
-
-    /* Maps hash slots to ShardGroups indexes.
-     *
-     * Note that a one-based index into the shard_groups array is used,
-     * since a zero value indicates the slot is unassigned. The index
-     * should therefore be adjusted before refering the array.
-     */
-    int hash_slots_map[16384];
-} ShardingInfo;
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -635,6 +639,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 RRStatus ShardingInfoInit(RedisRaftCtx *rr);
-void addShardGroupFromArgs(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+RRStatus parseShardGroupFromArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_nodes, ShardGroupNode *nodes);
 
 #endif  /* _REDISRAFT_H */

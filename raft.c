@@ -1219,6 +1219,12 @@ void RaftReqFree(RaftReq *req)
                     break;
             }
             break;
+        case RR_SHARDGROUP_ADD:
+            if (req->r.shardgroup_add.nodes) {
+                RedisModule_Free(req->r.shardgroup_add.nodes);
+                req->r.shardgroup_add.nodes = NULL;
+            }
+            break;
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -2051,6 +2057,68 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
     }
 }
 
+/* Handle adding of ShardGroup.
+ * FIXME: Currently this is done locally, should instead create a
+ * custom Raft log entry which calls addShardGroup when applied only.
+ */
+void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
+{
+    ShardGroup *sg = &req->r.shardgroup_add;
+
+    if (addShardGroup(rr, sg->start_slot, sg->end_slot, sg->nodes_num, sg->nodes) != RR_OK) {
+        RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration");
+    } else {
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    }
+    RaftReqFree(req);
+}
+
+/* Handles RAFT.SHARDGROUP GET which includes:
+ * - Description of the local cluster as a shardgroup, including all nodes
+ * - Description of remote shardgroups as last tracked.
+ */
+
+void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
+{
+    int alen;
+    int i;
+
+    RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+    RedisModule_ReplyWithLongLong(req->ctx, rr->config->cluster_start_hslot);
+    RedisModule_ReplyWithLongLong(req->ctx, rr->config->cluster_end_hslot);
+    alen = 2;
+
+    for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+        raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
+        if (!raft_node_is_active(raft_node))
+            continue;
+
+        NodeAddr *addr = NULL;
+        if (raft_node == raft_get_my_node(rr->raft)) {
+            addr = &rr->config->addr;
+        } else {
+            Node *node = raft_node_get_udata(raft_node);
+            if (!node) continue;
+
+            addr = &node->addr;
+        }
+
+        char node_id[42];
+        snprintf(node_id, sizeof(node_id) - 1, "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+        RedisModule_ReplyWithStringBuffer(req->ctx, node_id, strlen(node_id));
+
+        char addrstr[512];
+        snprintf(addrstr, sizeof(addrstr) - 1, "%s:%u", addr->host, addr->port);
+        RedisModule_ReplyWithStringBuffer(req->ctx, addrstr, strlen(addrstr));
+
+        alen += 2;
+    }
+
+    RedisModule_ReplySetArrayLength(req->ctx, alen);
+    RaftReqFree(req);
+}
+
 
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
@@ -2065,5 +2133,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
     handleDebug,            /* RR_DEBUG */
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
+    handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
+    handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     NULL
 };

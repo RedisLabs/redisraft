@@ -51,7 +51,7 @@ unsigned int keyHashSlot(const char *key, int keylen) {
  * validated against hash slot confilicts.
  */
 
-static RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_nodes,
+RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_nodes,
         ShardGroupNode *nodes)
 {
     int i;
@@ -87,56 +87,61 @@ static RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, in
  *
  *  [start slot] [end slot] [node-uid node-addr:node-port] [node-uid node-addr:node-port...]
  *
- * !!! This is a temporary hack implemented just for demo/testing purposes. We should
- * !!! replace this by a mechanism similar to RAFT.CLUSTER JOIN, where the user provides
- * !!! host address and port to connect to and we periodically poll remote shardgroups
- * !!! for their configuration.
+ * If parsing errors are encountered, an error rpely is generated on the supplied RedisModuleCtx,
+ * and RR_ERROR is returned.
  */
 
-void addShardGroupFromArgs(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+RRStatus parseShardGroupFromArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg)
 {
     long long start_slot, end_slot;
     int i;
+
+    memset(sg, 0, sizeof(*sg));
 
     if (RedisModule_StringToLongLong(argv[0], &start_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[1], &end_slot) != REDISMODULE_OK ||
             !REDIS_RAFT_VALID_HASH_SLOT_RANGE(start_slot, end_slot)) {
         RedisModule_ReplyWithError(ctx, "ERR invalid slot range");
-        return;
+        goto error;
     }
 
     int num_nodes = (argc - 2) / 2;
     if ((argc - 2) != num_nodes * 2) {
         RedisModule_WrongArity(ctx);
-        return;
+        goto error;
     }
 
-    ShardGroupNode sg_nodes[num_nodes];
+    sg->start_slot = start_slot;
+    sg->end_slot = end_slot;
+    sg->nodes_num = num_nodes;
+    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * num_nodes);
     for (i = 0; i < num_nodes; i++) {
         size_t len;
         const char *str = RedisModule_StringPtrLen(argv[2+(i*2)], &len);
 
         if (len != 40) {
             RedisModule_ReplyWithError(ctx, "ERR invalid node id length");
-            return;
+            goto error;
         }
 
-        memcpy(sg_nodes[i].node_id, str, len);
-        sg_nodes[i].node_id[len] = '\0';
+        memcpy(sg->nodes[i].node_id, str, len);
+        sg->nodes[i].node_id[len] = '\0';
 
         str = RedisModule_StringPtrLen(argv[3+(i*2)], &len);
-        if (!NodeAddrParse(str, len, &sg_nodes[i].addr)) {
+        if (!NodeAddrParse(str, len, &sg->nodes[i].addr)) {
             RedisModule_ReplyWithError(ctx, "ERR invalid node address/port");
-            return;
+            goto error;
         }
     }
 
-    if (addShardGroup(rr, start_slot, end_slot, num_nodes, sg_nodes) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid shardgroup configuration");
-        return;
-    }
+    return RR_OK;
 
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+error:
+    if (sg->nodes) {
+        RedisModule_Free(sg->nodes);
+        sg->nodes = NULL;
+    }
+    return RR_ERROR;
 }
 
 /* Initialize ShardingInfo and add our local RedisRaft cluster as the first

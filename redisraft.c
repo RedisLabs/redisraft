@@ -538,7 +538,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisRaftCtx *rr = &redis_raft;
+    RaftReq *req;
 
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
@@ -549,42 +549,9 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
     if (!strncasecmp(cmd, "GET", cmd_len)) {
-        int alen;
-        int i;
+        req = RaftReqInit(ctx, RR_SHARDGROUP_GET);
+        RaftReqSubmit(&redis_raft, req);
 
-        RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-        RedisModule_ReplyWithLongLong(ctx, rr->config->cluster_start_hslot);
-        RedisModule_ReplyWithLongLong(ctx, rr->config->cluster_end_hslot);
-        alen = 2;
-
-        for (i = 0; i < raft_get_num_nodes(rr->raft); i++) {
-            raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
-            if (!raft_node_is_active(raft_node))
-                continue;
-            
-            NodeAddr *addr = NULL;
-            if (raft_node == raft_get_my_node(rr->raft)) {
-                addr = &rr->config->addr;
-            } else {
-                Node *node = raft_node_get_udata(raft_node);
-                if (!node) continue;
-
-                addr = &node->addr;
-            }
-
-            char node_id[42];
-            snprintf(node_id, sizeof(node_id) - 1, "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
-            RedisModule_ReplyWithStringBuffer(ctx, node_id, strlen(node_id));
-
-            char addrstr[512];
-            snprintf(addrstr, sizeof(addrstr) - 1, "%s:%u", addr->host, addr->port);
-            RedisModule_ReplyWithStringBuffer(ctx, addrstr, strlen(addrstr));
-
-            alen += 2;
-        }
-
-        RedisModule_ReplySetArrayLength(ctx, alen);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc < 4) {
@@ -592,10 +559,14 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        /* Parse and add the ShardGroup. Errors and command reply are handled by
-         * addShardGroupFromArgs().
-         */
-        addShardGroupFromArgs(rr, ctx, &argv[2], argc-2);
+        req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
+        if (parseShardGroupFromArgs(ctx, &argv[2], argc - 2, &req->r.shardgroup_add) != RR_OK) {
+            /* Error reply already produced by parseShardGroupFromArgs */
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD only");
