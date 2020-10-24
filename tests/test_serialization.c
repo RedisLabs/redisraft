@@ -139,10 +139,85 @@ static void test_deserialize_corrupted_data(void **state)
                 d_array_empty_command, strlen(d_array_empty_command)), RR_ERROR);
 }
 
+static void test_serialize_shardgroup(void **state)
+{
+    ShardGroupNode nodes[3] = {
+        { .node_id = "12345678901234567890123456789012aabbccdd",
+          .addr = { .host = "1.1.1.1", .port = 1111 }
+        },
+        { .node_id = "12345678901234567890123456789012aabbccee",
+          .addr = { .host = "2.2.2.2", .port = 2222 }
+        },
+        { .node_id = "12345678901234567890123456789012aabbccff",
+          .addr = { .host = "3.3.3.3", .port = 3333 }
+        }
+    };
+    ShardGroup sg = {
+        .start_slot = 1,
+        .end_slot = 1000,
+        .nodes_num = 3,
+        .nodes = nodes
+    };
+
+    char *str = ShardGroupSerialize(&sg);
+    assert_string_equal(str,
+            "1:1000:3\n"
+            "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
+            "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
+            "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n");
+
+    test_free(str);
+}
+
+static void test_deserialize_shardgroup(void **state)
+{
+    const char *s1 = "1:1000:3\n"
+            "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
+            "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
+            "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n";
+    ShardGroup sg;
+
+    /* Happy path */
+    assert_int_equal(ShardGroupDeserialize(s1, strlen(s1), &sg), RR_OK);
+    assert_int_equal(sg.start_slot, 1);
+    assert_int_equal(sg.end_slot, 1000);
+    assert_int_equal(sg.nodes_num, 3);
+
+    assert_string_equal(sg.nodes[0].node_id, "12345678901234567890123456789012aabbccdd");
+    assert_string_equal(sg.nodes[0].addr.host, "1.1.1.1");
+    assert_int_equal(sg.nodes[0].addr.port, 1111);
+
+    assert_string_equal(sg.nodes[1].node_id, "12345678901234567890123456789012aabbccee");
+    assert_string_equal(sg.nodes[1].addr.host, "2.2.2.2");
+    assert_int_equal(sg.nodes[1].addr.port, 2222);
+
+    assert_string_equal(sg.nodes[2].node_id, "12345678901234567890123456789012aabbccff");
+    assert_string_equal(sg.nodes[2].addr.host, "3.3.3.3");
+    assert_int_equal(sg.nodes[2].addr.port, 3333);
+
+    test_free(sg.nodes);
+
+    /* Errors */
+
+    /* Missing nodes */
+    const char *s2 = "0:1000:1\n";
+    assert_int_equal(ShardGroupDeserialize(s2, strlen(s2), &sg), RR_ERROR);
+
+    /* Unterminated node line */
+    const char *s3 = "0:1000:1\nunterminated";
+    assert_int_equal(ShardGroupDeserialize(s3, strlen(s3), &sg), RR_ERROR);
+
+    /* Overflow node id */
+    const char *s4 = "0:1000:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
+    assert_int_equal(ShardGroupDeserialize(s4, strlen(s4), &sg), RR_ERROR);
+}
+
 const struct CMUnitTest serialization_tests[] = {
     cmocka_unit_test(test_serialize_redis_command),
     cmocka_unit_test(test_deserialize_redis_command),
     cmocka_unit_test(test_deserialize_redis_command_array),
     cmocka_unit_test(test_deserialize_corrupted_data),
+    cmocka_unit_test(test_serialize_shardgroup),
+    cmocka_unit_test(test_deserialize_shardgroup),
     { .test_func = NULL }
 };

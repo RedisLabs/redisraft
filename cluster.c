@@ -47,6 +47,91 @@ unsigned int keyHashSlot(const char *key, int keylen) {
  * ShardingInfo Handling
  * -------------------------------------------------------------------------- */
 
+/* ShardGroup serialization and deserialization is used in Raft log entries
+ * of type RAFT_LOGTYPE_ADD_SHARDGROUP.
+ *
+ * The format is as follows:
+ *      <start-slot>:<end-slot>:<number-of-nodes>\n
+ *      <node-uid>:<node host>:<node port>\n
+ *      ...
+ */
+
+/* Serialize a ShardGroup. Returns a newly allocated null terminated buffer
+ * that contains the serialized form.
+ */
+char *ShardGroupSerialize(ShardGroup *sg)
+{
+    size_t buf_size = 80 + (80 + sizeof(ShardGroupNode)) * sg->nodes_num; /* Over estimated */
+    char *buf = RedisModule_Calloc(1, buf_size);
+    char *p = buf;
+
+    p = catsnprintf(p, &buf_size, "%u:%u:%u\n", sg->start_slot, sg->end_slot, sg->nodes_num);
+    for (int i = 0; i < sg->nodes_num; i++) {
+        NodeAddr *addr = &sg->nodes[i].addr;
+        p = catsnprintf(p, &buf_size, "%s:%s:%d\n", sg->nodes[i].node_id, addr->host, addr->port);
+    }
+
+    return buf;
+}
+
+/* Deserialize a ShardGroup from the specified buffer. The target ShardGroup is assumed
+ * to be uninitialized, and the nodes array will be allocated on demand.
+ */
+RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
+{
+    /* Make a mutable, null terminated copy */
+    char str[buf_len + 1];
+    memcpy(str, buf, buf_len);
+    str[buf_len] = '\0';
+    char *s = str;
+
+    /* Find and null terminate header */
+    char *nl = strchr(str, '\n');
+    if (!nl) goto error;
+    *nl = '\0';
+
+    memset(sg, 0, sizeof(*sg));
+
+    if (sscanf(s, "%u:%u:%u", &sg->start_slot, &sg->end_slot, &sg->nodes_num) != 3)
+        goto error;
+    s = nl + 1;
+
+    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * sg->nodes_num);
+    for (int i = 0; i < sg->nodes_num; i++) {
+        ShardGroupNode *n = &sg->nodes[i];
+
+        char *nl = strchr(s, '\n');
+        if (!nl) goto error;
+        *nl = '\0';
+
+        /* Validate node id */
+        char *p = strchr(s, ':');
+        if (!p || p - s > RAFT_SHARDGROUP_NODEID_LEN)
+            goto error;
+
+        /* Copy node id */
+        int len = p - s;
+        memcpy(n->node_id, s, len);
+        n->node_id[len] = '\0';
+
+        /* Parse node address */
+        s = p + 1;
+        if (!NodeAddrParse(s, strlen(s), &n->addr))
+            goto error;
+
+        s = nl + 1;
+    }
+
+    return RR_OK;
+
+error:
+    if (sg->nodes) {
+        RedisModule_Free(sg->nodes);
+        sg->nodes = NULL;
+    }
+    return RR_ERROR;
+}
+
 /* Add a new ShardGroup to the active ShardingInfo. The start and end slots are
  * validated against hash slot confilicts.
  */
