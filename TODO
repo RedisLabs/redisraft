@@ -1,13 +1,13 @@
 Cluster Mode/Sharding Issues
 ============================
 
-## ShardGroup Nodes Round-Robin
+## ShardGroup Nodes Round-Robin [DONE]
 
 Currently we always reply with a `-MOVED` pointing to the first node of the
 target shard group. Ideally we should round-robin so in case the first node died
 clients will still eventually find a different node.
 
-## ShardGroup Convergence and Persistence
+## ShardGroup Convergence and Persistence [DONE]
 
 Currently shard groups configuration is local and ephemeral, but ideally it
 should be distributed and persistent, i.e.
