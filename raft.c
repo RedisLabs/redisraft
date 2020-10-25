@@ -28,12 +28,15 @@ const char *RaftReqTypeStr[] = {
     "RR_INFO",
     "RR_LOADSNAPSHOT",
     "RR_COMPACT",
-    "RR_CLIENT_DISCONNECT"
+    "RR_CLIENT_DISCONNECT",
+    "RR_SHARDGROUP_ADD",
+    "RR_SHARDGROUP_GET"
 };
 
 /* Forward declarations */
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
+static void applyAddShardGroup(RedisRaftCtx *rr, raft_entry_t *entry);
 static RaftReqHandler RaftReqHandlers[];
 
 static bool processExiting = false;
@@ -506,6 +509,9 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry, entry_idx);
+            break;
+        case RAFT_LOGTYPE_ADD_SHARDGROUP:
+            applyAddShardGroup(rr, entry);
             break;
         default:
             break;
@@ -1156,8 +1162,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Cluster configuration */
-    if (rr->config->cluster_mode && ShardingInfoInit(rr) == RR_ERROR) {
-        PANIC("Raft initialization failed: invalid sharding configuration!");
+    if (rr->config->cluster_mode) {
+        ShardingInfoInit(rr);
     }
 
     /* Raft log exists -> go into RAFT_LOADING state:
@@ -2068,19 +2074,88 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
     }
 }
 
+/* Apply a RAFT_LOGTYPE_ADD_SHARDGROUP log entry by deserializing its payload and
+ * updating the in-memory shardgroup configuration.
+ *
+ * If the entry holds a user_data pointing to a RaftReq, this implies we're
+ * applying an operation performed by a local client (vs. one received from
+ * persisted log, or through AppendEntries). In that case, we also need to
+ * generate the reply as the client is blocked waiting for it.
+ */
+void applyAddShardGroup(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    ShardGroup sg;
+    RRStatus ret;
+
+    if (ShardGroupDeserialize(entry->data, entry->data_len, &sg) != RR_OK) {
+        LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
+                entry->data_len, entry->data);
+        return;
+    }
+
+    if ((ret = ShardingInfoAddShardGroup(rr, &sg)) != RR_OK)
+        LOG_ERROR("Failed to add a shardgroup");
+
+    ShardGroupFree(&sg);
+
+    /* If we have an attached client, handle the reply */
+    if (entry->user_data) {
+        RaftReq *req = entry->user_data;
+
+        if (ret == RR_OK) {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        } else {
+            /* Should never happen! */
+            RedisModule_ReplyWithError(req->ctx, "ERR failed to locally apply change, should never happen.");
+        }
+        RaftReqFree(req);
+
+        entry->user_data = NULL;
+    }
+}
+
 /* Handle adding of ShardGroup.
  * FIXME: Currently this is done locally, should instead create a
  * custom Raft log entry which calls addShardGroup when applied only.
  */
 void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
 {
-    ShardGroup *sg = &req->r.shardgroup_add;
-
-    if (addShardGroup(rr, sg->start_slot, sg->end_slot, sg->nodes_num, sg->nodes) != RR_OK) {
-        RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration");
-    } else {
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    /* Must be done on a leader */
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, NULL) == RR_ERROR) {
+        goto exit;
     }
+
+    /* Validate now before pushing this as a log entry. */
+    if (ShardingInfoValidateShardGroup(rr, &req->r.shardgroup_add) != RR_OK) {
+        RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration. Consult the logs for more info.");
+        goto exit;
+    }
+
+    /* Serialize the shardgroup */
+    char *payload = ShardGroupSerialize(&req->r.shardgroup_add);
+    if (!payload)
+        goto exit;
+
+    /* Set up a Raft log entry */
+    raft_entry_t *entry = raft_entry_new(strlen(payload));
+    entry->type = RAFT_LOGTYPE_ADD_SHARDGROUP;
+    entry->id = rand();
+    entryAttachRaftReq(rr, entry, req); /* So we can produce a reply */
+    memcpy(entry->data, payload, strlen(payload));
+    RedisModule_Free(payload);
+
+    /* Submit */
+    msg_entry_response_t response;
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
+    }
+
+    raft_entry_release(entry);
+    return;
+
+exit:
     RaftReqFree(req);
 }
 

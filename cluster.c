@@ -44,7 +44,7 @@ unsigned int keyHashSlot(const char *key, int keylen) {
 }
 
 /* -----------------------------------------------------------------------------
- * ShardingInfo Handling
+ * ShardGroup Handling
  * -------------------------------------------------------------------------- */
 
 /* ShardGroup serialization and deserialization is used in Raft log entries
@@ -132,35 +132,182 @@ error:
     return RR_ERROR;
 }
 
+/* Free internal allocations of a ShardGroup.
+ */
+void ShardGroupFree(ShardGroup *sg)
+{
+    if (sg->nodes) {
+        RedisModule_Free(sg->nodes);
+        sg->nodes = NULL;
+    }
+}
+
+/* -----------------------------------------------------------------------------
+ * ShardingInfo Handling
+ * -------------------------------------------------------------------------- */
+
+/* Save ShardingInfo to RDB during snapshotting. This gets invoked by rdbSaveSnapshotInfo
+ * which uses a pseudo key to get trigerred.
+ *
+ * We skip writing the first shardgroup that represents our local cluster.
+ */
+
+void ShardingInfoRDBSave(RedisModuleIO *rdb)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    ShardingInfo *si = rr->sharding_info;
+
+    /* If no ShardingInfo, write a zero count and abort. */
+    if (!si) {
+        RedisModule_SaveUnsigned(rdb, 0);
+        return;
+    }
+
+    /* When saving, skip shardgroup #1 which is the local cluster */
+    RedisModule_SaveUnsigned(rdb, si->shard_groups_num - 1);
+    for (int i = 1; i < si->shard_groups_num; i++) {
+        ShardGroup *sg = &si->shard_groups[i];
+
+        RedisModule_SaveUnsigned(rdb, sg->start_slot);
+        RedisModule_SaveUnsigned(rdb, sg->end_slot);
+        RedisModule_SaveUnsigned(rdb, sg->nodes_num);
+        for (int j = 0; j < sg->nodes_num; j++) {
+            ShardGroupNode *n = &sg->nodes[j];
+            RedisModule_SaveStringBuffer(rdb, n->node_id, strlen(n->node_id));
+            RedisModule_SaveStringBuffer(rdb, n->addr.host, strlen(n->addr.host));
+            RedisModule_SaveUnsigned(rdb, n->addr.port);
+        }
+    }
+}
+
+/* Load ShardingInfo from RDB. This gets invoked by rdbLoadSnapshotInfo which uses a
+ * pseudo key to get trigerred.
+ *
+ * NOTE: Some attention to sequence of events is required here. When a snapshot is
+ * loaded, the RDB loading is guaranteed to take place when everything is already
+ * well initialized.
+ *
+ * However, we need to also consider the initial loading of RDB, which can take
+ * place after the module has been loaded but before RedisRaft has initialized
+ * completely. This logic has already been implemented correctly for SnapshotInfo
+ * and we need to consider consolidating everything and possibly move to more
+ * modern Module API capabilities that can let us avoid piggybacking on keys.
+ */
+
+void ShardingInfoRDBLoad(RedisModuleIO *rdb)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    ShardingInfo *si = rr->sharding_info;
+
+    /* Always read the shards_group_num, because it's always written (but may
+     * be zero).
+     */
+    unsigned int rdb_shard_groups_num = RedisModule_LoadUnsigned(rdb);
+    if (!rdb_shard_groups_num) {
+        /* No shardgroups. This could mean no sharding, or simply no shardgrups
+         * to read. If we have ShardingInfo we'll reset it.
+         */
+        if (si)
+            ShardingInfoReset(rr);
+
+        return;
+    }
+
+    /* If we have something to load, we need to reset ShardingInfo first.
+     * We also need to be sure we're in cluster mode, i.e. that si was
+     * initialized.
+     */
+    RedisModule_Assert(si != NULL);
+    ShardingInfoReset(rr);
+
+    /* Load individual shard groups */
+    for (int i = 0; i < rdb_shard_groups_num; i++) {
+        ShardGroup sg;
+
+        sg.start_slot = RedisModule_LoadUnsigned(rdb);
+        sg.end_slot = RedisModule_LoadUnsigned(rdb);
+        sg.nodes_num = RedisModule_LoadUnsigned(rdb);
+
+        /* Load nodes */
+        sg.nodes = RedisModule_Calloc(sg.nodes_num, sizeof(ShardGroupNode));
+        for (int j = 0; j < sg.nodes_num; j++) {
+            ShardGroupNode *n = &sg.nodes[j];
+            size_t len;
+            char *buf = RedisModule_LoadStringBuffer(rdb, &len);
+
+            RedisModule_Assert(len < sizeof(n->node_id));
+            memcpy(n->node_id, buf, len);
+            n->node_id[len] = '\0';
+            RedisModule_Free(buf);
+
+            buf = RedisModule_LoadStringBuffer(rdb, &len);
+            RedisModule_Assert(len < sizeof(n->addr.host));
+            memcpy(n->addr.host, buf, len);
+            n->addr.host[len] = '\0';
+            RedisModule_Free(buf);
+
+            n->addr.port = RedisModule_LoadUnsigned(rdb);
+        }
+
+        /* This also handles all validation so serious violations, although
+         * should never exist, will be caught.
+         */
+        RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
+        RedisModule_Assert(ret == RR_OK);
+
+        ShardGroupFree(&sg);
+    }
+}
+
+/* Validate a new shardgroup and make sure there are no conflicts with
+ * current ShardingInfo configuration.
+ */
+
+RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
+{
+    ShardingInfo *si = rr->sharding_info;
+
+    /* Verify all specified slots are available */
+    if (!REDIS_RAFT_VALID_HASH_SLOT_RANGE(new_sg->start_slot, new_sg->end_slot)) {
+        LOG_ERROR("Invalid shardgroup: bad slots range %u-%u",
+                new_sg->start_slot, new_sg->end_slot);
+        return RR_ERROR;
+    }
+
+    for (int i = new_sg->start_slot; i <= new_sg->end_slot; i++) {
+        if (si->hash_slots_map[i] != 0) {
+            LOG_ERROR("Invalid shardgroup: hash slot already mapped: %u", i);
+            return RR_ERROR;
+        }
+    }
+
+    return RR_OK;
+}
+
 /* Add a new ShardGroup to the active ShardingInfo. The start and end slots are
  * validated against hash slot confilicts.
  */
 
-RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_nodes,
-        ShardGroupNode *nodes)
+RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
     int i;
     ShardingInfo *si = rr->sharding_info;
 
-    /* Verify all specified slots are available */
-    if (!REDIS_RAFT_VALID_HASH_SLOT_RANGE(start_slot, end_slot))
+    /* Validate first */
+    if (ShardingInfoValidateShardGroup(rr, new_sg) != RR_OK)
         return RR_ERROR;
-    for (i = start_slot; i <= end_slot; i++) {
-        if (si->hash_slots_map[i] != 0)
-            return RR_ERROR;
-    }
 
     si->shard_groups_num++;
     si->shard_groups = RedisModule_Realloc(si->shard_groups, sizeof(ShardGroup) * si->shard_groups_num);
 
     ShardGroup *sg = &si->shard_groups[si->shard_groups_num-1];
-    sg->start_slot = start_slot;
-    sg->end_slot = end_slot;
-    sg->nodes_num = num_nodes;
-    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * num_nodes);
-    memcpy(sg->nodes, nodes, sizeof(ShardGroupNode) * num_nodes);
+    sg->start_slot = new_sg->start_slot;
+    sg->end_slot = new_sg->end_slot;
+    sg->nodes_num = new_sg->nodes_num;
+    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * new_sg->nodes_num);
+    memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
 
-    for (i = start_slot; i <= end_slot; i++) {
+    for (i = new_sg->start_slot; i <= new_sg->end_slot; i++) {
         si->hash_slots_map[i] = si->shard_groups_num;
     }
 
@@ -176,7 +323,7 @@ RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_n
  * and RR_ERROR is returned.
  */
 
-RRStatus parseShardGroupFromArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg)
+RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg)
 {
     long long start_slot, end_slot;
     int i;
@@ -233,11 +380,45 @@ error:
  * ShardGroup.
  */
 
-RRStatus ShardingInfoInit(RedisRaftCtx *rr)
+void ShardingInfoInit(RedisRaftCtx *rr)
 {
     rr->sharding_info = RedisModule_Calloc(1, sizeof(ShardingInfo));
-    return addShardGroup(rr, rr->config->cluster_start_hslot,
-            rr->config->cluster_end_hslot, 0, NULL);
+
+    ShardingInfoReset(rr);
+}
+
+/* Free and reset the ShardingInfo structure */
+void ShardingInfoReset(RedisRaftCtx *rr)
+{
+    ShardingInfo *si = rr->sharding_info;
+
+    for (int i = 0; i < si->shard_groups_num; i++) {
+        ShardGroup *sg = &si->shard_groups[i];
+        if (sg->nodes) {
+            RedisModule_Free(sg->nodes);
+            sg->nodes = NULL;
+        }
+    }
+
+    if (si->shard_groups)
+        RedisModule_Free(si->shard_groups);
+    si->shard_groups = NULL;
+    si->shard_groups_num = 0;
+
+    /* Reset array */
+    for (int i =0; i < REDIS_RAFT_HASH_SLOTS; i++)
+        si->hash_slots_map[i] = 0;
+
+    /* Add our local mapping */
+    ShardGroup sg = {
+        .start_slot = rr->config->cluster_start_hslot,
+        .end_slot = rr->config->cluster_end_hslot,
+        .nodes_num = 0,
+        .nodes = NULL
+    };
+
+    RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
+    RedisModule_Assert(ret == RR_OK);
 }
 
 /* Issue a COMMAND GETKEYS command to fetch the list of keys addressed

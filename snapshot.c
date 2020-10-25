@@ -643,6 +643,9 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
         np = &entry->next;
     } while (1);
 
+    /* Load ShardingInfo */
+    ShardingInfoRDBLoad(rdb);
+
     info->loaded = true;
 
     return info;
@@ -682,6 +685,9 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
 
     /* Last node id marker */
     RedisModule_SaveUnsigned(rdb, 0);
+
+    /* Save ShardingInfo */
+    ShardingInfoRDBSave(rdb);
 }
 
 static void clearSnapshotInfo(void *value)
