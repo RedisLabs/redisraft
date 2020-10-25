@@ -29,9 +29,11 @@ to configure tests.
 
 For example, running a single test with live logging of all output:
 
-    PYTEST_OPTS="-v --log-cli-level=debug \
-        tests/integration/test_snapshots.py::test_snapshot_delivery" \
-    make integration-tests
+    pytest tests/integration/test_snapshots.py::test_snapshot_delivery -v --log-cli-level=debug
+
+To see a full list of custom test configuration options, use:
+
+    pytest tests/integration --help
 
 ### Unit Test Coverage
 

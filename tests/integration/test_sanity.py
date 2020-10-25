@@ -129,9 +129,8 @@ def test_auto_ids(cluster):
     """
 
     # -- Test auto id on create --
-    node1 = RedisRaft(1, 5000, use_id_arg=False)
+    node1 = cluster.add_node(cluster_setup=False, use_id_arg=False)
     node1.start()
-    cluster.add_initialized_node(node1) # Just to make sure it gets destroyed
 
     # No id initially
     assert node1.raft_info()['node_id'] == 0
@@ -141,12 +140,11 @@ def test_auto_ids(cluster):
     assert node1.raft_info()['node_id'] != 0
 
     # -- Test auto id on join --
-    node2 = RedisRaft(2, 5001, use_id_arg=False)
+    node2 = cluster.add_node(cluster_setup=False, use_id_arg=False)
     node2.start()
-    cluster.add_initialized_node(node2) # Just to make sure it gets destroyed
 
     assert node2.raft_info()['node_id'] == 0
-    node2.cluster('join', '127.0.0.1:5000')
+    node2.cluster('join', '127.0.0.1:5001')
     node2.wait_for_node_voting()
     assert node2.raft_info()['node_id'] != 0
 

@@ -48,70 +48,9 @@ class PipeLogger(threading.Thread):
             LOG.debug('%s: %s', self.prefix, str(line, 'utf-8').rstrip())
 
 
-class DefaultConfig(object):
-    executable = 'redis-server'
-    args = None
-    raftmodule = 'redisraft.so'
-    up_timeout = 3
-    raft_loglevel = 'debug'
-    workdir = 'tests/tmp'
-
-class VerboseConfig(DefaultConfig):
-    raft_loglevel = 'debug'
-
-
-class DebugConfig(DefaultConfig):
-    executable = 'gnome-terminal'
-    args = [
-        '--wait', '--', 'gdb', '--args', 'redis-server'
-    ]
-    up_timeout = None
-
-
-class ValgrindConfig(DefaultConfig):
-    executable = 'valgrind'
-    args = [
-        '--leak-check=full',
-        '--show-reachable=no',
-        '--show-possibly-lost=yes',
-        '--show-reachable=no',
-        '--suppressions=../redis/src/valgrind.sup',
-        '--suppressions=libuv.supp',
-        '--log-file=tests/tmp/valgrind-redis.%p',
-        'redis-server'
-    ]
-
-
-class ValgrindVgdbConfig(ValgrindConfig):
-    up_timeout = None
-    args = ['--vgdb-error=0',
-            '--vgdb-stop-at=exit'] + ValgrindConfig.args
-
-
-class ValgrindFullConfig(DefaultConfig):
-    executable = 'valgrind'
-    args = [
-        '--leak-check=full',
-        '--show-leak-kinds=all',
-        '--suppressions=../redis/src/valgrind.sup',
-        '--log-file=tests/tmp/valgrind-redis.%p',
-        '--suppressions=redisraft.supp',
-        'redis-server'
-    ]
-
-
-def resolve_config():
-    name = os.environ.get('SANDBOX_CONFIG')
-    if name is not None:
-        return getattr(sys.modules[__name__], name)
-    return DefaultConfig
-
-
 class RedisRaft(object):
-    def __init__(self, _id, port, config=None, raft_args=None,
+    def __init__(self, _id, port, config, raft_args=None,
                  use_id_arg=True):
-        if config is None:
-            config = resolve_config()
         if raft_args is None:
             raft_args = {}
         else:
@@ -127,6 +66,7 @@ class RedisRaft(object):
         self._raftlogidx = '{}.idx'.format(self.raftlog)
         self._dbfilename = 'redis{}.rdb'.format(self.id)
         self.up_timeout = config.up_timeout
+        self.keepfiles = config.keepfiles
         self.args = config.args.copy() if config.args else []
         self.args += ['--loglevel', 'debug']
         self.args += ['--port', str(port),
@@ -289,7 +229,7 @@ class RedisRaft(object):
             self.process.send_signal(signal.SIGCONT)
 
     def cleanup(self):
-        if not os.environ.get('SANDBOX_KEEPFILES'):
+        if not self.keepfiles:
             shutil.rmtree(self.serverdir, ignore_errors=True)
 
     def raft_exec(self, *args):
@@ -429,11 +369,12 @@ class Cluster(object):
     noleader_timeout = 10
     base_port = 5000
 
-    def __init__(self):
+    def __init__(self, config):
         self.next_id = 1
         self.nodes = {}
         self.leader = None
         self.raft_args = None
+        self.config = config
 
     def nodes_count(self):
         return len(self.nodes)
@@ -453,6 +394,7 @@ class Cluster(object):
         self.raft_args = raft_args.copy()
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
+                                   config=self.config,
                                    raft_args=raft_args)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
@@ -473,7 +415,7 @@ class Cluster(object):
         self.nodes[node.id] = node
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
-                 node_id=None, use_cluster_args=False):
+                 node_id=None, use_cluster_args=False, **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -481,7 +423,8 @@ class Cluster(object):
         self.next_id += 1
         if port is None:
             port = self.base_port + _id
-        node = RedisRaft(_id, port, raft_args=_raft_args)
+        node = RedisRaft(_id, port, self.config, raft_args=_raft_args,
+            **kwargs)
         if cluster_setup:
             if self.nodes:
                 node.join(self.node_addresses())
