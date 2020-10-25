@@ -112,6 +112,33 @@ static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
     }
 }
 
+/* ------------------------------------ Common helpers ------------------------------------ */
+
+/* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
+ * in a RaftReq should keep the client blockde until the log entry is committed and applied.
+ */
+
+static void entryFreeAttachedRaftReq(raft_entry_t *ety)
+{
+    RaftReq *req = (RaftReq *) ety->user_data;
+    ety->user_data = NULL;
+
+    if (req) {
+        redis_raft.client_attached_entries--;
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
+        RaftReqFree(req);
+    }
+
+    RedisModule_Free(ety);
+}
+
+static void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
+{
+    entry->user_data = req;
+    entry->free_func = entryFreeAttachedRaftReq;
+    rr->client_attached_entries++;
+}
+
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
 
 /* ---------------------- RAFT MULTI/EXEC Handlig ---------------------------- */
@@ -1407,20 +1434,6 @@ exit:
     RaftReqFree(req);
 }
 
-static void freeRedisCommandRaftEntry(raft_entry_t *ety)
-{
-    RaftReq *req = (RaftReq *) ety->user_data;
-    ety->user_data = NULL;
-
-    if (req) {
-        redis_raft.client_attached_entries--;
-        RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
-        RaftReqFree(req);
-    }
-
-    RedisModule_Free(ety);
-}
-
 static void handleReadOnlyCommand(void *arg, int can_read)
 {
     RaftReq *req = (RaftReq *) arg;
@@ -1757,9 +1770,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
-    entry->user_data = req;
-    entry->free_func = freeRedisCommandRaftEntry;
-    rr->client_attached_entries++;
+    entryAttachRaftReq(rr, entry, req);
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     raft_entry_release(entry);
 
