@@ -91,8 +91,6 @@ tests/test-%.o: %.c
 .PHONY: tests
 tests: unit-tests integration-tests
 
-PYTEST_OPTS ?= tests/integration -v
-
 .PHONY: unit-tests
 ifeq ($(OS),Linux)
 unit-tests: tests/tests_main
@@ -116,17 +114,15 @@ unit-lcov-report: tests/lcov.info
 
 # ----------------------------- Integration Tests -----------------------------
 
+PYTEST_OPTS ?= -v
+
 .PHONY: integration-tests
 integration-tests:
-	PATH=../redis/src:${PATH} pytest $(PYTEST_OPTS)
+	pytest tests/integration $(PYTEST_OPTS)
 
 .PHONY: valgrind-tests
 valgrind-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindConfig pytest $(PYTEST_OPTS)
-
-.PHONY: valgrind-show-possibly-lost-tests
-valgrind-show-possibly-lost-tests:
-	PATH=../redis/src:${PATH} SANDBOX_CONFIG=ValgrindShowPossiblyLostConfig pytest $(PYTEST_OPTS)
+	pytest tests/integration $(PYTEST_OPTS) --valgrind
 
 .PHONY: integration-lcov-report
 integration-lcov-report:
