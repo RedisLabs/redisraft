@@ -109,6 +109,7 @@ class LogEntry(RawEntry):
         DEMOTE_NODE = 3
         REMOVE_NODE = 4
         NO_OP = 5
+        ADD_SHARDGROUP = 101
 
     def term(self):
         return int(self.args[1])
@@ -133,6 +134,15 @@ class LogEntry(RawEntry):
             node_id, port, addr.decode('ascii').split('\0', 1)[0])
 
     @staticmethod
+    def parse_add_shardgroup(data):
+        data_lines = data.decode('ascii').split('\n')
+        hdr = data_lines[0].split(':')
+        return '<ShardGroup:slots=%s-%s,nodes=%s>' % (
+            hdr[0], hdr[1],
+            ','.join(['<id={},addr={}:{}'.format(*e.split(':'))
+                 for e in data_lines[1:] if len(e) > 0]))
+
+    @staticmethod
     def parse_cmdlist(data):
         cmds = []
         cmd_count = int(data[0][1:])
@@ -148,6 +158,8 @@ class LogEntry(RawEntry):
         value = self.args[4]
         if self.type_is_cfgchange():
             return self.parse_cfgchange(value)
+        elif self.type() == self.LogType.ADD_SHARDGROUP:
+            return self.parse_add_shardgroup(value)
         else:
             if decode:
                 if not value:
