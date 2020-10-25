@@ -80,7 +80,7 @@ create() {
             if [ "$target" != "$group" ]; then
                 # Don't apply to self...
                 ( cd shard-group-$target && \
-                        $CREATE_CLUSTER_SCRIPT call RAFT.SHARDGROUP ADD $shardgroup )
+                        $CREATE_CLUSTER_SCRIPT call-instance 1 RAFT.SHARDGROUP ADD $shardgroup )
             fi
             target=$((target + 1))
         done
