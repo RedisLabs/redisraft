@@ -433,6 +433,7 @@ class Cluster(object):
         self.next_id = 1
         self.nodes = {}
         self.leader = None
+        self.raft_args = None
 
     def nodes_count(self):
         return len(self.nodes)
@@ -449,6 +450,7 @@ class Cluster(object):
     def create(self, node_count, raft_args=None, prepopulate_log=0):
         if raft_args is None:
             raft_args = {}
+        self.raft_args = raft_args.copy()
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
                                    raft_args=raft_args)
@@ -470,12 +472,16 @@ class Cluster(object):
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
 
-    def add_node(self, raft_args=None, port=None, cluster_setup=True, node_id=None):
+    def add_node(self, raft_args=None, port=None, cluster_setup=True,
+                 node_id=None, use_cluster_args=False):
+        _raft_args = raft_args
+        if use_cluster_args:
+            _raft_args = self.raft_args
         _id = self.next_id if node_id is None else node_id
         self.next_id += 1
         if port is None:
             port = self.base_port + _id
-        node = RedisRaft(_id, port, raft_args=raft_args)
+        node = RedisRaft(_id, port, raft_args=_raft_args)
         if cluster_setup:
             if self.nodes:
                 node.join(self.node_addresses())

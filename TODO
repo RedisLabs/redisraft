@@ -44,3 +44,5 @@ Cons:
 
 Other stuff:
 * Consider changing config change log format encoding to make it more readable and architecture neutral.
+* Clean up snapshot info saving / loading. Maybe revert to AUX fields and rely on hooks?
+* Migrate to RedisModule_Assert

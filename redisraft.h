@@ -387,8 +387,8 @@ typedef struct ShardGroup {
  * RedisRaft clusters operate together to perform sharding.
  */
 typedef struct ShardingInfo {
-    int shard_groups_num;       /* Number of shard groups */
-    ShardGroup *shard_groups;   /* Shard groups array */
+    unsigned int shard_groups_num;       /* Number of shard groups */
+    ShardGroup *shard_groups;            /* Shard groups array */
 
     /* Maps hash slots to ShardGroups indexes.
      *
@@ -396,7 +396,7 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    int hash_slots_map[16384];
+    int hash_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
@@ -641,10 +641,16 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);
 /* cluster.c */
 char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
+void ShardGroupFree(ShardGroup *sg);
+RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
-RRStatus ShardingInfoInit(RedisRaftCtx *rr);
-RRStatus parseShardGroupFromArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
-RRStatus addShardGroup(RedisRaftCtx *rr, int start_slot, int end_slot, int num_nodes, ShardGroupNode *nodes);
+void ShardingInfoInit(RedisRaftCtx *rr);
+void ShardingInfoReset(RedisRaftCtx *rr);
+RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
+RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
+void ShardingInfoRDBSave(RedisModuleIO *rdb);
+void ShardingInfoRDBLoad(RedisModuleIO *rdb);
 
 #endif  /* _REDISRAFT_H */

@@ -55,3 +55,115 @@ def test_shard_group_sanity(cluster):
         '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
+
+
+def test_shard_group_validation(cluster):
+    cluster.create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1000'})
+
+    c = cluster.node(1).client
+
+    # Invalid range
+    with raises(ResponseError, match='invalid'):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'ADD',
+            '1001', '20000',
+            '1234567890123456789012345678901234567890',
+            '1.1.1.1:1111') == b'OK'
+
+    # Conflict
+    with raises(ResponseError, match='invalid'):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'ADD',
+            '1000', '1001',
+            '1234567890123456789012345678901234567890',
+            '1.1.1.1:1111') == b'OK'
+
+
+def test_shard_group_propagation(cluster):
+    # Create a cluster with just a single slot
+    cluster.create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1000'})
+
+    c = cluster.node(1).client
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'ADD',
+        '1001', '16383',
+        '1234567890123456789012345678901234567890',
+        '1.1.1.1:1111') == b'OK'
+
+    cluster.wait_for_unanimity()
+    cluster.node(3).wait_for_log_applied()
+
+    cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
+    assert len(cluster_slots) == 2
+
+
+def test_shard_group_snapshot_propagation(cluster):
+    # Create a cluster with just a single slot
+    cluster.create(1, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1000'})
+
+    c = cluster.node(1).client
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'ADD',
+        '1001', '16383',
+        '1234567890123456789012345678901234567890',
+        '1.1.1.1:1111') == b'OK'
+
+    assert c.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    # Add a new node. Since we don't have the shardgroup entries
+    # in the log anymore, we'll rely on snapshot delivery.
+    n2 = cluster.add_node(use_cluster_args=True)
+    n2.wait_for_node_voting()
+
+    assert (c.execute_command('CLUSTER', 'SLOTS') ==
+            n2.client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_shard_group_persistence(cluster):
+    cluster.create(1, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1000'})
+
+    n1 = cluster.node(1)
+    assert n1.client.execute_command(
+        'RAFT.SHARDGROUP', 'ADD',
+        '1001', '16383',
+        '1234567890123456789012345678901234567890',
+        '1.1.1.1:1111') == b'OK'
+
+    cluster_slots = n1.client.execute_command('CLUSTER', 'SLOTS')
+
+    # Make sure received cluster slots is sane
+    assert len(cluster_slots) == 2
+    assert cluster_slots[1][0] == 1001
+    assert cluster_slots[1][1] == 16383
+
+    # Restart and make sure cluster slots persisted
+    n1.terminate()
+    n1.start()
+    n1.wait_for_node_voting()
+
+    assert n1.client.execute_command('CLUSTER', 'SLOTS') == cluster_slots
+
+    # Compact log, restart and make sure cluster slots persisted
+    n1.client.execute_command('RAFT.DEBUG', 'COMPACT')
+
+    n1.terminate()
+    n1.start()
+    n1.wait_for_node_voting()
+
+    assert n1.client.execute_command('CLUSTER', 'SLOTS') == cluster_slots
