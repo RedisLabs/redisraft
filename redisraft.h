@@ -378,6 +378,7 @@ typedef struct ShardGroup {
     unsigned int start_slot;             /* First slot, inclusive */
     unsigned int end_slot;               /* Last slot, inclusive */
     unsigned int nodes_num;              /* Number of nodes listed */
+    unsigned int next_redir;             /* Round-robin -MOVED index */
     ShardGroupNode *nodes;      /* Nodes array */
 } ShardGroup;
 

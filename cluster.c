@@ -304,6 +304,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     sg->start_slot = new_sg->start_slot;
     sg->end_slot = new_sg->end_slot;
     sg->nodes_num = new_sg->nodes_num;
+    sg->next_redir = 0;
     sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * new_sg->nodes_num);
     memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
 

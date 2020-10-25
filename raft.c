@@ -1687,12 +1687,16 @@ static RRStatus handleClustering(RedisRaftCtx *rr, RaftReq *req)
         return RR_ERROR;
     }
 
-    /* FIXME: Redirection should be done to different nodes in a round-robin
-     * or random manner.
+    /* If accessing a foreign shardgroup, issue a redirect. We use round-robin
+     * to all nodes to compensate for the fact we do not have an up-to-date knowledge
+     * of who the leader is and whether or not some configuration has changed since
+     * last refresh (when refresh is implemented, in the future).
      */
     if (sgid != 1) {
         ShardGroup *sg = &rr->sharding_info->shard_groups[sgid-1];
-        replyRedirect(rr, req, &sg->nodes[0].addr);
+        if (sg->next_redir >= sg->nodes_num)
+            sg->next_redir = 0;
+        replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
         return RR_ERROR;
     }
 
