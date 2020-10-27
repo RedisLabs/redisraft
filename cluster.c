@@ -125,10 +125,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     return RR_OK;
 
 error:
-    if (sg->nodes) {
-        RedisModule_Free(sg->nodes);
-        sg->nodes = NULL;
-    }
+    ShardGroupFree(sg);
     return RR_ERROR;
 }
 
@@ -147,7 +144,7 @@ void ShardGroupFree(ShardGroup *sg)
  * -------------------------------------------------------------------------- */
 
 /* Save ShardingInfo to RDB during snapshotting. This gets invoked by rdbSaveSnapshotInfo
- * which uses a pseudo key to get trigerred.
+ * which uses a pseudo key to get triggered.
  *
  * We skip writing the first shardgroup that represents our local cluster.
  */
@@ -181,7 +178,7 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
 }
 
 /* Load ShardingInfo from RDB. This gets invoked by rdbLoadSnapshotInfo which uses a
- * pseudo key to get trigerred.
+ * pseudo key to get triggered.
  *
  * NOTE: Some attention to sequence of events is required here. When a snapshot is
  * loaded, the RDB loading is guaranteed to take place when everything is already
@@ -261,6 +258,10 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
 
 /* Validate a new shardgroup and make sure there are no conflicts with
  * current ShardingInfo configuration.
+ *
+ * Currently we check:
+ * 1. Slot range is valid.
+ * 2. All specified slots are currently unassigned.
  */
 
 RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
@@ -284,8 +285,8 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     return RR_OK;
 }
 
-/* Add a new ShardGroup to the active ShardingInfo. The start and end slots are
- * validated against hash slot confilicts.
+/* Add a new ShardGroup to the active ShardingInfo. Validation is done according to
+ * ShardingInfoValidateShardGroup() above.
  */
 
 RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
@@ -308,6 +309,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * new_sg->nodes_num);
     memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
 
+    /* Do slot mapping */
     for (i = new_sg->start_slot; i <= new_sg->end_slot; i++) {
         si->hash_slots_map[i] = si->shard_groups_num;
     }
@@ -320,7 +322,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
  *
  *  [start slot] [end slot] [node-uid node-addr:node-port] [node-uid node-addr:node-port...]
  *
- * If parsing errors are encountered, an error rpely is generated on the supplied RedisModuleCtx,
+ * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx,
  * and RR_ERROR is returned.
  */
 
@@ -331,6 +333,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     memset(sg, 0, sizeof(*sg));
 
+    /* Slot range */
     if (RedisModule_StringToLongLong(argv[0], &start_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[1], &end_slot) != REDISMODULE_OK ||
             !REDIS_RAFT_VALID_HASH_SLOT_RANGE(start_slot, end_slot)) {
@@ -338,12 +341,14 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         goto error;
     }
 
+    /* Validate node arguments count is correct */
     int num_nodes = (argc - 2) / 2;
     if ((argc - 2) != num_nodes * 2) {
         RedisModule_WrongArity(ctx);
         goto error;
     }
 
+    /* Parse nodes */
     sg->start_slot = start_slot;
     sg->end_slot = end_slot;
     sg->nodes_num = num_nodes;
@@ -352,7 +357,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         size_t len;
         const char *str = RedisModule_StringPtrLen(argv[2+(i*2)], &len);
 
-        if (len != 40) {
+        if (len != RAFT_SHARDGROUP_NODEID_LEN) {
             RedisModule_ReplyWithError(ctx, "ERR invalid node id length");
             goto error;
         }
@@ -370,10 +375,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RR_OK;
 
 error:
-    if (sg->nodes) {
-        RedisModule_Free(sg->nodes);
-        sg->nodes = NULL;
-    }
+    ShardGroupFree(sg);
     return RR_ERROR;
 }
 
@@ -388,17 +390,18 @@ void ShardingInfoInit(RedisRaftCtx *rr)
     ShardingInfoReset(rr);
 }
 
-/* Free and reset the ShardingInfo structure */
+/* Free and reset the ShardingInfo structure.
+ *
+ * This is called after ShardingInfo has already been allocated, and typically
+ * right before loading serialized ShardGroups from a snapshot.
+ */
 void ShardingInfoReset(RedisRaftCtx *rr)
 {
     ShardingInfo *si = rr->sharding_info;
 
     for (int i = 0; i < si->shard_groups_num; i++) {
         ShardGroup *sg = &si->shard_groups[i];
-        if (sg->nodes) {
-            RedisModule_Free(sg->nodes);
-            sg->nodes = NULL;
-        }
+        ShardGroupFree(sg);
     }
 
     if (si->shard_groups)
@@ -425,12 +428,11 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 /* Issue a COMMAND GETKEYS command to fetch the list of keys addressed
  * by the specified command.
  *
- * TODO: This is a temporary inefficient work around until RM_GetCommandKeys
- * is accepted as an API function.
+ * THIS IS DEPRECATED! Starting with Redis 6.0.9 a Module API call is available
+ * to fetch this information, so this is left here just for a short while to
+ * maintain backwards compatibility.
  *
- * We may want to keep it for a while after the Module API is available for
- * compatibility with older versions of Redis, but emit a warning if we have
- * to fall back to use it.
+ * Using this technique is significantly slower.
  */
 
 RedisModuleCallReply *execCommandGetKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
@@ -460,7 +462,7 @@ RedisModuleCallReply *execCommandGetKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd
  * the entry.
  *
  * FIXME: This is a LEGACY VERSION based on 'COMMAND GETKEYS', which is here only
- * to allow running older Redis versions < 6.2.
+ * to allow running on Redis versions older than 6.0.9.
  */
 
 static RRStatus legacy_computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
@@ -542,11 +544,13 @@ RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
     return RR_OK;
 }
 
+/* Produces a CLUSTER SLOTS compatible reply entry for the specified local cluster node.
+ */
 static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_t *raft_node)
 {
     Node *node = raft_node_get_udata(raft_node);
     NodeAddr *addr;
-    char node_id[42];
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
 
     /* Stale nodes should not exist but we prefer to be defensive.
      * Our own node doesn't have a connection so we don't expect a Node object.
@@ -569,12 +573,14 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
     RedisModule_ReplyWithCString(ctx, addr->host);
     RedisModule_ReplyWithLongLong(ctx, addr->port);
 
-    snprintf(node_id, sizeof(node_id) - 1, "%.32s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+    snprintf(node_id, sizeof(node_id), "%.32s%08x", rr->log->dbid, raft_node_get_id(raft_node));
     RedisModule_ReplyWithCString(ctx, node_id);
 
     return 1;
 }
 
+/* Produce a CLUSTER SLOTS compatible reply entry for the specified shardgroup node.
+ */
 static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, ShardGroupNode *sgn)
 {
     /* Create a three-element reply:
@@ -590,6 +596,12 @@ static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *c
 
     return 1;
 }
+
+/* Produce a CLUSTER SLOTS compatible reply, including:
+ *
+ * 1. Local cluster's slot range and nodes.
+ * 2. All configured shardgroups with their slot ranges and nodes.
+ */
 
 static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -648,6 +660,10 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     }
 }
 
+/* Process CLUSTER commands, as intercepted earlier by the Raft module.
+ *
+ * Currently only supporting CLUSTER SLOTS.
+ */
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
 {
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
@@ -665,7 +681,7 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     } else {
         RedisModule_ReplyWithError(req->ctx,
-            "ERR Unknown subcommand ot wrong number of arguments.");
+            "ERR Unknown subcommand or wrong number of arguments.");
         goto exit;
     }
 

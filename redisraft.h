@@ -141,7 +141,7 @@ typedef struct NodeIdEntry {
 } NodeIdEntry;
 
 #define RAFT_DBID_LEN               32
-#define RAFT_SHARDGROUP_NODEID_LEN  40
+#define RAFT_SHARDGROUP_NODEID_LEN  40  /* Combined DBID_LEN + 32-bit node id */
 
 /* Snapshot metadata.  There is a single instance of this struct available at all times,
  * which is accessed as follows:
@@ -367,8 +367,8 @@ typedef struct {
 
 /* Describes a node in a ShardGroup (foreign RedisRaft cluster). */
 typedef struct ShardGroupNode {
-    char node_id[41];           /* Combined dbid + node_id */
-    NodeAddr addr;              /* Node address and port */
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1]; /* Combined dbid + node_id */
+    NodeAddr addr;                              /* Node address and port */
 } ShardGroupNode;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
@@ -379,7 +379,7 @@ typedef struct ShardGroup {
     unsigned int end_slot;               /* Last slot, inclusive */
     unsigned int nodes_num;              /* Number of nodes listed */
     unsigned int next_redir;             /* Round-robin -MOVED index */
-    ShardGroupNode *nodes;      /* Nodes array */
+    ShardGroupNode *nodes;               /* Nodes array */
 } ShardGroup;
 
 #define RAFT_LOGTYPE_ADD_SHARDGROUP     (RAFT_LOGTYPE_NUM+1)
