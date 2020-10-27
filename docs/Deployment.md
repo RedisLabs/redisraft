@@ -340,3 +340,33 @@ Valid values for this setting are *yes* and *no*.
 > :bulb: Note that interception of all commands requires a Redis version that
 > supports the Redis Module Command Filtering API. Older versions of Redis will
 > fail to enable this.
+
+### `cluster-mode`
+
+If enabled, RedisRaft operates in a Redis Cluster compatible mode (with or without sharding).
+
+See [Clustering](Cluster.md) for more information on clustering and sharding.
+
+Valid values for this setting are *yes* and *no*.
+
+*Default: no*
+
+### `cluster-start-hslot`
+
+The first hash-slot assigned to this RedisRaft cluster, when `cluster-mode` is enabled.
+
+See [Clustering](Cluster.md) for more information on clustering and sharding.
+
+Valid values for this setting are 0-16383.
+
+*Default: 0*
+
+### `cluster-end-hslot`
+
+The last hash-slot assigned to this RedisRaft cluster, when `cluster-mode` is enabled.
+
+See [Clustering](Cluster.md) for more information on clustering and sharding.
+
+Valid values for this setting are 0-16383.
+
+*Default: 16383*
