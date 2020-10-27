@@ -527,13 +527,6 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  *   Adds a new shard group configuration.
  * Reply:
  *   +OK
- *
- * TODO: This is a TEMPORARY HACK to allow statically configuring ShardGroups.
- * This should be replaced with a mechanism that registers the ShardGroup but
- * periodically polls it to get an updated list of nodes.
- *
- * As this is a quick hack, we're processing everything in the main thread and not
- * in a thread safe manner.
  */
 
 static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)

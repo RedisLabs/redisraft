@@ -135,6 +135,13 @@ static void entryFreeAttachedRaftReq(raft_entry_t *ety)
     RedisModule_Free(ety);
 }
 
+/* Attach a RaftReq to a Raft log entry. The common case for this is when a user request
+ * needs to block until it gets committed, and only then a reply should be produced.
+ *
+ * To do that, we link the RaftReq to the Raft log entry and keep the client blocked.
+ * When the entry will later reach the apply flow, the linkage to the RaftReq will
+ * make it possible to generate the reply to the user.
+ */
 static void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     entry->user_data = req;
@@ -2194,12 +2201,12 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
             addr = &node->addr;
         }
 
-        char node_id[42];
-        snprintf(node_id, sizeof(node_id) - 1, "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+        char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
+        snprintf(node_id, sizeof(node_id), "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
         RedisModule_ReplyWithStringBuffer(req->ctx, node_id, strlen(node_id));
 
         char addrstr[512];
-        snprintf(addrstr, sizeof(addrstr) - 1, "%s:%u", addr->host, addr->port);
+        snprintf(addrstr, sizeof(addrstr), "%s:%u", addr->host, addr->port);
         RedisModule_ReplyWithStringBuffer(req->ctx, addrstr, strlen(addrstr));
 
         alen += 2;

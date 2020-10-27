@@ -303,6 +303,10 @@ void NodeAddrListFree(NodeAddrListElement *head)
     }
 }
 
+/* Parse a -MOVED reply and update the returned address in addr.
+ * Both standard Redis Cluster reply (with the hash slot) or the simplified
+ * RedisRaft reply are supported.
+ */
 static bool parseMovedReply(const char *str, NodeAddr *addr)
 {
     if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))

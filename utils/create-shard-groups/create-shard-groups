@@ -136,7 +136,7 @@ case "$1" in
         watch
         ;;
     *)
-        echo "Usage: $0 [setup|clean]"
+        echo "Usage: $0 [setup|start|create|stop|clean|watch|group]"
         echo "setup                 -- Set up the shard groups environment"
         echo "start                 -- Start all shard group clusters"
         echo "create                -- Create all clusters and configure as shard groups"
