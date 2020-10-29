@@ -39,15 +39,14 @@ def test_node_join_redirects_to_leader(cluster):
     r3.wait_for_election()
 
 
-def test_leader_removal_not_allowed(cluster):
+def test_leader_removal_allowed(cluster):
     """
-    Leader node cannot be removed.
+    Leader node can be removed.
     """
 
     cluster.create(3)
     assert cluster.leader == 1
-    with raises(ResponseError, match='cannot remove leader'):
-        cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '1')
+    cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '1')
 
 
 def test_single_voting_change_enforced(cluster):
