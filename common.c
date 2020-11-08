@@ -105,8 +105,8 @@ void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr)
  */
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
-    const char err_noleader[] = "NOLEADER No raft leader";
-    const char err_clusterdown[] = "CLUSTERDOWN No raft leader";
+    static const char *err_noleader = "NOLEADER No raft leader";
+    static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
 
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (!leader) {
@@ -198,7 +198,7 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
             RedisModule_CommandFilterArgGet(filter, 0), &cmdname_len);
 
     /* Don't process any RAFT.* command */
-    if (cmdname_len > 4 && !strncasecmp(cmdname, "raft.", 5)) {
+    if (cmdname_len > 4 && strncasecmp(cmdname, "raft.", 5) == 0) {
        return;
     }
 
@@ -206,7 +206,7 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
     char **c = excluded_commands;
     while (*c != NULL) {
         size_t len = strlen(*c);
-        if (cmdname_len == len && !strncasecmp(cmdname, *c, len)) {
+        if (cmdname_len == len && strncasecmp(cmdname, *c, len) == 0) {
             return;
         }
         c++;
