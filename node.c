@@ -309,6 +309,7 @@ void NodeAddrListFree(NodeAddrListElement *head)
  */
 static bool parseMovedReply(const char *str, NodeAddr *addr)
 {
+    /* -MOVED 0 1.1.1.1:1 or -MOVED 1.1.1.1:1 */
     if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))
         return false;
 

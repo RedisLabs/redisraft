@@ -192,7 +192,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     } else if (!strcmp(keyword, "cluster-start-hslot")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !REDIS_RAFT_VALID_HASH_SLOT(val)) {
+        if (*errptr != '\0' || !HashSlotValid(val)) {
             snprintf(errbuf, errbuflen-1, "invalid 'cluster-start-hslot' value");
             return RR_ERROR;
         }
@@ -200,7 +200,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     } else if (!strcmp(keyword, "cluster-end-hslot")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !REDIS_RAFT_VALID_HASH_SLOT(val)) {
+        if (*errptr != '\0' || !HashSlotValid(val)) {
             snprintf(errbuf, errbuflen-1, "invalid 'cluster-end-hslot' value");
             return RR_ERROR;
         }
