@@ -2179,6 +2179,12 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 {
     int alen;
 
+    /* Must be done on a leader */
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, NULL) == RR_ERROR) {
+        goto exit;
+    }
+
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     RedisModule_ReplyWithLongLong(req->ctx, rr->config->cluster_start_hslot);
@@ -2212,6 +2218,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
     }
 
     RedisModule_ReplySetArrayLength(req->ctx, alen);
+
+exit:
     RaftReqFree(req);
 }
 
