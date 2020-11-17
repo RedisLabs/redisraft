@@ -166,6 +166,14 @@ class RedisRaft(object):
         self.process.poll()
         return self.process.returncode is None
 
+    def verify_down(self, retries=50, retry_delay=0.1):
+        while retries > 0:
+            if not self.process_is_up():
+                return True
+            time.sleep(retry_delay)
+            retries -= 1
+        return False
+
     def verify_up(self):
         retries = self.up_timeout
         if retries is not None:
