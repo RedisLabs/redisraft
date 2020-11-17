@@ -34,6 +34,8 @@ OBJECTS = \
 	  redisraft.o \
 	  common.o \
 	  node.o \
+	  node_addr.o \
+	  join.o \
 	  util.o \
 	  config.o \
 	  raft.o \
@@ -42,7 +44,8 @@ OBJECTS = \
 	  proxy.o \
 	  serialization.o \
 	  cluster.o \
-	  crc16.o
+	  crc16.o \
+	  connection.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage

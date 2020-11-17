@@ -280,7 +280,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
     NodeDismissPendingResponse(node);
     if (!reply) {
         NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: connection dropped.\n");
-        NodeMarkDisconnected(node);
+        ConnMarkDisconnected(node->conn);
         return;
     }
     if (reply->type == REDIS_REPLY_ERROR) {
@@ -321,13 +321,13 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 {
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
-    if (!NODE_IS_CONNECTED(node)) {
+    if (!ConnIsConnected(node->conn)) {
         NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
-    if (redisAsyncCommand(node->rc, handleRequestVoteResponse,
+    if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
                 node, "RAFT.REQUESTVOTE %d %d %d:%d:%d:%d",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
@@ -355,7 +355,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     redisReply *reply = r;
     if (!reply) {
         NODE_TRACE(node, "RAFT.AE failed: connection dropped.\n");
-        NodeMarkDisconnected(node);
+        ConnMarkDisconnected(node->conn);
         return;
     }
     if (reply->type == REDIS_REPLY_ERROR) {
@@ -402,7 +402,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     char *argv[argc];
     size_t argvlen[argc];
 
-    if (!NODE_IS_CONNECTED(node)) {
+    if (!ConnIsConnected(node->conn)) {
         NODE_TRACE(node, "not connected, state=%s\n", NodeStateStr[node->state]);
         return 0;
     }
@@ -441,7 +441,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
         argv[6 + i*2] = e->data;
     }
 
-    if (redisAsyncCommandArgv(node->rc, handleAppendEntriesResponse,
+    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), handleAppendEntriesResponse,
                 node, argc, (const char **)argv, argvlen) != REDIS_OK) {
         NODE_TRACE(node, "failed appendentries");
     } else{
@@ -598,6 +598,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
         raft_entry_t *entry, raft_membership_e type)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+    RaftCfgChange *cfgchange;
     raft_node_id_t my_id = raft_get_nodeid(raft);
     Node *node;
 
@@ -613,13 +614,13 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
 
             /* Ignore our own node, as we don't maintain a Node structure for it */
             assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
-            RaftCfgChange *cfgchange = (RaftCfgChange *) entry->data;
+            cfgchange = (RaftCfgChange *) entry->data;
             if (cfgchange->id == my_id) {
                 break;
             }
 
             /* Allocate a new node */
-            node = NodeInit(cfgchange->id, &cfgchange->addr);
+            node = NodeCreate(rr, cfgchange->id, &cfgchange->addr);
             assert(node != NULL);
 
             addUsedNodeId(rr, cfgchange->id);
@@ -630,7 +631,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t
         case RAFT_MEMBERSHIP_REMOVE:
             node = raft_node_get_udata(raft_node);
             if (node != NULL) {
-                NodeMarkRemoved(node);
+                ConnAsyncTerminate(node->conn);
                 raft_node_set_udata(raft_node, NULL);
             }
             break;
@@ -920,6 +921,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
         return;
     }
 
+    HandleIdleConnections(rr);
     HandleNodeStates(rr);
 }
 
@@ -1869,11 +1871,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
         s = catsnprintf(s, &slen,
                 "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d,last_conn_secs=%ld,conn_errors=%lu,conn_oks=%lu\r\n",
-                i, node->id, NodeStateStr[node->state],
+                i, node->id, ConnGetStateStr(node->conn),
                 raft_node_is_voting(rnode) ? "yes" : "no",
                 node->addr.host, node->addr.port,
-                node->last_connected_time ? (now - node->last_connected_time)/1000 : -1,
-                node->connect_errors, node->connect_oks);
+                node->conn->last_connected_time ? (now - node->conn->last_connected_time)/1000 : -1,
+                node->conn->connect_errors, node->conn->connect_oks);
     }
 
     s = catsnprintf(s, &slen,
@@ -1959,14 +1961,11 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    assert(!rr->join_state);
-    rr->join_state = RedisModule_Calloc(1, sizeof(RaftJoinState));
-
-    rr->join_state->addr = req->r.cluster_join.addr;
-    req->r.cluster_join.addr = NULL;    /* We now own it in join_state! */
-
     /* Create a Snapshot Info meta-key */
     initializeSnapshotInfo(rr);
+
+    /* Initiate cluster join */
+    InitiateJoinCluster(rr, req->r.cluster_join.addr);
 
     rr->state = REDIS_RAFT_JOINING;
 

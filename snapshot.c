@@ -346,7 +346,7 @@ static int updateNodeFromSnapshot(RedisRaftCtx *rr, raft_node_t *node, SnapshotC
 
 static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
-    Node *n = NodeInit(cfg->id, &cfg->addr);
+    Node *n = NodeCreate(rr, cfg->id, &cfg->addr);
     raft_node_t *rn;
 
     if (cfg->voting) {
@@ -716,7 +716,7 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
     NodeDismissPendingResponse(node);
     if (!reply) {
         NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: connection dropped\n");
-        NodeMarkDisconnected(node);
+        ConnMarkDisconnected(node->conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT error: %s\n", reply->str);
     } else if (reply->type != REDIS_REPLY_INTEGER) {
@@ -768,12 +768,12 @@ static int snapshotSendData(Node *node)
     node->load_snapshot_in_progress = true;
     node->load_snapshot_last_time = now;
 
-    if (!NODE_IS_CONNECTED(node)) {
+    if (!ConnIsConnected(node->conn)) {
         node->load_snapshot_in_progress = false;
         return -1;
     }
 
-    if (redisAsyncCommandArgv(node->rc, handleLoadSnapshotResponse, node, 5, args, args_len) != REDIS_OK) {
+    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), handleLoadSnapshotResponse, node, 5, args, args_len) != REDIS_OK) {
         node->load_snapshot_in_progress = false;
         return -1;
     }
@@ -878,8 +878,8 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
             raft_get_snapshot_last_term(raft),
             raft_node_get_next_idx(raft_node));
 
-    if (!NODE_IS_CONNECTED(node)) {
-        NODE_LOG_ERROR(node, "not connected, state=%u\n", node->state);
+    if (!ConnIsConnected(node->conn)) {
+        NODE_LOG_ERROR(node, "not connected, state=%u\n", ConnGetStateStr(node->conn));
         return -1;
     }
 
