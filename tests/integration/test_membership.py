@@ -127,7 +127,7 @@ def test_full_cluster_remove(cluster):
 
     # make sure other nodes are down
     for node_id in (2, 3, 4, 5):
-        assert not cluster.node(node_id).process_is_up()
+        assert cluster.node(node_id).verify_down()
 
     # and make sure they start up in uninitialized state
     for node_id in (2, 3, 4, 5):
