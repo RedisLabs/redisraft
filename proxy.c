@@ -58,7 +58,7 @@ static void handleProxiedCommandResponse(redisAsyncContext *c, void *r, void *pr
          *
          * Ideally the connection should be dropped but Module API does not provide for that.
          */
-        NodeMarkDisconnected(req->r.redis.proxy_node);
+        ConnMarkDisconnected(req->r.redis.proxy_node->conn);
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT no reply from leader");
         redis_raft.proxy_failed_responses++;
         goto exit;
@@ -79,14 +79,15 @@ exit:
 RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
 {
     /* TODO: Fail if any key is watched. */
-    if (!leader->rc || !NODE_IS_CONNECTED(leader)) {
+    redisAsyncContext *rc;
+    if (!ConnIsConnected(leader->conn) || !(rc = ConnGetRedisCtx(leader->conn))) {
         redis_raft.proxy_failed_reqs++;
         return RR_ERROR;
     }
 
     req->r.redis.proxy_node = leader;
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
-    int ret = redisAsyncCommand(leader->rc, handleProxiedCommandResponse,
+    int ret = redisAsyncCommand(rc, handleProxiedCommandResponse,
         req, "RAFT.ENTRY %b", entry->data, entry->data_len);
     raft_entry_release(entry);
 
