@@ -128,7 +128,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     assert(rr->snapshot_in_progress);
 
-    TRACE("Finalizing snapshot.\n");
+    TRACE("Finalizing snapshot.");
 
     /* Rewrite any additional log entries beyond the snapshot to a new
      * log file.
@@ -138,12 +138,12 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
     if (!new_log) {
-        LOG_ERROR("Failed to open log after rewrite: %s\n", strerror(errno));
+        LOG_ERROR("Failed to open log after rewrite: %s", strerror(errno));
         cancelSnapshot(rr, sr);
         return -1;
     }
 
-    LOG_VERBOSE("Log rewrite complete, %lld entries rewritten (from idx %lu).\n",
+    LOG_VERBOSE("Log rewrite complete, %lu entries rewritten (from idx %lu).",
             num_log_entries, raft_get_snapshot_last_idx(rr->raft));
 
     /* We now have to switch temp files. We need to rename two files in a non-atomic
@@ -153,7 +153,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      */
 
     if (rename(sr->rdb_filename, rr->config->rdb_filename) < 0) {
-        LOG_ERROR("Failed to switch snapshot filename (%s to %s): %s\n",
+        LOG_ERROR("Failed to switch snapshot filename (%s to %s): %s",
                 sr->rdb_filename, rr->config->rdb_filename, strerror(errno));
         RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
@@ -184,21 +184,21 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
             return 0;
         }
 
-        LOG_ERROR("Failed to read snapshot result from child process: %s\n", strerror(errno));
+        LOG_ERROR("Failed to read snapshot result from child process: %s", strerror(errno));
         goto exit;
     }
 
     if (sr->magic != SNAPSHOT_RESULT_MAGIC) {
-        LOG_ERROR("Corrupted snapshot result (magic=%08x)\n", sr->magic);
+        LOG_ERROR("Corrupted snapshot result (magic=%08x)", sr->magic);
         goto exit;
     }
 
     if (!sr->success) {
-        LOG_ERROR("Snapshot failed: %s\n", sr->err);
+        LOG_ERROR("Snapshot failed: %s", sr->err);
         goto exit;
     }
 
-    LOG_VERBOSE("Snapshot created successfuly.\n");
+    LOG_VERBOSE("Snapshot created successfuly.");
     ret = 1;
 
 exit:
@@ -207,10 +207,10 @@ exit:
         assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
 
         if (ret == 1) {
-            LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.\n");
+            LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.");
             RedisModule_ReplyWithSimpleString(rr->debug_req->ctx, "OK");
         } else {
-            LOG_DEBUG("RAFT.DEBUG COMPACT failed: %s\n", sr->err);
+            LOG_DEBUG("RAFT.DEBUG COMPACT failed: %s", sr->err);
             RedisModule_ReplyWithError(rr->debug_req->ctx, sr->err);
         }
         RaftReqFree(rr->debug_req);
@@ -230,22 +230,22 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     }
 
     if (snapshotSendInProgress(rr) > 0) {
-        LOG_DEBUG("Delaying snapshot as snapshot delivery is in progress.\n");
+        LOG_DEBUG("Delaying snapshot as snapshot delivery is in progress.");
         return RR_ERROR;
     }
 
     if (rr->debug_req) {
         assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
-        LOG_DEBUG("Initiating RAFT.DEBUG COMPACT initiated snapshot.\n");
+        LOG_DEBUG("Initiating RAFT.DEBUG COMPACT initiated snapshot.");
     } else {
-        LOG_DEBUG("Initiating snapshot.\n");
+        LOG_DEBUG("Initiating snapshot.");
     }
 
     if (raft_begin_snapshot(rr->raft, RAFT_SNAPSHOT_NONBLOCKING_APPLY) < 0) {
-        LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.\n");
+        LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.");
         return RR_ERROR;
     }
-    LOG_DEBUG("Snapshot scope: first_entry_idx=%lu, current_idx=%lu\n",
+    LOG_DEBUG("Snapshot scope: first_entry_idx=%lu, current_idx=%lu",
             raft_get_first_entry_idx(rr->raft),
             raft_get_current_idx(rr->raft));
 
@@ -266,34 +266,31 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     int snapshot_fds[2];    /* [0] our side, [1] child's side */
     if (pipe(snapshot_fds) < 0) {
-        LOG_ERROR("Failed to create snapshot child pipe: %s\n", strerror(errno));
+        LOG_ERROR("Failed to create snapshot child pipe: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     }
 
     rr->snapshot_child_fd = snapshot_fds[0];
     if (fcntl(rr->snapshot_child_fd, F_SETFL, O_NONBLOCK) < 0) {
-        LOG_ERROR("Failed to prepare child pipe: %s\n", strerror(errno));
+        LOG_ERROR("Failed to prepare child pipe: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     }
 
     /* Flush stdio files to avoid leaks from child */
-    fflush(redis_raft_logfile);
     if (rr->log) {
         RaftLogSync(rr->log);
     }
 
     pid_t child = RedisModule_Fork(NULL, NULL);
     if (child < 0) {
-        LOG_ERROR("Failed to fork snapshot child: %s\n", strerror(errno));
+        LOG_ERROR("Failed to fork snapshot child: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     } else if (!child) {
         /* Report result */
         SnapshotResult sr = { 0 };
-
-        redis_raft_logfile = NULL;
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
@@ -357,9 +354,10 @@ static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 
     assert(rn != NULL);
 
-    LOG_DEBUG("Snapshot Load: adding node %d: %s: voting=%s\n",
+    LOG_DEBUG("Snapshot Load: adding node %d: %s:%d: voting=%s",
         cfg->id,
-        cfg->addr,
+        cfg->addr.host,
+        cfg->addr.port,
         cfg->voting ? "yes" : "no");
 }
 
@@ -399,17 +397,17 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
 static int loadSnapshot(RedisRaftCtx *rr)
 {
     if (!rr->snapshot_info.loaded) {
-        LOG_ERROR("No snapshot metadata received, aborting.\n");
+        LOG_ERROR("No snapshot metadata received, aborting.");
         return -1;
     }
 
-    LOG_DEBUG("Beginning snapshot load, term=%lu, last_included_index=%lu\n",
+    LOG_DEBUG("Beginning snapshot load, term=%lu, last_included_index=%lu",
             rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
 
     if (raft_begin_load_snapshot(rr->raft, rr->snapshot_info.last_applied_term,
                                  rr->snapshot_info.last_applied_idx) != 0) {
-        LOG_ERROR("Cannot load snapshot: already loaded?\n");
+        LOG_ERROR("Cannot load snapshot: already loaded?");
         return -1;
     }
 
@@ -428,7 +426,7 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     int fd = open(rr->config->rdb_filename, O_CREAT|O_TRUNC|O_RDWR, 0666);
 
     if (fd < 0) {
-        LOG_ERROR("Failed to open snapshot file: %s: %s\n",
+        LOG_ERROR("Failed to open snapshot file: %s: %s",
                 rr->config->rdb_filename, strerror(errno));
         return RR_ERROR;
     }
@@ -436,17 +434,17 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
     int r = write(fd, data, data_len);
     if (r < data_len) {
         if (r < 0) {
-            LOG_ERROR("Failed to write snapshot file: %s: %s\n", rr->config->rdb_filename,
+            LOG_ERROR("Failed to write snapshot file: %s: %s", rr->config->rdb_filename,
                     strerror(errno));
         } else {
-            LOG_ERROR("Short write on snapshot file: %s\n", rr->config->rdb_filename);
+            LOG_ERROR("Short write on snapshot file: %s", rr->config->rdb_filename);
         }
         close(fd);
 
         return RR_ERROR;
     }
 
-    LOG_DEBUG("Saved received snapshot to file: %s, %lu bytes\n",
+    LOG_DEBUG("Saved received snapshot to file: %s, %lu bytes",
             rr->config->rdb_filename, data_len);
 
     return RR_OK;
@@ -463,20 +461,20 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
      */
     raft_node_t *leader = raft_get_current_leader_node(rr->raft);
     if (leader && raft_node_get_id(leader) == raft_get_nodeid(rr->raft)) {
-        LOG_VERBOSE("Skipping RAFT.LOADSNAPSHOT as I am the leader.\n");
+        LOG_VERBOSE("Skipping RAFT.LOADSNAPSHOT as I am the leader.");
         RedisModule_ReplyWithError(req->ctx, "ERR leader does not accept snapshots");
         goto exit;
     }
 
     if (rr->snapshot_in_progress) {
-        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress.\n");
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT because of snapshot in progress.");
         RedisModule_ReplyWithError(req->ctx, "ERR snapshot is in progress");
         goto exit;
     }
 
     /* Verify snapshot term */
     if (req->r.loadsnapshot.term < raft_get_current_term(rr->raft)) {
-        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with old term %d\n",
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with old term %ld",
             req->r.loadsnapshot.term);
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         goto exit;
@@ -484,14 +482,14 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 
     /* Verify snapshot index and term before attempting to load it. */
     if (req->r.loadsnapshot.idx < raft_get_last_applied_idx(rr->raft)) {
-        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, already applied %d\n",
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, already applied %ld",
             req->r.loadsnapshot.idx, raft_get_last_applied_idx(rr->raft));
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         goto exit;
     }
 
     if (req->r.loadsnapshot.idx < raft_get_current_idx(rr->raft)) {
-        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, current idx is %ld\n",
+        LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with index %ld, current idx is %ld",
             req->r.loadsnapshot.idx, raft_get_current_idx(rr->raft));
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         goto exit;
@@ -499,7 +497,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
 
     if (req->r.loadsnapshot.term == raft_get_snapshot_last_term(rr->raft) &&
         req->r.loadsnapshot.idx == raft_get_snapshot_last_idx(rr->raft)) {
-            LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with identical term %ld index %ld\n",
+            LOG_VERBOSE("Skipping queued RAFT.LOADSNAPSHOT with identical term %ld index %ld",
                 raft_get_snapshot_last_term(rr->raft),
                 raft_get_snapshot_last_idx(rr->raft));
             RedisModule_ReplyWithLongLong(req->ctx, 0);
@@ -518,7 +516,7 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
     if (rdbLoad(rr->config->rdb_filename, NULL, 0) != 0 ||
             !rr->snapshot_info.loaded ||
             loadSnapshot(rr) < 0) {
-        LOG_ERROR("Failed to load snapshot\n");
+        LOG_ERROR("Failed to load snapshot");
         RedisModule_ReplyWithError(req->ctx, "ERR failed to load snapshot");
         RedisModule_ThreadSafeContextUnlock(rr->ctx);
         goto exit;
@@ -715,20 +713,20 @@ static void handleLoadSnapshotResponse(redisAsyncContext *c, void *r, void *priv
 
     NodeDismissPendingResponse(node);
     if (!reply) {
-        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: connection dropped\n");
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT failure: connection dropped");
         ConnMarkDisconnected(node->conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
-        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT error: %s\n", reply->str);
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT error: %s", reply->str);
     } else if (reply->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT invalid response type\n");
+        NODE_LOG_ERROR(node, "RAFT.LOADSNAPSHOT invalid response type");
     } else {
-        NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld\n",
+        NODE_LOG_DEBUG(node, "RAFT.LOADSNAPSHOT response %lld",
                 reply->integer);
         raft_node_t *n = raft_get_node(rr->raft, node->id);
         if (n != NULL) {
             raft_node_set_next_idx(n, node->load_snapshot_idx + 1);
         } else {
-            NODE_LOG_DEBUG(node, "Node %d no longer exists, not updating next_idx\n",
+            NODE_LOG_DEBUG(node, "Node %d no longer exists, not updating next_idx",
                     node->id);
         }
     }
@@ -780,7 +778,7 @@ static int snapshotSendData(Node *node)
 
     NodeAddPendingResponse(node, false);
 
-    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld\n",
+    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld",
                 node->snapshot_size, raft_get_snapshot_last_term(rr->raft),
                 raft_get_snapshot_last_idx(rr->raft));
     return 0;
@@ -806,7 +804,7 @@ static void snapshotOnRead(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (req->result == node->snapshot_size && snapshotSendData(node) == 0) {
-        NODE_LOG_DEBUG(node, "Loaded snapshot: %s: %lu bytes\n",
+        NODE_LOG_DEBUG(node, "Loaded snapshot: %s: %lu bytes",
                 rr->config->rdb_filename, node->snapshot_size);
     }
 
@@ -821,7 +819,7 @@ static void snapshotOnOpen(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (req->result < 0) {
-        NODE_LOG_DEBUG(node, "Failed to deliver snapshot: open: %s\n",
+        NODE_LOG_DEBUG(node, "Failed to deliver snapshot: open: %s",
                 uv_strerror(req->result));
         node->load_snapshot_in_progress = false;
         return;
@@ -829,7 +827,7 @@ static void snapshotOnOpen(uv_fs_t *req)
 
     node->uv_snapshot_file = req->result;
     if (uv_fs_fstat(req->loop, (uv_fs_t *) &stat_req, node->uv_snapshot_file, NULL) < 0) {
-        NODE_LOG_DEBUG(node, "Failed to delivery snapshot: open: %s\n",
+        NODE_LOG_DEBUG(node, "Failed to delivery snapshot: open: %s",
                 uv_strerror(req->result));
         cleanSnapshotDelivery(node);
         return;
@@ -860,7 +858,7 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
 
     /* Don't attempt to send a snapshot if we're in the process of creating one */
     if (rr->snapshot_in_progress) {
-        NODE_LOG_DEBUG(node, "not sending snapshot, snapshot_in_progress\n");
+        NODE_LOG_DEBUG(node, "not sending snapshot, snapshot_in_progress");
         return -1;
     }
 
@@ -873,13 +871,13 @@ int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_nod
         return -1;
     }
 
-    NODE_LOG_DEBUG(node, "raftSendSnapshot: snapshot_last_idx %ld term %ld, node next_idx %ld\n",
+    NODE_LOG_DEBUG(node, "raftSendSnapshot: snapshot_last_idx %ld term %ld, node next_idx %ld",
             raft_get_snapshot_last_idx(raft),
             raft_get_snapshot_last_term(raft),
             raft_node_get_next_idx(raft_node));
 
     if (!ConnIsConnected(node->conn)) {
-        NODE_LOG_ERROR(node, "not connected, state=%u\n", ConnGetStateStr(node->conn));
+        NODE_LOG_ERROR(node, "not connected, state=%s", ConnGetStateStr(node->conn));
         return -1;
     }
 
