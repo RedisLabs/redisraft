@@ -216,16 +216,14 @@ For example, if you're creating three equal shards you may use:
   cluster 3.
 
 After creating the three clusters, you will need to configure each cluster to
-recognize the other two clusters as external shardgroups. To do that, use the
-command:
+recognize the other two clusters as external shardgroups. We refer to this
+operation as *shardgroup linking*.
 
-    redis-cli -h <cluster-1-node> -p <cluster-1-port> RAFT.SHARDGROUP GET
+For every cluster, you need to issue RAFT.SHARDGROUP LINK with the address of
+a node in the foreign cluster. For example:
 
-To fetch the configuration of RedisRaft cluster 1. Then, use the returned
-configuration string to configure clusters two and three:
-
-    redis-cli -h <cluster-2-node> -p <cluster-2-port> RAFT.SHARDGROUP ADD <config>
-    redis-cli -h <cluster-3-node> -p <cluster-3-port> RAFT.SHARDGROUP ADD <config>
+    redis-cli -h <cluster-1-node> -p <cluster-1-port> RAFT.SHARDGROUP LINK <cluster-2-node>:<cluster-2-port>
+    redis-cli -h <cluster-1-node> -p <cluster-1-port> RAFT.SHARDGROUP LINK <cluster-3-node>:<cluster-3-port>
 
 This should be repeated for all clusters.
 
@@ -267,8 +265,7 @@ configured yet. To do that, we run:
 
 This will set up the different RedisRaft clusters by executing `RAFT.CLUSTER
 INIT` and `RAFT.CLUSTER JOIN` on all clusters. Once the clusters are set up, the
-script will get shardgroup configuration using `RAFT.SHARDGROUP GET` and
-propagate it to other clusters using `RAFT.SHARDGROUP ADD`.
+script will perform shardgroup linking using `RAFT.SHARDGROUP LINK`.
 
 When this is done, our setup is ready. We can attempt to connect to random
 clusters and nodes:

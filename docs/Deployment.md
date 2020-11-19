@@ -370,3 +370,10 @@ See [Clustering](Cluster.md) for more information on clustering and sharding.
 Valid values for this setting are 0-16383.
 
 *Default: 16383*
+
+### `shardgroup-update-interval`
+
+The interval (in milliseconds) between attempts to refresh shardgroup configuration
+of foreign shardgroup clusters.
+
+*Default: 5000*

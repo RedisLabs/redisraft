@@ -32,27 +32,6 @@ typedef struct JoinState {
     Connection *conn;
 } JoinState;
 
-/* Parse a -MOVED reply and update the returned address in addr.
- * Both standard Redis Cluster reply (with the hash slot) or the simplified
- * RedisRaft reply are supported.
- */
-static bool parseMovedReply(const char *str, NodeAddr *addr)
-{
-    /* -MOVED 0 1.1.1.1:1 or -MOVED 1.1.1.1:1 */
-    if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))
-        return false;
-
-    const char *tok = str + 6;
-    const char *tok2;
-
-    /* Handle current or cluster-style -MOVED replies. */
-    if ((tok2 = strchr(tok, ' ')) == NULL) {
-        return NodeAddrParse(tok, strlen(tok), addr);
-    } else {
-        return NodeAddrParse(tok2, strlen(tok2), addr);
-    }
-}
-
 /* Callback for the RAFT.NODE ADD command.
  */
 static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
@@ -123,6 +102,8 @@ static void sendNodeAddRequest(Connection *conn)
     }
 }
 
+/* Invoked when the connection is terminated.
+ */
 void joinFreeCallback(void *privdata)
 {
     JoinState *state = (JoinState *) privdata;
