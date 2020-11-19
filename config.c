@@ -205,6 +205,14 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->cluster_end_hslot = (int)val;
+    } else if (!strcmp(keyword, "shardgroup-update-interval")) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val < 0) {
+            snprintf(errbuf, errbuflen-1, "invalid 'shardgroup-update-interval' value");
+            return RR_ERROR;
+        }
+        target->shardgroup_update_interval = (int) val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -363,6 +371,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, "cluster-end-hslot", config->cluster_end_hslot);
     }
+    if (stringmatch(pattern, "shardgroup-update-interval", 1)) {
+        len++;
+        replyConfigInt(ctx, "shardgroup-update-interval", config->shardgroup_update_interval);
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -385,6 +397,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->cluster_mode = false;
     config->cluster_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
     config->cluster_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
+    config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
 }
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)

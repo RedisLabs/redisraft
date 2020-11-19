@@ -36,7 +36,7 @@ const char *RaftReqTypeStr[] = {
 /* Forward declarations */
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
-static void applyAddShardGroup(RedisRaftCtx *rr, raft_entry_t *entry);
+static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
 static RaftReqHandler RaftReqHandlers[];
 
 static bool processExiting = false;
@@ -518,8 +518,8 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             executeLogEntry(rr, entry, entry_idx);
             break;
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
-            applyAddShardGroup(rr, entry);
-            break;
+        case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
+            applyShardGroupChange(rr, entry);
         default:
             break;
     }
@@ -908,6 +908,11 @@ static void callRaftPeriodic(uv_timer_t *handle)
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
                 rr->log->file_size);
         initiateSnapshot(rr);
+    }
+
+    /* Call cluster */
+    if (rr->config->cluster_mode) {
+        ClusterPeriodicCall(rr);
     }
 }
 
@@ -1702,7 +1707,7 @@ static RRStatus handleClustering(RedisRaftCtx *rr, RaftReq *req)
      * last refresh (when refresh is implemented, in the future).
      */
     if (sgid != 1) {
-        ShardGroup *sg = &rr->sharding_info->shard_groups[sgid-1];
+        ShardGroup *sg = rr->sharding_info->shard_groups[sgid-1];
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
         replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
@@ -2084,7 +2089,7 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
     }
 }
 
-/* Apply a RAFT_LOGTYPE_ADD_SHARDGROUP log entry by deserializing its payload and
+/* Apply a SHARDGROUP Add and Update log entries by deserializing the payload and
  * updating the in-memory shardgroup configuration.
  *
  * If the entry holds a user_data pointing to a RaftReq, this implies we're
@@ -2092,7 +2097,7 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
  * persisted log, or through AppendEntries). In that case, we also need to
  * generate the reply as the client is blocked waiting for it.
  */
-void applyAddShardGroup(RedisRaftCtx *rr, raft_entry_t *entry)
+void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     ShardGroup sg;
     RRStatus ret;
@@ -2103,8 +2108,18 @@ void applyAddShardGroup(RedisRaftCtx *rr, raft_entry_t *entry)
         return;
     }
 
-    if ((ret = ShardingInfoAddShardGroup(rr, &sg)) != RR_OK)
-        LOG_ERROR("Failed to add a shardgroup");
+    switch (entry->type) {
+        case RAFT_LOGTYPE_ADD_SHARDGROUP:
+            if ((ret = ShardingInfoAddShardGroup(rr, &sg)) != RR_OK)
+                LOG_ERROR("Failed to add a shardgroup");
+            break;
+        case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
+            if ((ret = ShardingInfoUpdateShardGroup(rr, &sg)) != RR_OK)
+                LOG_ERROR("Failed to update shardgroup");
+            break;
+        default:
+            break;
+    }
 
     ShardGroupFree(&sg);
 
@@ -2142,30 +2157,13 @@ void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    /* Serialize the shardgroup */
-    char *payload = ShardGroupSerialize(&req->r.shardgroup_add);
-    if (!payload)
-        goto exit;
+    if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+                                 RAFT_LOGTYPE_ADD_SHARDGROUP, req) == RR_ERROR) goto exit;
 
-    /* Set up a Raft log entry */
-    raft_entry_t *entry = raft_entry_new(strlen(payload));
-    entry->type = RAFT_LOGTYPE_ADD_SHARDGROUP;
-    entry->id = rand();
-    entryAttachRaftReq(rr, entry, req); /* So we can produce a reply */
-    memcpy(entry->data, payload, strlen(payload));
-    RedisModule_Free(payload);
-
-    /* Submit */
-    msg_entry_response_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
-    if (e != 0) {
-        replyRaftError(req->ctx, e);
-    }
-
-    raft_entry_release(entry);
     return;
 
 exit:
+    RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
     RaftReqFree(req);
 }
 
@@ -2238,5 +2236,6 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
+    handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
     NULL
 };

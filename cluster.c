@@ -65,7 +65,7 @@ char *ShardGroupSerialize(ShardGroup *sg)
     char *buf = RedisModule_Calloc(1, buf_size);
     char *p = buf;
 
-    p = catsnprintf(p, &buf_size, "%u:%u:%u\n", sg->start_slot, sg->end_slot, sg->nodes_num);
+    p = catsnprintf(p, &buf_size, "%u:%u:%u:%u\n", sg->id, sg->start_slot, sg->end_slot, sg->nodes_num);
     for (int i = 0; i < sg->nodes_num; i++) {
         NodeAddr *addr = &sg->nodes[i].addr;
         p = catsnprintf(p, &buf_size, "%s:%s:%d\n", sg->nodes[i].node_id, addr->host, addr->port);
@@ -92,7 +92,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 
     memset(sg, 0, sizeof(*sg));
 
-    if (sscanf(s, "%u:%u:%u", &sg->start_slot, &sg->end_slot, &sg->nodes_num) != 3)
+    if (sscanf(s, "%u:%u:%u:%u", &sg->id, &sg->start_slot, &sg->end_slot, &sg->nodes_num) != 4)
         goto error;
     s = nl + 1;
 
@@ -100,7 +100,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     for (int i = 0; i < sg->nodes_num; i++) {
         ShardGroupNode *n = &sg->nodes[i];
 
-        char *nl = strchr(s, '\n');
+        nl = strchr(s, '\n');
         if (!nl) goto error;
         *nl = '\0';
 
@@ -129,13 +129,310 @@ error:
     return RR_ERROR;
 }
 
+/* Initialize a (previously allocated) sharegroup structure.
+ * Basically just zero-initializing everything, but a place holder
+ * for the future.
+ */
+void ShardGroupInit(ShardGroup *sg) {
+    memset(sg, 0, sizeof(ShardGroup));
+}
+
 /* Free internal allocations of a ShardGroup.
  */
 void ShardGroupFree(ShardGroup *sg)
 {
+    if (sg->conn) {
+        ConnAsyncTerminate(sg->conn);
+        sg->conn = NULL;
+    }
+
     if (sg->nodes) {
         RedisModule_Free(sg->nodes);
         sg->nodes = NULL;
+    }
+}
+
+/* -----------------------------------------------------------------------------
+ * ShardGroup synchronization
+ * -------------------------------------------------------------------------- */
+
+/* Compare two shardgroup entities and return an integer less than, equal
+ * or greater than zero following common convention.
+ *
+ * FIXME: We currently only compare node configuration! This is because all
+ *        shardgroup configuration changes are expected to only involve nodes
+ *        anyway.
+ */
+int compareShardGroups(ShardGroup *a, ShardGroup *b)
+{
+    if (a->nodes_num != b->nodes_num) {
+        return a->nodes_num - b->nodes_num;
+    }
+
+    for (int i = 0; i < a->nodes_num; i++) {
+        int ret = strcmp(a->nodes[i].node_id, b->nodes[i].node_id);
+        if (ret != 0) {
+            return ret;
+        }
+
+        ret = strcmp(a->nodes[i].addr.host, b->nodes[i].addr.host);
+        if (ret != 0) {
+            return ret;
+        }
+
+        if (a->nodes[i].addr.port != b->nodes[i].addr.port) {
+            return a->nodes[i].addr.port - b->nodes[i].addr.port;
+        }
+    }
+
+    return 0;
+}
+
+/* Parse the reply of a RAFT.SHARDGROUP GET command, expressed
+ * as a hiredis redisReply struct, and returns a ShardGroup object.
+ *
+ * This implements the same logic as ShardGroupParse() but operates
+ * on a hiredis reply and not a RedisModuleString argv.
+ */
+RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
+{
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 3) {
+        return RR_ERROR;
+    }
+
+    /* Start and end slots */
+    if (reply->element[0]->type != REDIS_REPLY_INTEGER ||
+        reply->element[1]->type != REDIS_REPLY_INTEGER) {
+        return RR_ERROR;
+    }
+
+    /* Validate node arguments count is correct */
+    int num_nodes = (reply->elements - 2) / 2;
+    if ((reply->elements - 2) != num_nodes * 2) {
+        return RR_ERROR;
+    }
+    int elemidx = 2; /* Next element to consume */
+
+    sg->start_slot = reply->element[0]->integer;
+    sg->end_slot = reply->element[1]->integer;
+    sg->nodes_num = num_nodes;
+    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * num_nodes);
+
+    /* Parse nodes */
+    for (int i = 0; i < num_nodes; i++) {
+        redisReply *elem = reply->element[elemidx++];
+
+        if (elem->type != REDIS_REPLY_STRING ||
+            elem->len != RAFT_SHARDGROUP_NODEID_LEN) {
+            goto error;
+        }
+
+        memcpy(sg->nodes[i].node_id, elem->str, elem->len);
+        sg->nodes[i].node_id[elem->len] = '\0';
+
+        /* Advance to node address and port */
+        elem = reply->element[elemidx++];
+        if (elem->type != REDIS_REPLY_STRING ||
+            !NodeAddrParse(elem->str, elem->len, &sg->nodes[i].addr)) {
+            goto error;
+        }
+    }
+
+    return RR_OK;
+
+error:
+    RedisModule_Free(sg->nodes);
+    sg->nodes = NULL;
+
+    return RR_ERROR;
+}
+
+/* Create and append a shardgroup update log entry to the Raft log.
+ *
+ * We handle both RAFT_LOGTYPE_UPDATE_SHARDGROUP and RAFT_LOGTYPE_ADD_SHARDGROUP.
+ *
+ * The caller may specify a user_data value, so in case the operation has
+ * a bound RaftReq and a client waiting for acknowledgements it will be handled.
+ */
+RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, void *user_data)
+{
+    /* Make sure we're still a leader, could have changed... */
+    if (!raft_is_leader(rr->raft)) {
+        return RR_ERROR;
+    }
+
+    /* Serialize */
+    char *payload = ShardGroupSerialize(sg);
+    if (!payload) {
+        return RR_ERROR;
+    }
+
+    raft_entry_t *entry = raft_entry_new(strlen(payload));
+    entry->type = type;
+    entry->id = rand();
+    entry->user_data = user_data;
+    memcpy(entry->data, payload, strlen(payload));
+    RedisModule_Free(payload);
+
+    /* Submit */
+    msg_entry_response_t response;
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    raft_entry_release(entry);
+
+    if (e != 0) {
+        LOG_ERROR("Failed to append shardgroup entry, error %d", e);
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
+/* A hiredis callback that handles the Redis reply after sending a
+ * RAFT.SHARDGROUP GET command.
+ *
+ * FIXME: Some error handling paths may not be accurate and may require
+ *        some cleanup here.
+ */
+
+static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    UNUSED(c);
+
+    redisReply *reply = r;
+    Connection *conn = (Connection *) privdata;
+    ShardGroup *sg = ConnGetPrivateData(conn);
+
+    if (!reply) {
+        LOG_ERROR("RAFT.SHARDGROUP GET failed: connection dropped.");
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        /* -MOVED? */
+        if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
+            if (!parseMovedReply(reply->str, &sg->conn_addr)) {
+                LOG_ERROR("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
+            } else {
+                LOG_VERBOSE("RAFT.SHARDGROUP GET redirected to leader: %s:%d",
+                            sg->conn_addr.host, sg->conn_addr.port);
+                sg->use_conn_addr = true;
+            }
+        } else {
+            LOG_ERROR("RAFT.SHARDGROUP GET failed: %s", reply->str);
+        }
+    } else {
+        ShardGroup recv_sg;
+        if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
+            LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
+        } else {
+            LOG_INFO("Received shardgroup reply for %u!", sg->id);
+            sg->use_conn_addr = true;
+            sg->last_updated = RedisModule_Milliseconds();
+            sg->update_in_progress = false;
+
+            /* Issue update */
+            recv_sg.id = sg->id;    /* Copy ID to allow correlation */
+            if (compareShardGroups(sg, &recv_sg) != 0) {
+                ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
+                                         RAFT_LOGTYPE_UPDATE_SHARDGROUP, NULL);
+            }
+            ShardGroupFree(&recv_sg);
+
+            return;
+        }
+    }
+
+    /* Mark connection as disconnected and prepare to connect to another
+     * node.
+     */
+    ConnMarkDisconnected(conn);
+}
+
+/* Issue a RAFT.SHARDGROUP GET command on an active connection and register
+ * a callback to process the reply.
+ */
+static void sendShardGroupRequest(Connection *conn)
+{
+    /* Failed to connect? Advance node_idx to attempt another node. */
+    if (!ConnIsConnected(conn)) {
+        return;
+    }
+
+    /* Request configuration */
+    redisAsyncContext *rc = ConnGetRedisCtx(conn);
+    if (redisAsyncCommand(rc, handleShardGroupResponse, conn,
+                "RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
+
+        redisAsyncDisconnect(rc);
+        ConnMarkDisconnected(conn);
+        return;
+    }
+
+    /* We'll be back with handleShardGroupResponse */
+}
+
+/* Initiate a connection using an existing Connection object already
+ * associated with a shardgroup.
+ *
+ * This is called periodically as an idle callback to address the
+ * initial connection and future re-connects.
+ */
+static void establishShardGroupConn(Connection *conn)
+{
+    ShardGroup *sg = ConnGetPrivateData(conn);
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+    NodeAddr *addr;
+
+    /* Only establish the connection if we're a leader, and if it's already
+     * time to update.
+     */
+    if (!raft_is_leader(rr->raft) ||
+        RedisModule_Milliseconds() - sg->last_updated < rr->config->shardgroup_update_interval) {
+       return;
+    }
+
+    if (sg->use_conn_addr) {
+        addr = &sg->conn_addr;
+    } else {
+        if (sg->node_conn_idx >= sg->nodes_num) {
+            sg->node_conn_idx = 0;
+        }
+        addr = &sg->nodes[sg->node_conn_idx++].addr;
+    }
+
+    LOG_DEBUG("Initiating shardgroup(%u) connection to %s:%u", sg->id, addr->host, addr->port);
+    sg->update_in_progress = true;
+    ConnConnect(conn, addr, sendShardGroupRequest);
+
+    /* Disable use_conn_addr, as by default we'll try the next address on a
+     * reconnect. It will be reset to true if the connection was successful, or
+     * if conn_addr was populated by a -MOVED reply.
+     */
+    sg->use_conn_addr = false;
+}
+
+/* Called periodically by the main loop when cluster mode is enabled.
+ *
+ * Currently we use this to iterate all shardgroups and trigger an
+ * update for shardgroups that have not been updated recently.
+ */
+void ClusterPeriodicCall(RedisRaftCtx *rr)
+{
+    /* See if we have any shardgroups that need a refresh.
+     */
+
+    if (!raft_is_leader(rr->raft)) {
+        return;
+    }
+
+    long long mstime = RedisModule_Milliseconds();
+
+    ShardingInfo *si = rr->sharding_info;
+    for (int i = 0; i < si->shard_groups_num; i++) {
+        ShardGroup *sg = si->shard_groups[i];
+        if (!sg->nodes_num || !sg->conn || mstime - sg->last_updated < rr->config->shardgroup_update_interval ||
+            !ConnIsConnected(sg->conn) || sg->update_in_progress) {
+            continue;
+        }
+
+        sendShardGroupRequest(sg->conn);
     }
 }
 
@@ -163,8 +460,9 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
     /* When saving, skip shardgroup #1 which is the local cluster */
     RedisModule_SaveUnsigned(rdb, si->shard_groups_num - 1);
     for (int i = 1; i < si->shard_groups_num; i++) {
-        ShardGroup *sg = &si->shard_groups[i];
+        ShardGroup *sg = si->shard_groups[i];
 
+        RedisModule_SaveUnsigned(rdb, sg->id);
         RedisModule_SaveUnsigned(rdb, sg->start_slot);
         RedisModule_SaveUnsigned(rdb, sg->end_slot);
         RedisModule_SaveUnsigned(rdb, sg->nodes_num);
@@ -221,6 +519,9 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
     for (int i = 0; i < rdb_shard_groups_num; i++) {
         ShardGroup sg;
 
+        ShardGroupInit(&sg);
+
+        sg.id = RedisModule_LoadUnsigned(rdb);
         sg.start_slot = RedisModule_LoadUnsigned(rdb);
         sg.end_slot = RedisModule_LoadUnsigned(rdb);
         sg.nodes_num = RedisModule_LoadUnsigned(rdb);
@@ -285,6 +586,28 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     return RR_OK;
 }
 
+/* Update an existing ShardGroup in the active ShardingInfo.
+ *
+ * FIXME: We currently only handle updating nodes but don't support remapping
+ *        hash slots.
+ */
+
+RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
+{
+    ShardingInfo *si = rr->sharding_info;
+
+    if (new_sg->id < 1 || new_sg->id > si->shard_groups_num)
+        return RR_ERROR;
+
+    ShardGroup *sg = si->shard_groups[new_sg->id - 1];
+
+    sg->nodes_num = new_sg->nodes_num;
+    sg->nodes = RedisModule_Realloc(sg->nodes, sizeof(ShardGroupNode) * sg->nodes_num);
+    memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * sg->nodes_num);
+
+    return RR_OK;
+}
+
 /* Add a new ShardGroup to the active ShardingInfo. Validation is done according to
  * ShardingInfoValidateShardGroup() above.
  */
@@ -298,19 +621,30 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
         return RR_ERROR;
 
     si->shard_groups_num++;
-    si->shard_groups = RedisModule_Realloc(si->shard_groups, sizeof(ShardGroup) * si->shard_groups_num);
+    si->shard_groups = RedisModule_Realloc(si->shard_groups, sizeof(ShardGroup *) * si->shard_groups_num);
 
-    ShardGroup *sg = &si->shard_groups[si->shard_groups_num-1];
+    ShardGroup *sg = si->shard_groups[si->shard_groups_num-1] = RedisModule_Alloc(sizeof(ShardGroup));
+    sg->id = si->shard_groups_num;
     sg->start_slot = new_sg->start_slot;
     sg->end_slot = new_sg->end_slot;
     sg->nodes_num = new_sg->nodes_num;
     sg->next_redir = 0;
+    sg->use_conn_addr = false;
+    sg->node_conn_idx = 0;
+    sg->conn = NULL;
     sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * new_sg->nodes_num);
     memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
 
     /* Do slot mapping */
     for (int i = new_sg->start_slot; i <= new_sg->end_slot; i++) {
         si->hash_slots_map[i] = si->shard_groups_num;
+    }
+
+    /* Create a connection object for syncing. We assume that if nodes_num is zero
+     * this is the shardgroup entry for our local cluster so it can be skipped.
+     * */
+    if (sg->nodes_num > 0) {
+        sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL);
     }
 
     return RR_OK;
@@ -329,7 +663,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 {
     long long start_slot, end_slot;
 
-    memset(sg, 0, sizeof(*sg));
+    ShardGroupInit(sg);
 
     /* Slot range */
     if (RedisModule_StringToLongLong(argv[0], &start_slot) != REDISMODULE_OK ||
@@ -399,8 +733,9 @@ void ShardingInfoReset(RedisRaftCtx *rr)
     ShardingInfo *si = rr->sharding_info;
 
     for (int i = 0; i < si->shard_groups_num; i++) {
-        ShardGroup *sg = &si->shard_groups[i];
-        ShardGroupFree(sg);
+        ShardGroupFree(si->shard_groups[i]);
+        RedisModule_Free(si->shard_groups[i]);
+        si->shard_groups[i] = NULL;
     }
 
     if (si->shard_groups)
@@ -580,6 +915,8 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
  */
 static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, ShardGroupNode *sgn)
 {
+    UNUSED(rr);
+
     /* Create a three-element reply:
      * 1) Address
      * 2) Port
@@ -616,7 +953,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithArray(req->ctx, si->shard_groups_num);
 
     for (int i = 0; i < si->shard_groups_num; i++) {
-        ShardGroup *sg = &si->shard_groups[i];
+        ShardGroup *sg = si->shard_groups[i];
 
         /* Dump Raft nodes now. Leader (master) first, followed by others */
         RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -683,4 +1020,198 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
 
 exit:
     RaftReqFree(req);
+}
+
+/* -----------------------------------------------------------------------------
+ * ShardGroup Link Implementation
+ * -------------------------------------------------------------------------- */
+
+/* The state we track when performing a RAFT.SHARDGROUP LINK operation.
+ * It is short lived until the operation is complete and a response is
+ * returned to the user.
+ */
+typedef struct ShardGroupLinkState {
+    NodeAddrListElement *addr;          /* Address list to try */
+    NodeAddrListElement *addr_iter;     /* Current iterator in list */
+    Connection *conn;                   /* Connection we use */
+    RaftReq *req;                       /* Original RaftReq, so we can return a reply */
+} ShardGroupLinkState;
+
+/* Free a ShardGroupLinkState structure.
+ */
+static void linkFree(void *privdata)
+{
+    ShardGroupLinkState *state = privdata;
+
+    NodeAddrListFree(state->addr);
+    if (state->req) {
+        /* Normally a reply is returned and this should be NULL. If it is not,
+         * we need to reply something before freeing as the client is still blocking.
+         */
+        RedisModule_ReplyWithError(state->req->ctx, "operation failed, please consult the logs.");
+        RaftReqFree(state->req);
+        state->req = NULL;
+    }
+
+    RedisModule_Free(state);
+}
+
+/* Handle the received RAFT.SHARDGROUP GET reply from the remote cluster.
+ *
+ * Basically, just parse, validate and submit as RAFT_LOGTYPE_SHARDGROUP_ADD
+ * entry to the Raft log.
+ */
+
+static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    UNUSED(c);
+
+    redisReply *reply = r;
+    Connection *conn = (Connection *) privdata;
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+    ShardGroupLinkState *state = ConnGetPrivateData(conn);
+
+    if (!reply) {
+        LOG_ERROR("RAFT.SHARDGROUP GET failed: connection dropped.");
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        /* -MOVED? */
+        if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
+            NodeAddr addr;
+            if (!parseMovedReply(reply->str, &addr)) {
+                LOG_ERROR("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
+            } else {
+                LOG_VERBOSE("RAFT.SHARDGROUP GET redirected to leader: %s:%d",
+                            addr.host, addr.port);
+                NodeAddrListAddElement(&state->addr, &addr);
+            }
+        } else {
+            LOG_ERROR("RAFT.SHARDGROUP GET failed: %s", reply->str);
+        }
+    } else {
+        ShardGroup recv_sg;
+        ShardGroupInit(&recv_sg);
+
+        if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
+            LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
+        } else {
+            /* Validate */
+            if (ShardingInfoValidateShardGroup(rr, &recv_sg) != RR_OK) {
+                LOG_ERROR("Received shardgroup failed validation!");
+            } else {
+                LOG_VERBOSE("Shardgroup link: %s:%u: received configuration, propagating to Raft log.",
+                            state->addr_iter->addr.host, state->addr_iter->addr.port);
+                if (ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
+                                         RAFT_LOGTYPE_ADD_SHARDGROUP, state->req) == RR_OK) {
+                    state->req = NULL;
+
+                    ConnAsyncTerminate(conn);
+                    ShardGroupFree(&recv_sg);
+                    return;
+                }
+            }
+            ShardGroupFree(&recv_sg);
+        }
+    }
+
+    /* Mark connection as disconnected and prepare to connect to another
+     * node.
+     */
+    ConnMarkDisconnected(conn);
+}
+
+/* Issue a RAFT.SHARDGROUP GET command on an active connection and register
+ * a callback to process the reply.
+ */
+static void linkSendRequest(Connection *conn)
+{
+    /* Failed to connect? Advance node_idx to attempt another node. */
+    if (!ConnIsConnected(conn)) {
+        return;
+    }
+
+    ShardGroupLinkState *state = ConnGetPrivateData(conn);
+    LOG_VERBOSE("Shardgroup link %s:%u: connected, requesting configuration",
+                state->addr_iter->addr.host,
+                state->addr_iter->addr.port);
+
+    /* Request configuration */
+    redisAsyncContext *rc = ConnGetRedisCtx(conn);
+    if (redisAsyncCommand(rc, linkHandleResponse, conn,
+                          "RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
+
+        redisAsyncDisconnect(rc);
+        ConnMarkDisconnected(conn);
+        return;
+    }
+
+    /* We'll be back with handleShardGroupResponse */
+}
+
+/* Establish a connection with the remote cluster to deliver a RAFT.SHARDGROUP GET
+ * request.
+ *
+ * We use addr and addr_iter to handle iteration through multiple addresses.
+ * Normally, we should have only a single address which is specified by the suer.
+ * However, if a -MOVED reply is received we append it here and initiate a retry
+ * (which may, although not likely, happen several times).
+ */
+
+static void linkConnect(Connection *conn)
+{
+    ShardGroupLinkState *state = ConnGetPrivateData(conn);
+
+    /* First iteration? */
+    if (!state->addr_iter) {
+        state->addr_iter = state->addr;
+    } else {
+        /* Try next address */
+        state->addr_iter = state->addr_iter->next;
+    }
+
+    /* If all attempts were exhausted, abort. */
+    if (!state->addr_iter) {
+        /* Nothing else to try? */
+        RedisModule_ReplyWithError(state->req->ctx, "failed to link, please check the logs.");
+
+        /* Release client */
+        RaftReqFree(state->req);
+        state->req = NULL;
+
+        ConnAsyncTerminate(conn);
+        return;
+    }
+
+    LOG_VERBOSE("Shardgroup link: connecting to %s:%u",
+                state->addr_iter->addr.host, state->addr_iter->addr.port);
+
+    /* Establish connection. We silently ignore errors here as we'll
+     * just get iterated again in the future.
+     */
+    ConnConnect(state->conn, &state->addr_iter->addr, linkSendRequest);
+}
+
+/* Handle a RAFT.SHARDGROUP LINK request.
+ */
+void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
+{
+    /* Must be done on a leader */
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, NULL) == RR_ERROR) {
+        goto exit;
+    }
+
+    LOG_INFO("Attempting to link shardgroup %s:%u",
+             req->r.shardgroup_link.addr.host,
+             req->r.shardgroup_link.addr.port);
+
+    ShardGroupLinkState *state = RedisModule_Calloc(1, sizeof(ShardGroupLinkState));
+    NodeAddrListAddElement(&state->addr, &req->r.shardgroup_link.addr);
+    state->req = req;
+    state->conn = ConnCreate(rr, state, linkConnect, linkFree);
+
+    return;
+
+exit:
+    RaftReqFree(req);
+
 }

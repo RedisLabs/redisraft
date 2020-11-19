@@ -68,19 +68,16 @@ create() {
     # Wait a bit for all cluster nodes to join
     sleep 3
 
-    # get shard group configuration from each shard group cluster and
-    # push it to all other nodes.
-    echo "Propagating ShardGroup configurations..."
+    echo "Linking shardgroups..."
     local group=1
     while [ $((group <= NUM_GROUPS)) != "0" ]; do
-        local shardgroup=$(cd shard-group-$group && $CREATE_CLUSTER_SCRIPT call-instance 1 --raw RAFT.SHARDGROUP GET)
-        
         local target=1
         while [ $((target <= NUM_GROUPS)) != "0" ]; do
+            local port=$(( $(grep "^PORT=" shard-group-$group/config.sh | sed 's/^.*=//') + 1))
             if [ "$target" != "$group" ]; then
                 # Don't apply to self...
                 ( cd shard-group-$target && \
-                        $CREATE_CLUSTER_SCRIPT call-instance 1 RAFT.SHARDGROUP ADD $shardgroup )
+                        $CREATE_CLUSTER_SCRIPT call-instance 1 RAFT.SHARDGROUP LINK localhost:$port )
             fi
             target=$((target + 1))
         done

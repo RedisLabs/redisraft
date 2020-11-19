@@ -153,6 +153,7 @@ static void test_serialize_shardgroup(void **state)
         }
     };
     ShardGroup sg = {
+        .id = 99,
         .start_slot = 1,
         .end_slot = 1000,
         .nodes_num = 3,
@@ -161,7 +162,7 @@ static void test_serialize_shardgroup(void **state)
 
     char *str = ShardGroupSerialize(&sg);
     assert_string_equal(str,
-            "1:1000:3\n"
+            "99:1:1000:3\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n");
@@ -171,7 +172,7 @@ static void test_serialize_shardgroup(void **state)
 
 static void test_deserialize_shardgroup(void **state)
 {
-    const char *s1 = "1:1000:3\n"
+    const char *s1 = "99:1:1000:3\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n";
@@ -179,6 +180,7 @@ static void test_deserialize_shardgroup(void **state)
 
     /* Happy path */
     assert_int_equal(ShardGroupDeserialize(s1, strlen(s1), &sg), RR_OK);
+    assert_int_equal(sg.id, 99);
     assert_int_equal(sg.start_slot, 1);
     assert_int_equal(sg.end_slot, 1000);
     assert_int_equal(sg.nodes_num, 3);
@@ -200,15 +202,15 @@ static void test_deserialize_shardgroup(void **state)
     /* Errors */
 
     /* Missing nodes */
-    const char *s2 = "0:1000:1\n";
+    const char *s2 = "99:0:1000:1\n";
     assert_int_equal(ShardGroupDeserialize(s2, strlen(s2), &sg), RR_ERROR);
 
     /* Unterminated node line */
-    const char *s3 = "0:1000:1\nunterminated";
+    const char *s3 = "99:0:1000:1\nunterminated";
     assert_int_equal(ShardGroupDeserialize(s3, strlen(s3), &sg), RR_ERROR);
 
     /* Overflow node id */
-    const char *s4 = "0:1000:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
+    const char *s4 = "99:0:1000:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
     assert_int_equal(ShardGroupDeserialize(s4, strlen(s4), &sg), RR_ERROR);
 }
 

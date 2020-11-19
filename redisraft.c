@@ -504,6 +504,12 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  *   Adds a new shard group configuration.
  * Reply:
  *   +OK
+ *
+ * RAFT.SHARDGROUP LINK [node-addr:port]
+ *   Link cluster with a new remote shardgroup.
+ * Reply:
+ *   +OK
+ *   -ERR error description
  */
 
 static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -538,12 +544,28 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
         RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
+    } else if (!strncasecmp(cmd, "LINK", cmd_len)) {
+        if (argc != 3) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(argv[2], &len);
+
+        req = RaftReqInit(ctx, RR_SHARDGROUP_LINK);
+        if (!NodeAddrParse(str, len, &req->r.shardgroup_link.addr)) {
+            RedisModule_ReplyWithError(ctx, "invalid address/port specified") ;
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        RaftReqSubmit(&redis_raft, req);
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD only");
         return REDISMODULE_OK;
     }
-
-    return REDISMODULE_OK;
 }
 
 

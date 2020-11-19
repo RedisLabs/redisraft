@@ -217,6 +217,27 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
 }
 
+/* Parse a -MOVED reply and update the returned address in addr.
+ * Both standard Redis Cluster reply (with the hash slot) or the simplified
+ * RedisRaft reply are supported.
+ */
+bool parseMovedReply(const char *str, NodeAddr *addr)
+{
+    /* -MOVED 0 1.1.1.1:1 or -MOVED 1.1.1.1:1 */
+    if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))
+        return false;
+
+    const char *tok = str + 6;
+    const char *tok2;
+
+    /* Handle current or cluster-style -MOVED replies. */
+    if ((tok2 = strchr(tok, ' ')) == NULL) {
+        return NodeAddrParse(tok, strlen(tok), addr);
+    } else {
+        return NodeAddrParse(tok2, strlen(tok2), addr);
+    }
+}
+
 
 RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag)
 {
