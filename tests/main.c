@@ -58,8 +58,6 @@ static void *__raft_calloc_stub(size_t nmemb, size_t size)
 
 int main(int argc, char *argv[])
 {
-    redis_raft_logfile = stderr;
-
     raft_set_heap_functions(__raft_malloc_stub, __raft_calloc_stub,
             __raft_realloc_stub, __raft_free_stub);
 

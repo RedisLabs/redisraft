@@ -57,7 +57,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
             RedisModule_ReplyWithError(ctx, "-ERR not leader");
             break;
         case RAFT_ERR_SHUTDOWN:
-            LOG_ERROR("Raft requires immediate shutdown!\n");
+            LOG_ERROR("Raft requires immediate shutdown!");
             RedisModule_Call(ctx, "SHUTDOWN", "");
             break;
         case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:

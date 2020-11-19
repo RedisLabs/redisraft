@@ -43,7 +43,7 @@ static void handleNodeConnect(Connection *conn)
 
     if (ConnIsConnected(conn)) {
         clearPendingResponses(node);
-        NODE_TRACE(node, "Node connection established.\n");
+        NODE_TRACE(node, "Node connection established.");
     }
 }
 
@@ -126,7 +126,7 @@ void NodeAddPendingResponse(Node *node, bool proxy)
     }
     STAILQ_INSERT_TAIL(&node->pending_responses, resp, entries);
 
-    NODE_TRACE(node, "NodeAddPendingResponse: id=%d, type=%s, request_time=%lld\n",
+    NODE_TRACE(node, "NodeAddPendingResponse: id=%d, type=%s, request_time=%lld",
             resp->id, proxy ? "proxy" : "raft", resp->request_time);
 }
 
@@ -144,7 +144,7 @@ void NodeDismissPendingResponse(Node *node)
         node->pending_raft_response_num--;
     }
 
-    NODE_TRACE(node, "NodeDismissPendingResponse: id=%d, type=%s, latency=%lld\n",
+    NODE_TRACE(node, "NodeDismissPendingResponse: id=%d, type=%s, latency=%lld",
             resp->id, resp->proxy ? "proxy" : "raft",
             RedisModule_Milliseconds() - resp->request_time);
 
@@ -173,7 +173,7 @@ void HandleNodeStates(RedisRaftCtx *rr)
             }
 
             if (timeout && resp->request_time + timeout < RedisModule_Milliseconds()) {
-                NODE_TRACE(node, "Pending %s response timeout expired, reconnecting.\n",
+                NODE_TRACE(node, "Pending %s response timeout expired, reconnecting.",
                         resp->proxy ? "proxy" : "raft");
                 ConnMarkDisconnected(node->conn);
             }

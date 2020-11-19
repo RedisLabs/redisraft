@@ -63,7 +63,8 @@ struct ShardGroup;
 extern int redis_raft_loglevel;
 extern FILE *redis_raft_logfile;
 
-void raft_module_log(const char *fmt, ...);
+extern const char *redis_raft_log_levels[];
+extern RedisModuleCtx *redis_raft_log_ctx;
 
 #define LOGLEVEL_ERROR           0
 #define LOGLEVEL_INFO            1
@@ -72,7 +73,7 @@ void raft_module_log(const char *fmt, ...);
 
 #define LOG(level, fmt, ...) \
     do { if (redis_raft_loglevel >= level) \
-            raft_module_log(fmt, ##__VA_ARGS__); \
+            RedisModule_Log(redis_raft_log_ctx, redis_raft_log_levels[level], fmt, ##__VA_ARGS__); \
     } while(0)
 
 #define LOG_ERROR(fmt, ...) LOG(LOGLEVEL_ERROR, fmt, ##__VA_ARGS__)

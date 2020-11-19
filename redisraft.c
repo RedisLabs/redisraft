@@ -15,32 +15,9 @@
 #include "redisraft.h"
 
 int redis_raft_loglevel = LOGLEVEL_INFO;
-FILE *redis_raft_logfile;
+RedisModuleCtx *redis_raft_log_ctx = NULL;
 
-void raft_module_log(const char *fmt, ...)
-{
-    va_list ap;
-    struct timeval tv;
-    struct tm tm;
-    char _fmt[strlen(fmt) + 50];
-    int n;
-
-    if (!redis_raft_logfile) {
-        return;
-    }
-
-    gettimeofday(&tv, NULL);
-    localtime_r(&tv.tv_sec, &tm);
-
-    n = snprintf(_fmt, sizeof(_fmt), "%u:", (unsigned int) getpid());
-    n += strftime(_fmt + n, sizeof(_fmt) - n, "%d %b %H:%M:%S", &tm);
-    snprintf(_fmt + n, sizeof(_fmt) - n, ".%03u %s", (unsigned int) tv.tv_usec / 1000, fmt);
-
-    va_start(ap, fmt);
-    vfprintf(redis_raft_logfile, _fmt, ap);
-    va_end(ap);
-    fflush(redis_raft_logfile);
-}
+const char *redis_raft_log_levels[] = { "warning", "notice", "verbose", "debug" };
 
 RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
@@ -737,10 +714,15 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    redis_raft_logfile = stdout;
-
     if (RedisModule_Init(ctx, "redisraft", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
+    }
+
+    /* Create a logging context */
+    if (RedisModule_GetDetachedThreadSafeContext) {
+        redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+    } else {
+        redis_raft_log_ctx = RedisModule_GetThreadSafeContext(NULL);
     }
 
     /* Sanity check Redis version */
@@ -813,7 +795,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'\n",
+    RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
             getStateStr(&redis_raft));
     return REDISMODULE_OK;
 }

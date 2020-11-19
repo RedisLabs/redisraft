@@ -93,7 +93,7 @@ static void connDataCleanupCallback(void *privdata)
 {
     Connection *conn = (Connection *) privdata;
 
-    CONN_TRACE(conn, "connDataCleanupCallback: flags=%d, rc=%p\n",
+    CONN_TRACE(conn, "connDataCleanupCallback: flags=%d, rc=%p",
          conn ? conn->flags : 0,
          conn ? conn->rc : NULL);
 
@@ -136,7 +136,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
 {
     Connection *conn = (Connection *) c->data;
 
-    CONN_TRACE(conn, "handleConnected: status=%d\n", status);
+    CONN_TRACE(conn, "handleConnected: status=%d", status);
 
     if (status == REDIS_OK) {
         conn->state = CONN_CONNECTED;
@@ -170,7 +170,7 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
     UNUSED(status);
     Connection *conn = (Connection *) c->data;
 
-    CONN_TRACE(conn, "handleDisconnected: rc=%p\n",
+    CONN_TRACE(conn, "handleDisconnected: rc=%p",
         conn ? conn->rc : NULL);
 
     if (conn) {
@@ -185,7 +185,7 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
 {
     Connection *conn = uv_req_get_data((uv_req_t *)resolver);
 
-    CONN_TRACE(conn, "handleResolved: flags=%d, state=%s, rc=%p\n",
+    CONN_TRACE(conn, "handleResolved: flags=%d, state=%s, rc=%p",
         conn->flags,
         ConnStateStr[conn->state],
         conn->rc);
@@ -199,7 +199,7 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
     }
 
     if (status < 0) {
-        CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s\n", conn->addr.host, uv_strerror(status));
+        CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host, uv_strerror(status));
         conn->state = CONN_CONNECT_ERROR;
         conn->connect_errors++;
         uv_freeaddrinfo(res);
@@ -263,7 +263,7 @@ RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackF
 
 void ConnMarkDisconnected(Connection *conn)
 {
-    CONN_TRACE(node, "ConnMarkDisconnected: rc=%p\n", conn->rc);
+    CONN_TRACE(node, "ConnMarkDisconnected: rc=%p", conn->rc);
 
     conn->state = CONN_DISCONNECTED;
     if (conn->rc) {
