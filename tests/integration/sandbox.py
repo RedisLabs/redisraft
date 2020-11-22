@@ -375,10 +375,10 @@ class RedisRaft(object):
 
 class Cluster(object):
     noleader_timeout = 10
-    base_port = 5000
 
-    def __init__(self, config):
-        self.next_id = 1
+    def __init__(self, config, base_port=5000, base_id=0):
+        self.next_id = base_id + 1
+        self.base_port = base_port
         self.nodes = {}
         self.leader = None
         self.raft_args = None
@@ -418,6 +418,8 @@ class Cluster(object):
         # Pre-populate if asked
         for _ in range(prepopulate_log):
             assert self.raft_exec('INCR', 'log-prepopulate-key')
+
+        return self
 
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
