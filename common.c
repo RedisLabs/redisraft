@@ -224,18 +224,12 @@ static void raftize_commands(RedisModuleCommandFilterCtx *filter)
 bool parseMovedReply(const char *str, NodeAddr *addr)
 {
     /* -MOVED 0 1.1.1.1:1 or -MOVED 1.1.1.1:1 */
-    if (strlen(str) < 15 || strncmp(str, "MOVED ", 6))
+    if (strlen(str) < 15 || strncmp(str, "MOVED ", 6) != 0)
         return false;
 
-    const char *tok = str + 6;
-    const char *tok2;
-
     /* Handle current or cluster-style -MOVED replies. */
-    if ((tok2 = strchr(tok, ' ')) == NULL) {
-        return NodeAddrParse(tok, strlen(tok), addr);
-    } else {
-        return NodeAddrParse(tok2, strlen(tok2), addr);
-    }
+    const char *p = strrchr(str, ' ');
+    return NodeAddrParse(p + 1, strlen(p), addr);
 }
 
 
