@@ -319,6 +319,8 @@ static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privda
         }
     } else {
         ShardGroup recv_sg;
+        ShardGroupInit(&recv_sg);
+
         if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
             LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
         } else {
@@ -518,7 +520,6 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
     /* Load individual shard groups */
     for (int i = 0; i < rdb_shard_groups_num; i++) {
         ShardGroup sg;
-
         ShardGroupInit(&sg);
 
         sg.id = RedisModule_LoadUnsigned(rdb);
