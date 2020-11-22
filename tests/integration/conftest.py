@@ -80,6 +80,27 @@ def cluster(request):
 
 
 @pytest.fixture
+def cluster_factory(request):
+    """
+    A fixture for a creating custom sandboxed Cluster()s
+    """
+
+    created_clusters = []
+    cluster_args = {'base_port': 5000, 'base_id': 0}
+
+    def _create_cluster():
+        _cluster = Cluster(create_config(request.config), **cluster_args)
+        cluster_args['base_port'] += 100
+        cluster_args['base_id'] += 100
+        created_clusters.append(_cluster)
+        return _cluster
+
+    yield _create_cluster
+
+    for _c in created_clusters:
+        _c.destroy()
+
+@pytest.fixture
 def workload():
     """
     A fixture for a Workload.

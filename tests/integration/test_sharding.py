@@ -7,6 +7,7 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
 
+import time
 from redis import ResponseError
 from pytest import raises
 
@@ -167,3 +168,77 @@ def test_shard_group_persistence(cluster):
     n1.wait_for_node_voting()
 
     assert n1.client.execute_command('CLUSTER', 'SLOTS') == cluster_slots
+
+
+def test_shard_group_linking(cluster_factory):
+    cluster1 = cluster_factory().create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1',
+        'shardgroup-update-interval': 500})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '2',
+        'cluster-end-hslot': '16383',
+        'shardgroup-update-interval': 500})
+
+    # Not expected to have coverage
+    with raises(ResponseError, match='CLUSTERDOWN'):
+        cluster1.node(1).client.set('key', 'value')
+
+    # Link cluster1 -> cluster2
+    assert cluster1.node(1).client.execute_command(
+        'RAFT.SHARDGROUP', 'LINK',
+        'localhost:%s' % cluster2.node(1).port) == b'OK'
+    with raises(ResponseError, match='MOVED'):
+        cluster1.node(1).client.set('key', 'value')
+
+    # Test cluster2 -> cluster1 linking with redirect, i.e. provide a
+    # non-leader address
+    assert cluster2.node(1).client.execute_command(
+        'RAFT.SHARDGROUP', 'LINK',
+        'localhost:%s' % cluster1.node(2).port) == b'OK'
+
+    # Verify CLUSTER SLOTS look good
+    cs = cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS')
+    assert len(cs) == 2
+    assert cs[1][0] == 2
+    assert cs[1][1] == 16383
+    assert cs[1][2][1] == cluster2.leader_node().port  # first node is leader
+
+    # Terminate leader on cluster 2, wait for re-election and confirm
+    # propagation.
+    assert cluster2.leader == 1
+    cluster2.leader_node().terminate()
+    cluster2.node(2).wait_for_election()
+
+    # Wait for shardgroup update interval, 500ms
+    time.sleep(1)
+    cs = cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS')
+    assert len(cs) == 2
+    assert cs[1][0] == 2
+    assert cs[1][1] == 16383
+    assert cs[1][2][1] == cluster2.leader_node().port  # first node is leader
+
+
+def test_shard_group_linking_checks(cluster_factory):
+    # Create clusters with overlapping hash slots,
+    # linking should fail.
+    cluster1 = cluster_factory().create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '0',
+        'cluster-end-hslot': '1'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'cluster-mode': 'yes',
+        'raftize-all-commands': 'yes',
+        'cluster-start-hslot': '1',
+        'cluster-end-hslot': '16383'})
+
+    # Link
+    with raises(ResponseError, match='failed to link'):
+        cluster1.node(1).client.execute_command(
+            'RAFT.SHARDGROUP', 'LINK',
+            'localhost:%s' % cluster2.node(1).port)
