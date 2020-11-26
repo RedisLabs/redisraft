@@ -563,7 +563,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
     } else {
-        RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD only");
+        RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD / JOIN only");
         return REDISMODULE_OK;
     }
 }
