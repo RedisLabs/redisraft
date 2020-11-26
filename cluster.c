@@ -1003,7 +1003,10 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
 
     if (cmd->argc < 2) {
-        RedisModule_WrongArity(req->ctx);
+        /* Note: we can't use RM_WrongArity here because our req->ctx is a thread-safe context
+         * with a synthetic client that no longer has the original argv.
+         */
+        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
         goto exit;
     }
 
