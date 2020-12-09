@@ -236,4 +236,4 @@ extremely inefficient as it would bloat the log with meaningless entries, as
 reads don't modify the dataset).
 
 It's possible to disable quorum reads to trade consistency and the
-risk of stale reads for better read performance. To do disable quorum reads, use the `quorum-reads=no` configuration directive.
+risk of stale reads for better read performance. To disable quorum reads, use the `quorum-reads=no` configuration directive.
