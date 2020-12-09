@@ -93,7 +93,7 @@ RedisRaft is indirectly affected by Redis's own configuration, and there are sev
 | save                   | ""             | RedisRaft uses the RDB file as its own snapshot and manages the BGSAVE operation, so Redis needs to be configured in a way that does not interfere. |
 | dbfilename             | user defined   | You are free to configure the filename as desired. |
 | replicaof              | <none>         | RedisRaft implements its own replication mechanism; traditional Redis replication may not be enabled. |
-| requirepass            | <none>         | RedisRaft cluster nodes exchange messages on same Redis port that the client uses; however, RedisRaft does not implement authentication. |
+| requirepass            | <none>         | RedisRaft cluster nodes exchange messages on the same Redis port that the client uses; however, RedisRaft does not implement authentication. |
 | maxmemory-policy       | noeviction     | Eviction must be disabled, as it is not compatible with RedisRaft's consistency guarantees. |
 | appendonly             | no             | Append-only file should not be used. |
 | cluster-enabled        | no             | RedisRaft is not compatible with Redis Cluster. |
@@ -207,7 +207,7 @@ To remove a node, run `RAFT.NODE REMOVE <node_id>`. For example:
 
 Once the node is removed, the remaining cluster nodes will drop their connections to the removed node
 
-> :warning: The removed node itself must be terminated manually after being removed. It's especially important to shut down the node if it's still operational, as it it may maintain stale state
+> :warning: The removed node itself must be terminated manually after being removed. It's especially important to shut down the node if it's still operational, as it may maintain stale state
 > about the RedisRaft cluster it belonged to.
 
 Configuration
@@ -260,7 +260,7 @@ The number of milliseconds to wait before sending an AppendEntries request as a 
 
 ### `election-timeout`
 
-The number of milliseconds the cluster will to wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
+The number of milliseconds the cluster will wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
 
 This value should be sufficiently greater than `raft-interval` and
 `request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
