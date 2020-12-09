@@ -260,7 +260,7 @@ The number of milliseconds to wait before sending an AppendEntries request as a 
 
 ### `election-timeout`
 
-The number of milliseconds the cluster will to wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
+The number of milliseconds the cluster will wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
 
 This value should be sufficiently greater than `raft-interval` and
 `request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
