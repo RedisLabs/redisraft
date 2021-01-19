@@ -180,11 +180,11 @@ The following table summarizes the supported commands along with any caveats:
 
 Notes:
 
-1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as active expiry logic; thus, volatile keys may violate consistency.
+1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as on active expiry logic; thus, volatile keys may violate consistency.
 
 2. Blocking operations are not supported.
 
-3. `WATCH` and `UNWATCH` are not supported in two cases: when *Explicit Mode* or *Follower Proxy* is enabled (for a description of these modes, see below). `MULTI/EXEC/DISCARD` are not supported in *Explicit Mode* but can be used with *Follower Proxy*.
+3. `WATCH` and `UNWATCH` are not supported in two cases: when [*Explicit Mode*](Development.md#explicit-mode) or [*Follower Proxy*](Development.md#follower-proxy-mode) is enabled. `MULTI/EXEC/DISCARD` are not supported in *Explicit Mode* but can be used with *Follower Proxy*.
 
 4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
@@ -193,7 +193,7 @@ Notes:
 Read Consistency
 ----------------
 
-When discussing strongly-consistent systems, it's important clarify the read and write semantics.
+When discussing strongly-consistent systems, it's important to clarify the read and write semantics.
 
 Writes to RedisRaft are consistent because they are applied only after being replicated to a majority of nodes.
 
@@ -222,8 +222,7 @@ There are two things to note about this scenario:
 
 1. One could claim that node A relies on the same time-based thresholds as the
    rest of the cluster and that it should therefore initiate re-election (and fail) at the same time. While practically this may be true in many cases, it makes dangerous assumptions about the behavior of clocks and system time.
-2. The reason this applies to reads but not writes is that writes require an
-   explicit consensus.
+2. The reason this applies to reads but not to writes is that writes require an explicit consensus.
 
 ### Quorum Reads
 
@@ -232,7 +231,7 @@ Quorum reads are handled in a very similar way to writes: the leader confirms wi
 replying to the client.
 
 (Technically, quorum reads could go through the Raft Log, but that would be
-extremely inefficient as it would bloat the log with meaningless entries, as
+extremely inefficient as it would bloat the log with meaningless entries, since
 reads don't modify the dataset).
 
 It's possible to disable quorum reads to trade consistency and the

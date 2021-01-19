@@ -331,7 +331,7 @@ Valid values for this setting are *yes* and *no*.
 
 Determines if RedisRaft automatically intercepts all Redis commands and processes them through the Raft Log.
 
-See [Explicit Mode](Using.md#explicit-mode) for more information.
+See [Explicit Mode](Development.md#explicit-mode) for more information.
 
 Valid values for this setting are *yes* and *no*.
 
