@@ -159,8 +159,8 @@ typedef struct Connection {
     uv_getaddrinfo_t uv_resolver;       /* libuv resolver context */
     struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
     long long last_connected_time;      /* Last connection time */
-    unsigned int connect_oks;           /* Successful connects */
-    unsigned int connect_errors;        /* Connection errors since last connection */
+    unsigned long int connect_oks;      /* Successful connects */
+    unsigned long int connect_errors;   /* Connection errors since last connection */
     void *privdata;                     /* User provided pointer */
 
     /* Connect callback is guaranteed after ConnConnect(); Callback should check

@@ -20,7 +20,7 @@ To run tests in a Python virtualenv, follow these steps:
 
     $ mkdir -p .env
     $ virtualenv .env
-    $ . .env/bin/active
+    $ . .env/bin/activate
     $ pip install -r tests/integration/requirements.txt
     $ make tests
 
@@ -63,7 +63,7 @@ Then execute:
 ### Jepsen
 
 See [jepsen/README.md](../jepsen/README.md) for information on using Jepsen to test
-Redis Raft for linerizability violations.
+Redis Raft for linearizability violations.
 
 General Design
 --------------
@@ -80,7 +80,7 @@ This triggers the following series of events:
 2. The log is replicated to the majority of cluster members. The RedisRaft module
    uses module-specific commands against other nodes to accomplish this.
 3. Once the log has been replicated to a majority of nodes and RedisRaft
-   determines that the entry can be committed, then the command is executed locally on all nodes as a regular Redis command, and the response is sent to the user.
+   determines that the entry can be committed, the command is executed locally on all nodes as a regular Redis command and the response is sent to the user.
 
 Raft communication between cluster members is handled by `RAFT.AE` and
 `RAFT.REQUESTVOTE` commands, which are also implemented by the RedisRaft module.
@@ -97,12 +97,12 @@ itself, using the blocking API and a thread-safe context.
 
 ### Node Membership
 
-When a new node starts up, it can follow one of the following flows:
+When a new node starts up, it can follow one of the these flows:
 
 1. Start as the first node of a new cluster.
 2. Start as a new node of an existing cluster (with a new unique ID). Initially
-   it will be a non-voting node, only receiving logs (or snapshot).
-3. Start as an existing cluster node which recovers from crash. Typically this
+   it will be a non-voting node, only receiving logs (or a snapshot).
+3. Start as an existing cluster node which recovers from a crash. Typically this
    is done by loading persistent data from disk.
 
 Configuration changes are propagated as special Raft log entries, as described
@@ -115,7 +115,6 @@ The trigger for configuration changes is provided by `RAFT.NODE ADD` and
 started with module arguments that describe how it should behave. For example, a
 `RAFT.CLUSTER JOIN` is invoked on a new node in order to initiate a connection
 to the leader and execute a `RAFT.NODE ADD` command.
-
 While there are some benefits to this approach, it may make more sense to change
 to a cluster-centric approach which is the way Redis Cluster does things.*
 
@@ -130,14 +129,13 @@ begins with a header entry that stores the Raft state at the time the log was
 created, followed by a list of entries.
 
 The header entry may be updated to persist additional data such as voting
-information. For this reason, the entry sized is fixed.
+information. For this reason, the entry size is fixed.
 
 In addition, the module maintains a simple index file to store the 64-bit
 offsets of every entry written to the log.
 
 The index is updated on the fly as new entries are appended to the Raft log, but
-if crash recovery takes place it is not considered a source of truth and is
-being reconstructed as the Raft log is being read.
+if crash recovery takes place it will not be considered a source of truth and will be reconstructed as the Raft log is read.
 
 ### Log Compaction
 
@@ -251,7 +249,7 @@ This mode has several limitations:
 * It uses a single connection and therefore may introduce additional performance
   limitations.
 
-To enable Follower Proxy mode, use specify `follower-proxy=yes` as a
+To enable Follower Proxy mode, specify `follower-proxy=yes` as a
 configuration directive.
 
 ### Explicit Mode

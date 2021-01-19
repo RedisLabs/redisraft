@@ -500,7 +500,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  * Reply:
  *   [start-slot] [end-slot] [node-id node-addr] [node-id node-addr...]
  *
- * RAFT.SHARDGROUP ADD [start-slot] [end-slot] [node-id node-addr] [node-id ndoe-addr ...]
+ * RAFT.SHARDGROUP ADD [start-slot] [end-slot] [node-id node-addr] [node-id node-addr ...]
  *   Adds a new shard group configuration.
  * Reply:
  *   +OK
