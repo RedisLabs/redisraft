@@ -1008,13 +1008,13 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
+    /* This is the first node, so there are no used node ids yet */
+    rr->snapshot_info.used_node_ids = NULL;
+
     /* If node id was not specified, make up one */
     if (!config->id) {
         config->id = makeRandomNodeId(rr);
     }
-
-    /* This is the first node, so there are no used node ids yet */
-    rr->snapshot_info.used_node_ids = NULL;
 
     addUsedNodeId(rr, config->id);
 
