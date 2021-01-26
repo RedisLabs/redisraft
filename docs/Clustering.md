@@ -234,7 +234,7 @@ of local sharding configurations **for testing or development purposes**.
 
 To get started, change into its directory:
 
-    cd utils/create-shardgroup
+    cd utils/create-shard-groups
 
 Next, create a `config.sh` that can hold any custom configuration.
 

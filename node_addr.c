@@ -10,7 +10,7 @@
 #include <string.h>
 #include "redisraft.h"
 
-/* Attempt to parse a node addrss in the form of <addr>:<port>
+/* Attempt to parse a node address in the form of <addr>:<port>
  * and populate the result NodeAddr. Returns true if successful.
  */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result)
@@ -52,7 +52,7 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     return true;
 }
 
-/* Compare two NodeAddr sructs */
+/* Compare two NodeAddr structs */
 bool NodeAddrEqual(const NodeAddr *a1, const NodeAddr *a2)
 {
     return (a1->port == a2->port && !strcmp(a1->host, a2->host));
@@ -98,4 +98,3 @@ void NodeAddrListFree(NodeAddrListElement *head)
         head = t;
     }
 }
-

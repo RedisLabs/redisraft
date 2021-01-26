@@ -52,7 +52,7 @@ unsigned int keyHashSlot(const char *key, int keylen) {
  * of type RAFT_LOGTYPE_ADD_SHARDGROUP.
  *
  * The format is as follows:
- *      <start-slot>:<end-slot>:<number-of-nodes>\n
+ *      <id>:<start-slot>:<end-slot>:<number-of-nodes>\n
  *      <node-uid>:<node host>:<node port>\n
  *      ...
  */
@@ -130,7 +130,7 @@ error:
     return RR_ERROR;
 }
 
-/* Initialize a (previously allocated) sharegroup structure.
+/* Initialize a (previously allocated) shardgroup structure.
  * Basically just zero-initializing everything, but a place holder
  * for the future.
  */
@@ -502,7 +502,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
      */
     unsigned int rdb_shard_groups_num = RedisModule_LoadUnsigned(rdb);
     if (!rdb_shard_groups_num) {
-        /* No shardgroups. This could mean no sharding, or simply no shardgrups
+        /* No shardgroups. This could mean no sharding, or simply no shardgroups
          * to read. If we have ShardingInfo we'll reset it.
          */
         if (si)
