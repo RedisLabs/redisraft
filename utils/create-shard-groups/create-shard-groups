@@ -121,11 +121,14 @@ case "$1" in
         create
         ;;
     group)
-        local group="$1"
-        if [ $((group > 0 && group <= NUM_GROUPS)) != "0" ]; then
+        shift
+        group="$1"
+
+        if [ $((group > 0 && group <= NUM_GROUPS)) = "0" ]; then
             echo "Invalid <id> specified."
             exit 1
         fi
+
         shift
         do_cluster_action $group $@
         ;;
