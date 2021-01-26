@@ -1011,6 +1011,11 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    if (!rr->config->cluster_mode) {
+        RedisModule_ReplyWithError(req->ctx, "ERR not operating in Redis Cluster compatible mode");
+        goto exit;
+    }
+
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
