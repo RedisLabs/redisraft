@@ -76,7 +76,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
 /* Create a -MOVED reply.
  *
  * Depending on cluster_mode, we produce a Redis Cluster compatible or old-style
- * reply. TODO: Consider always using Redis Cluser compatible replies.
+ * reply. TODO: Consider always using Redis Cluster compatible replies.
  *
  * One anomaly here is that may redirect a client to the leader even for commands
  * that have no keys (hash_slot is -1), which is something Redis Cluster never does.
@@ -255,4 +255,3 @@ RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag)
 
     return RR_OK;
 }
-
