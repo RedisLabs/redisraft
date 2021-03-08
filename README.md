@@ -1,4 +1,7 @@
 # RedisRaft
+
+> :warning: RedisRaft is still being developed and is not yet ready for any real production use. Please do not use it for any mission critical purpose at this time.
+
 ### Strongly-Consistent Redis Deployments
 
 RedisRaft is a Redis module that implements the [Raft Consensus
