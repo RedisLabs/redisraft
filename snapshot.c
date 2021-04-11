@@ -688,6 +688,15 @@ void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
     ShardingInfoRDBSave(rdb);
 }
 
+/* Do nothing -- AOF should never be used with RedisRaft, but we have to specify
+ * a callback. */
+static void aofRewriteCallback(RedisModuleIO *io, RedisModuleString *key, void *value)
+{
+    UNUSED(io);
+    UNUSED(key);
+    UNUSED(value);
+}
+
 static void clearSnapshotInfo(void *value)
 {
 }
@@ -696,6 +705,7 @@ RedisModuleTypeMethods RedisRaftTypeMethods = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
     .rdb_load = rdbLoadSnapshotInfo,
     .rdb_save = rdbSaveSnapshotInfo,
+    .aof_rewrite = aofRewriteCallback,
     .free = clearSnapshotInfo
 };
 
