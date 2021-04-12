@@ -171,7 +171,7 @@ def test_proxy_stability_under_load(cluster, workload):
     while start + duration > time.time():
         time.sleep(2)
         new_commit_index = cluster.node(cluster.leader).commit_index()
-        assert new_commit_index > last_commit_index
+        assert new_commit_index >= last_commit_index
         last_commit_index = new_commit_index
 
     workload.stop()
