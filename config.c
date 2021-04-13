@@ -540,7 +540,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
         if (i + 1 >= argc) {
             RedisModule_Log(ctx, REDIS_WARNING, "No argument specified for keyword '%.*s'",
-                kwlen, kw);
+                (int) kwlen, kw);
             return RR_ERROR;
         }
 
