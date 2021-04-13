@@ -13,6 +13,7 @@ import os
 import os.path
 import subprocess
 import threading
+import itertools
 import random
 import logging
 import signal
@@ -84,7 +85,8 @@ class RedisRaft(object):
             if defkey not in raft_args:
                 raft_args[defkey] = defval
 
-        self.raft_args = ['{}={}'.format(k, v) for k, v in raft_args.items()]
+        self.raft_args = [str(x) for x in
+            itertools.chain.from_iterable(raft_args.items())]
         self.client = redis.Redis(host='localhost', port=self.port)
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser

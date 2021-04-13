@@ -26,7 +26,7 @@ calc_hash_slot_config() {
         local end_slot=$((start_slot + slots_per_group - 1))
     fi
 
-    echo "cluster-start-hslot=$start_slot cluster-end-hslot=$end_slot"
+    echo "cluster-start-hslot $start_slot cluster-end-hslot $end_slot"
 }
 
 setup() {

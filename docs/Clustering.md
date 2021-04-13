@@ -209,10 +209,10 @@ of the same RedisRaft cluster should have the same configuration.
 
 For example, if you're creating three equal shards you may use:
 
-* `cluster-start-hslot=0` and `cluster-end-hslot=5460` for RedisRaft cluster 1.
-* `cluster-start-hslot=5461` and `cluster-end-hslot=10921` for RedisRaft cluster
+* `cluster-start-hslot 0` and `cluster-end-hslot 5460` for RedisRaft cluster 1.
+* `cluster-start-hslot 5461` and `cluster-end-hslot 10921` for RedisRaft cluster
   2.
-* `cluster-start-hslot=10922` and `cluster-end-hslot=16383` for RedisRaft
+* `cluster-start-hslot 10922` and `cluster-end-hslot 16383` for RedisRaft
   cluster 3.
 
 After creating the three clusters, you will need to configure each cluster to
@@ -243,7 +243,7 @@ configuration of 5 shards and also disable `fsync` to favor performance over
 safety. Our `config.sh` will look like so:
 
     NUM_GROUPS=5
-    ADDITIONAL_OPTIONS="raft-log-fsync=no"
+    ADDITIONAL_OPTIONS="raft-log-fsync no"
 
 Next, we execute `create-shard-groups` to set up our environment:
 

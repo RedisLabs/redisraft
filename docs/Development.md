@@ -249,7 +249,7 @@ This mode has several limitations:
 * It uses a single connection and therefore may introduce additional performance
   limitations.
 
-To enable Follower Proxy mode, specify `follower-proxy=yes` as a
+To enable Follower Proxy mode, specify `follower-proxy yes` as a
 configuration directive.
 
 ### Explicit Mode
@@ -272,7 +272,7 @@ On the other hand, performing the same operation without the `RAFT` command
 prefix causes it to execute locally **with no such guarantees** and, what's more, **without being replicated to other nodes**.
 
 To disable automatic interception and work in explicit mode, use the
-`raftize-all-commands=no` configuration directive.
+`raftize-all-commands no` configuration directive.
 
 > :warning: Unless you really know what you're doing, there's probably no reason
 > to use this mode.

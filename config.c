@@ -535,22 +535,21 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     int i;
 
     for (i = 0; i < argc; i++) {
-        size_t arglen;
-        const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
+        size_t kwlen;
+        const char *kw = RedisModule_StringPtrLen(argv[i], &kwlen);
 
-        char argbuf[arglen + 1];
-        memcpy(argbuf, arg, arglen);
-        argbuf[arglen] = '\0';
-
-        const char *val = NULL;
-        char *eq = strchr(argbuf, '=');
-        if (eq != NULL) {
-            *eq = '\0';
-            val = eq + 1;
+        if (i + 1 >= argc) {
+            RedisModule_Log(ctx, REDIS_WARNING, "No argument specified for keyword '%.*s'",
+                kwlen, kw);
+            return RR_ERROR;
         }
 
+        size_t vallen;
+        const char *val = RedisModule_StringPtrLen(argv[i + 1], &vallen);
+        i++;
+
         char errbuf[256];
-        if (processConfigParam(argbuf, val, target, true,
+        if (processConfigParam(kw, val, target, true,
                     errbuf, sizeof(errbuf)) != RR_OK) {
             RedisModule_Log(ctx, REDIS_WARNING, "%s", errbuf);
             return RR_ERROR;
