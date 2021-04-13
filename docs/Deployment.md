@@ -177,7 +177,7 @@ RedisRaft nodes communicate with each other over the Redis port, using dedicated
 
 * The port Redis listens must not be blocked.
 * The address and port advertised by each node must be correct. RedisRaft infers this from the network interface's address and the port configured by Redis. In some
-  cases, this inference may be wrong (e.g., when multiple network interfaces are in use, on container network that involves NAT, etc.) In these cases, the `addr=` argument can be used to specify the correct address and port.
+  cases, this inference may be wrong (e.g., when multiple network interfaces are in use, on container network that involves NAT, etc.) In these cases, the `addr` argument can be used to specify the correct address and port.
 
 The `node<n>:` fields describe the various nodes as currently configured, including:
 

@@ -53,7 +53,7 @@ We assume that RedisRaft is configured as follows:
 
 * Raftize is enabled.
 * Follower proxy is disabled.
-* Nodes have their addr= configuration set with an IP address and not a host
+* Nodes have their `addr` configuration set with an IP address and not a host
   name, to be compliant with Redis Cluster addressing.
 * The new `cluster-mode` parameter is set to `yes`.
 
