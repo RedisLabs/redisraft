@@ -30,9 +30,9 @@ start_instance() {
         --dbfilename dump-${port}.rdb \
         --daemonize yes \
         --loadmodule ${REDISRAFT} \
-            raft-log-filename=raftlog-${port}.db \
-            addr=${HOST}:${port} \
-            cluster-mode=${CLUSTER_MODE} \
+            raft-log-filename raftlog-${port}.db \
+            addr ${HOST}:${port} \
+            cluster-mode ${CLUSTER_MODE} \
         ${ADDITIONAL_OPTIONS}
 }
 

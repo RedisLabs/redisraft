@@ -74,14 +74,14 @@ For example, here's how to start a Redis instance and configure RedisRaft via th
     redis-server \
         --bind 0.0.0.0 --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename=raftlog1.db addr=127.0.0.1:5001
+            raft-log-filename raftlog1.db addr 127.0.0.1:5001
 
 Note the following:
 * Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to `0.0.0.0`, disabling Redis protected mode) and to listen on port 5001.
 * The `--dbfilename` argument sets the name of the RDB file used for Raft snapshots.
 * The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `raft-log-filename` and `addr`).
-* The module-specific `raft-log-filename=` argument set the name of the RedisRaft log file.
-* The module-specific `addr=` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
+* The module-specific `raft-log-filename` argument set the name of the RedisRaft log file.
+* The module-specific `addr` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
 
 ### Redis Configuration
 
@@ -134,7 +134,7 @@ The command to launch a new node should look familiar. Since we're running this 
     redis-server \
         --bind 0.0.0.0 --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename=raftlog2.db addr=127.0.0.1:5002
+            raft-log-filename raftlog2.db addr 127.0.0.1:5002
 
 As before, we can confirm the new node has also started in `uninitialized` state and is waiting to become part of a cluster.
 

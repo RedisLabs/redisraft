@@ -19,9 +19,9 @@ RUN wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
     chmod +x /usr/bin/lein && \
     lein self-install
 
-RUN git clone https://github.com/jepsen-io/redis /jepsen && \
+ARG JEPSEN_REPO=https://github.com/jepsen-io/redis
+RUN git clone $JEPSEN_REPO /jepsen && \
     cd /jepsen && \
-    sed -i 's#git@github.com:\(.*\)\.git#https://github.com/\1#g' src/jepsen/redis/db.clj && \
     lein install
 
 ADD entrypoint.sh /entrypoint.sh
