@@ -55,7 +55,9 @@ endif
 .PHONY: all
 all: redisraft.so
 
-redisraft.so: deps $(OBJECTS)
+$(OBJECTS): | $(BUILDDIR)/.deps_installed
+
+redisraft.so: $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 
 clean: clean-tests
@@ -137,9 +139,9 @@ integration-lcov-report:
 
 # ------------------------- Build dependencies -------------------------
 
-# FIXME: When modifying deps, this will prevent detecting picking up the changes.
-
-.PHONY: deps
-deps:
+$(BUILDDIR)/.deps_installed:
 	mkdir -p $(BUILDDIR)
+	mkdir -p $(BUILDDIR)/lib
+	mkdir -p $(BUILDDIR)/include
 	$(MAKE) -C deps PREFIX=$(BUILDDIR)
+	touch $(BUILDDIR)/.deps_installed
