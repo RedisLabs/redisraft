@@ -302,7 +302,6 @@ typedef struct RedisRaftConfig {
     char *raft_log_filename;    /* Raft log file name, derived from dbfilename */
     bool follower_proxy;        /* Do follower nodes proxy requests to leader? */
     bool quorum_reads;          /* Reads have to go through quorum */
-    bool raftize_all_commands;  /* Automatically pass all commands through Raft? */
     /* Tuning */
     int raft_interval;
     int request_timeout;

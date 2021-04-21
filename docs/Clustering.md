@@ -51,7 +51,6 @@ this point (but are likely to be mandatory as we move on):
 
 We assume that RedisRaft is configured as follows:
 
-* Raftize is enabled.
 * Follower proxy is disabled.
 * Nodes have their `addr` configuration set with an IP address and not a host
   name, to be compliant with Redis Cluster addressing.
@@ -191,7 +190,6 @@ Use the following RedisRaft configuration:
 * The `cluster-start-hslot` and `cluster-end-hslot` parameters should be set to
   their default values, which indicate all slots are managed by the local
   cluster (no sharding).
-* The `raftize-all-commands` parameter should be set to `yes` (default).
 * The `follower-proxy` parameter should be set to `no` (default).
 
 ### Redis Cluster Mode with Sharding

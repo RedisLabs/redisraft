@@ -327,20 +327,6 @@ Valid values for this setting are *yes* and *no*.
 
 *Default: yes*
 
-### `raftize-all-commands`
-
-Determines if RedisRaft automatically intercepts all Redis commands and processes them through the Raft Log.
-
-See [Explicit Mode](Development.md#explicit-mode) for more information.
-
-Valid values for this setting are *yes* and *no*.
-
-*Default: yes*
-
-> :bulb: Note that interception of all commands requires a Redis version that
-> supports the Redis Module Command Filtering API. Older versions of Redis will
-> fail to enable this.
-
 ### `cluster-mode`
 
 If enabled, RedisRaft operates in a Redis Cluster compatible mode (with or without sharding).

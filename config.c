@@ -168,13 +168,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         target->quorum_reads = val;
-    } else if (!strcmp(keyword, "raftize-all-commands")) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raftize-all-commands' value");
-            return RR_ERROR;
-        }
-        target->raftize_all_commands = val;
     } else if (!strcmp(keyword, "loglevel")) {
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
@@ -235,21 +228,9 @@ void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **
     memcpy(valuebuf, value, value_len);
     valuebuf[value_len] = '\0';
 
-    RedisRaftConfig old_config = *rr->config;
-
     char errbuf[256] = "ERR ";
     if (processConfigParam(keybuf, valuebuf, rr->config, false,
                 errbuf + strlen(errbuf), (int)(sizeof(errbuf) - strlen(errbuf))) == RR_OK) {
-
-        /* Special cases -- when configuration needs to be actively applied */
-        if (old_config.raftize_all_commands != rr->config->raftize_all_commands) {
-            if (setRaftizeMode(rr, ctx, rr->config->raftize_all_commands) != RR_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR not supported in this Redis version.");
-                rr->config->raftize_all_commands = old_config.raftize_all_commands;
-                return;
-            }
-        }
-
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, errbuf);
@@ -345,10 +326,6 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, "quorum-reads", config->quorum_reads);
     }
-    if (stringmatch(pattern, "raftize-all-commands", 1)) {
-        len++;
-        replyConfigBool(ctx, "raftize-all-commands", config->raftize_all_commands);
-    }
     if (stringmatch(pattern, "addr", 1)) {
         len++;
         char buf[300];
@@ -393,7 +370,6 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
     config->raft_log_fsync = true;
     config->quorum_reads = true;
-    config->raftize_all_commands = true;
     config->cluster_mode = false;
     config->cluster_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
     config->cluster_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
