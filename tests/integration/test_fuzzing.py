@@ -25,7 +25,7 @@ def test_fuzzing_with_restarts(cluster):
 
     cluster.create(nodes)
     for i in range(cycles):
-        assert cluster.raft_exec('INCRBY', 'counter', 1) == i + 1
+        assert cluster.execute('INCRBY', 'counter', 1) == i + 1
         logging.info('---------- Executed INCRBY # %s', i)
         if i % 7 == 0:
             r = random.randint(1, nodes)
@@ -34,7 +34,7 @@ def test_fuzzing_with_restarts(cluster):
             cluster.node(r).wait_for_election()
             logging.info('********** Node %s is UP **********', r)
 
-    assert int(cluster.raft_exec('GET', 'counter')) == cycles
+    assert int(cluster.execute('GET', 'counter')) == cycles
 
 
 def test_fuzzing_with_restarts_and_rewrites(cluster):
@@ -53,7 +53,7 @@ def test_fuzzing_with_restarts_and_rewrites(cluster):
             str(random.randint(1000, 2000)))
 
     for i in range(cycles):
-        assert cluster.raft_exec('INCRBY', 'counter', 1) == i + 1
+        assert cluster.execute('INCRBY', 'counter', 1) == i + 1
         logging.info('---------- Executed INCRBY # %s', i)
         if random.randint(1, 7) == 1:
             r = random.randint(1, nodes)
@@ -62,7 +62,7 @@ def test_fuzzing_with_restarts_and_rewrites(cluster):
             cluster.node(r).wait_for_election()
             logging.info('********** Node %s is UP **********', r)
 
-    assert int(cluster.raft_exec('GET', 'counter')) == cycles
+    assert int(cluster.execute('GET', 'counter')) == cycles
 
 
 def test_fuzzing_with_config_changes(cluster):
@@ -75,7 +75,7 @@ def test_fuzzing_with_config_changes(cluster):
 
     cluster.create(nodes)
     for i in range(cycles):
-        assert cluster.raft_exec('INCRBY', 'counter', 1) == i + 1
+        assert cluster.execute('INCRBY', 'counter', 1) == i + 1
         if random.randint(1, 7) == 1:
             try:
                 node_id = cluster.random_node_id()
@@ -84,7 +84,7 @@ def test_fuzzing_with_config_changes(cluster):
                 continue
             cluster.add_node().wait_for_node_voting()
 
-    assert int(cluster.raft_exec('GET', 'counter')) == cycles
+    assert int(cluster.execute('GET', 'counter')) == cycles
 
 
 def test_fuzzing_with_proxy_multi_and_restarts(cluster, workload):
@@ -96,8 +96,7 @@ def test_fuzzing_with_proxy_multi_and_restarts(cluster, workload):
     cycles = 20
     thread_count = 200
 
-    cluster.create(nodes, raft_args={'raftize-all-commands': 'yes',
-                                     'follower-proxy': 'yes'})
+    cluster.create(nodes, raft_args={'follower-proxy': 'yes'})
     workload.start(thread_count, cluster, MultiWithLargeReply)
     for i in range(cycles):
         time.sleep(1)
@@ -120,8 +119,7 @@ def test_proxy_with_multi_and_reconnections(cluster, workload):
     thread_count = 100
     cycles = 20
 
-    cluster.create(3, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes'})
+    cluster.create(3, raft_args={'follower-proxy': 'yes'})
     workload.start(thread_count, cluster, MultiWithLargeReply)
     for _ in range(cycles):
         time.sleep(1)
@@ -141,8 +139,7 @@ def test_stale_reads_on_restarts(cluster, workload):
 
     thread_count = 50
     cycles = 20
-    cluster.create(3, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes'})
+    cluster.create(3, raft_args={'follower-proxy': 'yes'})
     workload.start(thread_count, cluster, MonotonicIncrCheck)
     for _ in range(cycles):
         time.sleep(1)
@@ -160,9 +157,7 @@ def test_proxy_stability_under_load(cluster, workload):
     thread_count = 500
     duration = 300
 
-    cluster.create(5, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes'})
-
+    cluster.create(5, raft_args={'follower-proxy': 'yes'})
     workload.start(thread_count, cluster, MultiWithLargeReply)
 
     # Monitor progress
@@ -187,7 +182,6 @@ def test_stability_with_snapshots_and_restarts(cluster, workload):
     duration = 300
 
     cluster.create(5, raft_args={'follower-proxy': 'yes',
-                                 'raftize-all-commands': 'yes',
                                  'raft-log-max-file-size': '2000'})
 
     workload.start(thread_count, cluster, MultiWithLargeReply)

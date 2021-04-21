@@ -7,7 +7,6 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
 
-import sys
 import time
 import os
 import os.path
@@ -79,8 +78,7 @@ class RedisRaft(object):
             raft_args['id'] = str(_id)
         default_args = {'addr': 'localhost:{}'.format(self.port),
                         'raft-log-filename': self._raftlog,
-                        'loglevel': config.raft_loglevel,
-                        'raftize-all-commands': 'no'}
+                        'loglevel': config.raft_loglevel}
         for defkey, defval in default_args.items():
             if defkey not in raft_args:
                 raft_args[defkey] = defval
@@ -242,10 +240,6 @@ class RedisRaft(object):
         if not self.keepfiles:
             shutil.rmtree(self.serverdir, ignore_errors=True)
 
-    def raft_exec(self, *args):
-        cmd = ['RAFT'] + list(args)
-        return self.client.execute_command(*cmd)
-
     def raft_config_set(self, key, val):
         return self.client.execute_command('raft.config', 'set', key, val)
 
@@ -254,6 +248,14 @@ class RedisRaft(object):
 
     def raft_info(self):
         return self.client.execute_command('raft.info')
+
+    def raft_debug_exec(self, *cmd):
+        """
+        Execute the specified Redis command through RAFT.DEBUG EXEC,
+        so it executes locally and does not go through Raft interception.
+        """
+
+        return self.client.execute_command('raft.debug', 'exec', *cmd)
 
     def commit_index(self):
         return self.raft_info()['commit_index']
@@ -419,7 +421,7 @@ class Cluster(object):
 
         # Pre-populate if asked
         for _ in range(prepopulate_log):
-            assert self.raft_exec('INCR', 'log-prepopulate-key')
+            assert self.execute('INCR', 'log-prepopulate-key')
 
         return self
 
@@ -477,16 +479,6 @@ class Cluster(object):
     def leader_node(self):
         return self.nodes[self.leader]
 
-    def exec_all(self, *cmd):
-        result = []
-        for _id, node in self.nodes.items():
-            try:
-                res = node.client.execute_command(*cmd)
-                result.append(res)
-            except redis.ConnectionError:
-                pass
-        return result
-
     def wait_for_unanimity(self, exclude=None):
         commit_idx = self.node(self.leader).commit_index()
         for _id, node in self.nodes.items():
@@ -539,9 +531,14 @@ class Cluster(object):
                     raise
         raise RedisRaftError('No leader elected')
 
-    def raft_exec(self, *cmd):
+    def execute(self, *cmd):
+        """
+        Execute the specified command on the leader node; Handle redirects
+        and retries as necessary.
+        """
+
         def _func():
-            return self.nodes[self.leader].raft_exec(*cmd)
+            return self.nodes[self.leader].client.execute_command(*cmd)
         return self.raft_retry(_func)
 
     def destroy(self):

@@ -19,7 +19,7 @@ def test_add_node_as_a_single_leader(cluster):
     """
     # Do some basic sanity
     r1 = cluster.add_node()
-    assert r1.raft_exec('SET', 'key', 'value')
+    assert r1.client.set('key', 'value')
     assert r1.raft_info()['current_index'] == 2
 
 
@@ -28,21 +28,21 @@ def test_node_joins_and_gets_data(cluster):
     Node joins and gets data
     """
     r1 = cluster.add_node()
-    assert r1.raft_exec('SET', 'key', 'value') == b'OK'
+    assert r1.client.set('key', 'value')
     r2 = cluster.add_node()
     r2.wait_for_election()
     assert r2.raft_info().get('leader_id') == 1
-    assert r2.client.get('key') == b'value'
+    assert r2.raft_debug_exec('get', 'key') == b'value'
 
     # Also validate -MOVED as expected
     with raises(ResponseError, match='MOVED'):
-        assert r2.raft_exec('SET', 'key', 'value') is None
+        r2.client.set('key', 'value')
 
 
 def test_single_node_log_is_reapplied(cluster):
     """Single node log is reapplied on startup"""
     r1 = cluster.add_node()
-    assert r1.raft_exec('SET', 'key', 'value')
+    assert r1.client.set('key', 'value')
     r1.restart()
     r1.wait_for_election()
     assert r1.raft_info().get('leader_id') == 1
@@ -56,11 +56,10 @@ def test_reelection_basic_flow(cluster):
     """
     cluster.create(3)
     assert cluster.leader == 1
-    assert cluster.raft_exec('SET', 'key', 'value') ==  b'OK'
+    assert cluster.leader_node().client.set('key', 'value')
     cluster.node(1).terminate()
     cluster.node(2).wait_for_election()
-    assert cluster.raft_exec('SET', 'key2', 'value2') == b'OK'
-    cluster.exec_all('GET', 'key2')
+    assert cluster.execute('set', 'key2', 'value')
 
 
 def test_proxying(cluster):
@@ -70,27 +69,28 @@ def test_proxying(cluster):
     cluster.create(3)
     assert cluster.leader == 1
     with raises(ResponseError, match='MOVED'):
-        assert cluster.node(2).raft_exec('SET', 'key', 'value') == b'OK'
+        assert cluster.node(2).client.set('key', 'value')
     assert cluster.node(2).client.execute_command(
         'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
 
     # Basic sanity
-    assert cluster.node(2).raft_exec('SET', 'key', 'value') == b'OK'
-    assert cluster.raft_exec('GET', 'key') == b'value'
+    assert cluster.node(2).client.set('key', 'value2')
+    assert cluster.leader_node().client.get('key') == b'value2'
 
     # Numeric values
-    assert cluster.node(2).raft_exec('SADD', 'myset', 'a') == 1
-    assert cluster.node(2).raft_exec('SADD', 'myset', 'b') == 1
+    assert cluster.node(2).client.sadd('myset', 'a') == 1
+    assert cluster.node(2).client.sadd('myset', 'b') == 1
+
     # Multibulk
-    assert set(cluster.node(2).raft_exec('SMEMBERS', 'myset')) == set(
-        [b'a', b'b'])
+    assert set(cluster.node(2).client.smembers('myset')) == set([b'a', b'b'])
+
     # Nested multibulk
-    assert set(cluster.node(2).raft_exec(
+    assert set(cluster.node(2).client.execute_command(
         'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]) == set(
             [b'a', b'b', b'c'])
     # Error
     with raises(ResponseError, match='WRONGTYPE'):
-        cluster.node(2).raft_exec('INCR', 'myset')
+        cluster.node(2).client.incr('myset')
 
 
 def test_readonly_commands(cluster):
@@ -103,11 +103,11 @@ def test_readonly_commands(cluster):
 
     # Write something
     assert cluster.node(1).current_index() == 5
-    assert cluster.node(1).raft_exec('SET', 'key', 'value') == b'OK'
+    assert cluster.node(1).client.set('key', 'value')
     assert cluster.node(1).current_index() == 6
 
     # Read something, log should not grow
-    assert cluster.node(1).raft_exec('GET', 'key') == b'value'
+    assert cluster.node(1).client.get('key') == b'value'
     assert cluster.node(1).current_index() == 6
 
     # Tear down cluster, reads should hang
@@ -115,12 +115,12 @@ def test_readonly_commands(cluster):
     cluster.node(3).terminate()
     conn = cluster.node(1).client.connection_pool.get_connection(
         'RAFT', socket_timeout=1)
-    conn.send_command('RAFT', 'GET', 'key')
+    conn.send_command('GET', 'key')
     assert not conn.can_read(timeout=1)
 
     # Now configure non-quorum reads
     cluster.node(1).raft_config_set('quorum-reads', 'no')
-    assert cluster.node(1).raft_exec('GET', 'key') == b'value'
+    assert cluster.node(1).client.get('key') == b'value'
 
 
 def test_auto_ids(cluster):
@@ -154,31 +154,12 @@ def test_auto_ids(cluster):
     assert _id == node2.raft_info()['node_id']
 
 
-def test_raftize(cluster):
+def test_interception_does_not_affect_lua(cluster):
     """
-    Test raftize-all-commands mode.
-    """
-
-    r1 = cluster.add_node()
-    try:
-        assert r1.raft_config_set('raftize-all-commands', 'yes')
-    except ResponseError:
-        skip('Not supported on this Redis')
-    assert r1.raft_info()['current_index'] == 1
-    assert r1.client.execute_command('SET', 'key', 'value')
-    assert r1.raft_info()['current_index'] == 2
-
-
-def test_raftize_does_not_affect_lua(cluster):
-    """
-    Make sure raftize-all-commands does not affect Lua commands.
+    Make sure command interception does not affect Lua commands.
     """
 
     r1 = cluster.add_node()
-    try:
-        assert r1.raft_config_set('raftize-all-commands', 'yes')
-    except ResponseError:
-        skip('Not supported on this Redis')
     assert r1.raft_info()['current_index'] == 1
     assert r1.client.execute_command('EVAL', """
 redis.call('SET','key1','value1');
@@ -190,9 +171,10 @@ return 1234;""", '0') == 1234
     assert r1.client.get('key2') == b'value2'
     assert r1.client.get('key3') == b'value3'
 
-def test_proxying_with_raftize(cluster):
+
+def test_proxying_with_interception(cluster):
     """
-    Test follower proxy mode together with raftize enabled.
+    Test follower proxy mode together with command interception enabled.
 
     This is a regression test for issues #13, #14 and basically ensures
     that command filtering does not trigger re-entrancy when processing
@@ -207,16 +189,10 @@ def test_proxying_with_raftize(cluster):
         'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
     assert cluster.node(3).client.execute_command(
         'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
-    assert cluster.node(1).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
-    assert cluster.node(2).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
-    assert cluster.node(3).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'raftize-all-commands', 'yes') == b'OK'
 
-    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 1
-    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 2
-    assert cluster.node(1).raft_exec('RPUSH', 'list-a', 'x') == 3
+    assert cluster.node(1).client.rpush('list-a', 'x') == 1
+    assert cluster.node(1).client.rpush('list-a', 'x') == 2
+    assert cluster.node(1).client.rpush('list-a', 'x') == 3
 
     time.sleep(1)
     assert cluster.node(1).raft_info()['current_index'] == 8
@@ -233,8 +209,8 @@ def test_rolled_back_reply(cluster):
     cluster.node(2).pause()
     cluster.node(3).pause()
 
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'INCR', 'key')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('INCR', 'key')
 
     cluster.node(1).pause()
 
@@ -257,13 +233,13 @@ def test_rolled_back_read_only_reply(cluster):
     """
 
     cluster.create(3)
-    cluster.node(1).raft_exec('SET', 'key', 'value')
+    cluster.node(1).client.set('key', 'value')
 
     cluster.node(2).pause()
     cluster.node(3).pause()
 
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'GET', 'key')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('GET', 'key')
 
     cluster.node(1).pause()
 
@@ -286,17 +262,17 @@ def test_rolled_back_multi_reply(cluster):
     """
 
     cluster.create(3)
-    cluster.node(1).raft_exec('SET', 'key', 'value')
+    cluster.node(1).client.set('key', 'value')
 
     cluster.node(2).pause()
     cluster.node(3).pause()
 
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'MULTI')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
     assert conn.read_response() == b'OK'
-    conn.send_command('RAFT', 'INCR', 'key')
+    conn.send_command('INCR', 'key')
     assert conn.read_response() == b'QUEUED'
-    conn.send_command('RAFT', 'EXEC')
+    conn.send_command('EXEC')
 
     cluster.node(1).pause()
 
@@ -319,17 +295,17 @@ def test_rolled_back_read_only_multi_reply(cluster):
     """
 
     cluster.create(3)
-    cluster.node(1).raft_exec('SET', 'key', 'value')
+    cluster.node(1).client.set('key', 'value')
 
     cluster.node(2).pause()
     cluster.node(3).pause()
 
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'MULTI')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
     assert conn.read_response() == b'OK'
-    conn.send_command('RAFT', 'GET', 'key')
+    conn.send_command('GET', 'key')
     assert conn.read_response() == b'QUEUED'
-    conn.send_command('RAFT', 'EXEC')
+    conn.send_command('EXEC')
 
     cluster.node(1).pause()
 
