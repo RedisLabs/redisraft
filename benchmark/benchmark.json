@@ -30,8 +30,7 @@
             "args": [
                 "--redis", "../redis/src/redis-server",
                 "--raftmodule", "redisraft.so",
-                "--modulearg", "raft-log-fsync=no",
-                "--modulearg", "raftize-all-commands=yes",
+                "--modulearg", "raft-log-fsync", "no",
                 "--nodes", "3"
             ]
         },
@@ -41,7 +40,6 @@
             "args": [
                 "--redis", "../redis/src/redis-server",
                 "--raftmodule", "redisraft.so",
-                "--modulearg", "raftize-all-commands=yes",
                 "--nodes", "3"
             ]
         }
