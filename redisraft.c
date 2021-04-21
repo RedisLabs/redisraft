@@ -668,6 +668,59 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
     }
 }
 
+/* Command filter callback that intercepts normal Redis commands and prefixes them
+ * with a RAFT command prefix in order to divert them to execute inside RedisRaft.
+ */
+static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
+{
+    static char *excluded_commands[] = {
+            "auth",
+            "ping",
+            "save",
+            "module",
+            "raft",
+            "info",
+            "client",
+            "config",
+            "monitor",
+            "command",
+            "shutdown",
+            "quit",
+            NULL
+    };
+
+    /* If we're intercepting an RM_Call() processing a Raft entry,
+     * skip.
+     */
+    if (checkInRedisModuleCall()) {
+        return;
+    }
+
+    size_t cmdname_len;
+    const char *cmdname = RedisModule_StringPtrLen(
+            RedisModule_CommandFilterArgGet(filter, 0), &cmdname_len);
+
+    /* Don't process any RAFT.* command */
+    if (cmdname_len > 4 && strncasecmp(cmdname, "raft.", 5) == 0) {
+        return;
+    }
+
+    /* Don't process any excluded command */
+    char **c = excluded_commands;
+    while (*c != NULL) {
+        size_t len = strlen(*c);
+        if (cmdname_len == len && strncasecmp(cmdname, *c, len) == 0) {
+            return;
+        }
+        c++;
+    }
+
+    /* Prepend RAFT to the original command */
+    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT", 4);
+    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+}
+
+
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
     /* Register commands */
@@ -796,14 +849,12 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
+    redis_raft.registered_filter = RedisModule_RegisterCommandFilter(ctx,
+        interceptRedisCommands, REDISMODULE_CMDFILTER_NOSELF);
+
     if (config.cluster_mode && !RedisModule_GetCommandKeys) {
         RedisModule_Log(ctx, REDIS_WARNING,
                 "Warning: cluster-mode is enabled but the Redis server in use is missing critical API functions, affecting performance!");
-    }
-
-    if (setRaftizeMode(&redis_raft, ctx, config.raftize_all_commands) != RR_OK) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Error: raftize-all-commands=yes is not supported on this Redis version.");
-        return REDISMODULE_ERR;
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
