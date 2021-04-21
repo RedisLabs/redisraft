@@ -21,7 +21,7 @@ def test_node_join_iterates_all_addrs(cluster):
     Node join iterates all addresses.
     """
     r1 = cluster.add_node()
-    assert r1.raft_exec('SET', 'key', 'value') == b'OK'
+    assert r1.client.set('key', 'value')
     r2 = cluster.add_node(cluster_setup=False)
     r2.start()
     assert r2.cluster('join', 'localhost:1', 'localhost:2',
@@ -34,7 +34,7 @@ def test_node_join_redirects_to_leader(cluster):
     Node join can redirect to leader.
     """
     r1 = cluster.add_node()
-    assert r1.raft_exec('SET', 'key', 'value') == b'OK'
+    assert r1.client.set('key', 'value')
     r2 = cluster.add_node()
     r2.wait_for_election()
     r3 = cluster.add_node(cluster_setup=False)
@@ -86,7 +86,7 @@ def test_removed_node_remains_dead(cluster):
 
     # Some baseline data
     for _ in range(100):
-        cluster.raft_exec('INCR', 'counter')
+        cluster.execute('INCR', 'counter')
 
     # Remove node 3
     cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '3')
@@ -94,21 +94,21 @@ def test_removed_node_remains_dead(cluster):
 
     # Add more data
     for _ in range(100):
-        cluster.raft_exec('INCR', 'counter')
+        cluster.execute('INCR', 'counter')
 
     # Check
     node = cluster.node(3)
 
     # Verify node 3 does not accept writes
     with raises(RedisError):
-        node.client.execute_command('RAFT', 'INCR', 'counter')
+        node.client.incr('counter')
 
     # Verify node 3 still does not accept writes after a restart
     node.terminate()
     node.start()
 
     with raises(RedisError):
-        node.client.execute_command('RAFT', 'INCR', 'counter')
+        node.client.incr('counter')
 
 
 def test_full_cluster_remove(cluster):
@@ -180,7 +180,7 @@ def test_node_history_with_same_address(cluster):
     ""
     ""
     cluster.create(5)
-    cluster.raft_exec("INCR", "step-counter")
+    cluster.execute("INCR", "step-counter")
 
     # Remove nodes
     ports = []
@@ -202,7 +202,7 @@ def test_node_history_with_same_address(cluster):
 
     # Add enough data in the log to satisfy timing
     for _ in range(3000):
-        cluster.raft_exec("INCR", "step-counter")
+        cluster.execute("INCR", "step-counter")
 
     # Add another node
     new_node = cluster.add_node(port=ports[0])
@@ -217,7 +217,7 @@ def test_node_history_with_same_address(cluster):
     # need some time to start applying logs..
     time.sleep(2)
 
-    assert cluster.raft_exec("GET", "step-counter") == b'3001'
+    assert cluster.execute("GET", "step-counter") == b'3001'
 
 
 def test_update_self_voting_state_from_snapshot(cluster):

@@ -18,11 +18,11 @@ def test_snapshot_delivery_to_new_node(cluster):
     """
 
     r1 = cluster.add_node()
-    r1.raft_exec('INCR', 'testkey')
-    r1.raft_exec('INCR', 'testkey')
-    r1.raft_exec('INCR', 'testkey')
-    r1.raft_exec('SETRANGE', 'bigkey', '104857600', 'x')
-    r1.raft_exec('INCR', 'testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.setrange('bigkey', '104857600', 'x')
+    r1.client.incr('testkey')
     assert r1.client.get('testkey') == b'4'
 
     assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
@@ -30,7 +30,7 @@ def test_snapshot_delivery_to_new_node(cluster):
 
     r2 = cluster.add_node()
     cluster.wait_for_unanimity()
-    assert r2.client.get('testkey') == b'4'
+    assert r2.raft_debug_exec('GET', 'testkey') == b'4'
 
 
 def test_snapshot_delivery(cluster):
@@ -38,35 +38,33 @@ def test_snapshot_delivery(cluster):
     Ability to properly deliver and load a snapshot.
     """
 
-    cluster.create(3, raft_args={'raftize-all-commands': 'yes'})
+    cluster.create(3)
     n1 = cluster.node(1)
-    n1.raft_exec('INCR', 'testkey')
-    n1.raft_exec('INCR', 'testkey')
-    n1.raft_exec('INCR', 'testkey')
+    n1.client.incr('testkey')
+    n1.client.incr('testkey')
+    n1.client.incr('testkey')
     for i in range(1000):
         pipe = n1.client.pipeline(transaction=True)
         for j in range(100):
             pipe.rpush('list-%s' % i, 'elem-%s' % j)
         pipe.execute()
     cluster.node(3).terminate()
-    n1.raft_exec('SETRANGE', 'bigkey', '104857600', 'x')
-    n1.raft_exec('INCR', 'testkey')
-    assert n1.client.get('testkey') == b'4'
+    n1.client.setrange('bigkey', '104857600', 'x')
+    n1.client.incr('testkey')
+    assert n1.raft_debug_exec('GET', 'testkey') == b'4'
 
     assert n1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert n1.raft_info()['log_entries'] == 0
 
     n3 = cluster.node(3)
     n3.start()
-    n1.raft_exec('INCR', 'testkey')
+    n1.client.incr('testkey')
 
     n3.wait_for_node_voting()
     cluster.wait_for_unanimity()
     n3.wait_for_log_applied()
 
-    n3.client.execute_command('RAFT.CONFIG', 'SET',
-                              'raftize-all-commands', 'no')
-    assert n3.client.get('testkey') == b'5'
+    assert n3.raft_debug_exec('GET', 'testkey') == b'5'
 
 
 def test_log_fixup_after_snapshot_delivery(cluster):
@@ -75,11 +73,11 @@ def test_log_fixup_after_snapshot_delivery(cluster):
     """
 
     cluster.create(3)
-    cluster.node(1).raft_exec('INCR', 'key')
-    cluster.node(1).raft_exec('INCR', 'key')
+    cluster.node(1).client.incr('key')
+    cluster.node(1).client.incr('key')
 
     cluster.node(2).terminate()
-    cluster.node(1).raft_exec('INCR', 'key')
+    cluster.node(1).client.incr('key')
     assert cluster.node(1).client.execute_command(
         'RAFT.DEBUG', 'COMPACT') == b'OK'
 
@@ -105,8 +103,8 @@ def test_cfg_node_added_from_snapshot(cluster):
     """
     cluster.create(2)
     for i in range(100):
-        cluster.node(1).raft_exec('SET', 'key%s' % i, 'val%s' % i)
-        cluster.node(1).raft_exec('INCR', 'counter')
+        cluster.node(1).client.set('key%s' % i, 'val%s' % i)
+        cluster.node(1).client.incr('counter')
 
     # Make sure log is compacted
     assert cluster.node(1).client.execute_command(
@@ -119,15 +117,15 @@ def test_cfg_node_added_from_snapshot(cluster):
 
     # Make sure we have what we expect
     for i in range(100):
-        assert str(cluster.node(3).client.get('key%s' % i),
+        assert str(cluster.node(3).raft_debug_exec('GET', 'key%s' % i),
                    'utf-8') == 'val%s' % i
-    assert cluster.node(3).client.get('counter') == b'100'
+    assert cluster.node(3).raft_debug_exec('GET', 'counter') == b'100'
 
 
 def test_index_correct_right_after_snapshot(cluster):
     cluster.create(1)
     for _ in range(10):
-        cluster.node(1).raft_exec('INCR', 'counter')
+        cluster.node(1).client.incr('counter')
     info = cluster.node(1).raft_info()
     assert info['current_index'] == 11
 
@@ -145,7 +143,7 @@ def test_cfg_node_removed_from_snapshot(cluster):
     Node able to learn that another node left by reading the snapshot metadata.
     """
     cluster.create(5)
-    cluster.node(1).raft_exec('SET', 'key', 'value')
+    cluster.node(1).client.set('key', 'value')
     cluster.wait_for_unanimity()
 
     # interrupt
@@ -175,9 +173,9 @@ def test_all_committed_log_rewrite(cluster):
     empty log.
     """
     cluster.create(3)
-    cluster.node(1).raft_exec('SET', 'key1', 'value')
-    cluster.node(1).raft_exec('SET', 'key2', 'value')
-    cluster.node(1).raft_exec('SET', 'key3', 'value')
+    cluster.node(1).client.set('key1', 'value')
+    cluster.node(1).client.set('key2', 'value')
+    cluster.node(1).client.set('key3', 'value')
     cluster.wait_for_unanimity()
 
     assert cluster.node(1).client.execute_command(
@@ -196,11 +194,11 @@ def test_uncommitted_log_rewrite(cluster):
     # Log contains 5 config entries
 
     # Take down majority to create uncommitted entries and check rewrite
-    cluster.node(1).raft_exec('SET', 'key', 'value')  # Entry idx 6
+    cluster.node(1).client.set('key', 'value')  # Entry idx 6
     cluster.node(2).terminate()
     cluster.node(3).terminate()
     conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'SET', 'key2', 'value2')  # Entry idx 7
+    conn.send_command('SET', 'key2', 'value2')  # Entry idx 7
 
     assert cluster.node(1).current_index() == 7
     assert cluster.node(1).commit_index() == 6
@@ -224,7 +222,7 @@ def test_new_uncommitted_during_rewrite(cluster):
     cluster.create(3)
 
     # Take down majority to create uncommitted entries and check rewrite
-    cluster.node(1).raft_exec('SET', 'key', '1')
+    cluster.node(1).client.set('key', '1')
 
     # Initiate compaction and wait to see it's in progress
     conn = cluster.node(1).client.connection_pool.get_connection('COMPACT')
@@ -233,9 +231,9 @@ def test_new_uncommitted_during_rewrite(cluster):
     assert cluster.node(1).raft_info()['snapshot_in_progress'] == 'yes'
 
     # Send a bunch of writes
-    cluster.node(1).raft_exec('INCRBY', 'key', '2')
-    cluster.node(1).raft_exec('INCRBY', 'key', '3')
-    cluster.node(1).raft_exec('INCRBY', 'key', '4')
+    cluster.node(1).client.incrby('key', '2')
+    cluster.node(1).client.incrby('key', '3')
+    cluster.node(1).client.incrby('key', '4')
 
     # Wait for compaction to end
     assert cluster.node(1).raft_info()['snapshot_in_progress'] == 'yes'
@@ -258,59 +256,59 @@ def test_new_uncommitted_during_rewrite(cluster):
     cluster.node(1).wait_for_info_param('state', 'up')
 
     # Make sure cluster state is as expected
-    assert cluster.raft_exec('get', 'key') == b'10'
+    assert cluster.execute('get', 'key') == b'10'
 
     # Make sure node 1 state is as expected
     cluster.node(1).wait_for_log_applied()
-    assert cluster.node(1).client.get('key') == b'10'
+    assert cluster.node(1).raft_debug_exec('GET', 'key') == b'10'
 
 
 def test_identical_snapshot_and_log(cluster):
     r1 = cluster.add_node()
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
     r1.terminate()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Both log and snapshot have all entries
-    assert r1.client.get('testkey') == b'2'
+    assert r1.raft_debug_exec('GET', 'testkey') == b'2'
 
 
 def test_loading_log_tail(cluster):
     r1 = cluster.add_node()
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
     r1.client.save()
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
     r1.kill()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Log contains all entries
     # Snapshot has all but last 3 entries
-    assert r1.client.get('testkey') == b'6'
+    assert r1.raft_debug_exec('GET', 'testkey') == b'6'
 
 
 def test_loading_log_tail_after_rewrite(cluster):
     r1 = cluster.add_node()
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
     assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
-    assert r1.raft_exec('INCR', 'testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
+    assert r1.client.incr('testkey')
     r1.kill()
     r1.start()
     r1.wait_for_info_param('state', 'up')
 
     # Log contains last 3 entries
     # Snapshot has first 3 entries
-    assert r1.client.get('testkey') == b'6'
+    assert r1.raft_debug_exec('GET', 'testkey') == b'6'
 
 
 def test_config_from_second_generation_snapshot(cluster):
@@ -323,7 +321,7 @@ def test_config_from_second_generation_snapshot(cluster):
 
     # Bump the log a bit
     for _ in range(20):
-        assert cluster.raft_exec('INCR', 'testkey')
+        assert cluster.execute('INCR', 'testkey')
 
     # Compact to get rid of logs
     node3 = cluster.node(3)
@@ -335,7 +333,7 @@ def test_config_from_second_generation_snapshot(cluster):
 
     # Bump the log a bit
     for _ in range(20):
-        assert cluster.raft_exec('INCR', 'testkey')
+        assert cluster.execute('INCR', 'testkey')
 
     # Recompact
     cluster.wait_for_unanimity()
@@ -359,17 +357,17 @@ def test_stale_log_trim(cluster):
     # and a crash sometime before the log is adjusted.
     cluster.node(3).terminate()
     for _ in range(20):
-        assert cluster.raft_exec('INCR', 'testkey')
+        assert cluster.execute('INCR', 'testkey')
     assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
     for _ in range(20):
-        assert cluster.raft_exec('INCR', 'testkey')
+        assert cluster.execute('INCR', 'testkey')
     shutil.copyfile(os.path.join(os.curdir, cluster.node(1).dbfilename),
         os.path.join(os.curdir, cluster.node(3).dbfilename))
 
     cluster.node(3).start()
     cluster.node(3).wait_for_node_voting()
 
-    assert cluster.raft_exec('INCR', 'last-key')
+    assert cluster.execute('INCR', 'last-key')
 
 
 def test_log_reset_on_snapshot_load(cluster):
@@ -382,7 +380,7 @@ def test_log_reset_on_snapshot_load(cluster):
     # Stop node 3, advance the log, then compact.
     cluster.node(3).terminate()
     for _ in range(20):
-        assert cluster.raft_exec('INCR', 'testkey')
+        assert cluster.execute('INCR', 'testkey')
     assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
 
     # Start node 3 and wait for it to receive a snapshot
@@ -394,5 +392,5 @@ def test_log_reset_on_snapshot_load(cluster):
     cluster.node(3).start()
     cluster.node(3).wait_for_node_voting()
 
-    assert cluster.raft_exec('INCR', 'last-key')
+    assert cluster.execute('INCR', 'last-key')
     cluster.wait_for_unanimity()

@@ -13,10 +13,7 @@ from pytest import raises
 
 
 def test_cross_slot_violation(cluster):
-    cluster.create(3, raft_args={
-        'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes'})
-
+    cluster.create(3, raft_args={'cluster-mode': 'yes'})
     c = cluster.node(1).client
 
     # -CROSSSLOT on multi-key cross slot violation
@@ -38,7 +35,6 @@ def test_shard_group_sanity(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '0'})
 
@@ -61,7 +57,6 @@ def test_shard_group_sanity(cluster):
 def test_shard_group_validation(cluster):
     cluster.create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1000'})
 
@@ -88,7 +83,6 @@ def test_shard_group_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1000'})
 
@@ -110,7 +104,6 @@ def test_shard_group_snapshot_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(1, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1000'})
 
@@ -135,7 +128,6 @@ def test_shard_group_snapshot_propagation(cluster):
 def test_shard_group_persistence(cluster):
     cluster.create(1, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1000'})
 
@@ -173,13 +165,11 @@ def test_shard_group_persistence(cluster):
 def test_shard_group_linking(cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1',
         'shardgroup-update-interval': 500})
     cluster2 = cluster_factory().create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '2',
         'cluster-end-hslot': '16383',
         'shardgroup-update-interval': 500})
@@ -228,12 +218,10 @@ def test_shard_group_linking_checks(cluster_factory):
     # linking should fail.
     cluster1 = cluster_factory().create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '0',
         'cluster-end-hslot': '1'})
     cluster2 = cluster_factory().create(3, raft_args={
         'cluster-mode': 'yes',
-        'raftize-all-commands': 'yes',
         'cluster-start-hslot': '1',
         'cluster-end-hslot': '16383'})
 

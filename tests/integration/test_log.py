@@ -20,7 +20,7 @@ def test_log_rollback(cluster):
 
     cluster.create(3)
     assert cluster.leader == 1
-    assert cluster.raft_exec('INCRBY', 'key', '111') == 111
+    assert cluster.execute('INCRBY', 'key', '111') == 111
 
     # Break cluster
     cluster.node(2).terminate()
@@ -28,8 +28,8 @@ def test_log_rollback(cluster):
 
     # Load a command which can't be committed
     assert cluster.node(1).current_index() == 6
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('RAFT', 'INCRBY', 'key', '222')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('INCRBY', 'key', '222')
     assert cluster.node(1).current_index() == 7
     cluster.node(1).terminate()
 
@@ -51,7 +51,7 @@ def test_log_rollback(cluster):
 
     # Make another write and make sure it overwrites the previous one in
     # node 1's log
-    assert cluster.raft_exec('INCRBY', 'key', '333') == 444
+    assert cluster.execute('INCRBY', 'key', '333') == 444
     cluster.wait_for_unanimity()
 
     # Make sure log reflects the change
@@ -69,7 +69,7 @@ def test_raft_log_max_file_size(cluster):
     assert r1.raft_info()['log_entries'] == 1
     assert r1.raft_config_set('raft-log-max-file-size', '1kb')
     for _ in range(10):
-        assert r1.raft_exec('SET', 'testkey', 'x'*500)
+        assert r1.client.set('testkey', 'x'*500)
     time.sleep(1)
     assert r1.raft_info()['log_entries'] < 10
 
@@ -83,14 +83,14 @@ def test_raft_log_max_cache_size(cluster):
     assert r1.raft_info()['cache_entries'] == 1
 
     assert r1.raft_config_set('raft-log-max-cache-size', '1kb')
-    assert r1.raft_exec('SET', 'testkey', 'testvalue')
+    assert r1.client.set('testkey', 'testvalue')
 
     info = r1.raft_info()
     assert info['cache_entries'] == 2
     assert info['cache_memory_size'] > 0
 
     for _ in range(10):
-        assert r1.raft_exec('SET', 'testkey', 'x' * 500)
+        assert r1.client.set('testkey', 'x' * 500)
 
     time.sleep(1)
     info = r1.raft_info()
@@ -117,8 +117,8 @@ def test_reply_to_cache_invalidated_entry(cluster):
     # Send commands that are guarnateed to overflow the cache
     conns = []
     for i in range(10):
-        conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-        conn.send_command('RAFT', 'SET', 'key%s' % i, 'x' * 1000)
+        conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+        conn.send_command('SET', 'key%s' % i, 'x' * 1000)
         conns.append(conn)
 
     # give periodic job time to handle cache
@@ -151,7 +151,7 @@ def test_read_before_commits(cluster):
     """
 
     cluster.create(3)
-    assert cluster.raft_exec('GET', 'somekey') is None
+    assert cluster.execute('get', 'somekey') is None
 
 
 def test_stale_reads_on_leader_election(cluster):
@@ -161,13 +161,13 @@ def test_stale_reads_on_leader_election(cluster):
 
     # Try 10 times
     for _ in range(10):
-        val_written = cluster.raft_exec("INCR", "counter-1")
+        val_written = cluster.execute('INCR', 'counter-1')
 
         leader = cluster.node(cluster.leader)
         leader.terminate()
         leader.start(verify=False)
 
-        val_read = cluster.raft_exec('GET', 'counter-1')
+        val_read = cluster.execute('GET', 'counter-1')
         assert val_read is not None
         assert val_written == int(val_read)
         time.sleep(1)
