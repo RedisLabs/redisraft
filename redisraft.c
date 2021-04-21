@@ -696,6 +696,8 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
             "monitor",
             "command",
             "shutdown",
+            "watch",
+            "unwatch",
             "quit",
             NULL
     };
