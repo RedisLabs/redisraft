@@ -648,6 +648,17 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         }
 
         RedisModule_ReplySetArrayLength(ctx, len);
+    } else if (!strncasecmp(cmd, "exec", cmdlen) && argc > 3) {
+        size_t exec_cmd_len;
+        const char *exec_cmd = RedisModule_StringPtrLen(argv[2], &exec_cmd_len);
+
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, exec_cmd, "v", &argv[3], argc - 3);
+        if (!reply) {
+            RedisModule_ReplyWithError(ctx, "Bad command or failed to execute");
+        } else {
+            RedisModule_ReplyWithCallReply(ctx, reply);
+            RedisModule_FreeCallReply(reply);
+        }
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
