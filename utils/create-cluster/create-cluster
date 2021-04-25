@@ -8,7 +8,7 @@ PORT=5000
 TIMEOUT=2000
 NODES=3
 LOGLEVEL=notice
-CLUSTER_MODE=yes
+SHARDING=yes
 ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
@@ -32,7 +32,7 @@ start_instance() {
         --loadmodule ${REDISRAFT} \
             raft-log-filename raftlog-${port}.db \
             addr ${HOST}:${port} \
-            cluster-mode ${CLUSTER_MODE} \
+            sharding ${SHARDING} \
         ${ADDITIONAL_OPTIONS}
 }
 

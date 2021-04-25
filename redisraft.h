@@ -314,9 +314,9 @@ typedef struct RedisRaftConfig {
     unsigned long raft_log_max_file_size;
     bool raft_log_fsync;
     /* Cluster mode */
-    bool cluster_mode;                  /* Are we running in a cluster compatible mode? */
-    int cluster_start_hslot;            /* First cluster hash slot */
-    int cluster_end_hslot;              /* Last cluster hash slot */
+    bool sharding;                      /* Are we running in a sharding configuration? */
+    int sharding_start_hslot;           /* First cluster hash slot */
+    int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
 } RedisRaftConfig;
 
@@ -724,7 +724,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
 void ShardingInfoRDBSave(RedisModuleIO *rdb);
 void ShardingInfoRDBLoad(RedisModuleIO *rdb);
-void ClusterPeriodicCall(RedisRaftCtx *rr);
+void ShardingPeriodicCall(RedisRaftCtx *rr);
 RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, void *user_data);
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req);
 

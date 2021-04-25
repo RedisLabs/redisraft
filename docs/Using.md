@@ -23,13 +23,15 @@ current leader.
 
 A client should be aware of the addresses of all cluster nodes, but cannot automatically determine which node is the leader at any given time. Sending a Redis command to a non-leader node results in a redirect response:
 
-    -MOVED <addr>:<port>
+    -MOVED <slot> <addr>:<port>
 
 The client is then expected to establish a connection with the specified node and re-send the command.
 
+This response is compatible with the Redis Cluster specification, although the `<slot>` argument may contain a zero value if sharding is not enabled.
+
 It is also possible for a RedisRaft cluster to have no leader. In this case, the cluster may be in the process of electing a new leader, or the cluster may be down due to a loss of quorum. If no leader is present, the client will receive an error response such as this one:
 
-    -NOLEADER No Raft leader
+    -CLUSTERDOWN No Raft leader
 
 In this case, the client should retry the operation at a later time.
 

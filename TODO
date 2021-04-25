@@ -28,18 +28,6 @@ There is already a `RAFT.SHARDGROUP GET` command so it could be as simple as:
 - It sends a `RAFT.SHARDGROUP GET` request and updates the local configuration
   if anything changed (i.e. new / removed nodes).
 
-## Protocol compatibility
-
-Need to decide if we adopt Redis Cluster as the standard protocol for RedisRaft
-and always stick to it.
-
-Pros:
-- It's standard
-
-Cons:
-- Cannot use more descriptive errors like `-NOLEADER`
-- Ambiguous hash slot in `-MOVED <slot> <host:port>` replies.
-
 ---
 
 Other stuff:

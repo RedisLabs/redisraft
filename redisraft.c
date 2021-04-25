@@ -48,8 +48,8 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
  * Reply:
  *   -NOCLUSTER ||
  *   -LOADING ||
- *   -NOLEADER ||
- *   -MOVED <addr> ||
+ *   -CLUSTERDOWN ||
+ *   -MOVED <slot> <addr>:<port> ||
  *   *2
  *   :<new node id>
  *   :<dbid>
@@ -59,8 +59,8 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
  * Reply:
  *   -NOCLUSTER ||
  *   -LOADING ||
- *   -NOLEADER ||
- *   -MOVED <addr> ||
+ *   -CLUSTERDOWN ||
+ *   -MOVED <slot> <addr>:<port> ||
  *   +OK
  */
 
@@ -198,8 +198,8 @@ error_cleanup:
  * Reply:
  *   -NOCLUSTER ||
  *   -LOADING ||
- *   -NOLEADER ||
- *   -MOVED <addr> ||
+ *   -CLUSTERDOWN ||
+ *   -MOVED <slot> <addr>:<port> ||
  *   Any standard Redis reply, depending on the command.
  */
 
@@ -213,8 +213,14 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
 
+    /* When sharding is used, this will get computed and overwritten later on,
+     * but we still initialize to -1 in case sharding is not enabled.
+     */
+    req->r.redis.hash_slot = -1;
+
     cmd->argc = argc - 1;
     cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
+
 
     int i;
     for (i = 0; i < argc - 1; i++) {
@@ -815,8 +821,9 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     /* Sanity check Redis version */
     if (RedisModule_SubscribeToServerEvent == NULL ||
-            RedisModule_RegisterCommandFilter == NULL) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0 or newer!");
+            RedisModule_RegisterCommandFilter == NULL ||
+            RedisModule_GetCommandKeys == NULL) {
+        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0.9 or newer!");
         return REDISMODULE_ERR;
     }
 
@@ -864,11 +871,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     redis_raft.registered_filter = RedisModule_RegisterCommandFilter(ctx,
         interceptRedisCommands, REDISMODULE_CMDFILTER_NOSELF);
-
-    if (config.cluster_mode && !RedisModule_GetCommandKeys) {
-        RedisModule_Log(ctx, REDIS_WARNING,
-                "Warning: cluster-mode is enabled but the Redis server in use is missing critical API functions, affecting performance!");
-    }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientDisconnect) != REDISMODULE_OK) {

@@ -56,8 +56,8 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, "id") ||
                 !strcmp(keyword, "raft-log-filename") ||
-                !strcmp(keyword, "cluster-start-hslot") ||
-                !strcmp(keyword, "cluster-end-hslot"))) {
+                !strcmp(keyword, "sharding-start-hslot") ||
+                !strcmp(keyword, "sharding-end-hslot"))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
     }
@@ -175,29 +175,29 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             return RR_ERROR;
         }
         redis_raft_loglevel = loglevel;
-    } else if (!strcmp(keyword, "cluster-mode")) {
+    } else if (!strcmp(keyword, "sharding")) {
         bool val;
         if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'cluster-mode' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'sharding' value");
             return RR_ERROR;
         }
-        target->cluster_mode = val;
-    } else if (!strcmp(keyword, "cluster-start-hslot")) {
+        target->sharding = val;
+    } else if (!strcmp(keyword, "sharding-start-hslot")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || !HashSlotValid(val)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'cluster-start-hslot' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'sharding-start-hslot' value");
             return RR_ERROR;
         }
-        target->cluster_start_hslot = (int)val;
-    } else if (!strcmp(keyword, "cluster-end-hslot")) {
+        target->sharding_start_hslot = (int)val;
+    } else if (!strcmp(keyword, "sharding-end-hslot")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
         if (*errptr != '\0' || !HashSlotValid(val)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'cluster-end-hslot' value");
+            snprintf(errbuf, errbuflen-1, "invalid 'sharding-end-hslot' value");
             return RR_ERROR;
         }
-        target->cluster_end_hslot = (int)val;
+        target->sharding_end_hslot = (int)val;
     } else if (!strcmp(keyword, "shardgroup-update-interval")) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -336,17 +336,17 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, "loglevel", getLoglevelName(redis_raft_loglevel));
     }
-    if (stringmatch(pattern, "cluster-mode", 1)) {
+    if (stringmatch(pattern, "sharding", 1)) {
         len++;
-        replyConfigBool(ctx, "cluster-mode", config->cluster_mode);
+        replyConfigBool(ctx, "sharding", config->sharding);
     }
-    if (stringmatch(pattern, "cluster-start-hslot", 1)) {
+    if (stringmatch(pattern, "sharding-start-hslot", 1)) {
         len++;
-        replyConfigInt(ctx, "cluster-start-hslot", config->cluster_start_hslot);
+        replyConfigInt(ctx, "sharding-start-hslot", config->sharding_start_hslot);
     }
-    if (stringmatch(pattern, "cluster-end-hslot", 1)) {
+    if (stringmatch(pattern, "sharding-end-hslot", 1)) {
         len++;
-        replyConfigInt(ctx, "cluster-end-hslot", config->cluster_end_hslot);
+        replyConfigInt(ctx, "sharding-end-hslot", config->sharding_end_hslot);
     }
     if (stringmatch(pattern, "shardgroup-update-interval", 1)) {
         len++;
@@ -370,9 +370,9 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
     config->raft_log_fsync = true;
     config->quorum_reads = true;
-    config->cluster_mode = false;
-    config->cluster_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
-    config->cluster_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
+    config->sharding = false;
+    config->sharding_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
+    config->sharding_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
 }
 

@@ -911,8 +911,8 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     /* Call cluster */
-    if (rr->config->cluster_mode) {
-        ClusterPeriodicCall(rr);
+    if (rr->config->sharding) {
+        ShardingPeriodicCall(rr);
     }
 }
 
@@ -1176,7 +1176,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Cluster configuration */
-    if (rr->config->cluster_mode) {
+    if (rr->config->sharding) {
         ShardingInfoInit(rr);
     }
 
@@ -1674,7 +1674,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
     return false;
 }
 
-/* When cluster_mode is enabled, handle clustering aspects before processing
+/* When sharding is enabled, handle sharding aspects before processing
  * the request:
  *
  * 1. Compute hash slot of all associated keys and validate there's no cross-slot
@@ -1684,7 +1684,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
  * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
  */
 
-static RRStatus handleClustering(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
 {
     if (computeHashSlot(rr, req) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
@@ -1772,10 +1772,10 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    /* When we're in cluster mode, go through handleClustering. This will perform
+    /* When we're in cluster mode, go through handleSharding. This will perform
      * hash slot validation and return an error / redirection if necessary.
      */
-    if (rr->config->cluster_mode && handleClustering(rr, req) != RR_OK) {
+    if (rr->config->sharding && handleSharding(rr, req) != RR_OK) {
         goto exit;
     }
 
@@ -2184,8 +2184,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->cluster_start_hslot);
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->cluster_end_hslot);
+    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_start_hslot);
+    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_end_hslot);
     alen = 2;
 
     for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
