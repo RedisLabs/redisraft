@@ -13,6 +13,26 @@
 
 #include "redisraft.h"
 
+static const char *CONF_ID = "id";
+static const char *CONF_ADDR = "addr";
+static const char *CONF_RAFT_INTERVAL = "raft-interval";
+static const char *CONF_REQUEST_TIMEOUT = "request-timeout";
+static const char *CONF_ELECTION_TIMEOUT = "election-timeout";
+static const char *CONF_RAFT_RESPONSE_TIMEOUT = "raft-response-timeout";
+static const char *CONF_PROXY_RESPONSE_TIMEOUT = "proxy-response-timeout";
+static const char *CONF_RECONNECT_INTERVAL = "reconnect-interval";
+static const char *CONF_RAFT_LOG_FILENAME = "raft-log-filename";
+static const char *CONF_RAFT_LOG_MAX_CACHE_SIZE = "raft-log-max-cache-size";
+static const char *CONF_RAFT_LOG_MAX_FILE_SIZE = "raft-log-max-file-size";
+static const char *CONF_RAFT_LOG_FSYNC = "raft-log-fsync";
+static const char *CONF_FOLLOWER_PROXY = "follower-proxy";
+static const char *CONF_QUORUM_READS = "quorum-reads";
+static const char *CONF_LOGLEVEL = "loglevel";
+static const char *CONF_SHARDING = "sharding";
+static const char *CONF_SHARDING_START_HSLOT = "sharding-start-hslot";
+static const char *CONF_SHARDING_END_HSLOT = "sharding-end-hslot";
+static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
+
 static RRStatus parseBool(const char *value, bool *result)
 {
     if (!strcmp(value, "yes")) {
@@ -54,10 +74,10 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
-    if (!on_init && (!strcmp(keyword, "id") ||
-                !strcmp(keyword, "raft-log-filename") ||
-                !strcmp(keyword, "sharding-start-hslot") ||
-                !strcmp(keyword, "sharding-end-hslot"))) {
+    if (!on_init && (!strcmp(keyword, CONF_ID) ||
+                !strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
+                !strcmp(keyword, CONF_SHARDING_START_HSLOT) ||
+                !strcmp(keyword, CONF_SHARDING_END_HSLOT))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
     }
@@ -67,144 +87,111 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         return RR_ERROR;
     }
 
-    if (!strcmp(keyword, "id")) {
+    if (!strcmp(keyword, CONF_ID)) {
         char *errptr;
         unsigned long idval = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !idval) {
-            snprintf(errbuf, errbuflen-1, "invalid 'id' value");
-            return RR_ERROR;
-        }
-        target->id = idval;
-    } else if (!strcmp(keyword, "addr")) {
-        if (!NodeAddrParse(value, strlen(value), &target->addr)) {
-            snprintf(errbuf, errbuflen-1, "invalid addr '%s'", value);
-            return RR_ERROR;
-        }
-    } else if (!strcmp(keyword, "raft-log-filename")) {
+        if (*errptr != '\0' || !idval || idval > INT32_MAX)
+            goto invalid_value;
+        target->id = (raft_node_id_t) idval;
+    } else if (!strcmp(keyword, CONF_ADDR)) {
+        if (!NodeAddrParse(value, strlen(value), &target->addr))
+            goto invalid_value;
+    } else if (!strcmp(keyword, CONF_RAFT_LOG_FILENAME)) {
         if (target->raft_log_filename) {
             RedisModule_Free(target->raft_log_filename);
         }
         target->raft_log_filename = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, "raft-interval")) {
+    } else if (!strcmp(keyword, CONF_RAFT_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !val) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft-interval' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || !val)
+            goto invalid_value;
         target->raft_interval = (int)val;
-    } else if (!strcmp(keyword, "request-timeout")) {
+    } else if (!strcmp(keyword, CONF_REQUEST_TIMEOUT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'request-timeout' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
         target->request_timeout = (int)val;
-    } else if (!strcmp(keyword, "election-timeout")) {
+    } else if (!strcmp(keyword, CONF_ELECTION_TIMEOUT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'election-timeout' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
         target->election_timeout = (int)val;
-    } else if (!strcmp(keyword, "raft-response-timeout")) {
+    } else if (!strcmp(keyword, CONF_RAFT_RESPONSE_TIMEOUT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft-response-timeout' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
         target->raft_response_timeout = (int)val;
-    } else if (!strcmp(keyword, "proxy-response-timeout")) {
+    } else if (!strcmp(keyword, CONF_PROXY_RESPONSE_TIMEOUT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'proxy-response-timeout' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
         target->proxy_response_timeout = (int)val;
-    } else if (!strcmp(keyword, "reconnect-interval")) {
+    } else if (!strcmp(keyword, CONF_RECONNECT_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'reconnect-interval' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
         target->reconnect_interval = (int)val;
-    } else if (!strcmp(keyword, "raft-log-max-cache-size")) {
+    } else if (!strcmp(keyword, CONF_RAFT_LOG_MAX_CACHE_SIZE)) {
         unsigned long val;
-        if (parseMemorySize(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-cache-size' value");
-            return RR_ERROR;
-        }
+        if (parseMemorySize(value, &val) != RR_OK)
+            goto invalid_value;
         target->raft_log_max_cache_size = (int)val;
-    } else if (!strcmp(keyword, "raft-log-max-file-size")) {
+    } else if (!strcmp(keyword, CONF_RAFT_LOG_MAX_FILE_SIZE)) {
         unsigned long val;
-        if (parseMemorySize(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-max-file-size' value");
-            return RR_ERROR;
-        }
+        if (parseMemorySize(value, &val) != RR_OK)
+            goto invalid_value;
         target->raft_log_max_file_size = (int)val;
-    } else if (!strcmp(keyword, "raft-log-fsync")) {
+    } else if (!strcmp(keyword, CONF_RAFT_LOG_FSYNC)) {
         bool val;
-        if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'raft-log-fsync' value");
-            return RR_ERROR;
-        }
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
         target->raft_log_fsync = val;
-    } else if (!strcmp(keyword, "follower-proxy")) {
+    } else if (!strcmp(keyword, CONF_FOLLOWER_PROXY)) {
         bool val;
-        if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'follower-proxy' value");
-            return RR_ERROR;
-        }
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
         target->follower_proxy = val;
-    } else if (!strcmp(keyword, "quorum-reads")) {
+    } else if (!strcmp(keyword, CONF_QUORUM_READS)) {
         bool val;
-        if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'quorum-reads' value");
-            return RR_ERROR;
-        }
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
         target->quorum_reads = val;
-    } else if (!strcmp(keyword, "loglevel")) {
+    } else if (!strcmp(keyword, CONF_LOGLEVEL)) {
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'loglevel', must be 'error', 'info', 'verbose', 'debug' or 'trace'");
+            snprintf(errbuf, errbuflen-1,
+                     "invalid '%s', must be 'error', 'info', 'verbose', 'debug' or 'trace'", keyword);
             return RR_ERROR;
         }
         redis_raft_loglevel = loglevel;
-    } else if (!strcmp(keyword, "sharding")) {
+    } else if (!strcmp(keyword, CONF_SHARDING)) {
         bool val;
-        if (parseBool(value, &val) != RR_OK) {
-            snprintf(errbuf, errbuflen-1, "invalid 'sharding' value");
-            return RR_ERROR;
-        }
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
         target->sharding = val;
-    } else if (!strcmp(keyword, "sharding-start-hslot")) {
+    } else if (!strcmp(keyword, CONF_SHARDING_START_HSLOT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !HashSlotValid(val)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'sharding-start-hslot' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val > INT32_MAX || !HashSlotValid((int) val))
+            goto invalid_value;
         target->sharding_start_hslot = (int)val;
-    } else if (!strcmp(keyword, "sharding-end-hslot")) {
+    } else if (!strcmp(keyword, CONF_SHARDING_END_HSLOT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !HashSlotValid(val)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'sharding-end-hslot' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val > INT32_MAX || !HashSlotValid((int) val))
+            goto invalid_value;
         target->sharding_end_hslot = (int)val;
-    } else if (!strcmp(keyword, "shardgroup-update-interval")) {
+    } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val < 0) {
-            snprintf(errbuf, errbuflen-1, "invalid 'shardgroup-update-interval' value");
-            return RR_ERROR;
-        }
+        if (*errptr != '\0' || val < 0)
+            goto invalid_value;
         target->shardgroup_update_interval = (int) val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
@@ -212,10 +199,19 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     }
 
     return RR_OK;
+
+invalid_value:
+    snprintf(errbuf, errbuflen-1, "invalid '%s' value", keyword);
+    return RR_ERROR;
 }
 
 void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    if (argc != 4) {
+        RedisModule_WrongArity(ctx);
+        return;
+    }
+
     size_t key_len;
     const char *key = RedisModule_StringPtrLen(argv[2], &key_len);
     char keybuf[key_len + 1];
@@ -269,94 +265,101 @@ static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
 
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
 {
+    if (argc != 3) {
+        RedisModule_WrongArity(ctx);
+        return;
+    }
+
     int len = 0;
     size_t pattern_len;
     const char *pattern = RedisModule_StringPtrLen(argv[2], &pattern_len);
 
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    if (stringmatch(pattern, "id", 1)) {
+    if (stringmatch(pattern, CONF_ID, 1)) {
         len++;
-        replyConfigInt(ctx, "id", config->id);
+        replyConfigInt(ctx, CONF_ID, config->id);
     }
-    if (stringmatch(pattern, "raft-log-filename", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_LOG_FILENAME, 1)) {
         len++;
-        replyConfigStr(ctx, "raft-log-filename", config->raft_log_filename);
+        replyConfigStr(ctx, CONF_RAFT_LOG_FILENAME, config->raft_log_filename);
     }
-    if (stringmatch(pattern, "raft-interval", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_INTERVAL, 1)) {
         len++;
-        replyConfigInt(ctx, "raft-interval", config->raft_interval);
+        replyConfigInt(ctx, CONF_RAFT_INTERVAL, config->raft_interval);
     }
-    if (stringmatch(pattern, "request-timeout", 1)) {
+    if (stringmatch(pattern, CONF_REQUEST_TIMEOUT, 1)) {
         len++;
-        replyConfigInt(ctx, "request-timeout", config->request_timeout);
+        replyConfigInt(ctx, CONF_REQUEST_TIMEOUT, config->request_timeout);
     }
-    if (stringmatch(pattern, "election-timeout", 1)) {
+    if (stringmatch(pattern, CONF_ELECTION_TIMEOUT, 1)) {
         len++;
-        replyConfigInt(ctx, "election-timeout", config->election_timeout);
+        replyConfigInt(ctx, CONF_ELECTION_TIMEOUT, config->election_timeout);
     }
-    if (stringmatch(pattern, "raft-response-timeout", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_RESPONSE_TIMEOUT, 1)) {
         len++;
-        replyConfigInt(ctx, "raft-response-timeout", config->raft_response_timeout);
+        replyConfigInt(ctx, CONF_RAFT_RESPONSE_TIMEOUT, config->raft_response_timeout);
     }
-    if (stringmatch(pattern, "proxy-response-timeout", 1)) {
+    if (stringmatch(pattern, CONF_PROXY_RESPONSE_TIMEOUT, 1)) {
         len++;
-        replyConfigInt(ctx, "proxy-response-timeout", config->proxy_response_timeout);
+        replyConfigInt(ctx, CONF_PROXY_RESPONSE_TIMEOUT, config->proxy_response_timeout);
     }
-    if (stringmatch(pattern, "reconnect-interval", 1)) {
+    if (stringmatch(pattern, CONF_RECONNECT_INTERVAL, 1)) {
         len++;
-        replyConfigInt(ctx, "reconnect-interval", config->reconnect_interval);
+        replyConfigInt(ctx, CONF_RECONNECT_INTERVAL, config->reconnect_interval);
     }
-    if (stringmatch(pattern, "raft-log-max-cache-size", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_LOG_MAX_CACHE_SIZE, 1)) {
         len++;
-        replyConfigMemSize(ctx, "raft-log-max-cache-size", config->raft_log_max_cache_size);
+        replyConfigMemSize(ctx, CONF_RAFT_LOG_MAX_CACHE_SIZE, config->raft_log_max_cache_size);
     }
-    if (stringmatch(pattern, "raft-log-max-file-size", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_LOG_MAX_FILE_SIZE, 1)) {
         len++;
-        replyConfigMemSize(ctx, "raft-log-max-file-size", config->raft_log_max_file_size);
+        replyConfigMemSize(ctx, CONF_RAFT_LOG_MAX_FILE_SIZE, config->raft_log_max_file_size);
     }
-    if (stringmatch(pattern, "raft-log-fsync", 1)) {
+    if (stringmatch(pattern, CONF_RAFT_LOG_FSYNC, 1)) {
         len++;
-        replyConfigBool(ctx, "raft-log-fsync", config->raft_log_fsync);
+        replyConfigBool(ctx, CONF_RAFT_LOG_FSYNC, config->raft_log_fsync);
     }
-    if (stringmatch(pattern, "follower-proxy", 1)) {
+    if (stringmatch(pattern, CONF_FOLLOWER_PROXY, 1)) {
         len++;
-        replyConfigBool(ctx, "follower-proxy", config->follower_proxy);
+        replyConfigBool(ctx, CONF_FOLLOWER_PROXY, config->follower_proxy);
     }
-    if (stringmatch(pattern, "quorum-reads", 1)) {
+    if (stringmatch(pattern, CONF_QUORUM_READS, 1)) {
         len++;
-        replyConfigBool(ctx, "quorum-reads", config->quorum_reads);
+        replyConfigBool(ctx, CONF_QUORUM_READS, config->quorum_reads);
     }
-    if (stringmatch(pattern, "addr", 1)) {
+    if (stringmatch(pattern, CONF_ADDR, 1)) {
         len++;
         char buf[300];
         snprintf(buf, sizeof(buf)-1, "%s:%u", config->addr.host, config->addr.port);
-        replyConfigStr(ctx, "addr", buf);
+        replyConfigStr(ctx, CONF_ADDR, buf);
     }
-    if (stringmatch(pattern, "loglevel", 1)) {
+    if (stringmatch(pattern, CONF_LOGLEVEL, 1)) {
         len++;
-        replyConfigStr(ctx, "loglevel", getLoglevelName(redis_raft_loglevel));
+        replyConfigStr(ctx, CONF_LOGLEVEL, getLoglevelName(redis_raft_loglevel));
     }
-    if (stringmatch(pattern, "sharding", 1)) {
+    if (stringmatch(pattern, CONF_SHARDING, 1)) {
         len++;
-        replyConfigBool(ctx, "sharding", config->sharding);
+        replyConfigBool(ctx, CONF_SHARDING, config->sharding);
     }
-    if (stringmatch(pattern, "sharding-start-hslot", 1)) {
+    if (stringmatch(pattern, CONF_SHARDING_START_HSLOT, 1)) {
         len++;
-        replyConfigInt(ctx, "sharding-start-hslot", config->sharding_start_hslot);
+        replyConfigInt(ctx, CONF_SHARDING_START_HSLOT, config->sharding_start_hslot);
     }
-    if (stringmatch(pattern, "sharding-end-hslot", 1)) {
+    if (stringmatch(pattern, CONF_SHARDING_END_HSLOT, 1)) {
         len++;
-        replyConfigInt(ctx, "sharding-end-hslot", config->sharding_end_hslot);
+        replyConfigInt(ctx, CONF_SHARDING_END_HSLOT, config->sharding_end_hslot);
     }
-    if (stringmatch(pattern, "shardgroup-update-interval", 1)) {
+    if (stringmatch(pattern, CONF_SHARDGROUP_UPDATE_INTERVAL, 1)) {
         len++;
-        replyConfigInt(ctx, "shardgroup-update-interval", config->shardgroup_update_interval);
+        replyConfigInt(ctx, CONF_SHARDGROUP_UPDATE_INTERVAL, config->shardgroup_update_interval);
     }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
+    UNUSED(ctx);
+
     memset(config, 0, sizeof(RedisRaftConfig));
 
     config->raft_log_filename = RedisModule_Strdup(REDIS_RAFT_DEFAULT_LOG_FILENAME);
