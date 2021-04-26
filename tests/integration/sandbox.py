@@ -521,9 +521,9 @@ class Cluster(object):
                     # in this case we need to do nothing
                     if new_leader in self.nodes:
                         self.leader = new_leader
-                elif str(err).startswith('NOLEADER'):
+                elif str(err).startswith('CLUSTERDOWN'):
                     if no_leader_first:
-                        LOG.info("-NOLEADER response received, will retry"
+                        LOG.info("-CLUSTERDOWN response received, will retry"
                                  " for %s seconds", self.noleader_timeout)
                         #no_leader_first = False
                     time.sleep(0.5)

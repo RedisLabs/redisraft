@@ -327,31 +327,31 @@ Valid values for this setting are *yes* and *no*.
 
 *Default: yes*
 
-### `cluster-mode`
+### `sharding`
 
-If enabled, RedisRaft operates in a Redis Cluster compatible mode (with or without sharding).
+If enabled, RedisRaft handles dataset sharding in a way that is similar to Redis Cluster.
 
-See [Clustering](Cluster.md) for more information on clustering and sharding.
+See [Sharding](Sharding.md) for more information on clustering and sharding.
 
 Valid values for this setting are *yes* and *no*.
 
 *Default: no*
 
-### `cluster-start-hslot`
+### `sharding-start-hslot`
 
-The first hash-slot assigned to this RedisRaft cluster, when `cluster-mode` is enabled.
+The first hash-slot assigned to this RedisRaft cluster, if sharding is used.
 
-See [Clustering](Cluster.md) for more information on clustering and sharding.
+See [Sharding](Sharding.md) for more information on sharding.
 
 Valid values for this setting are 0-16383.
 
 *Default: 0*
 
-### `cluster-end-hslot`
+### `sharding-end-hslot`
 
-The last hash-slot assigned to this RedisRaft cluster, when `cluster-mode` is enabled.
+The last hash-slot assigned to this RedisRaft cluster, when sharding is used.
 
-See [Clustering](Cluster.md) for more information on clustering and sharding.
+See [Sharding](Sharding.md) for more information on sharding.
 
 Valid values for this setting are 0-16383.
 

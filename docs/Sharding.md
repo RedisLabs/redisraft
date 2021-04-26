@@ -1,16 +1,13 @@
-RedisRaft Clustering Support
-============================
+RedisRaft Sharding Support
+==========================
 
 ## Introduction
 
-This describes a work-in-progress design that adds clustering support to
-RedisRaft, in an attempt to address these issues:
+This describes a work-in-progress design that adds sharding support to
+RedisRaft.
 
-* Provide a service discovery mechanism for clients, so they can re-establish a
-  connection with a new leader after a previous leader is no longer available.
-
-* Allow sharding of the dataset across multiple RedisRaft clusters, such that
-  every cluster is assigned specific hash slots.
+The goal is to allow sharding of the dataset across multiple RedisRaft
+clusters, such that every cluster is assigned specific hash slots.
 
 The main design guideline we follow is to provide an alternative, RedisRaft
 based implementation of the Redis Cluster Protocol.
@@ -54,11 +51,15 @@ We assume that RedisRaft is configured as follows:
 * Follower proxy is disabled.
 * Nodes have their `addr` configuration set with an IP address and not a host
   name, to be compliant with Redis Cluster addressing.
-* The new `cluster-mode` parameter is set to `yes`.
+* The new `sharding` parameter is set to `yes`.
 
 ## Design
 
 ### Redis Cluster Protocol and Fail-over
+
+> :warning: This part should move elsewhere, failover and the use of CLUSTER SLOTS
+should be considered an integral part of any client and has nothing to do with
+sharding.
 
 To support the basic client-managed failover scenario, RedisRaft needs to
 respond to `CLUSTER SLOTS` commands.
@@ -186,8 +187,8 @@ Use the following RedisRaft configuration:
 
 * The `addr` parameter should be supplied as an IP address and not a hostname,
   to be compliant with the Redis Cluster protocol.
-* The `cluster-mode` parameter should be set to `yes`.
-* The `cluster-start-hslot` and `cluster-end-hslot` parameters should be set to
+* The `sharding` parameter should be set to `yes`.
+* The `sharding-start-hslot` and `sharding-end-hslot` parameters should be set to
   their default values, which indicate all slots are managed by the local
   cluster (no sharding).
 * The `follower-proxy` parameter should be set to `no` (default).
@@ -201,16 +202,16 @@ which consists of N instances of Redis.
 Start by setting up the different RedisRaft clusters individually. You will need
 to use the Redis Cluster Mode configuration as described above.
 
-The `cluster-start-hslot` and `cluster-end-hslot` parameters should be assigned
+The `sharding-start-hslot` and `sharding-end-hslot` parameters should be assigned
 individually for every RedisRaft cluster and indicate slot assignment. All nodes
 of the same RedisRaft cluster should have the same configuration.
 
 For example, if you're creating three equal shards you may use:
 
-* `cluster-start-hslot 0` and `cluster-end-hslot 5460` for RedisRaft cluster 1.
-* `cluster-start-hslot 5461` and `cluster-end-hslot 10921` for RedisRaft cluster
+* `sharding-start-hslot 0` and `sharding-end-hslot 5460` for RedisRaft cluster 1.
+* `sharding-start-hslot 5461` and `sharding-end-hslot 10921` for RedisRaft cluster
   2.
-* `cluster-start-hslot 10922` and `cluster-end-hslot 16383` for RedisRaft
+* `sharding-start-hslot 10922` and `sharding-end-hslot 16383` for RedisRaft
   cluster 3.
 
 After creating the three clusters, you will need to configure each cluster to

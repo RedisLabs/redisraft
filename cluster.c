@@ -411,12 +411,12 @@ static void establishShardGroupConn(Connection *conn)
     sg->use_conn_addr = false;
 }
 
-/* Called periodically by the main loop when cluster mode is enabled.
+/* Called periodically by the main loop when sharding is enabled.
  *
  * Currently we use this to iterate all shardgroups and trigger an
  * update for shardgroups that have not been updated recently.
  */
-void ClusterPeriodicCall(RedisRaftCtx *rr)
+void ShardingPeriodicCall(RedisRaftCtx *rr)
 {
     /* See if we have any shardgroups that need a refresh.
      */
@@ -751,88 +751,14 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 
     /* Add our local mapping */
     ShardGroup sg = {
-        .start_slot = rr->config->cluster_start_hslot,
-        .end_slot = rr->config->cluster_end_hslot,
+        .start_slot = rr->config->sharding_start_hslot,
+        .end_slot = rr->config->sharding_end_hslot,
         .nodes_num = 0,
         .nodes = NULL
     };
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
     RedisModule_Assert(ret == RR_OK);
-}
-
-/* Issue a COMMAND GETKEYS command to fetch the list of keys addressed
- * by the specified command.
- *
- * THIS IS DEPRECATED! Starting with Redis 6.0.9 a Module API call is available
- * to fetch this information, so this is left here just for a short while to
- * maintain backwards compatibility.
- *
- * Using this technique is significantly slower.
- */
-
-RedisModuleCallReply *execCommandGetKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
-{
-    RedisModuleString *getkeys = RedisModule_CreateString(rr->ctx, "GETKEYS", 7);
-    RedisModuleString *argv[cmd->argc + 1];
-
-    argv[0] = getkeys;
-    memcpy(&argv[1], &cmd->argv[0], cmd->argc * sizeof(RedisModuleString *));
-
-    RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(
-            rr->ctx, "COMMAND", "v", argv, cmd->argc + 1);
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
-
-    RedisModule_FreeString(rr->ctx, getkeys);
-
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
-        RedisModule_FreeCallReply(reply);
-        reply = NULL;
-    }
-
-    return reply;
-}
-
-/* Compute the hash slot for a RaftRedisCommandArray list of commands and update
- * the entry.
- *
- * FIXME: This is a LEGACY VERSION based on 'COMMAND GETKEYS', which is here only
- * to allow running on Redis versions older than 6.0.9.
- */
-
-static RRStatus legacy_computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
-{
-    int slot = -1;
-
-    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
-    for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand *cmd = cmds->commands[i];
-
-        /* Iterate command keys */
-        RedisModuleCallReply *reply = execCommandGetKeys(rr, cmd);
-        for (int j = 0; j < RedisModule_CallReplyLength(reply); j++) {
-            size_t key_len;
-            const char *key = RedisModule_CallReplyStringPtr(
-                    RedisModule_CallReplyArrayElement(reply, j), &key_len);
-            int thisslot = keyHashSlot(key, key_len);
-
-            if (slot == -1) {
-                /* First key */
-                slot = thisslot;
-            } else {
-                if (slot != thisslot) {
-                    RedisModule_FreeCallReply(reply);
-                    return RR_ERROR;
-                }
-            }
-        }
-        RedisModule_FreeCallReply(reply);
-    }
-
-    req->r.redis.hash_slot = slot;
-
-    return RR_OK;
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
@@ -842,9 +768,6 @@ static RRStatus legacy_computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
 {
     int slot = -1;
-
-    if (RedisModule_GetCommandKeys == NULL)
-        return legacy_computeHashSlot(rr, req);
 
     RaftRedisCommandArray *cmds = &req->r.redis.cmds;
     for (int i = 0; i < cmds->len; i++) {
@@ -1008,11 +931,6 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
          * with a synthetic client that no longer has the original argv.
          */
         RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
-        goto exit;
-    }
-
-    if (!rr->config->cluster_mode) {
-        RedisModule_ReplyWithError(req->ctx, "ERR not operating in Redis Cluster compatible mode");
         goto exit;
     }
 

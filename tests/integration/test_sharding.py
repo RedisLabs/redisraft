@@ -13,7 +13,7 @@ from pytest import raises
 
 
 def test_cross_slot_violation(cluster):
-    cluster.create(3, raft_args={'cluster-mode': 'yes'})
+    cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
 
     # -CROSSSLOT on multi-key cross slot violation
@@ -34,9 +34,9 @@ def test_cross_slot_violation(cluster):
 def test_shard_group_sanity(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '0'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '0'})
 
     c = cluster.node(1).client
 
@@ -56,9 +56,9 @@ def test_shard_group_sanity(cluster):
 
 def test_shard_group_validation(cluster):
     cluster.create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1000'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1000'})
 
     c = cluster.node(1).client
 
@@ -82,9 +82,9 @@ def test_shard_group_validation(cluster):
 def test_shard_group_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1000'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1000'})
 
     c = cluster.node(1).client
     assert c.execute_command(
@@ -103,9 +103,9 @@ def test_shard_group_propagation(cluster):
 def test_shard_group_snapshot_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(1, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1000'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1000'})
 
     c = cluster.node(1).client
     assert c.execute_command(
@@ -127,9 +127,9 @@ def test_shard_group_snapshot_propagation(cluster):
 
 def test_shard_group_persistence(cluster):
     cluster.create(1, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1000'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1000'})
 
     n1 = cluster.node(1)
     assert n1.client.execute_command(
@@ -164,14 +164,14 @@ def test_shard_group_persistence(cluster):
 
 def test_shard_group_linking(cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1',
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1',
         'shardgroup-update-interval': 500})
     cluster2 = cluster_factory().create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '2',
-        'cluster-end-hslot': '16383',
+        'sharding': 'yes',
+        'sharding-start-hslot': '2',
+        'sharding-end-hslot': '16383',
         'shardgroup-update-interval': 500})
 
     # Not expected to have coverage
@@ -217,13 +217,13 @@ def test_shard_group_linking_checks(cluster_factory):
     # Create clusters with overlapping hash slots,
     # linking should fail.
     cluster1 = cluster_factory().create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '0',
-        'cluster-end-hslot': '1'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '1'})
     cluster2 = cluster_factory().create(3, raft_args={
-        'cluster-mode': 'yes',
-        'cluster-start-hslot': '1',
-        'cluster-end-hslot': '16383'})
+        'sharding': 'yes',
+        'sharding-start-hslot': '1',
+        'sharding-end-hslot': '16383'})
 
     # Link
     with raises(ResponseError, match='failed to link'):
