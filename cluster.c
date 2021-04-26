@@ -761,39 +761,6 @@ void ShardingInfoReset(RedisRaftCtx *rr)
     RedisModule_Assert(ret == RR_OK);
 }
 
-/* Issue a COMMAND GETKEYS command to fetch the list of keys addressed
- * by the specified command.
- *
- * THIS IS DEPRECATED! Starting with Redis 6.0.9 a Module API call is available
- * to fetch this information, so this is left here just for a short while to
- * maintain backwards compatibility.
- *
- * Using this technique is significantly slower.
- */
-
-RedisModuleCallReply *execCommandGetKeys(RedisRaftCtx *rr, RaftRedisCommand *cmd)
-{
-    RedisModuleString *getkeys = RedisModule_CreateString(rr->ctx, "GETKEYS", 7);
-    RedisModuleString *argv[cmd->argc + 1];
-
-    argv[0] = getkeys;
-    memcpy(&argv[1], &cmd->argv[0], cmd->argc * sizeof(RedisModuleString *));
-
-    RedisModule_ThreadSafeContextLock(rr->ctx);
-    RedisModuleCallReply *reply = RedisModule_Call(
-            rr->ctx, "COMMAND", "v", argv, cmd->argc + 1);
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
-
-    RedisModule_FreeString(rr->ctx, getkeys);
-
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
-        RedisModule_FreeCallReply(reply);
-        reply = NULL;
-    }
-
-    return reply;
-}
-
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
  * the entry.
  */
