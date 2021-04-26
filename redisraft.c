@@ -213,14 +213,8 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
 
-    /* When sharding is used, this will get computed and overwritten later on,
-     * but we still initialize to -1 in case sharding is not enabled.
-     */
-    req->r.redis.hash_slot = -1;
-
     cmd->argc = argc - 1;
     cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
-
 
     int i;
     for (i = 0; i < argc - 1; i++) {
