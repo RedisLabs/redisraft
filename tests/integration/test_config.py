@@ -58,13 +58,13 @@ def test_invalid_configs(cluster):
     """
 
     r1 = cluster.add_node()
-    with raises(ResponseError, match='.*invalid addr'):
+    with raises(ResponseError, match='.*invalid.*'):
         r1.raft_config_set('addr', 'host')
 
-    with raises(ResponseError, match='.*invalid addr'):
+    with raises(ResponseError, match='.*invalid.*'):
         r1.raft_config_set('addr', 'host:0')
 
-    with raises(ResponseError, match='.*invalid addr'):
+    with raises(ResponseError, match='.*invalid.*'):
         r1.raft_config_set('addr', 'host:99999')
 
     with raises(ResponseError, match='.*invalid .*value'):
