@@ -1955,6 +1955,17 @@ exit:
     RaftReqFree(req);
 }
 
+void handleClusterJoined(uv_async_t *handle) {
+    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    RaftReq *req = rr->join_req;
+
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    RaftReqFree(req);
+
+    rr->join_req = NULL;
+    uv_close((uv_handle_t*) &rr->joined_sig, NULL);
+}
+
 static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
@@ -1966,6 +1977,9 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    uv_async_init(rr->loop, &rr->joined_sig, handleClusterJoined);
+    uv_handle_set_data((uv_handle_t *) &rr->joined_sig, rr);
+    rr->join_req = req;
     /* Create a Snapshot Info meta-key */
     initializeSnapshotInfo(rr);
 
@@ -1974,8 +1988,8 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 
     rr->state = REDIS_RAFT_JOINING;
 
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
+    // Exit here, waiting for callback
+    return;
 exit:
     RaftReqFree(req);
 }
@@ -2002,6 +2016,8 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     }
 
     rr->state = REDIS_RAFT_UP;
+
+    uv_async_send(&rr->joined_sig);
 }
 
 static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
