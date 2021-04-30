@@ -29,5 +29,5 @@ jobs:
                   --test-count 20 \
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
-                  --version 6.2.2 \
+                  --redis-version 6.2.2 \
                   --raft-version ${{ steps.vars.outputs.git_sha }} | rg --passthrough 'Everything looks good'
