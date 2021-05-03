@@ -62,7 +62,7 @@ bool NodeAddrEqual(const NodeAddr *a1, const NodeAddr *a2)
  * address already exists, nothing is done.  The addr pointer provided is copied into newly
  * allocated memory, caller should free addr if necessary.
  */
-void NodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr)
+void OldNodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr)
 {
     while (*head != NULL) {
         if (NodeAddrEqual(&(*head)->addr, addr)) {
@@ -74,6 +74,38 @@ void NodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr)
 
     *head = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
     (*head)->addr = *addr;
+}
+
+void NodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr)
+{
+    NodeAddrListElement ** origHead = head;
+    NodeAddrListElement * origElement = *head;
+
+    while (*head != NULL) {
+        if (NodeAddrEqual(&(*head)->addr, addr)) {
+            return;
+        }
+
+        head = &(*head)->next;
+    }
+
+    NodeAddrListElement * newhead = RedisModule_Calloc(1, sizeof(NodeAddrListElement));
+    newhead->addr = *addr;
+    newhead->next = origElement;
+    *origHead = newhead;
+}
+
+NodeAddr NodeAddrListDequeueElement(NodeAddrListElement **head) {
+    NodeAddrListElement *node = *head;
+    NodeAddr ret;
+
+    if (node != NULL) {
+        *head = node->next;
+        ret = node->addr;
+        RedisModule_Free(node);
+    }
+
+    return ret;
 }
 
 /* Concat a NodeAddrList to another NodeAddrList */

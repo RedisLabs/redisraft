@@ -589,6 +589,7 @@ bool parseMovedReply(const char *str, NodeAddr *addr);
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
 bool NodeAddrEqual(const NodeAddr *a1, const NodeAddr *a2);
 void NodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr);
+NodeAddr NodeAddrListDequeueElement(NodeAddrListElement **head);
 void NodeAddrListConcat(NodeAddrListElement **head, const NodeAddrListElement *other);
 void NodeAddrListFree(NodeAddrListElement *head);
 

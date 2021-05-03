@@ -28,9 +28,7 @@
 
 typedef struct JoinState {
     NodeAddrListElement *addr;
-    NodeAddrListElement *addr_iter;
     Connection *conn;
-    bool second_pass;
 } JoinState;
 
 /* Callback for the RAFT.NODE ADD command.
@@ -57,8 +55,11 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 NodeAddrListAddElement(&state->addr, &addr);
             }
         } else {
-
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
+            if (!strcmp("CLUSTERDOWN No raft leader", reply->str)) {
+                LOG_ERROR("Adding %s:%u back into queue", conn->addr.host, conn->addr.port);
+                NodeAddrListAddElement(&state->addr, &conn->addr);
+            }
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         LOG_ERROR("RAFT.NODE ADD invalid reply.");
@@ -122,40 +123,25 @@ void joinFreeCallback(void *privdata)
  */
 void joinIdleCallback(Connection *conn)
 {
-    LOG_VERBOSE("joinIdleCallback: conn = %p", conn);
-
     JoinState *state = ConnGetPrivateData(conn);
 
     /* Advance iterator, wrap around to start */
-    if (state->addr_iter) {
-        state->addr_iter = state->addr_iter->next;
-
-        // addr_iter wasn't null, now is, that means we exhausted it
-        if (!state->addr_iter) {
-            if (!state->second_pass) {
-                state->second_pass = true;
-                LOG_VERBOSE("Exhausted all possible addresses and failed to join cluster, but count < 10");
-            } else {
-                LOG_VERBOSE("Exhausted all possible addresses and failed to join cluster");
-                RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
-                ConnAsyncTerminate(conn);
-                HandleClusterJoinFailed(rr);
-                return;
-            }
-        }
+    if (state->addr == NULL) {
+        LOG_VERBOSE("Exhausted all possible addresses and failed to join cluster");
+        RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+        ConnAsyncTerminate(conn);
+        HandleClusterJoinFailed(rr);
+        return;
     }
 
-    if (!state->addr_iter) {
-        state->addr_iter = state->addr;
-    }
+    NodeAddr addr = NodeAddrListDequeueElement(&state->addr);
 
-    LOG_VERBOSE("Joining cluster, connecting to %s:%u",
-            state->addr_iter->addr.host, state->addr_iter->addr.port);
+    LOG_VERBOSE("Joining cluster, connecting to %s:%u", addr.host, addr.port);
 
     /* Establish connection. We silently ignore errors here as we'll
      * just get iterated again in the future.
      */
-    ConnConnect(state->conn, &state->addr_iter->addr, sendNodeAddRequest);
+    ConnConnect(state->conn, &addr, sendNodeAddRequest);
 }
 
 /* Initiate the process of joining a cluster, using the specified list

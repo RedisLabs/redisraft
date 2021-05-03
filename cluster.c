@@ -960,7 +960,6 @@ exit:
  */
 typedef struct ShardGroupLinkState {
     NodeAddrListElement *addr;          /* Address list to try */
-    NodeAddrListElement *addr_iter;     /* Current iterator in list */
     Connection *conn;                   /* Connection we use */
     RaftReq *req;                       /* Original RaftReq, so we can return a reply */
 } ShardGroupLinkState;
@@ -1014,6 +1013,10 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
             }
         } else {
             LOG_ERROR("RAFT.SHARDGROUP GET failed: %s", reply->str);
+            if (!strcmp("CLUSTERDOWN No raft leader", reply->str)) {
+                LOG_ERROR("Adding %s:%u back into queue", conn->addr.host, conn->addr.port);
+                NodeAddrListAddElement(&state->addr, &conn->addr);
+            }
         }
     } else {
         ShardGroup recv_sg;
@@ -1027,7 +1030,7 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_ERROR("Received shardgroup failed validation!");
             } else {
                 LOG_VERBOSE("Shardgroup link: %s:%u: received configuration, propagating to Raft log.",
-                            state->addr_iter->addr.host, state->addr_iter->addr.port);
+                            conn->addr.host, conn->addr.port);
                 if (ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
                                          RAFT_LOGTYPE_ADD_SHARDGROUP, state->req) == RR_OK) {
                     state->req = NULL;
@@ -1057,16 +1060,11 @@ static void linkSendRequest(Connection *conn)
         return;
     }
 
-    ShardGroupLinkState *state = ConnGetPrivateData(conn);
-    LOG_VERBOSE("Shardgroup link %s:%u: connected, requesting configuration",
-                state->addr_iter->addr.host,
-                state->addr_iter->addr.port);
+    LOG_VERBOSE("Shardgroup link %s:%u: connected, requesting configuration", conn->addr.host, conn->addr.port);
 
     /* Request configuration */
     redisAsyncContext *rc = ConnGetRedisCtx(conn);
-    if (redisAsyncCommand(rc, linkHandleResponse, conn,
-                          "RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
-
+    if (redisAsyncCommand(rc, linkHandleResponse, conn,"RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
         redisAsyncDisconnect(rc);
         ConnMarkDisconnected(conn);
         return;
@@ -1088,16 +1086,8 @@ static void linkConnect(Connection *conn)
 {
     ShardGroupLinkState *state = ConnGetPrivateData(conn);
 
-    /* First iteration? */
-    if (!state->addr_iter) {
-        state->addr_iter = state->addr;
-    } else {
-        /* Try next address */
-        state->addr_iter = state->addr_iter->next;
-    }
-
     /* If all attempts were exhausted, abort. */
-    if (!state->addr_iter) {
+    if (state->addr == NULL) {
         /* Nothing else to try? */
         RedisModule_ReplyWithError(state->req->ctx, "failed to link, please check the logs.");
 
@@ -1109,13 +1099,14 @@ static void linkConnect(Connection *conn)
         return;
     }
 
-    LOG_VERBOSE("Shardgroup link: connecting to %s:%u",
-                state->addr_iter->addr.host, state->addr_iter->addr.port);
+    NodeAddr addr = NodeAddrListDequeueElement(&state->addr);
+
+    LOG_VERBOSE("Shardgroup link: connecting to %s:%u", addr.host, addr.port);
 
     /* Establish connection. We silently ignore errors here as we'll
      * just get iterated again in the future.
      */
-    ConnConnect(state->conn, &state->addr_iter->addr, linkSendRequest);
+    ConnConnect(state->conn, &addr, linkSendRequest);
 }
 
 /* Handle a RAFT.SHARDGROUP LINK request.
