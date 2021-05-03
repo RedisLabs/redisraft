@@ -240,7 +240,6 @@ typedef struct RedisRaftCtx {
     uv_thread_t thread;         /* Raft I/O thread */
     uv_loop_t *loop;            /* Raft I/O loop */
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
-    uv_async_t joined_sig;      /* A signal that we have joined a cluster */
     struct RaftReq *join_req;   /* the RaftReq that */
     uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
     uv_timer_t node_reconnect_timer;    /* Handle connection issues */
@@ -614,6 +613,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
+void HandleClusterJoinFailed(RedisRaftCtx *rr);
 void HandleClusterJoinCompleted(RedisRaftCtx *rr);
 
 void RaftReqFree(RaftReq *req);

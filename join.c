@@ -30,6 +30,7 @@ typedef struct JoinState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     Connection *conn;
+    bool second_pass;
 } JoinState;
 
 /* Callback for the RAFT.NODE ADD command.
@@ -56,6 +57,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 NodeAddrListAddElement(&state->addr, &addr);
             }
         } else {
+
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
@@ -91,6 +93,9 @@ static void sendNodeAddRequest(Connection *conn)
         return;
     }
 
+    LOG_VERBOSE("Joining cluster (conn = %p), raft node add to %s:%u",
+                conn, conn->addr.host, conn->addr.port);
+
     if (redisAsyncCommand(ConnGetRedisCtx(conn), handleNodeAddResponse, conn,
         "RAFT.NODE %s %d %s:%u",
         "ADD",
@@ -117,20 +122,31 @@ void joinFreeCallback(void *privdata)
  */
 void joinIdleCallback(Connection *conn)
 {
+    LOG_VERBOSE("joinIdleCallback: conn = %p", conn);
+
     JoinState *state = ConnGetPrivateData(conn);
 
     /* Advance iterator, wrap around to start */
     if (state->addr_iter) {
         state->addr_iter = state->addr_iter->next;
+
+        // addr_iter wasn't null, now is, that means we exhausted it
+        if (!state->addr_iter) {
+            if (!state->second_pass) {
+                state->second_pass = true;
+                LOG_VERBOSE("Exhausted all possible addresses and failed to join cluster, but count < 10");
+            } else {
+                LOG_VERBOSE("Exhausted all possible addresses and failed to join cluster");
+                RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+                ConnAsyncTerminate(conn);
+                HandleClusterJoinFailed(rr);
+                return;
+            }
+        }
     }
+
     if (!state->addr_iter) {
         state->addr_iter = state->addr;
-
-        /* FIXME: If we iterated through the entire list, we currently continue
-         * forever. This should be changed along with the change of configuration
-         * interface, so once we've exahusted all addresses we fail the
-         * join operation.
-         */
     }
 
     LOG_VERBOSE("Joining cluster, connecting to %s:%u",

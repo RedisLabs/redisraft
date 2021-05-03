@@ -1955,15 +1955,15 @@ exit:
     RaftReqFree(req);
 }
 
-void handleClusterJoined(uv_async_t *handle) {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+void handleClusterJoined(RedisRaftCtx *rr) {
     RaftReq *req = rr->join_req;
+
+    /* How to assert that req is not null? */
 
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     RaftReqFree(req);
 
     rr->join_req = NULL;
-    uv_close((uv_handle_t*) &rr->joined_sig, NULL);
 }
 
 static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
@@ -1977,8 +1977,6 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    uv_async_init(rr->loop, &rr->joined_sig, handleClusterJoined);
-    uv_handle_set_data((uv_handle_t *) &rr->joined_sig, rr);
     rr->join_req = req;
     /* Create a Snapshot Info meta-key */
     initializeSnapshotInfo(rr);
@@ -1992,6 +1990,17 @@ static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     return;
 exit:
     RaftReqFree(req);
+}
+
+void HandleClusterJoinFailed(RedisRaftCtx *rr) {
+    RaftReq *req = rr->join_req;
+
+    /* How to assert that req is not null? */
+
+    RedisModule_ReplyWithError(req->ctx, "ERR Failed to join cluster, check logs");
+    RaftReqFree(req);
+
+    rr->join_req = NULL;
 }
 
 void HandleClusterJoinCompleted(RedisRaftCtx *rr)
@@ -2017,7 +2026,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
 
     rr->state = REDIS_RAFT_UP;
 
-    uv_async_send(&rr->joined_sig);
+    handleClusterJoined(rr);
 }
 
 static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
