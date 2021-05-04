@@ -36,4 +36,7 @@ To run a test:
         --time-limit 600 \
         --test-count 50 \
         --concurrency 4n \
-        --version 6.0.3 --raft-version 0e123a9
+        --redis-repo https://github.com/redis/redis \
+        --redis-version 6.2.3 \
+        --raft-repo https://github.com/redislabs/redisraft \
+        --raft-version cf235c1

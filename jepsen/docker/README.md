@@ -37,7 +37,10 @@ To run a test:
             --test-count 50 \
             --concurrency 4n \
             --nemesis partition,pause,kill,member \
-            --version 6.0.3 --raft-version 0e123a9
+            --redis-repo https://github.com/redis/redis \
+            --redis-version 6.2.3 \
+            --raft-repo https://github.com/redislabs/redisraft \
+            --raft-version cf235c1
 
 The `jepsen-control` container runs a built-in web server which is exposed on
 http://localhost:8080 and can be used to look at test results.
