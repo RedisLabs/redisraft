@@ -1604,14 +1604,15 @@ raft_msg_id_t quorum_msg_id(raft_server_t* me_)
 
     for (i = 0; i < me->num_nodes; i++) {
         raft_node_t* node = me->nodes[i];
-        if (me->node == node) {
-            msg_ids[msg_ids_count++] = me->msg_id;
-            continue;
-        }
+
         if (!raft_node_is_active(node) || !raft_node_is_voting(node))
             continue;
 
-        msg_ids[msg_ids_count++] = raft_node_get_last_acked_msgid(node);
+        if (me->node == node) {
+            msg_ids[msg_ids_count++] = me->msg_id;
+        } else {
+            msg_ids[msg_ids_count++] = raft_node_get_last_acked_msgid(node);
+        }
     }
 
     qsort(msg_ids, msg_ids_count, sizeof(raft_msg_id_t), msgid_cmp);
