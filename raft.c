@@ -2010,6 +2010,8 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     rr->state = REDIS_RAFT_UP;
 }
 
+void HandleClusterJoinFailed(RedisRaftCtx *rr) {}
+
 static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
 {
     freeMultiExecState(req->r.client_disconnect.client_id);
