@@ -27,3 +27,4 @@ utils/create-cluster/*.log
 utils/create-cluster/*.db
 utils/create-cluster/*.db.idx
 venv
+buildinfo.h
