@@ -398,6 +398,7 @@ static void establishShardGroupConn(Connection *conn)
             sg->node_conn_idx = 0;
         }
         addr = &sg->nodes[sg->node_conn_idx++].addr;
+        sg->conn_addr = *addr;
     }
 
     LOG_DEBUG("Initiating shardgroup(%u) connection to %s:%u", sg->id, addr->host, addr->port);
