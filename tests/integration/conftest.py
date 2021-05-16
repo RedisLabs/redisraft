@@ -86,12 +86,13 @@ def cluster_factory(request):
     """
 
     created_clusters = []
-    cluster_args = {'base_port': 5000, 'base_id': 0}
+    cluster_args = {'base_port': 5000, 'base_id': 0, 'cluster_id': 0}
 
     def _create_cluster():
         _cluster = Cluster(create_config(request.config), **cluster_args)
         cluster_args['base_port'] += 100
         cluster_args['base_id'] += 100
+        cluster_args['cluster_id'] += 1
         created_clusters.append(_cluster)
         return _cluster
 
