@@ -561,3 +561,20 @@ class Cluster(object):
             node.terminate()
         for node in self.nodes.values():
             node.start()
+
+
+def assert_after(func, timeout, retry_interval=0.5):
+    """
+    Call func() which is expected to perform certain assertions.
+    If assertions failed, retry with a retry_interval delay until
+    timeout has been reached -- at which point an exception is raised.
+    """
+    start_time = time.time()
+    while True:
+        try:
+            func()
+            break
+        except AssertionError:
+            if time.time() > start_time + timeout:
+                raise
+            time.sleep(retry_interval)
