@@ -27,6 +27,8 @@
 #include "redismodule.h"
 #include "raft.h"
 
+#include "version.h"
+
 #define UNUSED(x)   ((void) x)
 
 /* --------------- Forward declarations -------------- */

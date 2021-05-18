@@ -55,13 +55,17 @@ endif
 .PHONY: all
 all: redisraft.so
 
-$(OBJECTS): | $(BUILDDIR)/.deps_installed
+buildinfo.h:
+	GIT_SHA1=`(git show-ref --head --hash=8 2>/dev/null || echo 00000000) | head -n1` && \
+	echo "#define REDISRAFT_GIT_SHA1 \"$$GIT_SHA1\"" > buildinfo.h
+
+$(OBJECTS): | $(BUILDDIR)/.deps_installed buildinfo.h
 
 redisraft.so: $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 
 clean: clean-tests
-	rm -f redisraft.so $(OBJECTS)
+	rm -f redisraft.so buildinfo.h $(OBJECTS)
 
 cleanall: clean
 	rm -rf $(BUILDDIR)

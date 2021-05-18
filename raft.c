@@ -1846,6 +1846,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     raft_node_t *me = rr->raft ? raft_get_my_node(rr->raft) : NULL;
     s = catsnprintf(s, &slen,
+            "# RedisRaft\r\n"
+            "redisraft_version:%s\r\n"
+            "redisraft_git_sha1:%s\r\n"
+            "\r\n"
             "# Raft\r\n"
             "node_id:%d\r\n"
             "state:%s\r\n"
@@ -1855,6 +1859,8 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "current_term:%d\r\n"
             "num_nodes:%d\r\n"
             "num_voting_nodes:%d\r\n",
+            REDISRAFT_VERSION,
+            REDISRAFT_GIT_SHA1,
             rr->config->id,
             getStateStr(rr),
             role,

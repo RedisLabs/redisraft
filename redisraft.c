@@ -806,6 +806,10 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
+    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft version %s [%s]",
+            REDISRAFT_VERSION,
+            REDISRAFT_GIT_SHA1);
+
     /* Create a logging context */
     if (RedisModule_GetDetachedThreadSafeContext) {
         redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
