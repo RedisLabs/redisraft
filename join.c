@@ -124,9 +124,7 @@ void joinIdleCallback(Connection *conn)
     time_t now;
     time(&now);
 
-    // This value should probably be dynamic and be considered a multiple of election time period? 2x?
-    // need to figure that out (i.e. perhaps     rr->config->election_timeout*2 ?
-    if (difftime(now, state->start) > 10) {
+    if (difftime(now, state->start) > rr->config->join_timeout) {
         LOG_ERROR("timed out trying to connect");
         ConnAsyncTerminate(conn);
         HandleClusterJoinFailed(rr);

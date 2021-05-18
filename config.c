@@ -18,6 +18,8 @@ static const char *CONF_ADDR = "addr";
 static const char *CONF_RAFT_INTERVAL = "raft-interval";
 static const char *CONF_REQUEST_TIMEOUT = "request-timeout";
 static const char *CONF_ELECTION_TIMEOUT = "election-timeout";
+static const char *CONF_CONNECTION_TIMEOUT = "connection-timeout";
+static const char *CONF_JOIN_TIMEOUT = "join-timeout";
 static const char *CONF_RAFT_RESPONSE_TIMEOUT = "raft-response-timeout";
 static const char *CONF_PROXY_RESPONSE_TIMEOUT = "proxy-response-timeout";
 static const char *CONF_RECONNECT_INTERVAL = "reconnect-interval";
@@ -119,6 +121,18 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (*errptr != '\0' || val <= 0)
             goto invalid_value;
         target->election_timeout = (int)val;
+    } else if (!strcmp(keyword, CONF_CONNECTION_TIMEOUT)) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
+        target->connection_timeout = (int)val;
+    } else if (!strcmp(keyword, CONF_JOIN_TIMEOUT)) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val <= 0)
+            goto invalid_value;
+        target->join_timeout = (int)val;
     } else if (!strcmp(keyword, CONF_RAFT_RESPONSE_TIMEOUT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -295,6 +309,14 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, CONF_ELECTION_TIMEOUT, config->election_timeout);
     }
+    if (stringmatch(pattern, CONF_CONNECTION_TIMEOUT, 1)) {
+        len++;
+        replyConfigInt(ctx, CONF_CONNECTION_TIMEOUT, config->connection_timeout);
+    }
+    if (stringmatch(pattern, CONF_JOIN_TIMEOUT, 1)) {
+        len++;
+        replyConfigInt(ctx, CONF_JOIN_TIMEOUT, config->join_timeout);
+    }
     if (stringmatch(pattern, CONF_RAFT_RESPONSE_TIMEOUT, 1)) {
         len++;
         replyConfigInt(ctx, CONF_RAFT_RESPONSE_TIMEOUT, config->raft_response_timeout);
@@ -366,6 +388,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
     config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
     config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
+    config->connection_timeout = REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT;
+    config->join_timeout = REDIS_RAFT_DEFAULT_JOIN_TIMEOUT;
     config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
     config->raft_response_timeout = REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT;
     config->proxy_response_timeout = REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT;
