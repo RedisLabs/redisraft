@@ -167,7 +167,7 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
     cluster.node(cluster.leader).wait_for_num_nodes(2)
 
     logger.info("Re-add node")
-    new_node = cluster.add_node(port=port, node_id=node_id)
+    new_node = cluster.add_node(port=port, node_id=node_id, expect_error="Failed to join cluster, check logs")
 
     logger.info("Waiting for timeout")
 
