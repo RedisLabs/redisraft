@@ -598,9 +598,6 @@ void NodeAddrListAddElement(NodeAddrListElement **head, const NodeAddr *addr);
 void NodeAddrListConcat(NodeAddrListElement **head, const NodeAddrListElement *other);
 void NodeAddrListFree(NodeAddrListElement *head);
 
-/* join.c */
-void InitiateJoinCluster(RedisRaftCtx *rr, const NodeAddrListElement *addr);
-
 /* node.c */
 Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr);
 void HandleNodeStates(RedisRaftCtx *rr);
@@ -619,8 +616,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
-void HandleClusterJoinCompleted(RedisRaftCtx *rr);
-void HandleClusterJoinFailed(RedisRaftCtx *rr);
+
 
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
@@ -735,5 +731,9 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb);
 void ShardingPeriodicCall(RedisRaftCtx *rr);
 RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, void *user_data);
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req);
+
+/* join.c */
+void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *pReq);
+void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 
 #endif  /* _REDISRAFT_H */

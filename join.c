@@ -30,8 +30,14 @@ typedef struct JoinState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     Connection *conn;
-    time_t start;
+    time_t start;                       /* Time we initiated the join, to enable it to fail if it takes too long */
+    RaftReq *req;                       /* Original RaftReq, so we can return a reply */
 } JoinState;
+
+void HandleClusterJoinFailed(RedisRaftCtx *rr, RaftReq *req) {
+    RedisModule_ReplyWithError(req->ctx, "ERR Failed to join cluster, check logs");
+    RaftReqFree(req);
+}
 
 /* Callback for the RAFT.NODE ADD command.
  */
@@ -71,7 +77,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
 
         rr->config->id = reply->element[0]->integer;
 
-        HandleClusterJoinCompleted(rr);
+        HandleClusterJoinCompleted(rr, state->req);
         assert(rr->state == REDIS_RAFT_UP);
 
         ConnAsyncTerminate(conn);
@@ -125,9 +131,9 @@ void joinIdleCallback(Connection *conn)
     time(&now);
 
     if (difftime(now, state->start) > rr->config->join_timeout) {
-        LOG_ERROR("timed out trying to join cluster");
+        LOG_ERROR("Cluster join: timed out, took longer than %d seconds", rr->config->join_timeout);
         ConnAsyncTerminate(conn);
-        HandleClusterJoinFailed(rr);
+        HandleClusterJoinFailed(rr, state->req);
         return;
     }
 
@@ -148,21 +154,34 @@ void joinIdleCallback(Connection *conn)
     ConnConnect(state->conn, &state->addr_iter->addr, sendNodeAddRequest);
 }
 
-/* Initiate the process of joining a cluster, using the specified list
- * of addresses.
- */
-
-void InitiateJoinCluster(RedisRaftCtx *rr, const NodeAddrListElement *addr)
+void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
+    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
+        goto exit_fail;
+    }
+
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
+        goto exit_fail;
+    }
+
+    /* Create a Snapshot Info meta-key */
+    initializeSnapshotInfo(rr);
+
     JoinState *state = RedisModule_Calloc(1, sizeof(*state));
-
     time(&(state->start));
-
-    NodeAddrListConcat(&state->addr, addr);
+    NodeAddrListConcat(&state->addr, req->r.cluster_join.addr);
+    state->req = req;
 
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
-     */ 
+     */
     state->conn = ConnCreate(rr, state, joinIdleCallback, joinFreeCallback);
-}
 
+    rr->state = REDIS_RAFT_JOINING;
+
+    return;
+
+exit_fail:
+    RaftReqFree(req);
+}
