@@ -30,6 +30,7 @@ typedef struct JoinState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     Connection *conn;
+    time_t start;
 } JoinState;
 
 /* Callback for the RAFT.NODE ADD command.
@@ -117,7 +118,18 @@ void joinFreeCallback(void *privdata)
  */
 void joinIdleCallback(Connection *conn)
 {
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinState *state = ConnGetPrivateData(conn);
+
+    time_t now;
+    time(&now);
+
+    if (difftime(now, state->start) > rr->config->join_timeout) {
+        LOG_ERROR("timed out trying to join cluster");
+        ConnAsyncTerminate(conn);
+        HandleClusterJoinFailed(rr);
+        return;
+    }
 
     /* Advance iterator, wrap around to start */
     if (state->addr_iter) {
@@ -125,12 +137,6 @@ void joinIdleCallback(Connection *conn)
     }
     if (!state->addr_iter) {
         state->addr_iter = state->addr;
-
-        /* FIXME: If we iterated through the entire list, we currently continue
-         * forever. This should be changed along with the change of configuration
-         * interface, so once we've exahusted all addresses we fail the
-         * join operation.
-         */
     }
 
     LOG_VERBOSE("Joining cluster, connecting to %s:%u",
@@ -149,6 +155,9 @@ void joinIdleCallback(Connection *conn)
 void InitiateJoinCluster(RedisRaftCtx *rr, const NodeAddrListElement *addr)
 {
     JoinState *state = RedisModule_Calloc(1, sizeof(*state));
+
+    time(&(state->start));
+
     NodeAddrListConcat(&state->addr, addr);
 
     /* We just create the connection with an idle callback, which will

@@ -267,6 +267,18 @@ This value should be sufficiently greater than `raft-interval` and
 
 *Default*: 1000
 
+### `connection-timeout`
+
+The number of milliseconds the cluster will wait for connections to other nodes to succeed before timing out.
+
+*Defaults*: 3000
+
+### `join-timeout`
+
+The number of seconds the node will continue to try and connect to the cluster using the provided and discovered nodes, looping through them until a connection is made, or the timeout is reached.
+
+*Defaults*: 120
+
 ### `reconnect-interval`
 
 The number of milliseconds to wait to reconnect to a node when a node connection attempt fails.

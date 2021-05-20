@@ -163,6 +163,7 @@ typedef struct Connection {
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */
     unsigned long int connect_errors;   /* Connection errors since last connection */
+    struct timeval timeout;             /* Timeout to use if not null */
     void *privdata;                     /* User provided pointer */
 
     /* Connect callback is guaranteed after ConnConnect(); Callback should check
@@ -272,9 +273,11 @@ extern RedisRaftCtx redis_raft;
 extern raft_log_impl_t RaftLogImpl;
 
 #define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
-#define REDIS_RAFT_DEFAULT_INTERVAL                 100
-#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          200
-#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         1000
+#define REDIS_RAFT_DEFAULT_INTERVAL                 100 /* usec */
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          200 /* usec */
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         1000 /* usec */
+#define REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT       3000 /* usec */
+#define REDIS_RAFT_DEFAULT_JOIN_TIMEOUT             120 /* seconds */
 #define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
 #define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT   10000
 #define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT    1000
@@ -308,6 +311,8 @@ typedef struct RedisRaftConfig {
     int raft_interval;
     int request_timeout;
     int election_timeout;
+    int connection_timeout;
+    int join_timeout;
     int reconnect_interval;
     int proxy_response_timeout;
     int raft_response_timeout;
@@ -615,6 +620,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 void HandleClusterJoinCompleted(RedisRaftCtx *rr);
+void HandleClusterJoinFailed(RedisRaftCtx *rr);
 
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
