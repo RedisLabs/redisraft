@@ -78,6 +78,7 @@ class RedisRaft(object):
             raft_args['id'] = str(_id)
         default_args = {'addr': 'localhost:{}'.format(self.port),
                         'raft-log-filename': self._raftlog,
+                        'raft-log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel}
         for defkey, defval in default_args.items():
             if defkey not in raft_args:

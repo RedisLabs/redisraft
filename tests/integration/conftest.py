@@ -37,7 +37,9 @@ def pytest_addoption(parser):
     parser.addoption(
         '--keep-files', default=False, action='store_true',
         help='Do not clean up temporary test files.')
-
+    parser.addoption(
+        '--fsync', default=False, action='store_true',
+        help='Use raft-log-fsync')
 
 def create_config(pytest_config):
     config = SimpleNamespace()
@@ -50,6 +52,7 @@ def create_config(pytest_config):
     config.raft_loglevel = pytest_config.getoption('--raft-loglevel')
     config.workdir = pytest_config.getoption('--work-dir')
     config.keepfiles = pytest_config.getoption('--keep-files')
+    config.fsync = pytest_config.getoption('--fsync')
 
     if (pytest_config.getoption('--valgrind')):
         if config.args is None:
