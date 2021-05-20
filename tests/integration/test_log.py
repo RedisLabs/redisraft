@@ -11,7 +11,7 @@ import time
 from re import match
 from redis import ResponseError
 from .raftlog import RaftLog
-
+import pytest
 
 def test_log_rollback(cluster):
     """
@@ -171,3 +171,22 @@ def test_stale_reads_on_leader_election(cluster):
         assert val_read is not None
         assert val_written == int(val_read)
         time.sleep(1)
+
+
+@pytest.mark.slow
+def test_ae_limit(cluster):
+    """
+    Test handling delivery of a very large appendentries message,
+    if a follower joins after missing many log entries.
+    """
+
+    cluster.create(3)
+    cluster.node(3).terminate()
+
+    pipeline = cluster.node(1).client.pipeline(transaction=False)
+    for _ in range(300000):
+        pipeline.incr('mykey')
+    pipeline.execute()
+
+    cluster.node(3).start()
+    cluster.wait_for_unanimity()

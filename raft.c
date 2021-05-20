@@ -399,13 +399,16 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
     int argc = 5 + msg->n_entries * 2;
-    char *argv[argc];
-    size_t argvlen[argc];
+    char **argv = NULL;
+    size_t *argvlen = NULL;
 
     if (!ConnIsConnected(node->conn)) {
         NODE_TRACE(node, "not connected, state=%s", NodeStateStr[node->state]);
         return 0;
     }
+
+    argv = RedisModule_Alloc(sizeof(argv[0]) * argc);
+    argvlen = RedisModule_Alloc(sizeof(argvlen[0]) * argc);
 
     char target_node_str[12];
     char source_node_str[12];
@@ -451,6 +454,10 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     for (i = 0; i < msg->n_entries; i++) {
         RedisModule_Free(argv[5 + i*2]);
     }
+
+    RedisModule_Free(argv);
+    RedisModule_Free(argvlen);
+
     return 0;
 }
 
