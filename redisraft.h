@@ -163,7 +163,7 @@ typedef struct Connection {
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */
     unsigned long int connect_errors;   /* Connection errors since last connection */
-    struct timeval *timeout;      /* Timeout to use if not null */
+    struct timeval *timeout;            /* Timeout to use if not null */
     void *privdata;                     /* User provided pointer */
 
     /* Connect callback is guaranteed after ConnConnect(); Callback should check

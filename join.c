@@ -125,7 +125,7 @@ void joinIdleCallback(Connection *conn)
     time(&now);
 
     if (difftime(now, state->start) > rr->config->join_timeout) {
-        LOG_ERROR("timed out trying to connect");
+        LOG_ERROR("timed out trying to join cluster");
         ConnAsyncTerminate(conn);
         HandleClusterJoinFailed(rr);
         return;

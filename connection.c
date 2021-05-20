@@ -62,10 +62,9 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc 
     conn->idle_callback = idle_cb;
     conn->free_callback = free_cb;
     conn->id = ++id;
-    if (rr->config->connection_timeout > 0) {
-        conn->timeout = RedisModule_Calloc(1, sizeof(struct timeval));
-        conn->timeout->tv_usec = rr->config->connection_timeout;
-    }
+
+    conn->timeout = RedisModule_Calloc(1, sizeof(struct timeval));
+    conn->timeout->tv_usec = rr->config->connection_timeout;
 
     CONN_TRACE(conn, "Connection created.");
 
@@ -249,8 +248,6 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
 }
-
-
 
 RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackFunc connect_callback)
 {
