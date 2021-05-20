@@ -63,8 +63,7 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc 
     conn->free_callback = free_cb;
     conn->id = ++id;
 
-    conn->timeout = RedisModule_Calloc(1, sizeof(struct timeval));
-    conn->timeout->tv_usec = rr->config->connection_timeout;
+    conn->timeout.tv_usec = rr->config->connection_timeout;
 
     CONN_TRACE(conn, "Connection created.");
 
@@ -86,10 +85,6 @@ static void ConnFree(Connection *conn)
     CONN_TRACE(conn, "Connection freed.");
 
     LIST_REMOVE(conn, entries);
-
-    if (conn->timeout != NULL) {
-        RedisModule_Free(conn->timeout);
-    }
 
     RedisModule_Free(conn);
 }
@@ -224,9 +219,8 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
 
     /* copy default options setup from redisAsyncConnect with support for timeout */
     redisOptions options = {0};
-    if (conn->timeout != NULL) {
-        options.timeout = conn->timeout;
-    }
+    options.timeout = &conn->timeout;
+
     REDIS_OPTIONS_SET_TCP(&options, conn->ipaddr, conn->addr.port);
 
     conn->rc = redisAsyncConnectWithOptions(&options);
