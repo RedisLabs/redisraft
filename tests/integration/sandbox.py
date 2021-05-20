@@ -286,6 +286,17 @@ class RedisRaft(object):
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
 
+    def wait_for_log_committed(self, timeout=10):
+        def current_idx_committed():
+            info = self.raft_info()
+            return bool(info['commit_index'] == info['current_index'])
+
+        def raise_not_committed():
+            raise RedisRaftTimeout('Last log entry not yet committed')
+        self._wait_for_condition(current_idx_committed, raise_not_committed,
+                                 timeout)
+        LOG.debug("Finished waiting for latest entry to be committed.")
+
     def wait_for_log_applied(self, timeout=10):
         def commit_idx_applied():
             info = self.raft_info()
