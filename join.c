@@ -32,6 +32,7 @@ typedef struct JoinState {
     Connection *conn;
     time_t start;                       /* Time we initiated the join, to enable it to fail if it takes too long */
     RaftReq *req;                       /* Original RaftReq, so we can return a reply */
+    bool failed;                        /* unrecoverable failure */
 } JoinState;
 
 void HandleClusterJoinFailed(RedisRaftCtx *rr, RaftReq *req) {
@@ -64,6 +65,9 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
             }
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
+            if (!strcmp(reply->str, "node id has already been used in this cluster")) {
+                state->failed = true;
+            }
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         LOG_ERROR("RAFT.NODE ADD invalid reply.");
@@ -130,11 +134,14 @@ void joinIdleCallback(Connection *conn)
     time_t now;
     time(&now);
 
+    if (state->failed) {
+        LOG_ERROR("Cluster join: unrecoverable error, check logs");
+        goto exit_fail;
+    }
+
     if (difftime(now, state->start) > rr->config->join_timeout) {
         LOG_ERROR("Cluster join: timed out, took longer than %d seconds", rr->config->join_timeout);
-        ConnAsyncTerminate(conn);
-        HandleClusterJoinFailed(rr, state->req);
-        return;
+        goto exit_fail;
     }
 
     /* Advance iterator, wrap around to start */
@@ -152,6 +159,11 @@ void joinIdleCallback(Connection *conn)
      * just get iterated again in the future.
      */
     ConnConnect(state->conn, &state->addr_iter->addr, sendNodeAddRequest);
+    return;
+
+exit_fail:
+    ConnAsyncTerminate(conn);
+    HandleClusterJoinFailed(rr, state->req);
 }
 
 void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
