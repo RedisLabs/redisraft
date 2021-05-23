@@ -167,13 +167,18 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
     cluster.node(cluster.leader).wait_for_num_nodes(2)
 
     logger.info("Re-add node")
-    new_node = cluster.add_node(port=port, node_id=node_id, expect_error="Failed to join cluster, check logs")
+    failed_correctly = False
+    try:
+        new_node = cluster.add_node(port=port, node_id=node_id, single_run=True)
+        logger.info("Waiting for timeout")
 
-    logger.info("Waiting for timeout")
+        # TODO: Detect the error immediately (by inspecting the logs?) instead of retrying until timeout
+        with raises(RedisRaftTimeout):
+            new_node.wait_for_node_voting()
+    except RedisError as err:
+        failed_correctly = "Failed to join cluster, check logs" in str(err)
 
-    # TODO: Detect the error immediately (by inspecting the logs?) instead of retrying until timeout
-    with raises(RedisRaftTimeout):
-        new_node.wait_for_node_voting()
+    assert failed_correctly, "didn't fail as expected"
 
 
 def test_node_history_with_same_address(cluster):
