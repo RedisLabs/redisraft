@@ -146,7 +146,7 @@ class RedisRaft(object):
         if extra_raft_args is None:
             extra_raft_args = []
         args = [self.executable] + self.args + self.raft_args + extra_raft_args
-        logging.info(f"starting node: args = {args}")
+        logging.info("starting node: args = %s".format(args))
         self.process = subprocess.Popen(
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             executable=self.executable,
@@ -417,7 +417,7 @@ class Cluster(object):
             if _id == 1:
                 node.init()
             else:
-                logging.info(f"{_id} joining")
+                logging.info("%s joining".format(_id))
                 node.join(['localhost:{}'.format(self.base_port + 1)])
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
