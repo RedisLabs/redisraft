@@ -1,8 +1,8 @@
 *.o
 *.gcno
 *~
-libcraft.so
-libcraft.a
+libraft.a
+libraft.so
 CLinkedListQueue/
 .env/
 .hypothesis/
