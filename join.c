@@ -63,11 +63,11 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_VERBOSE("Join redirected to leader: %s:%d", addr.host, addr.port);
                 NodeAddrListAddElement(&state->addr, &addr);
             }
+        } else if (strlen(reply->str) > 12 && !strcmp(reply->str, "CLUSTERDOWN ")) {
+            LOG_ERROR("RAFT.NODE ADD error: %s, retrying.", reply->str);
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
-            if (!strcmp(reply->str, "node id has already been used in this cluster")) {
-                state->failed = true;
-            }
+            state->failed = true;
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         LOG_ERROR("RAFT.NODE ADD invalid reply.");
