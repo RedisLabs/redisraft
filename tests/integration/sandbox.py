@@ -60,6 +60,7 @@ class RedisRaft(object):
         self.port = port
         self.executable = config.executable
         self.process = None
+        self.paused = False
         self.workdir = os.path.abspath(config.workdir)
         self.serverdir = os.path.join(self.workdir, self.guid)
         self._raftlog = 'redis{}.db'.format(self.id)
@@ -76,7 +77,7 @@ class RedisRaft(object):
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
-        default_args = {'addr': 'localhost:{}'.format(self.port),
+        default_args = {'addr': self.address,
                         'raft-log-filename': self._raftlog,
                         'raft-log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel}
@@ -97,6 +98,10 @@ class RedisRaft(object):
         self.cleanup()
 
     @property
+    def address(self):
+        return 'localhost:{}'.format(self.port)
+
+    @property
     def raftlog(self):
         return os.path.join(self.serverdir, self._raftlog)
 
@@ -108,10 +113,12 @@ class RedisRaft(object):
     def dbfilename(self):
         return os.path.join(self.serverdir, self._dbfilename)
 
-    def cluster(self, *args):
+    def cluster(self, *args, single_run=False):
         retries = self.up_timeout
         if retries is not None:
             retries *= 10
+        if single_run:
+            retries = 1
         while True:
             try:
                 return self.client.execute_command('RAFT.CLUSTER', *args)
@@ -121,7 +128,7 @@ class RedisRaft(object):
                     retries -= 1
                     if retries <= 0:
                         LOG.fatal('RAFT.CLUSTER %s failed', " ".join(args))
-                        raise
+                        raise err
                 time.sleep(0.1)
 
     def init(self):
@@ -131,9 +138,9 @@ class RedisRaft(object):
         LOG.info('Cluster created: %s', dbid)
         return self
 
-    def join(self, addresses):
+    def join(self, addresses, single_run=False):
         self.start()
-        self.cluster('join', *addresses)
+        self.cluster('join', *addresses, single_run=single_run)
         return self
 
     def start(self, extra_raft_args=None, verify=True):
@@ -145,6 +152,7 @@ class RedisRaft(object):
         if extra_raft_args is None:
             extra_raft_args = []
         args = [self.executable] + self.args + self.raft_args + extra_raft_args
+        logging.info("starting node: args = %s".format(args))
         self.process = subprocess.Popen(
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             executable=self.executable,
@@ -194,6 +202,8 @@ class RedisRaft(object):
 
     def terminate(self):
         if self.process:
+            if self.paused:
+                self.resume()
             try:
                 self.process.terminate()
                 self.process.wait()
@@ -231,10 +241,12 @@ class RedisRaft(object):
 
     def pause(self):
         if self.process is not None:
+            self.paused = True
             self.process.send_signal(signal.SIGSTOP)
 
     def resume(self):
         if self.process is not None:
+            self.paused = False
             self.process.send_signal(signal.SIGCONT)
 
     def cleanup(self):
@@ -410,7 +422,7 @@ class Cluster(object):
         return [n.port for n in self.nodes.values()]
 
     def node_addresses(self):
-        return ['localhost:{}'.format(n.port) for n in self.nodes.values()]
+        return [n.address for n in self.nodes.values()]
 
     def create(self, node_count, raft_args=None, prepopulate_log=0):
         if raft_args is None:
@@ -426,6 +438,7 @@ class Cluster(object):
             if _id == 1:
                 node.init()
             else:
+                logging.info("%s joining".format(_id))
                 node.join(['localhost:{}'.format(self.base_port + 1)])
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
@@ -441,7 +454,8 @@ class Cluster(object):
         self.nodes[node.id] = node
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
-                 node_id=None, use_cluster_args=False, **kwargs):
+                 node_id=None, use_cluster_args=False, single_run=False,
+                 join_addr_list=None, **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -449,16 +463,23 @@ class Cluster(object):
         self.next_id += 1
         if port is None:
             port = self.base_port + _id
-        node = RedisRaft(_id, port, self.config, raft_args=_raft_args,
-            **kwargs)
-        if cluster_setup:
-            if self.nodes:
-                node.join(self.node_addresses())
-            else:
-                node.init()
-                self.leader = _id
-        self.nodes[_id] = node
-        return node
+        node = None
+        try:
+            node = RedisRaft(_id, port, self.config, raft_args=_raft_args,
+                **kwargs)
+            if cluster_setup:
+                if self.nodes:
+                    if join_addr_list is None:
+                        join_addr_list = self.node_addresses()
+                    node.join(join_addr_list, single_run=single_run)
+                else:
+                    node.init()
+                    self.leader = _id
+            self.nodes[_id] = node
+            return node
+        except redis.exceptions.RedisError:
+            node.kill()
+            raise
 
     def reset_leader(self):
         self.leader = next(iter(self.nodes.keys()))

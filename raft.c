@@ -1968,32 +1968,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
-        goto exit;
-    }
-
-    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
-        goto exit;
-    }
-
-    /* Create a Snapshot Info meta-key */
-    initializeSnapshotInfo(rr);
-
-    /* Initiate cluster join */
-    InitiateJoinCluster(rr, req->r.cluster_join.addr);
-
-    rr->state = REDIS_RAFT_JOINING;
-
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
-exit:
-    RaftReqFree(req);
-}
-
-void HandleClusterJoinCompleted(RedisRaftCtx *rr)
+void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Initialize Raft log.  We delay this operation as we want to create the log
      * with the proper dbid which is only received now.
@@ -2015,9 +1990,10 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr)
     }
 
     rr->state = REDIS_RAFT_UP;
-}
 
-void HandleClusterJoinFailed(RedisRaftCtx *rr) {}
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    RaftReqFree(req);
+}
 
 static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
 {

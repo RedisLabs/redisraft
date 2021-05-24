@@ -30,8 +30,15 @@ typedef struct JoinState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     Connection *conn;
-    time_t start;
+    time_t start;                       /* Time we initiated the join, to enable it to fail if it takes too long */
+    RaftReq *req;                       /* Original RaftReq, so we can return a reply */
+    bool failed;                        /* unrecoverable failure */
 } JoinState;
+
+void HandleClusterJoinFailed(RedisRaftCtx *rr, RaftReq *req) {
+    RedisModule_ReplyWithError(req->ctx, "ERR Failed to join cluster, check logs");
+    RaftReqFree(req);
+}
 
 /* Callback for the RAFT.NODE ADD command.
  */
@@ -56,8 +63,11 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_VERBOSE("Join redirected to leader: %s:%d", addr.host, addr.port);
                 NodeAddrListAddElement(&state->addr, &addr);
             }
+        } else if (strlen(reply->str) > 12 && !strncmp(reply->str, "CLUSTERDOWN ", 12)) {
+            LOG_ERROR("RAFT.NODE ADD error: %s, retrying.", reply->str);
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
+            state->failed = true;
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
         LOG_ERROR("RAFT.NODE ADD invalid reply.");
@@ -71,7 +81,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
 
         rr->config->id = reply->element[0]->integer;
 
-        HandleClusterJoinCompleted(rr);
+        HandleClusterJoinCompleted(rr, state->req);
         assert(rr->state == REDIS_RAFT_UP);
 
         ConnAsyncTerminate(conn);
@@ -124,11 +134,14 @@ void joinIdleCallback(Connection *conn)
     time_t now;
     time(&now);
 
+    if (state->failed) {
+        LOG_ERROR("Cluster join: unrecoverable error, check logs");
+        goto exit_fail;
+    }
+
     if (difftime(now, state->start) > rr->config->join_timeout) {
-        LOG_ERROR("timed out trying to join cluster");
-        ConnAsyncTerminate(conn);
-        HandleClusterJoinFailed(rr);
-        return;
+        LOG_ERROR("Cluster join: timed out, took longer than %d seconds", rr->config->join_timeout);
+        goto exit_fail;
     }
 
     /* Advance iterator, wrap around to start */
@@ -146,23 +159,41 @@ void joinIdleCallback(Connection *conn)
      * just get iterated again in the future.
      */
     ConnConnect(state->conn, &state->addr_iter->addr, sendNodeAddRequest);
+    return;
+
+exit_fail:
+    ConnAsyncTerminate(conn);
+    HandleClusterJoinFailed(rr, state->req);
 }
 
-/* Initiate the process of joining a cluster, using the specified list
- * of addresses.
- */
-
-void InitiateJoinCluster(RedisRaftCtx *rr, const NodeAddrListElement *addr)
+void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
+    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
+        goto exit_fail;
+    }
+
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
+        goto exit_fail;
+    }
+
+    /* Create a Snapshot Info meta-key */
+    initializeSnapshotInfo(rr);
+
     JoinState *state = RedisModule_Calloc(1, sizeof(*state));
-
     time(&(state->start));
-
-    NodeAddrListConcat(&state->addr, addr);
+    NodeAddrListConcat(&state->addr, req->r.cluster_join.addr);
+    state->req = req;
 
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
-     */ 
+     */
     state->conn = ConnCreate(rr, state, joinIdleCallback, joinFreeCallback);
-}
 
+    rr->state = REDIS_RAFT_JOINING;
+
+    return;
+
+exit_fail:
+    RaftReqFree(req);
+}
