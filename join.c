@@ -63,7 +63,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_VERBOSE("Join redirected to leader: %s:%d", addr.host, addr.port);
                 NodeAddrListAddElement(&state->addr, &addr);
             }
-        } else if (strlen(reply->str) > 12 && !strcmp(reply->str, "CLUSTERDOWN ")) {
+        } else if (strlen(reply->str) > 12 && !strncmp(reply->str, "CLUSTERDOWN ", 12)) {
             LOG_ERROR("RAFT.NODE ADD error: %s, retrying.", reply->str);
         } else {
             LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);

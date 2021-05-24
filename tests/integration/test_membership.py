@@ -8,6 +8,7 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 """
 import logging
 import time
+from threading import Thread
 import pytest
 from pytest import raises
 from .sandbox import RedisRaftTimeout
@@ -225,3 +226,29 @@ def test_update_self_voting_state_from_snapshot(cluster):
     cluster.node(1).client.execute_command('RAFT.DEBUG', 'SENDSNAPSHOT', '2')
     cluster.node(2).wait_for_info_param('snapshots_loaded', 1)
     assert cluster.node(2).raft_info()['is_voting'] == 'no'
+
+
+def test_join_while_cluster_is_down(cluster):
+    cluster.create(3)
+
+    cluster.node(1).pause()
+    cluster.node(2).pause()
+    time.sleep(3)
+
+    # Confirm nodes cannot be added
+    with raises(ResponseError, match='Failed to join'):
+        cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
+                         join_addr_list=[cluster.node(3).address])
+
+    # Initiate process again with a longer timeout, and release the
+    # cluster while in progress.
+    def resume_nodes():
+        time.sleep(1)
+        cluster.node(1).resume()
+        cluster.node(2).resume()
+
+    # Join again, while failing resume nodes and recover cluster. This
+    # should succeed and not raise an exception as above.
+    Thread(target=resume_nodes, daemon=True).start()
+    cluster.add_node(raft_args={'join-timeout': 10}, single_run=True,
+                            join_addr_list=[cluster.node(3).address])

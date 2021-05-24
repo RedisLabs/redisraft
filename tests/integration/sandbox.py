@@ -60,6 +60,7 @@ class RedisRaft(object):
         self.port = port
         self.executable = config.executable
         self.process = None
+        self.paused = False
         self.workdir = os.path.abspath(config.workdir)
         self.serverdir = os.path.join(self.workdir, self.guid)
         self._raftlog = 'redis{}.db'.format(self.id)
@@ -76,7 +77,7 @@ class RedisRaft(object):
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
-        default_args = {'addr': 'localhost:{}'.format(self.port),
+        default_args = {'addr': self.address,
                         'raft-log-filename': self._raftlog,
                         'loglevel': config.raft_loglevel}
         for defkey, defval in default_args.items():
@@ -94,6 +95,10 @@ class RedisRaft(object):
         self.stdout = None
         self.stderr = None
         self.cleanup()
+
+    @property
+    def address(self):
+        return 'localhost:{}'.format(self.port)
 
     @property
     def raftlog(self):
@@ -196,6 +201,8 @@ class RedisRaft(object):
 
     def terminate(self):
         if self.process:
+            if self.paused:
+                self.resume()
             try:
                 self.process.terminate()
                 self.process.wait()
@@ -233,10 +240,12 @@ class RedisRaft(object):
 
     def pause(self):
         if self.process is not None:
+            self.paused = True
             self.process.send_signal(signal.SIGSTOP)
 
     def resume(self):
         if self.process is not None:
+            self.paused = False
             self.process.send_signal(signal.SIGCONT)
 
     def cleanup(self):
@@ -401,7 +410,7 @@ class Cluster(object):
         return [n.port for n in self.nodes.values()]
 
     def node_addresses(self):
-        return ['localhost:{}'.format(n.port) for n in self.nodes.values()]
+        return [n.address for n in self.nodes.values()]
 
     def create(self, node_count, raft_args=None, prepopulate_log=0):
         if raft_args is None:
@@ -433,7 +442,8 @@ class Cluster(object):
         self.nodes[node.id] = node
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
-                 node_id=None, use_cluster_args=False, single_run=False, **kwargs):
+                 node_id=None, use_cluster_args=False, single_run=False,
+                 join_addr_list=None, **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -447,7 +457,9 @@ class Cluster(object):
                 **kwargs)
             if cluster_setup:
                 if self.nodes:
-                    node.join(self.node_addresses(), single_run=single_run)
+                    if join_addr_list is None:
+                        join_addr_list = self.node_addresses()
+                    node.join(join_addr_list, single_run=single_run)
                 else:
                     node.init()
                     self.leader = _id
