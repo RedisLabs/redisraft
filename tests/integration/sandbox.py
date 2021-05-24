@@ -78,6 +78,7 @@ class RedisRaft(object):
             raft_args['id'] = str(_id)
         default_args = {'addr': 'localhost:{}'.format(self.port),
                         'raft-log-filename': self._raftlog,
+                        'raft-log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel}
         for defkey, defval in default_args.items():
             if defkey not in raft_args:
@@ -284,6 +285,17 @@ class RedisRaft(object):
         def raise_no_master_error():
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
+
+    def wait_for_log_committed(self, timeout=10):
+        def current_idx_committed():
+            info = self.raft_info()
+            return bool(info['commit_index'] == info['current_index'])
+
+        def raise_not_committed():
+            raise RedisRaftTimeout('Last log entry not yet committed')
+        self._wait_for_condition(current_idx_committed, raise_not_committed,
+                                 timeout)
+        LOG.debug("Finished waiting for latest entry to be committed.")
 
     def wait_for_log_applied(self, timeout=10):
         def commit_idx_applied():
