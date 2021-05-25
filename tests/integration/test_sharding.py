@@ -10,7 +10,7 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 import time
 from redis import ResponseError
 from pytest import raises
-
+from .sandbox import assert_after
 
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
@@ -230,3 +230,43 @@ def test_shard_group_linking_checks(cluster_factory):
         cluster1.node(1).client.execute_command(
             'RAFT.SHARDGROUP', 'LINK',
             'localhost:%s' % cluster2.node(1).port)
+
+
+def test_shard_group_refresh(cluster_factory):
+    # Confirm that topology changes are eventually propagated through the
+    # shardgroup refresh mechanism.
+
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'sharding-start-hslot': '0',
+        'sharding-end-hslot': '8191'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'sharding-start-hslot': '8192',
+        'sharding-end-hslot': '16383'})
+
+    assert cluster1.node(1).client.execute_command(
+        'RAFT.SHARDGROUP', 'LINK',
+        'localhost:%s' % cluster2.node(1).port) == b'OK'
+    assert cluster2.node(1).client.execute_command(
+        'RAFT.SHARDGROUP', 'LINK',
+        'localhost:%s' % cluster1.node(1).port) == b'OK'
+
+    # Sanity: confirm initial shardgroup was propagated
+    slots = cluster2.node(1).client.execute_command('CLUSTER', 'SLOTS')
+    assert slots[1][0:2] == [0, 8191]
+    assert slots[1][2][0] == b'localhost'
+    assert slots[1][2][1] == 5001
+
+    # Terminate cluster1/node1 and wait for election
+    cluster1.node(1).terminate()
+    cluster1.node(2).wait_for_election()
+
+    # Make sure the new leader is propagated to cluster 2
+    def check_slots():
+        slots = cluster2.node(1).client.execute_command('CLUSTER', 'SLOTS')
+        assert slots[1][0:2] == [0, 8191]
+        assert slots[1][2][0] == b'localhost'
+        assert slots[1][2][1] != 5001
+
+    assert_after(check_slots, 10)

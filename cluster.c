@@ -325,7 +325,7 @@ static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privda
         if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
             LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
         } else {
-            LOG_INFO("Received shardgroup reply for %u!", sg->id);
+            LOG_DEBUG("Received shardgroup %u reply.", sg->id);
             sg->use_conn_addr = true;
             sg->last_updated = RedisModule_Milliseconds();
             sg->update_in_progress = false;
@@ -398,6 +398,7 @@ static void establishShardGroupConn(Connection *conn)
             sg->node_conn_idx = 0;
         }
         addr = &sg->nodes[sg->node_conn_idx++].addr;
+        sg->conn_addr = *addr;
     }
 
     LOG_DEBUG("Initiating shardgroup(%u) connection to %s:%u", sg->id, addr->host, addr->port);

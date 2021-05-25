@@ -50,12 +50,13 @@ class PipeLogger(threading.Thread):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, raft_args=None,
-                 use_id_arg=True):
+                 use_id_arg=True, cluster_id=0):
         if raft_args is None:
             raft_args = {}
         else:
             raft_args = raft_args.copy()
         self.id = _id
+        self.cluster_id = cluster_id
         self.guid = str(uuid.uuid4())
         self.port = port
         self.executable = config.executable
@@ -158,9 +159,9 @@ class RedisRaft(object):
             executable=self.executable,
             args=args)
         self.stdout = PipeLogger(self.process.stdout,
-                                 '{}/stdout'.format(self.id))
+                                 'c{}/n{}/stdout'.format(self.cluster_id, self.id))
         self.stderr = PipeLogger(self.process.stderr,
-                                 '{}/stderr'.format(self.id))
+                                 'c{}/n{}/stderr'.format(self.cluster_id, self.id))
 
         if not verify:
             return
@@ -404,8 +405,9 @@ class RedisRaft(object):
 class Cluster(object):
     noleader_timeout = 10
 
-    def __init__(self, config, base_port=5000, base_id=0):
+    def __init__(self, config, base_port=5000, base_id=0, cluster_id=0):
         self.next_id = base_id + 1
+        self.cluster_id = cluster_id
         self.base_port = base_port
         self.nodes = {}
         self.leader = None
@@ -431,7 +433,8 @@ class Cluster(object):
         assert self.nodes == {}
         self.nodes = {x: RedisRaft(x, self.base_port + x,
                                    config=self.config,
-                                   raft_args=raft_args)
+                                   raft_args=raft_args,
+                                   cluster_id=self.cluster_id)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():
@@ -591,3 +594,20 @@ class Cluster(object):
             node.terminate()
         for node in self.nodes.values():
             node.start()
+
+
+def assert_after(func, timeout, retry_interval=0.5):
+    """
+    Call func() which is expected to perform certain assertions.
+    If assertions failed, retry with a retry_interval delay until
+    timeout has been reached -- at which point an exception is raised.
+    """
+    start_time = time.time()
+    while True:
+        try:
+            func()
+            break
+        except AssertionError:
+            if time.time() > start_time + timeout:
+                raise
+            time.sleep(retry_interval)
