@@ -9,7 +9,7 @@ RedisRaft is dual licensed under the GNU Affero General Public License version 3
 
 import time
 from pytest import raises, skip
-from redis import ResponseError
+from redis.exceptions import ExecAbortError, ResponseError
 
 class RawConnection(object):
     """
@@ -195,3 +195,56 @@ def test_multi_exec_with_disconnect(cluster):
 
     # Make sure SET succeeded and EXEC didn't.
     assert r1.client.get('test-key') == b'1'
+
+
+def test_multi_mixed_ro_rw(cluster_factory):
+    """
+    MULTI/EXEC with mixed read-only and read-write commands.
+    """
+
+    cluster = cluster_factory().create(3)
+    c1 = cluster.node(1).client
+
+    # Perform a mixed read-only/read-write MULTI/EXEC block
+    txn = c1.pipeline(transaction=True)
+    txn.set('mykey', 'myval')
+    txn.get('mykey')
+    result = txn.execute()
+    assert result[0]
+    assert result[1] == b'myval'
+
+    # Fail over and make sure it was propagated
+    cluster.node(1).terminate()
+    cluster.node(2).wait_for_election()
+
+    assert cluster.execute('GET', 'mykey') == b'myval'
+
+
+def test_multi_with_unsupported_commands(cluster_factory):
+    """
+    MULTI/EXEC with unsupported commands should fail.
+    """
+
+    cluster = cluster_factory().create(3)
+    c1 = cluster.node(1).client.connection_pool.get_connection('client')
+
+    # Initiate MULTI and send a valid command
+    c1.send_command('MULTI')
+    assert c1.read_response() == b'OK'
+    c1.send_command('SET', 'mykey', 'myval')
+    assert c1.read_response() == b'QUEUED'
+
+    # Send an invalid command: should fail immediately, remain in MULTI
+    # state but flag the transaction.
+    c1.send_command('DEBUG', 'HELP')
+    with raises(ResponseError, match='.*not supported.*'):
+        c1.read_response()
+
+    # Validate we're still in MULTI state
+    c1.send_command('SET', 'myotherkey', 'myotherval')
+    assert c1.read_response() == b'QUEUED'
+
+    # Validate transaction is flagged
+    c1.send_command('EXEC')
+    with raises(ExecAbortError):
+        c1.read_response()
