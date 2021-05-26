@@ -208,7 +208,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                RedisModule_ReplyWithError(reply_ctx, "ERR Unknown command/arguments");
+                RedisModule_ReplyWithError(reply_ctx, "ERR Unknown command or wrong number of arguments");
             }
         }
 
