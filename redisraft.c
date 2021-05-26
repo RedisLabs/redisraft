@@ -684,24 +684,6 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
-    static char *excluded_commands[] = {
-            "auth",
-            "ping",
-            "save",
-            "module",
-            "raft",
-            "info",
-            "client",
-            "config",
-            "monitor",
-            "command",
-            "shutdown",
-            "watch",
-            "unwatch",
-            "quit",
-            NULL
-    };
-
     /* If we're intercepting an RM_Call() processing a Raft entry,
      * skip.
      */
@@ -709,24 +691,9 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    size_t cmdname_len;
-    const char *cmdname = RedisModule_StringPtrLen(
-            RedisModule_CommandFilterArgGet(filter, 0), &cmdname_len);
-
-    /* Don't process any RAFT.* command */
-    if (cmdname_len > 4 && strncasecmp(cmdname, "raft.", 5) == 0) {
+    const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
+    if (cs && (cs->flags & CMD_SPEC_DONT_INTERCEPT))
         return;
-    }
-
-    /* Don't process any excluded command */
-    char **c = excluded_commands;
-    while (*c != NULL) {
-        size_t len = strlen(*c);
-        if (cmdname_len == len && strncasecmp(cmdname, *c, len) == 0) {
-            return;
-        }
-        c++;
-    }
 
     /* Prepend RAFT to the original command */
     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT", 4);
@@ -736,7 +703,12 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
 {
-    /* Register commands */
+    /* Register commands.
+     *
+     * NOTE: Internal RedisRaft module commands must also be set with
+     * their apropriate flags in commands.c, typically with a
+     * CMD_SPEC_DONT_INTERCEPT flag.
+     * */
     if (RedisModule_CreateCommand(ctx, "raft",
                 cmdRaft, "write", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
@@ -846,11 +818,17 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     /* Configure Redis */
     if (ConfigureRedis(ctx) == RR_ERROR) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed set Redis configuration!");
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to set Redis configuration!");
+        return REDISMODULE_ERR;
+    }
+
+    if (CommandSpecInit(ctx) == RR_ERROR) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize internal command table");
         return REDISMODULE_ERR;
     }
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to register commands");
         return REDISMODULE_ERR;
     }
 

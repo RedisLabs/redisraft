@@ -45,7 +45,8 @@ OBJECTS = \
 	  serialization.o \
 	  cluster.o \
 	  crc16.o \
-	  connection.o
+	  connection.o \
+	  commands.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage
