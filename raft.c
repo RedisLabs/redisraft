@@ -496,12 +496,19 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
 static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
+    RaftReq *raft_req = entry->user_data;
     RaftCfgChange *req;
 
     switch (entry->type) {
         case RAFT_LOGTYPE_DEMOTE_NODE:
             if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
+
+                entryAttachRaftReq(rr, rem_entry, raft_req);
+                // remove and detach from previous entry
+                entry->user_data = NULL;
+                rr->client_attached_entries--;
+
                 msg_entry_response_t resp;
 
                 rem_entry->type = RAFT_LOGTYPE_REMOVE_NODE;
@@ -510,17 +517,41 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
                 int e = raft_recv_entry(rr->raft, rem_entry, &resp);
                 assert (e == 0);
-
                 raft_entry_release(rem_entry);
+
                 break;
             }
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
+
+            entry->user_data = NULL;
+            rr->client_attached_entries--;
+
+            if (raft_req) {
+                RedisModule_ReplyWithSimpleString(raft_req->ctx, "OK");
+                RaftReqFree(raft_req);
+            }
+
             if (req->id == raft_get_nodeid(raft)) {
                 LOG_DEBUG("Removing this node from the cluster");
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
+        case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
+            entry->user_data = NULL;
+            rr->client_attached_entries--;
+
+            if (raft_req) {
+                RedisModuleCtx *ctx = raft_req->ctx;
+
+                RedisModule_ReplyWithArray(ctx, 2);
+                RedisModule_ReplyWithLongLong(ctx, raft_req->r.cfgchange.id);
+                RedisModule_ReplyWithSimpleString(ctx, rr->snapshot_info.dbid);
+
+                RaftReqFree(raft_req);
+            }
+            break;
+
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry, entry_idx);
             break;
@@ -1443,19 +1474,16 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     }
 
     memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
-    if ((e = raft_recv_entry(rr->raft, entry, &response)) != 0) {
+
+    entryAttachRaftReq(rr, entry, req);
+    e = raft_recv_entry(rr->raft, entry, &response);
+    raft_entry_release(entry);
+    if (e != 0) {
         replyRaftError(req->ctx, e);
-    } else {
-        if (req->type == RR_CFGCHANGE_REMOVENODE) {
-            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-        } else {
-            RedisModule_ReplyWithArray(req->ctx, 2);
-            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
-            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
-        }
+        goto exit;
     }
 
-    raft_entry_release(entry);
+    return;
 
 exit:
     RaftReqFree(req);
