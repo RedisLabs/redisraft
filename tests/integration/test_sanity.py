@@ -6,12 +6,14 @@ Copyright (c) 2020 Redis Labs
 RedisRaft is dual licensed under the GNU Affero General Public License version 3
 (AGPLv3) or the Redis Source Available License (RSAL).
 """
-
+from retrying import retry
 import time
+import logging
 from redis import ResponseError
 from pytest import raises, skip
 from .sandbox import RedisRaft
 
+logger = logging.getLogger("integration")
 
 def test_add_node_as_a_single_leader(cluster):
     """
@@ -28,15 +30,17 @@ def test_node_joins_and_gets_data(cluster):
     Node joins and gets data
     """
 
-    # unsure how this test is supposed to work, how does r2 become leader?
-    return
-
     r1 = cluster.add_node()
     assert r1.client.set('key', 'value')
     r2 = cluster.add_node()
     r2.wait_for_election()
     assert r2.raft_info().get('leader_id') == 1
-    assert r2.raft_debug_exec('get', 'key') == b'value'
+
+    @retry(stop_max_attempt_number=10, wait_fixed=1000)
+    def verify_sync():
+        assert r2.raft_debug_exec('get', 'key') == b'value'
+
+    verify_sync()
 
     # Also validate -MOVED as expected
     with raises(ResponseError, match='MOVED'):
