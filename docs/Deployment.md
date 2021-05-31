@@ -275,7 +275,7 @@ The number of milliseconds the cluster will wait for connections to other nodes 
 
 ### `join-timeout`
 
-The number of seconds the node will continue to try and connect to the cluster using the provided and discovered nodes, looping through them until a connection is made, or the timeout is reached.
+The number of seconds the node will continue to try and connect (for join and shard group link operations) to the cluster using the provided and discovered nodes, looping through them until a connection is made, or the timeout is reached.
 
 *Defaults*: 120
 
