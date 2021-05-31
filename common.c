@@ -221,7 +221,7 @@ void joinLinkIdleCallback(Connection *conn)
 exit_fail:
     ConnAsyncTerminate(conn);
 
-    snprintf(err_msg, 50, "ERR failed to %s cluster, please check logs", state->type);
+    snprintf(err_msg, sizeof(err_msg), "ERR failed to %s cluster, please check logs", state->type);
     RedisModule_ReplyWithError(state->req->ctx, err_msg);
     RaftReqFree(state->req);
 }
