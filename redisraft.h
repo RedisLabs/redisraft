@@ -553,9 +553,6 @@ typedef struct SnapshotResult {
     char err[256];
 } SnapshotResult;
 
-extern char * join_type;
-extern char * link_type;
-
 /* Command filtering re-entrancy counter handling.
  *
  * This mechanism tracks calls from Redis Raft into Redis and used by the

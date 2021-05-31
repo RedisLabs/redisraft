@@ -179,16 +179,12 @@ bool parseMovedReply(const char *str, NodeAddr *addr)
     return NodeAddrParse(p + 1, strlen(p), addr);
 }
 
-/* future types should remain 4 characters or stack array in common.c/joinLinkIdleCallback() has to expand */
-char * join_type = "join";
-char * link_type = "link";
-
 /* Invoked when the connection is not connected or actively attempting
  * a connection.
  */
 void joinLinkIdleCallback(Connection *conn)
 {
-    char err_msg[42];
+    char err_msg[50];
 
     RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinLinkState *state = ConnGetPrivateData(conn);
@@ -225,7 +221,7 @@ void joinLinkIdleCallback(Connection *conn)
 exit_fail:
     ConnAsyncTerminate(conn);
 
-    snprintf(err_msg, 42, "ERR failed to %s cluster, please check logs", state->type);
+    snprintf(err_msg, 50, "ERR failed to %s cluster, please check logs", state->type);
     RedisModule_ReplyWithError(state->req->ctx, err_msg);
     RaftReqFree(state->req);
 }
@@ -235,6 +231,10 @@ exit_fail:
 void joinLinkFreeCallback(void *privdata)
 {
     JoinLinkState *state = (JoinLinkState *) privdata;
+
+    if (state->type != NULL) {
+        RedisModule_Free(state->type);
+    }
 
     NodeAddrListFree(state->addr);
     RedisModule_Free(state);
