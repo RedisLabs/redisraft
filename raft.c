@@ -117,8 +117,8 @@ static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
-static void handleApplyAllRet(RedisRaftCtx *rr, int i) {
-    if (i == RAFT_ERR_SHUTDOWN)  {
+static void handleApplyAllRet(RedisRaftCtx *rr, int ret) {
+    if (ret == RAFT_ERR_SHUTDOWN)  {
         LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
         if (rr->config->raft_log_filename)
@@ -521,7 +521,8 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     switch (entry->type) {
         case RAFT_LOGTYPE_DEMOTE_NODE:
-            if (raft_req != NULL && rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
+            LOG_INFO("DEMOTE");
+            if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
                 entryAttachRaftReq(rr, rem_entry, raft_req);
@@ -539,6 +540,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             }
             break;
         case RAFT_LOGTYPE_REMOVE_NODE:
+            LOG_INFO("REMOVE");
             req = (RaftCfgChange *) entry->data;
 
             entryDetachRaftReq(rr, entry);
@@ -937,7 +939,6 @@ static void callRaftPeriodic(uv_timer_t *handle)
     if (ret == 0) {
         ret = raft_apply_all(rr->raft);
     }
-
     handleApplyAllRet(rr, ret);
 
     assert(ret == 0);
