@@ -534,6 +534,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
             if (req->id == raft_get_nodeid(raft)) {
                 LOG_DEBUG("Removing this node from the cluster");
+                rr->raft_exit_node = true;
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
@@ -922,7 +923,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
         ret = raft_apply_all(rr->raft);
     }
 
-    if (ret == RAFT_ERR_SHUTDOWN) {
+    if (ret == RAFT_ERR_SHUTDOWN || rr->raft_exit_node) {
         LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
         if (rr->config->raft_log_filename)
