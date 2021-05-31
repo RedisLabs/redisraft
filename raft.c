@@ -1477,11 +1477,16 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 
     entryAttachRaftReq(rr, entry, req);
     e = raft_recv_entry(rr->raft, entry, &response);
-    raft_entry_release(entry);
     if (e != 0) {
+        entry->user_data = NULL;
+        redis_raft.client_attached_entries--;
+        raft_entry_release(entry);
+
         replyRaftError(req->ctx, e);
         goto exit;
     }
+
+    raft_entry_release(entry);
 
     return;
 

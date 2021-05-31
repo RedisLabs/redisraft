@@ -60,7 +60,7 @@ def test_single_voting_change_enforced(cluster):
     """
 
     # FIXME: need to figure out how to make this work as remove will not return immediately anymore, so just hangs
-    return
+    # return
 
     cluster.create(5)
     assert cluster.leader == 1
@@ -70,12 +70,18 @@ def test_single_voting_change_enforced(cluster):
     cluster.node(3).terminate()
     cluster.node(4).terminate()
 
-    assert cluster.node(1).client.execute_command(
-        'RAFT.NODE', 'REMOVE', '5') == b'OK'
-    with raises(ResponseError,
-            match='a voting change is already in progress'):
-        assert cluster.node(1).client.execute_command(
-            'RAFT.NODE', 'REMOVE', '4') == b'OK'
+    def remove_node(leader):
+        logger.info("remove_node: enter")
+        ret = cluster.node(leader).client.execute_command('RAFT.NODE', 'REMOVE', '5')
+        logger.info("remove_node: ret = {}".format(ret))
+        return ret
+
+    Thread(target=remove_node, args=(1,), daemon=True).start()
+
+    time.sleep(1)
+
+    with raises(ResponseError, match='a voting change is already in progress'):
+        assert cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4') == b'OK'
 
     time.sleep(1)
     assert cluster.node(1).raft_info()['num_nodes'] == 5
