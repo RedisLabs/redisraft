@@ -501,7 +501,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     switch (entry->type) {
         case RAFT_LOGTYPE_DEMOTE_NODE:
-            if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
+            if (raft_req != NULL && rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
                 entryAttachRaftReq(rr, rem_entry, raft_req);
@@ -518,9 +518,8 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 int e = raft_recv_entry(rr->raft, rem_entry, &resp);
                 assert (e == 0);
                 raft_entry_release(rem_entry);
-
-                break;
             }
+            break;
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
 
