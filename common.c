@@ -178,3 +178,64 @@ bool parseMovedReply(const char *str, NodeAddr *addr)
     const char *p = strrchr(str, ' ');
     return NodeAddrParse(p + 1, strlen(p), addr);
 }
+
+/* Invoked when the connection is not connected or actively attempting
+ * a connection.
+ */
+void joinLinkIdleCallback(Connection *conn)
+{
+    char err_msg[50];
+
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+    JoinLinkState *state = ConnGetPrivateData(conn);
+
+    time_t now;
+    time(&now);
+
+    if (state->failed) {
+        LOG_ERROR("Cluster %s: unrecoverable error, check logs", state->type);
+        goto exit_fail;
+    }
+
+    if (difftime(now, state->start) > rr->config->join_timeout) {
+        LOG_ERROR("Cluster %s: timed out, took longer than %d seconds", state->type, rr->config->join_timeout);
+        goto exit_fail;
+    }
+
+    /* Advance iterator, wrap around to start */
+    if (state->addr_iter) {
+        state->addr_iter = state->addr_iter->next;
+    }
+    if (!state->addr_iter) {
+        state->addr_iter = state->addr;
+    }
+
+    LOG_VERBOSE("%s cluster, connecting to %s:%u", state->type, state->addr_iter->addr.host, state->addr_iter->addr.port);
+
+    /* Establish connection. We silently ignore errors here as we'll
+     * just get iterated again in the future.
+     */
+    ConnConnect(state->conn, &state->addr_iter->addr, state->connect_callback);
+    return;
+
+exit_fail:
+    ConnAsyncTerminate(conn);
+
+    snprintf(err_msg, sizeof(err_msg), "ERR failed to %s cluster, please check logs", state->type);
+    RedisModule_ReplyWithError(state->req->ctx, err_msg);
+    RaftReqFree(state->req);
+}
+
+/* Invoked when the connection is terminated.
+ */
+void joinLinkFreeCallback(void *privdata)
+{
+    JoinLinkState *state = (JoinLinkState *) privdata;
+
+    if (state->type != NULL) {
+        RedisModule_Free(state->type);
+    }
+
+    NodeAddrListFree(state->addr);
+    RedisModule_Free(state);
+}

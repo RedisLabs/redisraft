@@ -580,7 +580,20 @@ static int inline checkInRedisModuleCall(void) {
     return redis_raft_in_rm_call;
 }
 
+typedef struct JoinLinkState {
+    NodeAddrListElement *addr;
+    NodeAddrListElement *addr_iter;
+    Connection *conn;
+    time_t start;                       /* Time we initiated the join, to enable it to fail if it takes too long */
+    RaftReq *req;                       /* Original RaftReq, so we can return a reply */
+    bool failed;                        /* unrecoverable failure */
+    char *type;                         /* error message to print if exhaust time */
+    ConnectionCallbackFunc connect_callback;
+} JoinLinkState;
+
 /* common.c */
+void joinLinkIdleCallback(Connection *conn);
+void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 const char *raft_logtype_str(int type);
 void replyRaftError(RedisModuleCtx *ctx, int error);
