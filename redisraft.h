@@ -266,7 +266,6 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
     unsigned long snapshots_loaded;             /* Number of snapshots loaded */
-    bool raft_exit_node;                        /* if this instance of raft should exit */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;

@@ -117,6 +117,19 @@ static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
+static void handleApplyAllRet(RedisRaftCtx *rr, int i) {
+    if (i == RAFT_ERR_SHUTDOWN)  {
+        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+
+        if (rr->config->raft_log_filename)
+            RaftLogArchiveFiles(rr);
+        if (rr->config->rdb_filename)
+            archiveSnapshot(rr);
+        exit(0);
+    }
+}
+
+
 /* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
  * in a RaftReq should keep the client blocked until the log entry is committed and applied.
  */
@@ -147,6 +160,13 @@ static void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *r
     entry->user_data = req;
     entry->free_func = entryFreeAttachedRaftReq;
     rr->client_attached_entries++;
+}
+
+/* Detaches a successfully applied raft_req so the free_func doesn't view it as an error case */
+static void entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    entry->user_data = NULL;
+    rr->client_attached_entries--;
 }
 
 /* ------------------------------------ RaftRedisCommand ------------------------------------ */
@@ -261,8 +281,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     if (req) {
         /* Free request now, we don't need it anymore */
-        entry->user_data = NULL;
-        rr->client_attached_entries--;
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
 }
@@ -389,7 +408,8 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     }
 
     /* Maybe we have pending stuff to apply now */
-    raft_apply_all(rr->raft);
+    ret = raft_apply_all(rr->raft);
+    handleApplyAllRet(rr, ret);
     raft_process_read_queue(rr->raft);
 }
 
@@ -505,9 +525,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
                 entryAttachRaftReq(rr, rem_entry, raft_req);
-                // remove and detach from previous entry
-                entry->user_data = NULL;
-                rr->client_attached_entries--;
+                entryDetachRaftReq(rr, entry);
 
                 msg_entry_response_t resp;
 
@@ -523,8 +541,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
 
-            entry->user_data = NULL;
-            rr->client_attached_entries--;
+            entryDetachRaftReq(rr, entry);
 
             if (raft_req) {
                 RedisModule_ReplyWithSimpleString(raft_req->ctx, "OK");
@@ -533,13 +550,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
             if (req->id == raft_get_nodeid(raft)) {
                 LOG_DEBUG("Removing this node from the cluster");
-                rr->raft_exit_node = true;
                 return RAFT_ERR_SHUTDOWN;
             }
             break;
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            entry->user_data = NULL;
-            rr->client_attached_entries--;
+            entryDetachRaftReq(rr, entry);
 
             if (raft_req) {
                 RedisModuleCtx *ctx = raft_req->ctx;
@@ -804,7 +819,8 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
             rr->snapshot_info.last_applied_idx);
 
-    raft_apply_all(rr->raft);
+    int ret = raft_apply_all(rr->raft);
+    handleApplyAllRet(rr, ret);
 
     raft_set_current_term(rr->raft, rr->log->term);
     raft_vote_for_nodeid(rr->raft, rr->log->vote);
@@ -922,15 +938,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
         ret = raft_apply_all(rr->raft);
     }
 
-    if (ret == RAFT_ERR_SHUTDOWN || rr->raft_exit_node) {
-        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
-
-        if (rr->config->raft_log_filename)
-            RaftLogArchiveFiles(rr);
-        if (rr->config->rdb_filename)
-            archiveSnapshot(rr);
-        exit(0);
-    }
+    handleApplyAllRet(rr, ret);
 
     assert(ret == 0);
 
@@ -1478,8 +1486,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     entryAttachRaftReq(rr, entry, req);
     e = raft_recv_entry(rr->raft, entry, &response);
     if (e != 0) {
-        entry->user_data = NULL;
-        redis_raft.client_attached_entries--;
+        entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
 
         replyRaftError(req->ctx, e);
@@ -1847,7 +1854,8 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
      * or way to wait for AE responses to do that.
      */
     if (raft_get_current_idx(rr->raft) == raft_get_commit_idx(rr->raft)) {
-        raft_apply_all(rr->raft);
+        int ret = raft_apply_all(rr->raft);
+        handleApplyAllRet(rr, ret);
     }
 
     /* Unless applied by raft_apply_all() (and freed by it), the request
@@ -2157,9 +2165,8 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
             /* Should never happen! */
             RedisModule_ReplyWithError(req->ctx, "ERR failed to locally apply change, should never happen.");
         }
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
-
-        entry->user_data = NULL;
     }
 }
 
