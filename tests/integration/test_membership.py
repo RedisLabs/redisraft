@@ -59,9 +59,6 @@ def test_single_voting_change_enforced(cluster):
     A single concurrent voting change is enforced when removing nodes.
     """
 
-    # FIXME: need to figure out how to make this work as remove will not return immediately anymore, so just hangs
-    # return
-
     cluster.create(5)
     assert cluster.leader == 1
 

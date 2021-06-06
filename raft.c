@@ -117,7 +117,8 @@ static void populateReadonlyCommandDict(RedisModuleCtx *ctx)
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
-static void handleApplyAllRet(RedisRaftCtx *rr, int ret) {
+static void handleApplyAllRet(RedisRaftCtx *rr, int ret)
+{
     if (ret == RAFT_ERR_SHUTDOWN)  {
         LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
@@ -409,8 +410,9 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 
     /* Maybe we have pending stuff to apply now */
     ret = raft_apply_all(rr->raft);
-    handleApplyAllRet(rr, ret);
+    /* should this before we handle err return? (i.e. shutdown node) or can it be skipped? */
     raft_process_read_queue(rr->raft);
+    handleApplyAllRet(rr, ret);
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
@@ -524,29 +526,40 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
-                entryAttachRaftReq(rr, rem_entry, raft_req);
-                entryDetachRaftReq(rr, entry);
-
                 msg_entry_response_t resp;
 
                 rem_entry->type = RAFT_LOGTYPE_REMOVE_NODE;
                 rem_entry->id = rand();
                 ((RaftCfgChange *) rem_entry->data)->id = ((RaftCfgChange *) entry->data)->id;
 
+                /*
+                 * if node request was made to is still leader, attach req to new request, and detach from old one,
+                 * so that we only return the OK after the actual removal that this node has control of
+                 */
+
+                if (raft_req != NULL) {
+                    // detach from old entry, and create new entry if we are the node that this was issued on
+                    entryDetachRaftReq(rr, entry);
+                    entryAttachRaftReq(rr, rem_entry, raft_req);
+                }
+
                 int e = raft_recv_entry(rr->raft, rem_entry, &resp);
-                assert (e == 0);
                 raft_entry_release(rem_entry);
+                assert (e == 0);
+                // this break has to be in the leader check, as otherwise want to fall through to remove
+                break;
             }
-            break;
         case RAFT_LOGTYPE_REMOVE_NODE:
-            req = (RaftCfgChange *) entry->data;
-
-            entryDetachRaftReq(rr, entry);
-
-            if (raft_req) {
+            /* Pondering if we should move this return above, to keep reply always in same case and not depend on
+             * fallthrough
+             */
+            if (raft_req != NULL) {
+                entryDetachRaftReq(rr, entry);
                 RedisModule_ReplyWithSimpleString(raft_req->ctx, "OK");
                 RaftReqFree(raft_req);
             }
+
+            req = (RaftCfgChange *) entry->data;
 
             if (req->id == raft_get_nodeid(raft)) {
                 LOG_DEBUG("Removing this node from the cluster");
@@ -554,14 +567,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             }
             break;
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            entryDetachRaftReq(rr, entry);
 
-            if (raft_req) {
-                RedisModuleCtx *ctx = raft_req->ctx;
-
-                RedisModule_ReplyWithArray(ctx, 2);
-                RedisModule_ReplyWithLongLong(ctx, raft_req->r.cfgchange.id);
-                RedisModule_ReplyWithSimpleString(ctx, rr->snapshot_info.dbid);
+            if (raft_req != NULL) {
+                entryDetachRaftReq(rr, entry);
+                RedisModule_ReplyWithArray(raft_req->ctx, 2);
+                RedisModule_ReplyWithLongLong(raft_req->ctx, raft_req->r.cfgchange.id);
+                RedisModule_ReplyWithSimpleString(raft_req->ctx, rr->snapshot_info.dbid);
 
                 RaftReqFree(raft_req);
             }
@@ -1484,6 +1495,11 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 
     entryAttachRaftReq(rr, entry, req);
     e = raft_recv_entry(rr->raft, entry, &response);
+
+    /* the code here is ugly, as for some reason raft_entry_releaes() as to be after detach, but it fails, as its
+     * calling the free_func() in the case of error, but other uses of this pattern, do raft_entry_release() before
+     * error hadling
+     */
     if (e != 0) {
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
@@ -2164,8 +2180,11 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
             /* Should never happen! */
             RedisModule_ReplyWithError(req->ctx, "ERR failed to locally apply change, should never happen.");
         }
-        entryDetachRaftReq(rr, entry);
+
         RaftReqFree(req);
+
+        // didn't convert this to entryDetachRaftReq() as doesn't do rr->client_attached_entries--, but don't know why?
+        entry->user_data = NULL;
     }
 }
 
