@@ -409,7 +409,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     }
 
     /* Maybe we have pending stuff to apply now */
-    ret = raft_apply_all(rr->raft);
+    ret = raft_apply_allgit (rr->raft);
     /* should this before we handle err return? (i.e. shutdown node) or can it be skipped? */
     raft_process_read_queue(rr->raft);
     handleApplyAllRet(rr, ret);
@@ -520,9 +520,13 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     RedisRaftCtx *rr = user_data;
     RaftReq *raft_req = entry->user_data;
     RaftCfgChange *req;
+    int ret = 0;
 
     switch (entry->type) {
         case RAFT_LOGTYPE_DEMOTE_NODE:
+            req = (RaftCfgChange *) entry->data;
+
+            // can raft_is_leader() returne true but state not be UP?
             if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
@@ -547,24 +551,29 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 raft_entry_release(rem_entry);
                 assert (e == 0);
                 // this break has to be in the leader check, as otherwise want to fall through to remove
-                break;
+            } else {
+                // if this is the node getting removed, we commit suicide now, as won't get remove commit message
+                if (req->id == raft_get_nodeid(raft)) {
+                    LOG_DEBUG("Removing this node from the cluster");
+                    ret = RAFT_ERR_SHUTDOWN;
+
+                    if (raft_req != NULL) {
+                        entryDetachRaftReq(rr, entry);
+                        RedisModule_ReplyWithSimpleString(raft_req->ctx, "DEMOTED, Leader changed");
+                        RaftReqFree(raft_req);
+                    }
+                }
             }
+            break;
         case RAFT_LOGTYPE_REMOVE_NODE:
-            /* Pondering if we should move this return above, to keep reply always in same case and not depend on
-             * fallthrough
-             */
+            req = (RaftCfgChange *) entry->data;
+
             if (raft_req != NULL) {
                 entryDetachRaftReq(rr, entry);
                 RedisModule_ReplyWithSimpleString(raft_req->ctx, "OK");
                 RaftReqFree(raft_req);
             }
 
-            req = (RaftCfgChange *) entry->data;
-
-            if (req->id == raft_get_nodeid(raft)) {
-                LOG_DEBUG("Removing this node from the cluster");
-                return RAFT_ERR_SHUTDOWN;
-            }
             break;
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
 
@@ -591,7 +600,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    return 0;
+    return ret;
 }
 
 /* ------------------------------------ Utility Callbacks ------------------------------------ */
