@@ -128,20 +128,24 @@ def test_full_cluster_remove(cluster):
     leader = cluster.leader_node()
     expected_nodes = 5
     for node_id in (2, 3, 4, 5):
+        logger.info("removing {}".format(node_id))
         leader.client.execute_command('RAFT.NODE', 'REMOVE', str(node_id))
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
 
     # make sure other nodes are down
     for node_id in (2, 3, 4, 5):
+        logger.info("verifying node {} is down".format(node_id))
         assert cluster.node(node_id).verify_down()
 
     # and make sure they start up in uninitialized state
     for node_id in (2, 3, 4, 5):
+        logger.info("making sure node {} starts up".format(node_id))
         cluster.node(node_id).terminate()
         cluster.node(node_id).start()
 
     for node_id in (2, 3, 4, 5):
+        logger.info("making sure node {} is uninitialized".format(node_id))
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
 
 
