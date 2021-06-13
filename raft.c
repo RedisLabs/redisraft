@@ -126,7 +126,8 @@ static void handleApplyAllRet(RedisRaftCtx *rr, int ret)
             RaftLogArchiveFiles(rr);
         if (rr->config->rdb_filename)
             archiveSnapshot(rr);
-        exit(0);
+        RedisModule_Call(rr->ctx, "SHUTDOWN", "");
+        //exit(0);
     }
 }
 
@@ -409,7 +410,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     }
 
     /* Maybe we have pending stuff to apply now */
-    ret = raft_apply_allgit (rr->raft);
+    ret = raft_apply_all(rr->raft);
     /* should this before we handle err return? (i.e. shutdown node) or can it be skipped? */
     raft_process_read_queue(rr->raft);
     handleApplyAllRet(rr, ret);
@@ -524,10 +525,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
     switch (entry->type) {
         case RAFT_LOGTYPE_DEMOTE_NODE:
+            LOG_INFO("Apply: DEMOTE");
             req = (RaftCfgChange *) entry->data;
 
             // can raft_is_leader() returne true but state not be UP?
             if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
+                LOG_INFO("Apply: DEMOTE: leader");
                 raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
 
                 msg_entry_response_t resp;
@@ -552,6 +555,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 assert (e == 0);
                 // this break has to be in the leader check, as otherwise want to fall through to remove
             } else {
+                LOG_INFO("Apply: DEMOTE: not leader");
                 // if this is the node getting removed, we commit suicide now, as won't get remove commit message
                 if (req->id == raft_get_nodeid(raft)) {
                     LOG_DEBUG("Removing this node from the cluster");
@@ -566,12 +570,18 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             }
             break;
         case RAFT_LOGTYPE_REMOVE_NODE:
+            LOG_INFO("Apply: REMOVE");
             req = (RaftCfgChange *) entry->data;
 
             if (raft_req != NULL) {
                 entryDetachRaftReq(rr, entry);
                 RedisModule_ReplyWithSimpleString(raft_req->ctx, "OK");
                 RaftReqFree(raft_req);
+            }
+
+            if (req->id == raft_get_nodeid(raft)) {
+                LOG_DEBUG("Removing this node from the cluster");
+                ret = RAFT_ERR_SHUTDOWN;
             }
 
             break;
