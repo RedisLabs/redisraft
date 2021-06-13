@@ -126,8 +126,8 @@ static void handleApplyAllRet(RedisRaftCtx *rr, int ret)
             RaftLogArchiveFiles(rr);
         if (rr->config->rdb_filename)
             archiveSnapshot(rr);
-        RedisModule_Call(rr->ctx, "SHUTDOWN", "");
-        //exit(0);
+        //RedisModule_Call(rr->ctx, "SHUTDOWN", "");
+        exit(0);
     }
 }
 
