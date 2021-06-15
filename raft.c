@@ -322,7 +322,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
     if (!ConnIsConnected(node->conn)) {
-        NODE_TRACE(node, "not connected, state=%s", NodeStateStr[node->state]);
+        NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
         return 0;
     }
 
@@ -403,7 +403,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     size_t *argvlen = NULL;
 
     if (!ConnIsConnected(node->conn)) {
-        NODE_TRACE(node, "not connected, state=%s", NodeStateStr[node->state]);
+        NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
         return 0;
     }
 

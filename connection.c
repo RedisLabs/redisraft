@@ -25,7 +25,7 @@
 
 #ifdef ENABLE_TRACE
 #define CONN_TRACE(conn, fmt, ...) \
-    LOG(LOGLEVEL_DEBUG, "%s:%d {conn:%d} " fmt, \
+    LOG(LOGLEVEL_DEBUG, "%s:%d {conn:%lu} " fmt, \
             __FILE__, __LINE__, \
             (conn) ? (conn)->id : 0, \
             ##__VA_ARGS__)
@@ -273,7 +273,7 @@ RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackF
 
 void ConnMarkDisconnected(Connection *conn)
 {
-    CONN_TRACE(node, "ConnMarkDisconnected: rc=%p", conn->rc);
+    CONN_TRACE(conn, "ConnMarkDisconnected: rc=%p", conn->rc);
 
     conn->state = CONN_DISCONNECTED;
     if (conn->rc) {
