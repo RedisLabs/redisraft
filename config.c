@@ -180,7 +180,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         int loglevel = parseLogLevel(value);
         if (loglevel < 0) {
             snprintf(errbuf, errbuflen-1,
-                     "invalid '%s', must be 'error', 'info', 'verbose', 'debug' or 'trace'", keyword);
+                     "invalid '%s', must be 'error', 'info', 'verbose', 'debug'", keyword);
             return RR_ERROR;
         }
         redis_raft_loglevel = loglevel;
