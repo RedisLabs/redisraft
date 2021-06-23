@@ -67,12 +67,18 @@ def test_single_voting_change_enforced(cluster):
     cluster.node(3).terminate()
     cluster.node(4).terminate()
 
-    assert cluster.node(1).client.execute_command(
-        'RAFT.NODE', 'REMOVE', '5') == b'OK'
-    with raises(ResponseError,
-            match='a voting change is already in progress'):
-        assert cluster.node(1).client.execute_command(
-            'RAFT.NODE', 'REMOVE', '4') == b'OK'
+    def remove_node(leader):
+        logger.info("remove_node: enter")
+        ret = cluster.node(leader).client.execute_command('RAFT.NODE', 'REMOVE', '5')
+        logger.info("remove_node: ret = {}".format(ret))
+        return ret
+
+    Thread(target=remove_node, args=(1,), daemon=True).start()
+
+    time.sleep(1)
+
+    with raises(ResponseError, match='a voting change is already in progress'):
+        assert cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4') == b'OK'
 
     time.sleep(1)
     assert cluster.node(1).raft_info()['num_nodes'] == 5
@@ -122,20 +128,24 @@ def test_full_cluster_remove(cluster):
     leader = cluster.leader_node()
     expected_nodes = 5
     for node_id in (2, 3, 4, 5):
+        logger.info("removing {}".format(node_id))
         leader.client.execute_command('RAFT.NODE', 'REMOVE', str(node_id))
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
 
     # make sure other nodes are down
     for node_id in (2, 3, 4, 5):
+        logger.info("verifying node {} is down".format(node_id))
         assert cluster.node(node_id).verify_down()
 
     # and make sure they start up in uninitialized state
     for node_id in (2, 3, 4, 5):
+        logger.info("making sure node {} starts up".format(node_id))
         cluster.node(node_id).terminate()
         cluster.node(node_id).start()
 
     for node_id in (2, 3, 4, 5):
+        logger.info("making sure node {} is uninitialized".format(node_id))
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
 
 
