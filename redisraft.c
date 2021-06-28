@@ -140,7 +140,55 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+/* RAFT.TRANSFER_LEADER [target_node_id]
+ *   Attempt to transfer raft cluster leadership to targeted node
+ * Reply:
+ * ???
+ */
+
+static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    int target_node_id;
+    if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR || target_node_id != rr->config->id) {
+        RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
+    req->r.node_to_transfer_leader = target_node_id;
+
+    RaftReqSubmit(rr, req);
+    return REDISMODULE_OK;
+}
+
+/* RAFT.TIMEOUT_NOW
+ *   instruct this node to force an election
+ * Reply:
+ * ???
+ */
+
+static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    if (argc != 1) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
+    RaftReqSubmit(rr, req);
+
+    return REDISMODULE_OK;
+}
+
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]:[transfer_leader]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -174,11 +222,12 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
-    if (sscanf(tmpstr, "%ld:%d:%ld:%ld",
+    if (sscanf(tmpstr, "%ld:%d:%ld:%ld:%d",
                 &req->r.requestvote.msg.term,
                 &req->r.requestvote.msg.candidate_id,
                 &req->r.requestvote.msg.last_log_idx,
-                &req->r.requestvote.msg.last_log_term) != 4) {
+                &req->r.requestvote.msg.last_log_term,
+                &req->r.requestvote.msg.transfer_leader) != 5) {
         RedisModule_ReplyWithError(ctx, "invalid message");
         goto error_cleanup;
     }
@@ -746,6 +795,16 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.ae",
                 cmdRaftAppendEntries, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.transfer_leader",
+                cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+       return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.timeout_now",
+                 cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

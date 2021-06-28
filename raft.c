@@ -199,7 +199,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     }
 }
 
-
 /* ------------------------------------ RequestVote ------------------------------------ */
 
 static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privdata)
@@ -260,13 +259,15 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %d:%d:%d:%d",
+                node, "RAFT.REQUESTVOTE %d %d %d:%d:%d:%d:%d",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->term,
                 msg->candidate_id,
                 msg->last_log_idx,
-                msg->last_log_term) != REDIS_OK) {
+                msg->last_log_term,
+                raft_is_timeout_now(raft)
+                ) != REDIS_OK) {
         NODE_TRACE(node, "failed requestvote");
     } else {
         NodeAddPendingResponse(node, false);
@@ -323,6 +324,61 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
     /* Maybe we have pending stuff to apply now */
     raft_apply_all(rr->raft);
     raft_process_read_queue(rr->raft);
+}
+
+static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    Node *node = privdata;
+    //RedisRaftCtx *rr = node->rr;
+
+    NodeDismissPendingResponse(node);
+
+    redisReply *reply = r;
+    if (!reply) {
+        NODE_TRACE(node, "RAFT.TIMEOUT_NOW failed: connection dropped.");
+        ConnMarkDisconnected(node->conn);
+        return;
+    }
+    if (reply->type == REDIS_REPLY_ERROR) {
+        NODE_TRACE(node, "RAFT.TIMEOUT_NOW error: %s", reply->str);
+        return;
+    }
+
+    if (reply->type != REDIS_REPLY_STRING || strcmp("OK", reply->str)) {
+        NODE_LOG_ERROR(node, "invalid RAFT.TIMEOUT_NOW reply");
+        return;
+    }
+}
+
+static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
+{
+    Node *node = (Node *) raft_node_get_udata(raft_node);
+    int argc = 1;
+    char **argv = NULL;
+    size_t *argvlen = NULL;
+
+    if (!ConnIsConnected(node->conn)) {
+        NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
+        return 0;
+    }
+
+    argv = RedisModule_Alloc(sizeof(argv[0]) * argc);
+    argvlen = RedisModule_Alloc(sizeof(argvlen[0]) * argc);
+
+    argv[0] = "RAFT.TIMEOUT_NOW";
+    argvlen[0] = strlen(argv[0]);
+
+    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), handleTimeoutNowResponse,
+                              node, argc, (const char **)argv, argvlen) != REDIS_OK) {
+        NODE_TRACE(node, "failed timeout now");
+    } else{
+        NodeAddPendingResponse(node, false);
+    }
+
+    RedisModule_Free(argv);
+    RedisModule_Free(argvlen);
+
+    return 0;
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
@@ -633,7 +689,8 @@ raft_cbs_t redis_raft_callbacks = {
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
     .notify_membership_event = raftNotifyMembershipEvent,
-    .notify_state_event = raftNotifyStateEvent
+    .notify_state_event = raftNotifyStateEvent,
+    .send_timeoutnow = raftSendTimeoutNow,
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
@@ -1261,6 +1318,35 @@ void RaftReqHandleQueue(uv_async_t *handle)
 /*
  * Implementation of specific request types.
  */
+
+static void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
+    if (raft_transfer_leader(rr->raft, req->r.node_to_transfer_leader, 0) != 0) {
+        RedisModule_ReplyWithError(req->ctx, "ERR operation failed"); // TODO: Identify cases
+        goto exit;
+    }
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
+
+static void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
+    raft_set_timeout_now(rr->raft);
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
 
 static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -2125,5 +2211,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
+    handleTransferLeader,   /* RR_TRANSFER_LEADER */
+    handleTimeoutNow,       /* RR_TIMEOUT_NOW */
     NULL
 };

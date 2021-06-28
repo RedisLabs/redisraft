@@ -377,7 +377,9 @@ enum RaftReqType {
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
     RR_SHARDGROUP_GET,
-    RR_SHARDGROUP_LINK
+    RR_SHARDGROUP_LINK,
+    RR_TRANSFER_LEADER,
+    RR_TIMEOUT_NOW,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -515,6 +517,7 @@ typedef struct RaftReq {
             NodeAddr addr;
         } shardgroup_link;
         RaftDebugReq debug;
+        raft_node_id_t node_to_transfer_leader;
     } r;
 } RaftReq;
 
