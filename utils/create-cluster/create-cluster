@@ -1,15 +1,16 @@
 #!/bin/bash
 
 # Settings
-REDIS_PATH="${PWD}/../../../redis/src"
-REDISRAFT="${PWD}/../../redisraft.so"
-HOST=127.0.0.1
-PORT=5000
-TIMEOUT=2000
-NODES=3
-LOGLEVEL=notice
-SHARDING=yes
-ADDITIONAL_OPTIONS=""
+REDIS_SERVER_BINARY=${REDIS_SERVER_BINARY:-${PWD}/../../../redis/src/redis-server}
+REDIS_CLI_BINARY=${REDIS_CLI_BINARY:-${PWD}/../../../redis/src/redis-cli}
+REDISRAFT=${REDISRAFT:-${PWD}/../../redisraft.so}
+HOST=${HOST:-127.0.0.1}
+PORT=${PORT:-5000}
+TIMEOUT=${TIMEOUT:-2000}
+NODES=${NODES:-3}
+LOGLEVEL=${LOGLEVEL:-notice}
+SHARDING=${SHARDING:-yes}
+ADDITIONAL_OPTIONS=${ADDITIONAL_OPTIONS:-}
 
 # You may want to put the above config parameters into config.sh in order to
 # override the defaults without modifying this script.
@@ -23,7 +24,7 @@ start_instance() {
     local port=$1
 
     echo "Starting $port"
-    $REDIS_PATH/redis-server \
+    $REDIS_SERVER_BINARY \
         --port $port \
         --loglevel $LOGLEVEL \
         --logfile ${port}.log \
@@ -40,7 +41,7 @@ stop_instance() {
     local port=$1
 
     echo "Stopping $port"
-    ${REDIS_PATH}/redis-cli -p $port shutdown nosave
+    ${REDIS_CLI_BINARY} -p $port shutdown nosave
 }
 
 # Computed vars
@@ -58,13 +59,13 @@ fi
 if [ "$1" == "create" ]
 then
     PORT=$((PORT+1))
-    ${REDIS_PATH}/redis-cli -p $PORT raft.cluster init
+    ${REDIS_CLI_BINARY} -p $PORT raft.cluster init
     sleep 1
 
     p=$PORT
     while [ $((p < ENDPORT)) != "0" ]; do
         p=$((p+1))
-        ${REDIS_PATH}/redis-cli -p $p raft.cluster join ${HOST}:${PORT}
+        ${REDIS_CLI_BINARY} -p $p raft.cluster join ${HOST}:${PORT}
     done
     exit 0
 fi
@@ -90,7 +91,7 @@ then
     while [ 1 ]; do
         clear
         echo "`date` | $HOST:$PORT | RAFT.INFO"
-        ${REDIS_PATH}/redis-cli -p $PORT --raw raft.info
+        ${REDIS_CLI_BINARY} -p $PORT --raw raft.info
         sleep 1
     done
     exit 0
@@ -115,7 +116,7 @@ then
     shift
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        ${REDIS_PATH}/redis-cli -p $PORT $@
+        ${REDIS_CLI_BINARY} -p $PORT $@
     done
     exit 0
 fi
@@ -139,7 +140,7 @@ then
     INSTANCE=$2
     shift 2
     PORT=$((PORT+INSTANCE))
-    ${REDIS_PATH}/redis-cli -p $PORT $@
+    ${REDIS_CLI_BINARY} -p $PORT $@
     exit 0
 fi
 
