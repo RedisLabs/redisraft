@@ -1,0 +1,110 @@
+-- Blocking commands not supported
+BLPOP, LPUSH + DEL should not awake blocked client
+BLPOP, LPUSH + DEL + SET should not awake blocked client
+BLPOP with same key multiple times should work (issue #801)
+MULTI/EXEC is isolated from the point of view of BLPOP
+BLPOP with variadic LPUSH
+BRPOPLPUSH with zero timeout should block indefinitely
+BLMOVE left left with zero timeout should block indefinitely
+BLMOVE left right with zero timeout should block indefinitely
+BLMOVE right left with zero timeout should block indefinitely
+BLMOVE right right with zero timeout should block indefinitely
+BLMOVE (left, left) with a client BLPOPing the target list
+BLMOVE (left, right) with a client BLPOPing the target list
+BLMOVE (right, left) with a client BLPOPing the target list
+BLMOVE (right, right) with a client BLPOPing the target list
+BRPOPLPUSH with wrong destination type
+BRPOPLPUSH maintains order of elements after failure
+BRPOPLPUSH with multiple blocked clients
+Linked LMOVEs
+PUSH resulting from BRPOPLPUSH affect WATCH
+BLPOP when new key is moved into place
+BLPOP when result key is created by SORT..STORE
+BLPOP: with single empty list argument
+BLPOP: with non-integer timeout
+BLPOP: arguments are empty
+BRPOP: with single empty list argument
+BRPOP: with non-integer timeout
+BRPOP: arguments are empty
+client unblock tests
+BZPOPMIN, ZADD + DEL should not awake blocked client
+BZPOPMIN, ZADD + DEL + SET should not awake blocked client
+BZPOPMIN with same key multiple times should work
+MULTI/EXEC is isolated from the point of view of BZPOPMIN
+BZPOPMIN with variadic ZADD
+BZPOPMIN with zero timeout should block indefinitely
+BZPOPMIN, ZADD + DEL should not awake blocked client
+BZPOPMIN, ZADD + DEL + SET should not awake blocked client
+BZPOPMIN with same key multiple times should work
+MULTI/EXEC is isolated from the point of view of BZPOPMIN
+BZPOPMIN with variadic ZADD
+BZPOPMIN with zero timeout should block indefinitely
+
+-- RESP3 Not supported
+-- See: https://github.com/RedisLabs/redisraft/issues/100
+ZINTER RESP3 - ziplist
+Basic ZPOP - ziplist RESP3
+ZPOP with count - ziplist RESP3
+ZINTER RESP3 - skiplist
+Basic ZPOP - skiplist RESP3
+ZPOP with count - skiplist RESP3
+ZRANGESTORE RESP3
+ZRANDMEMBER with RESP3
+HRANDFIELD with RESP3
+
+-- Streams not supported
+-- See: https://github.com/RedisLabs/redisraft/issues/59
+Blocking XREAD waiting new data
+XREAD: XADD + DEL should not awake client
+XREAD: XADD + DEL + LPUSH should not awake client
+XREAD with same stream name multiple times should work
+XREAD + multiple XADD inside transaction
+XREAD streamID edge (blocking)
+XGROUP DESTROY should unblock XREADGROUP with -NOGROUP
+RENAME can unblock XREADGROUP with data
+RENAME can unblock XREADGROUP with -NOGROUP
+
+-- Timeouts and termination of Lua scripts is not possible when scripts are
+-- replicated and executed by individual nodes.
+EXEC and script timeout
+MULTI-EXEC body and script timeout
+just EXEC and script timeout
+Blocking commands ignores the timeout
+Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall
+Timedout script does not cause a false dead client
+Timedout script link is still usable after Lua returns
+Timedout scripts that modified data can't be killed by SCRIPT KILL
+
+
+-- MULTI/EXEC handling incompatibilities, mainly becuase RedisRaft implements
+-- its own logic while passing some non-data commands to Redis. Consider our
+-- options with Module API extensions to better control this.
+MUTLI / EXEC basics
+WATCH inside MULTI is not allowed
+EXEC fails if there are errors while queueing commands #1
+If EXEC aborts, the client MULTI state is cleared
+EXEC works on WATCHed key not modified
+After successful EXEC key is no longer watched
+After failed EXEC key is no longer watched
+It is possible to UNWATCH
+FLUSHALL does not touch non affected keys
+FLUSHDB does not touch non affected keys
+DISCARD should clear the WATCH dirty flag on the client
+DISCARD should UNWATCH all the keys
+MULTI and script timeout
+command stats for MULTI
+
+-- RAFT command prefix shows up in SLOWLOG.
+SLOWLOG - Rewritten commands are logged as their original command
+
+-- RAFT command prefix shows up in MONITOR
+MONITOR can log executed commands
+MONITOR can log commands issued by the scripting engine
+MONITOR correctly handles multi-exec cases
+
+-- TODO: check what's wrong
+UNLINK can reclaim memory in background
+
+-- Blocked clients not supported
+Test read commands are not blocked by client pause
+Test write commands are paused by RO
