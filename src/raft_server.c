@@ -1128,6 +1128,12 @@ void raft_remove_node(raft_server_t* me_, raft_node_t* node)
     memmove(&me->nodes[i], &me->nodes[i + 1], sizeof(*me->nodes) * (me->num_nodes - i - 1));
     me->num_nodes--;
 
+    /* if we are removing the current leader, have to reset it, as this data is now stale */
+    raft_node_t *current_leader_node = raft_get_current_leader_node(me_);
+    if (node == current_leader_node) {
+        me->current_leader = NULL;
+    }
+
     raft_node_free(node);
 }
 
