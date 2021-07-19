@@ -370,7 +370,7 @@ void TestRaft_server_wont_apply_entry_if_there_isnt_a_majority(CuTest* tc)
 }
 
 /* If commitidx > lastApplied: increment lastApplied, apply log[lastApplied]
- * to state machine (ง5.3) */
+ * to state machine (ยง5.3) */
 void TestRaft_server_increment_lastApplied_when_lastApplied_lt_commitidx(
     CuTest* tc)
 {
@@ -727,7 +727,7 @@ void TestRaft_server_recv_requestvote_response_must_be_candidate_to_receive(
     CuAssertTrue(tc, 0 == raft_get_nvotes_for_me(r));
 }
 
-/* Reply false if term < currentTerm (ง5.1) */
+/* Reply false if term < currentTerm (ยง5.1) */
 void TestRaft_server_recv_requestvote_reply_false_if_term_less_than_current_term(
     CuTest * tc
     )
@@ -785,7 +785,7 @@ void TestRaft_leader_recv_requestvote_does_not_step_down(
     CuAssertIntEquals(tc, 1, raft_get_current_leader(r));
 }
 
-/* Reply true if term >= currentTerm (ง5.1) */
+/* Reply true if term >= currentTerm (ยง5.1) */
 void TestRaft_server_recv_requestvote_reply_true_if_term_greater_than_or_equal_to_current_term(
     CuTest * tc
     )
@@ -909,7 +909,7 @@ void TestRaft_server_recv_requestvote_depends_on_candidate_id(
 }
 
 /* If votedFor is null or candidateId, and candidate's log is at
- * least as up-to-date as local log, grant vote (ง5.2, ง5.4) */
+ * least as up-to-date as local log, grant vote (ยง5.2, ยง5.4) */
 void TestRaft_server_recv_requestvote_dont_grant_vote_if_we_didnt_vote_for_this_candidate(
     CuTest * tc
     )
@@ -947,7 +947,7 @@ void TestRaft_server_recv_requestvote_dont_grant_vote_if_we_didnt_vote_for_this_
 
 /* If requestvote is received within the minimum election timeout of
  * hearing from a current leader, it does not update its term or grant its
- * vote (ง6).
+ * vote (ยง6).
  */
 void TestRaft_server_recv_requestvote_ignore_if_master_is_fresh(CuTest * tc)
 {
@@ -2544,7 +2544,7 @@ void TestRaft_leader_retries_appendentries_with_decremented_NextIdx_log_inconsis
 /*
  * If there exists an N such that N > commitidx, a majority
  * of matchidx[i] = N, and log[N].term == currentTerm:
- * set commitidx = N (ง5.2, ง5.4).  */
+ * set commitidx = N (ยง5.2, ยง5.4).  */
 void TestRaft_leader_append_entry_to_log_increases_idxno(CuTest * tc)
 {
     raft_cbs_t funcs = {
