@@ -12,11 +12,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#ifdef HAVE_SYS_QUEUE
-#include <sys/queue.h>
-#else
-#include <bsd/sys/queue.h>
-#endif
 #include <stdio.h>
 #include <unistd.h>
 
@@ -26,6 +21,7 @@
 #include "hiredis/async.h"
 #include "redismodule.h"
 #include "raft.h"
+#include "queue.h"
 
 #include "version.h"
 
