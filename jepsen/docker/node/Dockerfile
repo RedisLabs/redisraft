@@ -42,7 +42,6 @@ RUN apt-get update && \
         automake \
         autoconf \
         libtool \
-        libbsd-dev \
         && \
         apt-get remove -y --purge --auto-remove systemd
 

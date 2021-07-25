@@ -28,8 +28,7 @@ submodules under `deps`.
 To compile the module, you will need:
 * Build essentials (a compiler, GNU make, etc.)
 * CMake
-* GNU autotools (autoconf, automake, libtool)
-* libbsd-dev (on Debian/Ubuntu) or an equivalent for `bsd/sys/queue.h`.
+* GNU autotools (autoconf, automake, libtool).
 
 To build, simply run:
 
