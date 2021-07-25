@@ -1100,7 +1100,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     uv_timer_init(rr->loop, &rr->node_reconnect_timer);
     uv_handle_set_data((uv_handle_t *) &rr->node_reconnect_timer, rr);
 
-    rr->ctx = RedisModule_GetThreadSafeContext(NULL);
+    rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
 
     /* Client state for MULTI support */
