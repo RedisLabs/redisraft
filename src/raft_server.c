@@ -362,6 +362,7 @@ int raft_recv_appendentries_response(raft_server_t* me_,
         !raft_voting_change_is_in_progress(me_) &&
         raft_get_current_idx(me_) <= r->current_idx + 1 &&
         !raft_node_is_voting_committed(node) &&
+        raft_node_is_addition_committed(node) &&
         me->cb.node_has_sufficient_logs &&
         0 == raft_node_has_sufficient_logs(node)
         )
