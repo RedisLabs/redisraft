@@ -535,18 +535,6 @@ void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req)
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
-    /* Recreate the snapshot key in keyspace, to be sure we'll get a chance to
-     * serialize it into the RDB file when it is saved.
-     *
-     * Note: this is just a precaution, because the snapshot we load should contain
-     * the meta-key anyway so we should be safe either way.
-     *
-     * Future improvement: consider using hooks to automatically handle this. It
-     * won't be just cleaner, but also be fool-proof in case someone decides to
-     * manually dump an RDB file etc.
-     */
-    initializeSnapshotInfo(rr);
-
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     RedisModule_ReplyWithLongLong(req->ctx, 1);
 
@@ -558,22 +546,9 @@ exit:
 
 /* ------------------------------------ Snapshot metadata type ------------------------------------ */
 
-static const char snapshot_info_metakey[] = "__raft_snapshot_info__";
-
-void initializeSnapshotInfo(RedisRaftCtx *rr)
-{
-    RedisModuleString *name = RedisModule_CreateString(rr->ctx, snapshot_info_metakey,
-            sizeof(snapshot_info_metakey) - 1);
-    RedisModuleKey *k = RedisModule_OpenKey(rr->ctx, name, REDISMODULE_WRITE);
-    RedisModule_ModuleTypeSetValue(k, RedisRaftType, &rr->snapshot_info);
-    RedisModule_CloseKey(k);
-    RedisModule_FreeString(rr->ctx, name);
-}
-
-
 RedisModuleType *RedisRaftType = NULL;
 
-void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
+static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
 {
     size_t len;
     char *buf;
@@ -645,13 +620,12 @@ void *rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver)
     ShardingInfoRDBLoad(rdb);
 
     info->loaded = true;
-
-    return info;
+    return REDISMODULE_OK;
 }
 
-void rdbSaveSnapshotInfo(RedisModuleIO *rdb, void *value)
+static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
 {
-    RaftSnapshotInfo *info = (RaftSnapshotInfo *) value;
+    RaftSnapshotInfo *info = &redis_raft.snapshot_info;
 
     /* dbid */
     RedisModule_SaveStringBuffer(rdb, info->dbid, strlen(info->dbid));
@@ -697,16 +671,12 @@ static void aofRewriteCallback(RedisModuleIO *io, RedisModuleString *key, void *
     UNUSED(value);
 }
 
-static void clearSnapshotInfo(void *value)
-{
-}
-
 RedisModuleTypeMethods RedisRaftTypeMethods = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
-    .rdb_load = rdbLoadSnapshotInfo,
-    .rdb_save = rdbSaveSnapshotInfo,
     .aof_rewrite = aofRewriteCallback,
-    .free = clearSnapshotInfo
+    .aux_load = rdbLoadSnapshotInfo,
+    .aux_save = rdbSaveSnapshotInfo,
+    .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB
 };
 
 /* TODO -- move this to Raft library header file */
