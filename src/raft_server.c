@@ -579,37 +579,27 @@ int raft_already_voted(raft_server_t* me_)
     return ((raft_server_private_t*)me_)->voted_for != -1;
 }
 
-static int __should_grant_vote(raft_server_private_t* me, msg_requestvote_t* vr)
+static int __should_grant_vote(raft_server_t* me_, msg_requestvote_t* vr)
 {
-    if (!raft_node_is_voting(raft_get_my_node((void*)me)))
+    if (!raft_node_is_voting(raft_get_my_node(me_)))
         return 0;
 
-    if (vr->term < raft_get_current_term((void*)me))
+    if (vr->term < raft_get_current_term(me_))
         return 0;
 
     /* TODO: if voted for is candidate return 1 (if below checks pass) */
-    if (raft_already_voted((void*)me))
+    if (raft_already_voted(me_))
         return 0;
 
     /* Below we check if log is more up-to-date... */
 
-    raft_index_t current_idx = raft_get_current_idx((void*)me);
+    raft_index_t current_idx = raft_get_current_idx(me_);
 
     /* Our log is definitely not more up-to-date if it's empty! */
     if (0 == current_idx)
         return 1;
 
-    raft_entry_t* ety = raft_get_entry_from_idx((void*)me, current_idx);
-    raft_term_t ety_term;
-
-    // TODO: add test
-    if (ety) {
-        ety_term = ety->term;
-        raft_entry_release(ety);
-    } else if (!ety && me->snapshot_last_idx == current_idx)
-        ety_term = me->snapshot_last_term;
-    else
-        return 0;
+    raft_term_t ety_term = raft_get_last_log_term(me_);
 
     if (ety_term < vr->last_log_term)
         return 1;
@@ -649,7 +639,7 @@ int raft_recv_requestvote(raft_server_t* me_,
         me->current_leader = NULL;
     }
 
-    if (__should_grant_vote(me, vr))
+    if (__should_grant_vote(me_, vr))
     {
         /* It shouldn't be possible for a leader or candidate to grant a vote
          * Both states would have voted for themselves */

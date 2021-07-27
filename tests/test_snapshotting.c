@@ -237,12 +237,14 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
     raft_set_commit_idx(r, 2);
     CuAssertIntEquals(tc, 3, raft_get_log_count(r));
     CuAssertIntEquals(tc, 2, raft_get_num_snapshottable_logs(r));
+    CuAssertIntEquals(tc, 1, raft_get_last_log_term(r));
 
     CuAssertIntEquals(tc, 0, raft_begin_snapshot(r, 0));
 
     int i = raft_get_first_entry_idx(r);
-    for (; i < raft_get_commit_idx(r); i++)
+    for (; i < raft_get_commit_idx(r); i++) {
         CuAssertIntEquals(tc, 0, raft_poll_entry(r));
+    }
 
     CuAssertIntEquals(tc, 0, raft_begin_snapshot(r, 0));
     CuAssertIntEquals(tc, 0, raft_end_snapshot(r));
@@ -250,7 +252,37 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
     CuAssertIntEquals(tc, 1, raft_get_log_count(r));
     CuAssertIntEquals(tc, 2, raft_get_commit_idx(r));
     CuAssertIntEquals(tc, 2, raft_get_last_applied_idx(r));
+    CuAssertIntEquals(tc, 1, raft_get_last_log_term(r));
     CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+
+
+    /* the above test returns correct term as didn't snapshot all entries, makes sure works if we snapshot all */
+
+    /* snapshot doesn't work if only one entry to snapshot, so add another one */
+    ety = __MAKE_ENTRY(4, 1, "entry");
+    raft_recv_entry(r, ety, &cr);
+
+    raft_set_commit_idx(r, 4);
+    CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+    CuAssertIntEquals(tc, 2, raft_get_log_count(r));
+    CuAssertIntEquals(tc, 4, raft_get_commit_idx(r));
+    raft_server_private_t *r_p = (raft_server_private_t *) r;
+    CuAssertIntEquals(tc, 3, r_p->log_impl->first_idx(r_p->log));
+    CuAssertIntEquals(tc, 2, raft_get_num_snapshottable_logs(r));
+
+    i = raft_get_first_entry_idx(r);
+    for (; i < raft_get_commit_idx(r); i++) {
+        printf("raft_poll_entry(2): %d\n", i);
+        CuAssertIntEquals(tc, 0, raft_poll_entry(r));
+    }
+
+    CuAssertIntEquals(tc, 0, raft_begin_snapshot(r, 0));
+    CuAssertIntEquals(tc, 0, raft_end_snapshot(r));
+    CuAssertIntEquals(tc, 0, raft_get_num_snapshottable_logs(r));
+    CuAssertIntEquals(tc, 0, raft_get_log_count(r));
+    CuAssertIntEquals(tc, 4, raft_get_commit_idx(r));
+    CuAssertIntEquals(tc, 4, raft_get_last_applied_idx(r));
+    CuAssertIntEquals(tc, 1, raft_get_last_log_term(r));
 }
 
 void TestRaft_leader_snapshot_end_succeeds_if_log_compacted2(CuTest * tc)

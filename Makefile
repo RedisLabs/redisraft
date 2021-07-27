@@ -38,6 +38,7 @@ clinkedlistqueue:
 
 download-contrib: clinkedlistqueue
 
+.PHONY: $(TEST_DIR)/main_test.c
 $(TEST_DIR)/main_test.c:
 	if test -d $(LLQUEUE_DIR); \
 	then echo have contribs; \
