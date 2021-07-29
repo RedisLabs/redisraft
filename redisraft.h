@@ -706,7 +706,6 @@ RRStatus ConfigureRedis(RedisModuleCtx *ctx);
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
-void initializeSnapshotInfo(RedisRaftCtx *rr);
 void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
 void checkLoadSnapshotProgress(RedisRaftCtx *rr);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);

@@ -117,9 +117,6 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
         goto exit_fail;
     }
 
-    /* Create a Snapshot Info meta-key */
-    initializeSnapshotInfo(rr);
-
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
     state->type = RedisModule_Calloc(1, strlen(type)+1);
     strcpy(state->type, type);

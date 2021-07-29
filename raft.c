@@ -716,7 +716,6 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
             raft_get_current_idx(rr->raft),
             raft_get_last_applied_idx(rr->raft));
 
-    initializeSnapshotInfo(rr);
     return RR_OK;
 }
 
@@ -975,9 +974,6 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     rr->state = REDIS_RAFT_UP;
     raft_become_leader(rr->raft);
     raft_set_current_term(rr->raft, 1);
-
-    /* Create a Snapshot Info meta-key */
-    initializeSnapshotInfo(rr);
 
     /* We need to create the first add node entry.  Because we don't have
      * callbacks set yet, we also need to manually push this in our log
