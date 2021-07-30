@@ -3612,6 +3612,55 @@ void T_estRaft_leader_recv_requestvote_responds_with_granting_if_term_is_higher(
 }
 #endif
 
+int raft_delete_entry_from_idx(raft_server_t* me_, raft_index_t idx);
+
+void TestRaft_leader_recv_entry_add_nonvoting_node_remove_and_revert(CuTest *tc)
+{
+    raft_cbs_t funcs = {
+            .applylog = __raft_applylog,
+            .persist_term = __raft_persist_term,
+            .node_has_sufficient_logs = __raft_node_has_sufficient_logs,
+            .log_get_node_id = __raft_log_get_node_id
+    };
+    raft_log_cbs_t log_funcs = {
+            .log_offer = __raft_log_offer
+    };
+
+    void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    int has_sufficient_logs_flag = 0;
+    raft_set_callbacks(r, &funcs, &has_sufficient_logs_flag);
+    log_set_callbacks(raft_get_log(r), &log_funcs, r);
+
+    /* I'm the leader */
+    raft_set_state(r, RAFT_STATE_LEADER);
+    raft_set_current_term(r, 1);
+    raft_set_commit_idx(r, 0);
+    raft_set_last_applied_idx(r, 0);
+
+    /* Add the non-voting node */
+    raft_entry_t *ety = __MAKE_ENTRY(1, 1, "3");
+    ety->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+    msg_entry_response_t etyr;
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, &etyr));
+    CuAssertIntEquals(tc, 1, raft_node_is_active(raft_get_node(r, 3)));
+    CuAssertIntEquals(tc, 0, raft_node_is_voting(raft_get_node(r, 3)));
+
+    /* append a removal log entry for the non-voting node we just added */
+    ety = __MAKE_ENTRY(1, 1, "3");
+    ety->type = RAFT_LOGTYPE_REMOVE_NODE;
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, &etyr));
+    CuAssertIntEquals(tc, 0, raft_node_is_active(raft_get_node(r, 3)));
+    CuAssertIntEquals(tc, 0, raft_node_is_voting(raft_get_node(r, 3)));
+
+    /* revert the log entry for the removal we just appended */
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, etyr.idx));
+    CuAssertIntEquals(tc, 1, raft_node_is_active(raft_get_node(r, 3)));
+    CuAssertIntEquals(tc, 0, raft_node_is_voting(raft_get_node(r, 3)));
+}
+
 void TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_voting_committed(
     CuTest * tc)
 {
