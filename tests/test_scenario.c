@@ -85,3 +85,18 @@ one_more_time:
     CuAssertTrue(tc, 0 != leaders);
     CuAssertTrue(tc, 1 == leaders);
 }
+
+
+int main(void)
+{
+    CuString *output = CuStringNew();
+    CuSuite* suite = CuSuiteNew();
+
+    SUITE_ADD_TEST(suite, TestRaft_scenario_leader_appears);
+
+    CuSuiteRun(suite);
+    CuSuiteDetails(suite, output);
+    printf("%s\n", output->buffer);
+
+    return suite->failCount == 0 ? 0 : 1;
+}

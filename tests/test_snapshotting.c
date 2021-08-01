@@ -766,3 +766,34 @@ void TestRaft_leader_sends_snapshot_if_log_was_compacted(CuTest* tc)
     CuAssertIntEquals(tc, 1, send_snapshot_count);
 }
 
+int main(void)
+{
+    CuString *output = CuStringNew();
+    CuSuite* suite = CuSuiteNew();
+
+    SUITE_ADD_TEST(suite, TestRaft_leader_begin_snapshot_fails_if_no_logs_to_compact);
+    SUITE_ADD_TEST(suite, TestRaft_leader_will_not_apply_entry_if_snapshot_is_in_progress);
+    SUITE_ADD_TEST(suite, TestRaft_leader_snapshot_end_fails_if_snapshot_not_in_progress);
+    SUITE_ADD_TEST(suite, TestRaft_leader_snapshot_begin_fails_if_less_than_2_logs_to_compact);
+    SUITE_ADD_TEST(suite, TestRaft_leader_snapshot_end_succeeds_if_log_compacted);
+    SUITE_ADD_TEST(suite, TestRaft_leader_snapshot_end_succeeds_if_log_compacted2);
+    SUITE_ADD_TEST(suite, TestRaft_joinee_needs_to_get_snapshot);
+    SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot);
+    SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_fails_if_term_is_0);
+    SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_fails_if_already_loaded);
+    SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_does_not_break_cluster_safety);
+    SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_fails_if_log_is_newer);
+    SUITE_ADD_TEST(suite, TestRaft_leader_sends_appendentries_when_node_next_index_was_compacted);
+    SUITE_ADD_TEST(suite, TestRaft_recv_entry_fails_if_snapshot_in_progress);
+    SUITE_ADD_TEST(suite, TestRaft_recv_entry_succeeds_if_snapshot_nonblocking_apply_is_set);
+    SUITE_ADD_TEST(suite, TestRaft_follower_recv_appendentries_is_successful_when_previous_log_idx_equals_snapshot_last_idx);
+    SUITE_ADD_TEST(suite, TestRaft_leader_sends_appendentries_with_correct_prev_log_idx_when_snapshotted);
+    SUITE_ADD_TEST(suite, TestRaft_cancel_snapshot_restores_state);
+    SUITE_ADD_TEST(suite, TestRaft_leader_sends_snapshot_if_log_was_compacted);
+
+    CuSuiteRun(suite);
+    CuSuiteDetails(suite, output);
+    printf("%s\n", output->buffer);
+
+    return suite->failCount == 0 ? 0 : 1;
+}

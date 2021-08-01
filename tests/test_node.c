@@ -22,3 +22,19 @@ void TestRaft_node_set_nextIdx(CuTest * tc)
     raft_node_set_next_idx(p, 3);
     CuAssertTrue(tc, 3 == raft_node_get_next_idx(p));
 }
+
+
+int main(void)
+{
+    CuString *output = CuStringNew();
+    CuSuite* suite = CuSuiteNew();
+
+    SUITE_ADD_TEST(suite, TestRaft_is_voting_by_default);
+    SUITE_ADD_TEST(suite, TestRaft_node_set_nextIdx);
+
+    CuSuiteRun(suite);
+    CuSuiteDetails(suite, output);
+    printf("%s\n", output->buffer);
+
+    return suite->failCount == 0 ? 0 : 1;
+}

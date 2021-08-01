@@ -1,15 +1,16 @@
 CONTRIB_DIR = .
 TEST_DIR = ./tests
-LLQUEUE_DIR = $(CONTRIB_DIR)/CLinkedListQueue
-VPATH = src
-
-GCOV_OUTPUT = *.gcda *.gcno *.gcov 
-GCOV_CCFLAGS = -fprofile-arcs -ftest-coverage
+SRC_DIR = src
+BUILD_DIR = src
+BIN_DIR = bin
+LIB = -I libs
+INC = -I include
+GCOV_CFLAGS = -fprofile-arcs -ftest-coverage
 SHELL  = /bin/bash
 CFLAGS += -Iinclude -Werror -Werror=return-type -Werror=uninitialized -Wcast-align \
 	  -Wno-pointer-sign -fno-omit-frame-pointer -fno-common -fsigned-char \
-	  -Wunused-variable \
-	  $(GCOV_CCFLAGS) -I$(LLQUEUE_DIR) -Iinclude -g -O2 -fPIC
+	  -Wunused-variable -g -O2 -fPIC
+TEST_CFLAGS = $(CFLAGS) $(GCOV_CFLAGS)
 
 UNAME := $(shell uname)
 
@@ -27,24 +28,23 @@ SHAREDFLAGS = -shared
 SHAREDEXT = so
 endif
 
-OBJECTS = src/raft_server.o src/raft_server_properties.o src/raft_node.o src/raft_log.o
+OBJECTS = \
+	$(BUILD_DIR)/raft_server.o \
+	$(BUILD_DIR)/raft_server_properties.o \
+	$(BUILD_DIR)/raft_node.o \
+	$(BUILD_DIR)/raft_log.o
+
+TEST_OBJECTS = $(patsubst $(BUILD_DIR)/%.o,$(BUILD_DIR)/test-%.o,$(OBJECTS))
+
+TEST_HELPERS = \
+	$(TEST_DIR)/CuTest.o \
+	$(TEST_DIR)/linked_list_queue.o \
+	$(TEST_DIR)/mock_send_functions.o
+
+TESTS = $(wildcard $(TEST_DIR)/test_*.c)
+TEST_TARGETS = $(patsubst $(TEST_DIR)/%.c,$(BIN_DIR)/%,$(TESTS))
 
 all: static shared
-
-clinkedlistqueue:
-	mkdir -p $(LLQUEUE_DIR)/.git
-	git --git-dir=$(LLQUEUE_DIR)/.git init 
-	pushd $(LLQUEUE_DIR); git pull http://github.com/willemt/CLinkedListQueue; popd
-
-download-contrib: clinkedlistqueue
-
-.PHONY: $(TEST_DIR)/main_test.c
-$(TEST_DIR)/main_test.c:
-	if test -d $(LLQUEUE_DIR); \
-	then echo have contribs; \
-	else make download-contrib; \
-	fi
-	cd $(TEST_DIR) && sh make-tests.sh "test_*.c" > main_test.c && cd ..
 
 .PHONY: shared
 shared: $(OBJECTS)
@@ -55,10 +55,25 @@ static: $(OBJECTS)
 	ar -r libraft.a $(OBJECTS)
 
 .PHONY: tests
-tests: src/raft_server.c src/raft_server_properties.c src/raft_log.c src/raft_node.c $(TEST_DIR)/main_test.c $(TEST_DIR)/test_server.c $(TEST_DIR)/test_node.c $(TEST_DIR)/test_log.c $(TEST_DIR)/test_log_impl.c $(TEST_DIR)/test_snapshotting.c $(TEST_DIR)/test_scenario.c $(TEST_DIR)/mock_send_functions.c $(TEST_DIR)/CuTest.c $(LLQUEUE_DIR)/linked_list_queue.c
-	$(CC) $(CFLAGS) -o tests_main $^
-	./tests_main
-	gcov raft_server.c
+tests: $(TEST_TARGETS)
+	gcov $(TEST_OBJECTS)
+
+$(TEST_TARGETS): $(BIN_DIR)/%: $(TEST_OBJECTS) $(TEST_HELPERS)
+	$(CC) $(TEST_CFLAGS) $(TEST_DIR)/$*.c $(LIB) $(INC) $^ -o $@
+	./$@
+
+$(BUILD_DIR)/test-%.o: $(SRC_DIR)/%.c
+	$(CC) $(TEST_CFLAGS) $(INC) -c -o $@ $<
+
+$(TEST_DIR)/%.o: $(TEST_DIR)/%.c
+	$(CC) $(TEST_CFLAGS) $(INC) -c -o $@ $<
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	$(CC) $(CFLAGS) $(INC) -c -o $@ $<
+
+.PHONY: test_helper
+test_helper: $(TEST_HELPERS)
+	$(CC) $(TEST_CFLAGS)  -o $@
 
 .PHONY: test_fuzzer
 test_fuzzer:
@@ -94,7 +109,6 @@ do_infer:
 	infer -- make
 
 clean:
-	@rm -f $(TEST_DIR)/main_test.c src/*.o $(GCOV_OUTPUT); \
+	@rm -f src/*.o bin/* src/*.gcda src/*.gcno *.gcno *.gcda *.gcov tests/*.o tests/*.gcda tests/*.gcno; \
 	if [ -f "libraft.$(SHAREDEXT)" ]; then rm libraft.$(SHAREDEXT); fi;\
-	if [ -f libraft.a ]; then rm libraft.a; fi;\
-	if [ -f tests_main ]; then rm tests_main; fi;
+	if [ -f libraft.a ]; then rm libraft.a; fi;

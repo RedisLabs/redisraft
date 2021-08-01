@@ -3,7 +3,8 @@
 *~
 libraft.a
 libraft.so
-CLinkedListQueue/
 .env/
 .hypothesis/
 **/__pycache__
+cmake-build*
+.idea

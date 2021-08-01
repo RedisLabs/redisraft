@@ -256,7 +256,7 @@ void TestLogImpl_load_from_snapshot_clears_log(CuTest * tc)
     void *l;
 
     l = impl->init(NULL, NULL);
-    
+
     __LOGIMPL_APPEND_ENTRIES_SEQ_ID(l, 2, 1, 0, NULL);
     CuAssertIntEquals(tc, 2, impl->count(l));
     CuAssertIntEquals(tc, 2, impl->current_idx(l));
@@ -343,4 +343,30 @@ void TestLogImpl_get_from_idx_with_base_off_by_one(CuTest * tc)
     /* now get the correct index */
     CuAssertIntEquals(tc, impl->get_batch(l, 2, 1, e), 1);
     CuAssertIntEquals(tc, e[0]->id, 2);
+}
+
+int main(void)
+{
+    CuString *output = CuStringNew();
+    CuSuite* suite = CuSuiteNew();
+
+    SUITE_ADD_TEST(suite, TestLogImpl_new_is_empty);
+    SUITE_ADD_TEST(suite, TestLogImpl_append_is_not_empty);
+    SUITE_ADD_TEST(suite, TestLogImpl_get_at_idx);
+    SUITE_ADD_TEST(suite, TestLogImpl_get_at_idx_returns_null_where_out_of_bounds);
+    SUITE_ADD_TEST(suite, TestLogImpl_pop);
+    SUITE_ADD_TEST(suite, TestLogImpl_pop_onwards);
+    SUITE_ADD_TEST(suite, TestLogImpl_pop_fails_for_idx_zero);
+    SUITE_ADD_TEST(suite, TestLogImpl_poll);
+    SUITE_ADD_TEST(suite, TestLogImpl_reset_after_compaction);
+    SUITE_ADD_TEST(suite, TestLogImpl_load_from_snapshot_clears_log);
+    SUITE_ADD_TEST(suite, TestLogImpl_pop_after_polling);
+    SUITE_ADD_TEST(suite, TestLogImpl_pop_after_polling_from_double_append);
+    SUITE_ADD_TEST(suite, TestLogImpl_get_from_idx_with_base_off_by_one);
+
+    CuSuiteRun(suite);
+    CuSuiteDetails(suite, output);
+    printf("%s\n", output->buffer);
+
+    return suite->failCount == 0 ? 0 : 1;
 }

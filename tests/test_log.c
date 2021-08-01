@@ -522,3 +522,33 @@ void TestLog_get_from_idx_with_base_off_by_one(CuTest * tc)
     CuAssertIntEquals(tc, n_etys, 1);
     CuAssertIntEquals(tc, e[0]->id, 2);
 }
+
+int main(void)
+{
+    CuString *output = CuStringNew();
+    CuSuite* suite = CuSuiteNew();
+
+    SUITE_ADD_TEST(suite, TestLog_new_is_empty);
+    SUITE_ADD_TEST(suite, TestLog_append_is_not_empty);
+    SUITE_ADD_TEST(suite, TestLog_get_at_idx);
+    SUITE_ADD_TEST(suite, TestLog_get_at_idx_returns_null_where_out_of_bounds);
+    SUITE_ADD_TEST(suite, TestLog_delete);
+    SUITE_ADD_TEST(suite, TestLog_delete_onwards);
+    SUITE_ADD_TEST(suite, TestLog_delete_handles_log_pop_failure);
+    SUITE_ADD_TEST(suite, TestLog_delete_fails_for_idx_zero);
+    SUITE_ADD_TEST(suite, TestLog_poll);
+    SUITE_ADD_TEST(suite, TestLog_peektail);
+    SUITE_ADD_TEST(suite, TestLog_load_from_snapshot);
+    SUITE_ADD_TEST(suite, TestLog_load_from_snapshot_clears_log);
+    SUITE_ADD_TEST(suite, TestLog_front_pushes_across_boundary);
+    SUITE_ADD_TEST(suite, TestLog_front_and_back_pushed_across_boundary_with_enlargement_required);
+    SUITE_ADD_TEST(suite, TestLog_delete_after_polling);
+    SUITE_ADD_TEST(suite, TestLog_delete_after_polling_from_double_append);
+    SUITE_ADD_TEST(suite, TestLog_get_from_idx_with_base_off_by_one);
+
+    CuSuiteRun(suite);
+    CuSuiteDetails(suite, output);
+    printf("%s\n", output->buffer);
+
+    return suite->failCount == 0 ? 0 : 1;
+}
