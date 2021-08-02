@@ -1,4 +1,3 @@
-
 #include <stdbool.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -505,11 +504,13 @@ void TestRaft_server_election_timeout_does_promote_us_to_leader_if_there_is_only
     void *r = raft_new();
     raft_add_node(r, NULL, 1, 1);
     raft_set_election_timeout(r, 1000);
+    raft_term_t old_term = raft_get_current_term(r);
 
     /* clock over (ie. 1000 + 1), causing new election */
     raft_periodic(r, 1001);
 
     CuAssertTrue(tc, 1 == raft_is_leader(r));
+    CuAssertTrue(tc, old_term + 1 == raft_get_current_term(r));
 }
 
 void TestRaft_server_election_timeout_does_promote_us_to_leader_if_there_is_only_1_voting_node(CuTest * tc)

@@ -251,12 +251,17 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
     me->timeout_elapsed += msec_since_last_period;
 
     /* Only one voting node means it's safe for us to become the leader */
-    if (1 == raft_get_num_voting_nodes(me_) &&
-        raft_node_is_voting(raft_get_my_node((void*)me)) &&
-        !raft_is_leader(me_)) {
-            int e = raft_become_leader(me_);
-            if (e != 0)
-                return e;
+    if ((1 == raft_get_num_voting_nodes(me_)) && raft_node_is_voting(raft_get_my_node(me_)) && !raft_is_leader(me_)) {
+        int e = raft_set_current_term(me_, raft_get_current_term(me_) + 1);
+        if (e != 0) {
+            return e;
+        }
+
+        e = raft_become_leader(me_);
+        if (e != 0) {
+            return e;
+        }
+        // need to update term on new leadership
     }
 
     if (me->state == RAFT_STATE_LEADER)
