@@ -251,7 +251,8 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
     me->timeout_elapsed += msec_since_last_period;
 
     /* Only one voting node means it's safe for us to become the leader */
-    if ((1 == raft_get_num_voting_nodes(me_)) && raft_node_is_voting(raft_get_my_node(me_)) && !raft_is_leader(me_)) {
+    if (raft_is_single_node_voting_cluster(me_) && !raft_is_leader(me_)) {
+        // need to update term on new leadership
         int e = raft_set_current_term(me_, raft_get_current_term(me_) + 1);
         if (e != 0) {
             return e;
@@ -261,7 +262,6 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
         if (e != 0) {
             return e;
         }
-        // need to update term on new leadership
     }
 
     if (me->state == RAFT_STATE_LEADER)
@@ -803,8 +803,8 @@ int raft_recv_entry(raft_server_t* me_,
             raft_send_appendentries(me_, node);
     }
 
-    /* if we are the only voter (1 voter and we are that voter), commit now, as no appendentries_response will occur */
-    if (1 == raft_get_num_voting_nodes(me_) && raft_node_is_voting(me->node)) {
+    /* if we are the only voter, commit now, as no appendentries_response will occur */
+    if (raft_is_single_node_voting_cluster(me_)) {
         raft_set_commit_idx(me_, raft_get_current_idx(me_));
     }
 

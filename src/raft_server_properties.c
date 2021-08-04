@@ -274,3 +274,10 @@ void raft_set_snapshot_metadata(raft_server_t *me_, raft_term_t term, raft_index
     me->snapshot_last_term = term;
     me->snapshot_last_idx = idx;
 }
+
+int raft_is_single_node_voting_cluster(raft_server_t *me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*)me_;
+
+    return (1 == raft_get_num_voting_nodes(me_) && raft_node_is_voting(me->node));
+}

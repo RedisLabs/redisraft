@@ -154,6 +154,8 @@ int raft_node_has_vote_for_me(raft_node_t* me_);
 
 void raft_node_set_has_sufficient_logs(raft_node_t* me_);
 
+int raft_is_single_node_voting_cluster(raft_server_t *me_);
+
 int raft_votes_is_majority(const int nnodes, const int nvotes);
 
 void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, const raft_index_t idx);
