@@ -175,10 +175,16 @@ int raft_become_leader(raft_server_t* me_)
         raft_entry_t *noop = raft_entry_new(0);
         noop->term = raft_get_current_term(me_);
         noop->type = RAFT_LOGTYPE_NO_OP;
+
         int e = raft_append_entry(me_, noop);
+        raft_entry_release(noop);
         if (0 != e)
             return e;
-        raft_entry_release(noop);
+
+        // Commit noop immediately if this is a single node cluster
+        if (raft_is_single_node_voting_cluster(me_)) {
+            raft_set_commit_idx(me_, raft_get_current_idx(me_));
+        }
     }
 
     raft_set_state(me_, RAFT_STATE_LEADER);

@@ -3815,6 +3815,29 @@ void TestRaft_read_action_callback(
     CuAssertIntEquals(tc, 0, ra.last_cb_safe);
 }
 
+void single_node_commits_noop_cb(void* arg, int can_read)
+{
+    (void) can_read;
+
+    *((char**) arg) = "success";
+}
+
+void TestRaft_single_node_commits_noop(CuTest * tc)
+{
+    static char* str = "test";
+    void *r = raft_new();
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_set_current_term(r, 2);
+    raft_set_commit_idx(r, 0);
+    raft_periodic(r, 500);
+    raft_queue_read_request(r, single_node_commits_noop_cb, &str);
+    raft_periodic(r, 500);
+
+    CuAssertIntEquals(tc, 1, raft_get_commit_idx(r));
+    CuAssertStrEquals(tc, "success", str);
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -3938,6 +3961,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_requestvote_responds_without_granting);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_voting_committed);
     SUITE_ADD_TEST(suite, TestRaft_read_action_callback);
+    SUITE_ADD_TEST(suite, TestRaft_single_node_commits_noop);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
