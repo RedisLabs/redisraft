@@ -126,6 +126,20 @@ def test_full_cluster_remove(cluster):
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
 
+    # TODO: Currently, shutdown feature does not work reliably. This part of the
+    #       test should be enabled after implementing it.
+    # # make sure other nodes are down
+    # for node_id in (2, 3, 4, 5):
+    #     assert cluster.node(node_id).verify_down()
+    #
+    # # and make sure they start up in uninitialized state
+    # for node_id in (2, 3, 4, 5):
+    #     cluster.node(node_id).terminate()
+    #     cluster.node(node_id).start()
+    #
+    # for node_id in (2, 3, 4, 5):
+    #     assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
+
 
 @pytest.mark.parametrize("use_snapshot", [False, True])
 def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
