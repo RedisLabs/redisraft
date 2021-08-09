@@ -1343,7 +1343,6 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             }
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            /* To remove a voting node, we demote it first. */
             rn = raft_get_node(rr->raft, req->r.cfgchange.id);
             assert (rn != NULL);    /* Should have been verified by now! */
             entry->type = RAFT_LOGTYPE_REMOVE_NODE;
