@@ -14,6 +14,8 @@ services:
       - n3
       - n4
       - n5
+    volumes:
+      - ./store:/jepsen/store
   n1:
     container_name: jepsen-n1
     build: ./node
