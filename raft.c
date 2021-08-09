@@ -431,21 +431,6 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     RaftCfgChange *req;
 
     switch (entry->type) {
-        case RAFT_LOGTYPE_DEMOTE_NODE:
-            if (rr->state == REDIS_RAFT_UP && raft_is_leader(rr->raft)) {
-                raft_entry_t *rem_entry = raft_entry_new(sizeof(RaftCfgChange));
-                msg_entry_response_t resp;
-
-                rem_entry->type = RAFT_LOGTYPE_REMOVE_NODE;
-                rem_entry->id = rand();
-                ((RaftCfgChange *) rem_entry->data)->id = ((RaftCfgChange *) entry->data)->id;
-
-                int e = raft_recv_entry(rr->raft, rem_entry, &resp);
-                assert (e == 0);
-
-                raft_entry_release(rem_entry);
-                break;
-            }
         case RAFT_LOGTYPE_REMOVE_NODE:
             req = (RaftCfgChange *) entry->data;
             if (req->id == raft_get_nodeid(raft)) {
@@ -716,7 +701,6 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
             raft_get_current_idx(rr->raft),
             raft_get_last_applied_idx(rr->raft));
 
-    initializeSnapshotInfo(rr);
     return RR_OK;
 }
 
@@ -976,9 +960,6 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     raft_become_leader(rr->raft);
     raft_set_current_term(rr->raft, 1);
 
-    /* Create a Snapshot Info meta-key */
-    initializeSnapshotInfo(rr);
-
     /* We need to create the first add node entry.  Because we don't have
      * callbacks set yet, we also need to manually push this in our log
      * as well.
@@ -1100,7 +1081,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     uv_timer_init(rr->loop, &rr->node_reconnect_timer);
     uv_handle_set_data((uv_handle_t *) &rr->node_reconnect_timer, rr);
 
-    rr->ctx = RedisModule_GetThreadSafeContext(NULL);
+    rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
 
     /* Client state for MULTI support */
@@ -1358,14 +1339,9 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             }
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            /* To remove a voting node, we demote it first. */
             rn = raft_get_node(rr->raft, req->r.cfgchange.id);
             assert (rn != NULL);    /* Should have been verified by now! */
-            if (raft_node_is_voting(rn) || raft_node_is_voting_committed(rn)) {
-                entry->type = RAFT_LOGTYPE_DEMOTE_NODE;
-            } else {
-                entry->type = RAFT_LOGTYPE_REMOVE_NODE;
-            }
+            entry->type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:
             assert(0);

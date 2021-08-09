@@ -106,9 +106,8 @@ class LogEntry(RawEntry):
         NORMAL = 0
         ADD_NONVOTING_NODE = 1
         ADD_NODE = 2
-        DEMOTE_NODE = 3
-        REMOVE_NODE = 4
-        NO_OP = 5
+        REMOVE_NODE = 3
+        NO_OP = 4
         ADD_SHARDGROUP = 101
 
     def term(self):
@@ -124,7 +123,6 @@ class LogEntry(RawEntry):
         _type = self.type()
         return _type in (self.LogType.ADD_NONVOTING_NODE,
                          self.LogType.ADD_NODE,
-                         self.LogType.DEMOTE_NODE,
                          self.LogType.REMOVE_NODE)
 
     @staticmethod
