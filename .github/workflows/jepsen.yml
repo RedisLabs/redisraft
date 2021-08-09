@@ -30,4 +30,10 @@ jobs:
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
                   --redis-version 6.2.2 \
-                  --raft-version ${{ steps.vars.outputs.git_sha }} | rg --passthrough 'Everything looks good'
+                  --raft-version ${{ steps.vars.outputs.git_sha }} | rg --passthrough '^0 failures'
+    - name: Archive Jepsen results
+      uses: actions/upload-artifact@v2
+      if: failure()
+      with:
+        name: jepsen-results
+        path: ./jepsen/docker/store
