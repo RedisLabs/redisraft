@@ -21,7 +21,7 @@ jepsen/docker/secret/
 *.log
 *.db
 *.idx
-cmake-build-debug
+cmake-build*
 utils/create-cluster/*.log
 utils/create-cluster/*.db
 utils/create-cluster/*.db.idx
