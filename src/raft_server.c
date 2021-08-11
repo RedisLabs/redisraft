@@ -1582,34 +1582,41 @@ void raft_entry_release_list(raft_entry_t **ety_list, size_t len)
 
 static int msgid_cmp(const void *a, const void *b)
 {
-    return *(raft_msg_id_t *) a - *(raft_msg_id_t *) b;
+    raft_msg_id_t va = *((raft_msg_id_t*) a);
+    raft_msg_id_t vb = *((raft_msg_id_t*) b);
+
+    return va > vb ? -1 : 1;
 }
 
 raft_msg_id_t quorum_msg_id(raft_server_t* me_)
 {
     raft_server_private_t* me = (raft_server_private_t*) me_;
-    int i;
-
     raft_msg_id_t msg_ids[me->num_nodes];
-    int msg_ids_count = 0;
+    int num_voters = 0;
 
-    for (i = 0; i < me->num_nodes; i++) {
+    for (int i = 0; i < me->num_nodes; i++) {
         raft_node_t* node = me->nodes[i];
 
         if (!raft_node_is_voting(node))
             continue;
 
         if (me->node == node) {
-            msg_ids[msg_ids_count++] = me->msg_id;
+            msg_ids[num_voters++] = me->msg_id;
         } else {
-            msg_ids[msg_ids_count++] = raft_node_get_last_acked_msgid(node);
+            msg_ids[num_voters++] = raft_node_get_last_acked_msgid(node);
         }
     }
 
-    qsort(msg_ids, msg_ids_count, sizeof(raft_msg_id_t), msgid_cmp);
-    int num_voting_nodes = raft_get_num_voting_nodes(me_);
-    assert(num_voting_nodes == msg_ids_count);
-    return msg_ids[num_voting_nodes - (num_voting_nodes / 2 + num_voting_nodes % 2)];
+    assert(num_voters == raft_get_num_voting_nodes(me_));
+
+    /**
+     *  Sort the acknowledged msg_ids in the descending order and return
+     *  the median value. Median value means it's the highest msg_id
+     *  acknowledged by the majority.
+     */
+    qsort(msg_ids, num_voters, sizeof(raft_msg_id_t), msgid_cmp);
+
+    return msg_ids[num_voters / 2];
 }
 
 void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg)

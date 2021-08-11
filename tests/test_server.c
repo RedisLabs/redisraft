@@ -3838,6 +3838,60 @@ void TestRaft_single_node_commits_noop(CuTest * tc)
     CuAssertStrEquals(tc, "success", str);
 }
 
+void quorum_msg_id_correctness_cb(void* arg, int can_read)
+{
+    (void) can_read;
+
+    (*(int*) arg)++;
+}
+
+void TestRaft_quorum_msg_id_correctness(CuTest * tc)
+{
+    int val = 0;
+    void *r = raft_new();
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+    raft_set_current_term(r, 1);
+    raft_become_leader(r);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "aaa");
+    raft_set_commit_idx(r, 1);
+
+    raft_periodic(r, 1000);
+    raft_queue_read_request(r, quorum_msg_id_correctness_cb, &val);
+    raft_periodic(r, 2000);
+
+    // Read request is pending as it requires two acks
+    CuAssertIntEquals(tc, 0, val);
+
+    // Second node acknowledges reaq req
+    raft_node_set_last_ack(raft_get_node(r, 2), 1, 1);
+    raft_periodic(r, 2000);
+
+    CuAssertIntEquals(tc, 1, val);
+
+    val = 0;
+    raft_add_node(r, NULL, 3, 0);
+    raft_add_node(r, NULL, 4, 0);
+    raft_periodic(r, 1000);
+    raft_queue_read_request(r, quorum_msg_id_correctness_cb, &val);
+    raft_periodic(r, 2000);
+
+    // Read request is pending as it requires three acks
+    CuAssertIntEquals(tc, 0, val);
+
+    // Second node acknowledges reaq req,
+    raft_node_set_last_ack(raft_get_node(r, 2), 2, 1);
+    raft_periodic(r, 2000);
+    CuAssertIntEquals(tc, 0, val);
+
+    // Third node acknowledges reaq req
+    raft_node_set_last_ack(raft_get_node(r, 3), 2, 1);
+    raft_periodic(r, 2000);
+    CuAssertIntEquals(tc, 1, val);
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -3962,6 +4016,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_voting_committed);
     SUITE_ADD_TEST(suite, TestRaft_read_action_callback);
     SUITE_ADD_TEST(suite, TestRaft_single_node_commits_noop);
+    SUITE_ADD_TEST(suite, TestRaft_quorum_msg_id_correctness);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
