@@ -13,12 +13,9 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdint.h>
-
-/* for varags */
 #include <stdarg.h>
 
 #include "raft.h"
-#include "raft_log.h"
 #include "raft_private.h"
 
 #ifndef min
@@ -75,24 +72,37 @@ void raft_randomize_election_timeout(raft_server_t* me_)
     raft_log(me_, NULL, "randomize election timeout to %d", me->election_timeout_rand);
 }
 
+void raft_update_quorum_meta(raft_server_t* me_, raft_msg_id_t id)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    // Make sure that timeout is greater than 'randomized election timeout'
+    me->quorum_timeout = me->election_timeout * 2;
+    me->last_acked_msg_id = id;
+}
+
 raft_server_t* raft_new_with_log(const raft_log_impl_t *log_impl, void *log_arg)
 {
-    raft_server_private_t* me =
-        (raft_server_private_t*)__raft_calloc(1, sizeof(raft_server_private_t));
+    raft_server_private_t* me = __raft_calloc(1, sizeof(raft_server_private_t));
     if (!me)
         return NULL;
+
     me->current_term = 0;
     me->voted_for = -1;
     me->timeout_elapsed = 0;
     me->request_timeout = 200;
     me->election_timeout = 1000;
+
+    raft_update_quorum_meta((raft_server_t*)me, me->msg_id);
     raft_randomize_election_timeout((raft_server_t*)me);
+
     me->log_impl = log_impl;
     me->log = me->log_impl->init(me, log_arg);
     if (!me->log) {
         __raft_free(me);
         return NULL;
     }
+
     me->voting_cfg_change_log_idx = -1;
     raft_set_state((raft_server_t*)me, RAFT_STATE_FOLLOWER);
     me->current_leader = NULL;
@@ -196,7 +206,9 @@ int raft_become_leader(raft_server_t* me_)
     }
 
     raft_set_state(me_, RAFT_STATE_LEADER);
+    raft_update_quorum_meta(me_, me->msg_id);
     me->timeout_elapsed = 0;
+
     for (i = 0; i < me->num_nodes; i++)
     {
         raft_node_t* node = me->nodes[i];
@@ -258,6 +270,45 @@ void raft_become_follower(raft_server_t* me_)
     me->timeout_elapsed = 0;
 }
 
+static int msgid_cmp(const void *a, const void *b)
+{
+    raft_msg_id_t va = *((raft_msg_id_t*) a);
+    raft_msg_id_t vb = *((raft_msg_id_t*) b);
+
+    return va > vb ? -1 : 1;
+}
+
+static raft_msg_id_t quorum_msg_id(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+    raft_msg_id_t msg_ids[me->num_nodes];
+    int num_voters = 0;
+
+    for (int i = 0; i < me->num_nodes; i++) {
+        raft_node_t* node = me->nodes[i];
+
+        if (!raft_node_is_voting(node))
+            continue;
+
+        if (me->node == node) {
+            msg_ids[num_voters++] = me->msg_id;
+        } else {
+            msg_ids[num_voters++] = raft_node_get_last_acked_msgid(node);
+        }
+    }
+
+    assert(num_voters == raft_get_num_voting_nodes(me_));
+
+    /**
+     *  Sort the acknowledged msg_ids in the descending order and return
+     *  the median value. Median value means it's the highest msg_id
+     *  acknowledged by the majority.
+     */
+    qsort(msg_ids, num_voters, sizeof(raft_msg_id_t), msgid_cmp);
+
+    return msg_ids[num_voters / 2];
+}
+
 int raft_periodic(raft_server_t* me_, int msec_since_last_period)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
@@ -281,7 +332,36 @@ int raft_periodic(raft_server_t* me_, int msec_since_last_period)
     if (me->state == RAFT_STATE_LEADER)
     {
         if (me->request_timeout <= me->timeout_elapsed)
+        {
+            me->msg_id++;
             raft_send_appendentries_all(me_);
+        }
+
+        me->quorum_timeout -= msec_since_last_period;
+        if (me->quorum_timeout < 0)
+        {
+            /**
+             * Check-quorum implementation
+             *
+             * Periodically (every quorum_timeout), we enter this check to
+             * verify quorum exists. The current 'quorum msg id' should be
+             * greater than the last time we were here. It means we've got
+             * responses for append entry requests from the cluster, so we
+             * conclude that cluster is operational and quorum exists. In that
+             * case, we save the current quorum msg id and update the
+             * quorum_timeout timer. Otherwise, it means quorum does not exist.
+             * We should step down and become a follower.
+             */
+            raft_msg_id_t quorum_id = quorum_msg_id(me_);
+
+            if (me->last_acked_msg_id == quorum_id)
+            {
+                raft_log(me_, NULL, "quorum does not exist, stepping down");
+                raft_become_follower(me_);
+            }
+
+            raft_update_quorum_meta(me_, quorum_id);
+        }
     }
     else if (me->election_timeout_rand <= me->timeout_elapsed &&
         /* Don't become the leader when building snapshots or bad things will
@@ -1586,45 +1666,6 @@ void raft_entry_release_list(raft_entry_t **ety_list, size_t len)
     for (i = 0; i < len; i++) {
         raft_entry_release(ety_list[i]);
     }
-}
-
-static int msgid_cmp(const void *a, const void *b)
-{
-    raft_msg_id_t va = *((raft_msg_id_t*) a);
-    raft_msg_id_t vb = *((raft_msg_id_t*) b);
-
-    return va > vb ? -1 : 1;
-}
-
-raft_msg_id_t quorum_msg_id(raft_server_t* me_)
-{
-    raft_server_private_t* me = (raft_server_private_t*) me_;
-    raft_msg_id_t msg_ids[me->num_nodes];
-    int num_voters = 0;
-
-    for (int i = 0; i < me->num_nodes; i++) {
-        raft_node_t* node = me->nodes[i];
-
-        if (!raft_node_is_voting(node))
-            continue;
-
-        if (me->node == node) {
-            msg_ids[num_voters++] = me->msg_id;
-        } else {
-            msg_ids[num_voters++] = raft_node_get_last_acked_msgid(node);
-        }
-    }
-
-    assert(num_voters == raft_get_num_voting_nodes(me_));
-
-    /**
-     *  Sort the acknowledged msg_ids in the descending order and return
-     *  the median value. Median value means it's the highest msg_id
-     *  acknowledged by the majority.
-     */
-    qsort(msg_ids, num_voters, sizeof(raft_msg_id_t), msgid_cmp);
-
-    return msg_ids[num_voters / 2];
 }
 
 void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg)

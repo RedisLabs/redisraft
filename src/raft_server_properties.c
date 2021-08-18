@@ -7,22 +7,19 @@
  * @author Willem Thiart himself@willemthiart.com
  */
 
-#include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <assert.h>
 
-/* for varags */
-#include <stdarg.h>
-
 #include "raft.h"
-#include "raft_log.h"
 #include "raft_private.h"
 
 void raft_set_election_timeout(raft_server_t* me_, int millisec)
 {
     raft_server_private_t* me = (raft_server_private_t*)me_;
+
     me->election_timeout = millisec;
+
+    raft_update_quorum_meta(me_, me->last_acked_msg_id);
     raft_randomize_election_timeout(me_);
 }
 

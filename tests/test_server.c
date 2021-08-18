@@ -3853,43 +3853,90 @@ void TestRaft_quorum_msg_id_correctness(CuTest * tc)
     raft_add_node(r, NULL, 1, 1);
     raft_add_node(r, NULL, 2, 0);
     raft_set_current_term(r, 1);
+    raft_set_election_timeout(r, 10000);
+    raft_set_request_timeout(r, 10000);
     raft_become_leader(r);
 
     __RAFT_APPEND_ENTRY(r, 1, 1, "aaa");
     raft_set_commit_idx(r, 1);
 
-    raft_periodic(r, 1000);
+    raft_periodic(r, 100);
     raft_queue_read_request(r, quorum_msg_id_correctness_cb, &val);
-    raft_periodic(r, 2000);
+    raft_periodic(r, 200);
 
     // Read request is pending as it requires two acks
     CuAssertIntEquals(tc, 0, val);
 
     // Second node acknowledges reaq req
     raft_node_set_last_ack(raft_get_node(r, 2), 1, 1);
-    raft_periodic(r, 2000);
+    raft_periodic(r, 200);
 
     CuAssertIntEquals(tc, 1, val);
 
     val = 0;
     raft_add_node(r, NULL, 3, 0);
     raft_add_node(r, NULL, 4, 0);
-    raft_periodic(r, 1000);
+    raft_periodic(r, 100);
     raft_queue_read_request(r, quorum_msg_id_correctness_cb, &val);
-    raft_periodic(r, 2000);
+    raft_periodic(r, 200);
 
     // Read request is pending as it requires three acks
     CuAssertIntEquals(tc, 0, val);
 
-    // Second node acknowledges reaq req,
+    // Second node acknowledges read req,
     raft_node_set_last_ack(raft_get_node(r, 2), 2, 1);
-    raft_periodic(r, 2000);
+    raft_periodic(r, 200);
     CuAssertIntEquals(tc, 0, val);
 
-    // Third node acknowledges reaq req
+    // Third node acknowledges read req
     raft_node_set_last_ack(raft_get_node(r, 3), 2, 1);
-    raft_periodic(r, 2000);
+    raft_periodic(r, 200);
     CuAssertIntEquals(tc, 1, val);
+}
+
+void TestRaft_leader_steps_down_if_there_is_no_quorum(CuTest * tc)
+{
+    void *r = raft_new();
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+    raft_set_current_term(r, 1);
+    raft_set_election_timeout(r, 1000);
+    raft_set_request_timeout(r, 1000);
+
+    // Quorum timeout is twice the election timeout.
+    int quorum_timeout = raft_get_election_timeout(r) * 2;
+
+    raft_become_leader(r);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "aaa");
+    __RAFT_APPEND_ENTRY(r, 2, 1, "aaa");
+    raft_set_commit_idx(r, 2);
+
+    raft_periodic(r, 200);
+    CuAssertTrue(tc, raft_is_leader(r));
+
+    // Waiting more than quorum timeout will make leader step down.
+    raft_periodic(r, quorum_timeout + 1);
+    CuAssertTrue(tc, !raft_is_leader(r));
+
+    raft_node_set_last_ack(raft_get_node(r, 2), 1, 1);
+    raft_become_leader(r);
+    raft_periodic(r, 200);
+    CuAssertTrue(tc, raft_is_leader(r));
+
+    // Trigger new round of append entries
+    raft_periodic(r, raft_get_request_timeout(r) + 1);
+    CuAssertTrue(tc, raft_is_leader(r));
+
+    // If there is an ack from the follower, leader won't step down.
+    raft_node_set_last_ack(raft_get_node(r, 2), 2, 1);
+    raft_periodic(r, quorum_timeout);
+    CuAssertTrue(tc, raft_is_leader(r));
+
+    // No ack along quorum_timeout, leader will step down.
+    raft_periodic(r, quorum_timeout + 1);
+    CuAssertTrue(tc, !raft_is_leader(r));
 }
 
 int main(void)
@@ -4017,6 +4064,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_read_action_callback);
     SUITE_ADD_TEST(suite, TestRaft_single_node_commits_noop);
     SUITE_ADD_TEST(suite, TestRaft_quorum_msg_id_correctness);
+    SUITE_ADD_TEST(suite, TestRaft_leader_steps_down_if_there_is_no_quorum);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);

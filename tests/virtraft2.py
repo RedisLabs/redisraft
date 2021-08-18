@@ -1067,10 +1067,7 @@ class RaftServer(object):
             change = ffi.from_handle(lib.raft_entry_getdata(ety))
             server = self.network.id2server(change.node_id)
 
-            if ety.type == lib.RAFT_LOGTYPE_DEMOTE_NODE:
-                server.set_connection_status(NODE_CONNECTED)
-
-            elif ety.type == lib.RAFT_LOGTYPE_REMOVE_NODE:
+            if ety.type == lib.RAFT_LOGTYPE_REMOVE_NODE:
                 pass
 
             elif ety.type == lib.RAFT_LOGTYPE_ADD_NONVOTING_NODE:

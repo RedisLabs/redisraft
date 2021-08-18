@@ -68,6 +68,12 @@ typedef struct {
     int election_timeout_rand;
     int request_timeout;
 
+    /* timer interval to check if we still have quorum */
+    long quorum_timeout;
+
+    /* latest quorum id for the previous quorum_timeout round */
+    raft_msg_id_t last_acked_msg_id;
+
     /* what this node thinks is the node ID of the current leader, or NULL if
      * there isn't a known current leader. */
     raft_node_t* current_leader;
@@ -112,6 +118,8 @@ int raft_election_start(raft_server_t* me);
 int raft_become_candidate(raft_server_t* me);
 
 void raft_randomize_election_timeout(raft_server_t* me_);
+
+void raft_update_quorum_meta(raft_server_t* me_, raft_msg_id_t id);
 
 /**
  * @return 0 on error */
