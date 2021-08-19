@@ -511,7 +511,7 @@ void TestLog_get_from_idx_with_base_off_by_one(CuTest * tc)
     CuAssertIntEquals(tc, 1, log_count(l));
 
     /* get off-by-one index */
-    int n_etys;
+    long n_etys;
     CuAssertPtrEquals(tc, log_get_from_idx(l, 1, &n_etys), NULL);
     CuAssertIntEquals(tc, n_etys, 0);
 

@@ -9,9 +9,7 @@
  * @version 0.1
  */
 
-#include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <assert.h>
 
 #include "raft.h"
@@ -43,9 +41,11 @@ typedef struct
 raft_node_t* raft_node_new(void* udata, raft_node_id_t id)
 {
     raft_node_private_t* me;
-    me = (raft_node_private_t*)__raft_calloc(1, sizeof(raft_node_private_t));
+
+    me = raft_calloc(1, sizeof(raft_node_private_t));
     if (!me)
         return NULL;
+
     me->udata = udata;
     me->next_idx = 1;
     me->match_idx = 0;
@@ -56,7 +56,7 @@ raft_node_t* raft_node_new(void* udata, raft_node_id_t id)
 
 void raft_node_free(raft_node_t* me_)
 {
-    __raft_free(me_);
+    raft_free(me_);
 }
 
 raft_index_t raft_node_get_next_idx(raft_node_t* me_)
@@ -65,11 +65,11 @@ raft_index_t raft_node_get_next_idx(raft_node_t* me_)
     return me->next_idx;
 }
 
-void raft_node_set_next_idx(raft_node_t* me_, raft_index_t nextIdx)
+void raft_node_set_next_idx(raft_node_t* me_, raft_index_t idx)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
     /* log index begins at 1 */
-    me->next_idx = nextIdx < 1 ? 1 : nextIdx;
+    me->next_idx = idx < 1 ? 1 : idx;
 }
 
 raft_index_t raft_node_get_match_idx(raft_node_t* me_)
@@ -78,10 +78,10 @@ raft_index_t raft_node_get_match_idx(raft_node_t* me_)
     return me->match_idx;
 }
 
-void raft_node_set_match_idx(raft_node_t* me_, raft_index_t matchIdx)
+void raft_node_set_match_idx(raft_node_t* me_, raft_index_t idx)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
-    me->match_idx = matchIdx;
+    me->match_idx = idx;
 }
 
 void* raft_node_get_udata(raft_node_t* me_)
@@ -206,10 +206,4 @@ raft_msg_id_t raft_node_get_last_acked_msgid(raft_node_t* me_)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
     return me->last_acked_msgid;
-}
-
-raft_term_t raft_node_get_last_acked_term(raft_node_t* me_)
-{
-    raft_node_private_t* me = (raft_node_private_t*)me_;
-    return me->last_acked_term;
 }

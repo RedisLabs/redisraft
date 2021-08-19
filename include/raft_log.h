@@ -43,7 +43,7 @@ int log_poll(log_t * me_, void** etyp);
 /** Get an array of entries from this index onwards.
  * This is used for batching.
  */
-raft_entry_t** log_get_from_idx(log_t* me_, raft_index_t idx, int *n_etys);
+raft_entry_t** log_get_from_idx(log_t* me_, raft_index_t idx, long *n_etys);
 
 raft_entry_t* log_get_at_idx(log_t* me_, raft_index_t idx);
 

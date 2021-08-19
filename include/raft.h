@@ -30,7 +30,7 @@ typedef enum {
 
 #define RAFT_REQUESTVOTE_ERR_GRANTED          1
 #define RAFT_REQUESTVOTE_ERR_NOT_GRANTED      0
-#define RAFT_REQUESTVOTE_ERR_UNKNOWN_NODE    -1
+#define RAFT_REQUESTVOTE_ERR_UNKNOWN_NODE    (-1)
 
 typedef enum {
     RAFT_STATE_NONE,
@@ -628,7 +628,7 @@ raft_server_t* raft_new_with_log(const raft_log_impl_t *log_impl, void *log_arg)
 
 /** De-initialise Raft server.
  * Frees all memory */
-void raft_free(raft_server_t* me);
+void raft_destroy(raft_server_t* me_);
 
 /** De-initialise Raft server. */
 void raft_clear(raft_server_t* me);
@@ -659,8 +659,6 @@ void raft_set_callbacks(raft_server_t* me, raft_cbs_t* funcs, void* user_data);
  *  node if it was successfully added;
  *  NULL if the node already exists */
 raft_node_t* raft_add_node(raft_server_t* me, void* user_data, raft_node_id_t id, int is_self);
-
-#define raft_add_peer raft_add_node
 
 /** Add a node which does not participate in voting.
  * If a node already exists the call will fail.
@@ -847,6 +845,13 @@ void* raft_node_get_udata(raft_node_t* me);
 void raft_node_set_udata(raft_node_t* me, void* user_data);
 
 /**
+ * After sending the snapshot, user can set the next index for the node
+ *
+ * @param[in] node node
+ * @param[in] idx next entry index */
+void raft_node_set_next_idx(raft_node_t* me, raft_index_t idx);
+
+/**
  * @param[in] idx The entry's index
  * @return entry from index */
 raft_entry_t* raft_get_entry_from_idx(raft_server_t* me, raft_index_t idx);
@@ -854,13 +859,13 @@ raft_entry_t* raft_get_entry_from_idx(raft_server_t* me, raft_index_t idx);
 /**
  * @param[in] node The node's ID
  * @return node pointed to by node ID */
-raft_node_t* raft_get_node(raft_server_t* me_, const raft_node_id_t id);
+raft_node_t* raft_get_node(raft_server_t* me_, raft_node_id_t id);
 
 /**
  * Used for iterating through nodes
  * @param[in] node The node's idx
  * @return node pointed to by node idx */
-raft_node_t* raft_get_node_from_idx(raft_server_t* me_, const raft_index_t idx);
+raft_node_t* raft_get_node_from_idx(raft_server_t* me_, raft_index_t idx);
 
 /**
  * @return number of votes this server has received this election */
@@ -896,14 +901,14 @@ int raft_vote(raft_server_t* me_, raft_node_t* node);
  * @param[in] nodeid The server to vote for by nodeid
  * @return
  *  0 on success */
-int raft_vote_for_nodeid(raft_server_t* me_, const raft_node_id_t nodeid);
+int raft_vote_for_nodeid(raft_server_t* me_, raft_node_id_t nodeid);
 
 /** Set the current term.
  * This should be used to reload persistent state, ie. the current_term field.
  * @param[in] term The new current term
  * @return
  *  0 on success */
-int raft_set_current_term(raft_server_t* me, const raft_term_t term);
+int raft_set_current_term(raft_server_t* me, raft_term_t term);
 
 /** Set the commit idx.
  * This should be used to reload persistent state, ie. the commit_idx field.
