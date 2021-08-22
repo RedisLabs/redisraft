@@ -21,7 +21,7 @@ Some chaos we generate:
 Usage:
   virtraft --servers SERVERS [-d RATE] [-D RATE] [-c RATE] [-C RATE] [-m RATE]
                              [-P RATE] [-s SEED] [-i ITERS] [-p] [--tsv]
-                             [-q] [-v] [-l LEVEL] [-j] [-L LOGFILE]
+                             [-q] [-v] [-l LEVEL] [-j] [-L LOGFILE] [--duplex_partition]
   virtraft --version
   virtraft --help
 
@@ -47,6 +47,7 @@ Options:
   -L --log_file LOGFILE      Set log file
   -V --version               Display version.
   -h --help                  Prints a short usage summary.
+  --duplex_partition         On partition, prevent traffic from flowing in both directions
 
 Examples:
 
@@ -256,6 +257,7 @@ class Network(object):
         self.random = random.Random(seed)
         self.partitions = set()
         self.no_random_period = False
+        self.duplex_partition = False
 
         self.server_id = 0
 
@@ -370,6 +372,12 @@ class Network(object):
         for partition in self.partitions:
             # Partitions are in one direction
             if partition[0] is sendor and partition[1] is sendee:
+                return
+            # duplex partitions prevent both directions from sending traffic
+            if self.duplex_partition and (
+                        (partition[0] is sendor and partition[1] is sendee) or
+                        (partition[1] is sendor and partition[0] is sendee)
+                ):
                 return
 
         if self.random.randint(1, 100) < self.drop_rate:
@@ -1168,6 +1176,7 @@ if __name__ == '__main__':
     net.compaction_rate = int(args['--compaction_rate'])
     net.partition_rate = int(args['--partition_rate'])
     net.no_random_period = 1 == int(args['--no_random_period'])
+    net.duplex_partition = 1 == int(args['--duplex_partition'])
 
     net.num_of_servers = int(args['--servers'])
 
