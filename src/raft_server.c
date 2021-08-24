@@ -394,7 +394,7 @@ int raft_become_leader(raft_server_t* me_)
     {
         raft_node_t* node = me->nodes[i];
 
-        if (me->node == node || !raft_node_is_active(node))
+        if (me->node == node)
             continue;
 
         raft_node_set_next_idx(node, next_idx);
@@ -1219,6 +1219,10 @@ raft_entry_t** raft_get_entries_from_idx(raft_server_t* me_, raft_index_t idx, i
 
 int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
 {
+    if (!raft_node_is_active(node)) {
+        return 0;
+    }
+
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     assert(node);
