@@ -241,7 +241,7 @@ typedef struct RedisRaftCtx {
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
     uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
     uv_timer_t node_reconnect_timer;    /* Handle connection issues */
-    uv_async_t shutdown;        /* Shutdown call */
+    uv_async_t shutdown_sig;        /* Shutdown signal to stop libuv loop */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (Redis thread -> Raft thread) */
     struct RaftLog *log;        /* Raft persistent log; May be NULL if not used */
@@ -251,7 +251,7 @@ typedef struct RedisRaftCtx {
     raft_index_t last_snapshot_idx;
     raft_term_t last_snapshot_term;
     struct RaftReq *debug_req;    /* Current RAFT.DEBUG request context, if processing one */
-    bool callbacks_set;         /* TODO: Needed? */
+
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
     RedisModuleCommandFilter *registered_filter;

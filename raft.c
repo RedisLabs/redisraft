@@ -867,10 +867,10 @@ static void RedisRaftThread(void *arg)
 
     uv_run(rr->loop, UV_RUN_DEFAULT);
 
-    /*
-     * Closing all handles to provide proper cleanup. With the last
-    * uv_run() call, libuv can call callbacks of the closed handles.
-    */
+    /**
+     * Closing all handles to provide proper cleanup. The last call of uv_run()
+     * is necessary, libuv will call callbacks of the closed handles.
+     */
     uv_walk(rr->loop, libuvCloseCallback, NULL);
     uv_run(rr->loop, UV_RUN_ONCE);
 }
@@ -1081,9 +1081,9 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     uv_timer_init(rr->loop, &rr->node_reconnect_timer);
     uv_handle_set_data((uv_handle_t *) &rr->node_reconnect_timer, rr);
 
-    /* Shutdown call */
-    uv_async_init(rr->loop, &rr->shutdown, libuvShutdownCallback);
-    uv_handle_set_data((uv_handle_t *) &rr->shutdown, rr->loop);
+    /* Callback to shutdown libuv loop */
+    uv_async_init(rr->loop, &rr->shutdown_sig, libuvShutdownCallback);
+    uv_handle_set_data((uv_handle_t *) &rr->shutdown_sig, rr->loop);
 
     rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
@@ -1135,7 +1135,7 @@ RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
 RRStatus RedisRaftShutdown(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
-    uv_async_send(&rr->shutdown);
+    uv_async_send(&rr->shutdown_sig);
 
     if (uv_thread_join(&rr->thread) < 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to stop redis_raft thread");
