@@ -1143,8 +1143,8 @@ RRStatus RedisRaftShutdown(RedisModuleCtx *ctx, RedisRaftCtx *rr)
     }
 
     uv_mutex_destroy(&rr->rqueue_mutex);
-    uv_loop_delete(rr->loop);
-
+    uv_loop_close(rr->loop);
+    RedisModule_Free(rr->loop);
     RedisModule_FreeDict(ctx, multiClientState);
 
     if (rr->log) {
