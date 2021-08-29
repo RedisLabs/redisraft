@@ -11,9 +11,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
-#include <ctype.h>
 #include <strings.h>
 
+
+#include "atomic.h"
 #include "redisraft.h"
 
 const char *RaftReqTypeStr[] = {
@@ -39,10 +40,7 @@ static void configureFromSnapshot(RedisRaftCtx *rr);
 static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
 static RaftReqHandler RaftReqHandlers[];
 
-static bool processExiting = false;
-static void __setProcessExiting(void) {
-    processExiting = true;
-}
+static redisAtomic int processExiting;
 
 /* A dict that maps client ID to MultiClientState structs */
 static RedisModuleDict *multiClientState = NULL;
@@ -769,12 +767,8 @@ static void handleLoadingState(RedisRaftCtx *rr)
 
 static void callRaftPeriodic(uv_timer_t *handle)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    RedisRaftCtx *rr = uv_handle_get_data((uv_handle_t *) handle);
     int ret;
-
-    if (processExiting) {
-        return;
-    }
 
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
      * we can apply the log.
@@ -844,13 +838,15 @@ static void callRaftPeriodic(uv_timer_t *handle)
  */
 static void callHandleNodeStates(uv_timer_t *handle)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
-    if (processExiting) {
-        return;
-    }
+    RedisRaftCtx *rr = uv_handle_get_data((uv_handle_t *) handle);
 
     HandleIdleConnections(rr);
     HandleNodeStates(rr);
+}
+
+static void closeCallback(uv_handle_t* handle, void* arg)
+{
+    uv_close(handle, NULL);
 }
 
 /* Main Raft thread, which handles:
@@ -872,7 +868,20 @@ static void RedisRaftThread(void *arg)
             rr->config->raft_interval, rr->config->raft_interval);
     uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
             rr->config->reconnect_interval);
-    uv_run(rr->loop, UV_RUN_DEFAULT);
+
+    while (true) {
+        uv_run(rr->loop, UV_RUN_NOWAIT);
+
+        if (processExiting) {
+            /*
+             * Closing all handles to provide proper cleanup. With the last
+             * uv_run() call, libuv can call callbacks of the closed handles.
+             */
+            uv_walk(rr->loop, closeCallback, NULL);
+            uv_run(rr->loop, UV_RUN_ONCE);
+            return;
+        }
+    }
 }
 
 static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
@@ -1058,12 +1067,6 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     memset(rr, 0, sizeof(RedisRaftCtx));
     STAILQ_INIT(&rr->rqueue);
 
-    /* Register an atexit handler to tell us we're exiting.  Redis offers no
-     * other way and we need to be aware of this to avoid getting into execution
-     * flows that involve libuv workers that self destructor using .dtors.
-     */
-    atexit(__setProcessExiting);
-
     /* Initialize uv loop */
     rr->loop = RedisModule_Alloc(sizeof(uv_loop_t));
     uv_loop_init(rr->loop);
@@ -1125,6 +1128,24 @@ RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize redis_raft thread");
         return RR_ERROR;
     }
+
+    return RR_OK;
+}
+
+RRStatus RedisRaftShutdown(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+{
+    atomicSetRelaxed(processExiting, 1);
+
+    if (uv_thread_join(&rr->thread) < 0) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to stop redis_raft thread");
+        return RR_ERROR;
+    }
+
+    uv_mutex_destroy(&rr->rqueue_mutex);
+    uv_loop_delete(rr->loop);
+
+    RedisModule_FreeDict(ctx, multiClientState);
+    RaftLogClose(rr->log);
 
     return RR_OK;
 }

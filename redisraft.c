@@ -9,8 +9,6 @@
 
 #include <string.h>
 #include <strings.h>
-#include <stdlib.h>
-#include <unistd.h>
 
 #include "redisraft.h"
 
@@ -679,6 +677,12 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
     }
 }
 
+static void handleShutdown(RedisModuleCtx *ctx,
+                           RedisModuleEvent eid, uint64_t subevent, void *data)
+{
+    RedisRaftShutdown(ctx, &redis_raft);
+}
+
 /* Command filter callback that intercepts normal Redis commands and prefixes them
  * with a RAFT command prefix in order to divert them to execute inside RedisRaft.
  */
@@ -850,7 +854,15 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientDisconnect) != REDISMODULE_OK) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+        RedisModule_Log(ctx, REDIS_WARNING,
+                        "Failed to subscribe to server event : clientchange");
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown,
+                                           handleShutdown) != REDISMODULE_OK) {
+        RedisModule_Log(ctx, REDIS_WARNING,
+                        "Failed to subscribe to server event : shutdown");
         return REDISMODULE_ERR;
     }
 
