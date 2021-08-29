@@ -241,6 +241,7 @@ typedef struct RedisRaftCtx {
     uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
     uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
     uv_timer_t node_reconnect_timer;    /* Handle connection issues */
+    uv_async_t shutdown;        /* Shutdown call */
     uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (Redis thread -> Raft thread) */
     struct RaftLog *log;        /* Raft persistent log; May be NULL if not used */

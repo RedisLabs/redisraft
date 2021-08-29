@@ -13,8 +13,6 @@
 #include <unistd.h>
 #include <strings.h>
 
-
-#include "atomic.h"
 #include "redisraft.h"
 
 const char *RaftReqTypeStr[] = {
@@ -39,8 +37,6 @@ static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
 static RaftReqHandler RaftReqHandlers[];
-
-static redisAtomic int processExiting;
 
 /* A dict that maps client ID to MultiClientState structs */
 static RedisModuleDict *multiClientState = NULL;
@@ -844,7 +840,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
     HandleNodeStates(rr);
 }
 
-static void closeCallback(uv_handle_t* handle, void* arg)
+static void libuvCloseCallback(uv_handle_t* handle, void* arg)
 {
     uv_close(handle, NULL);
 }
@@ -869,19 +865,14 @@ static void RedisRaftThread(void *arg)
     uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
             rr->config->reconnect_interval);
 
-    while (true) {
-        uv_run(rr->loop, UV_RUN_NOWAIT);
+    uv_run(rr->loop, UV_RUN_DEFAULT);
 
-        if (processExiting) {
-            /*
-             * Closing all handles to provide proper cleanup. With the last
-             * uv_run() call, libuv can call callbacks of the closed handles.
-             */
-            uv_walk(rr->loop, closeCallback, NULL);
-            uv_run(rr->loop, UV_RUN_ONCE);
-            return;
-        }
-    }
+    /*
+     * Closing all handles to provide proper cleanup. With the last
+    * uv_run() call, libuv can call callbacks of the closed handles.
+    */
+    uv_walk(rr->loop, libuvCloseCallback, NULL);
+    uv_run(rr->loop, UV_RUN_ONCE);
 }
 
 static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
@@ -1062,6 +1053,12 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
             rr->snapshot_info.last_applied_idx);
 }
 
+static void libuvShutdownCallback(uv_async_t* handle)
+{
+    uv_loop_t *loop = uv_handle_get_data((uv_handle_t*) handle);
+    uv_stop(loop);
+}
+
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
     memset(rr, 0, sizeof(RedisRaftCtx));
@@ -1083,6 +1080,10 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     /* Connection timer */
     uv_timer_init(rr->loop, &rr->node_reconnect_timer);
     uv_handle_set_data((uv_handle_t *) &rr->node_reconnect_timer, rr);
+
+    /* Shutdown call */
+    uv_async_init(rr->loop, &rr->shutdown, libuvShutdownCallback);
+    uv_handle_set_data((uv_handle_t *) &rr->shutdown, rr->loop);
 
     rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
@@ -1134,7 +1135,7 @@ RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
 RRStatus RedisRaftShutdown(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
-    atomicSetRelaxed(processExiting, 1);
+    uv_async_send(&rr->shutdown);
 
     if (uv_thread_join(&rr->thread) < 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to stop redis_raft thread");
@@ -1145,7 +1146,10 @@ RRStatus RedisRaftShutdown(RedisModuleCtx *ctx, RedisRaftCtx *rr)
     uv_loop_delete(rr->loop);
 
     RedisModule_FreeDict(ctx, multiClientState);
-    RaftLogClose(rr->log);
+
+    if (rr->log) {
+        RaftLogClose(rr->log);
+    }
 
     return RR_OK;
 }
