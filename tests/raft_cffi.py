@@ -3,7 +3,7 @@ import subprocess
 
 ffi = cffi.FFI()
 ffi.set_source(
-    "tests",
+    "ffi_tests",
     """
         #include "raft.h"
         raft_entry_t *raft_entry_newdata(void *data) {

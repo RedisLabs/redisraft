@@ -11,7 +11,7 @@ class Libraft(object):
     def __init__(self):
         ffi = FFI()
         ffi.set_source(
-            "tests",
+            "ffi_tests",
             """
             """,
             sources="""

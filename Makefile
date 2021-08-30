@@ -109,6 +109,6 @@ do_infer:
 	infer -- make
 
 clean:
-	@rm -f src/*.o bin/* src/*.gcda src/*.gcno *.gcno *.gcda *.gcov tests/*.o tests/*.gcda tests/*.gcno; \
+	@rm -f ffi_tests.* src/*.o bin/* src/*.gcda src/*.gcno *.gcno *.gcda *.gcov tests/*.o tests/*.gcda tests/*.gcno; \
 	if [ -f "libraft.$(SHAREDEXT)" ]; then rm libraft.$(SHAREDEXT); fi;\
 	if [ -f libraft.a ]; then rm libraft.a; fi;
