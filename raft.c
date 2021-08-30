@@ -1320,7 +1320,6 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t *entry;
     msg_entry_response_t response;
-    raft_node_t *rn;
     int e;
 
     if (checkRaftState(rr, req) == RR_ERROR ||
@@ -1339,8 +1338,12 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             }
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            rn = raft_get_node(rr->raft, req->r.cfgchange.id);
-            assert (rn != NULL);    /* Should have been verified by now! */
+            /* Validate it exists */
+            if (!raft_get_node(rr->raft, req->r.cfgchange.id)) {
+                RedisModule_ReplyWithError(req->ctx, "node id does not exist");
+                goto exit;
+            }
+
             entry->type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:

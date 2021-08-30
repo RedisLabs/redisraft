@@ -123,12 +123,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
         }
 
-        /* Also validate it exists */
-        if (!raft_get_node(rr->raft, node_id)) {
-            RedisModule_ReplyWithError(ctx, "node id does not exist");
-            return REDISMODULE_OK;
-        }
-
         req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
         req->r.cfgchange.id = node_id;
     } else {
