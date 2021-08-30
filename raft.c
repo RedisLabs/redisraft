@@ -1327,12 +1327,17 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    entry = raft_entry_new(sizeof(req->r.cfgchange));
-    entry->id = rand();
+    short type;
 
     switch (req->type) {
         case RR_CFGCHANGE_ADDNODE:
-            entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+            if (hasNodeIdBeenUsed(rr, req->r.cfgchange.id)) {
+                RedisModule_ReplyWithError(req->ctx,
+                               "node id has already been used in this cluster");
+                goto exit;
+            }
+
+            type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
             if (!req->r.cfgchange.id) {
                 req->r.cfgchange.id = makeRandomNodeId(rr);
             }
@@ -1344,13 +1349,17 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
                 goto exit;
             }
 
-            entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+            type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:
             assert(0);
     }
 
+    entry = raft_entry_new(sizeof(req->r.cfgchange));
+    entry->id = rand();
+    entry->type = type;
     memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
+
     if ((e = raft_recv_entry(rr->raft, entry, &response)) != 0) {
         replyRaftError(req->ctx, e);
     } else {
