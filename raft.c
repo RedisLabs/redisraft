@@ -1029,6 +1029,12 @@ static void initRaftLibrary(RedisRaftCtx *rr)
     }
     raft_set_election_timeout(rr->raft, rr->config->election_timeout);
     raft_set_request_timeout(rr->raft, rr->config->request_timeout);
+
+    // To avoid performance hit, get library logs only if log level is debug
+    if (redis_raft_loglevel != LOGLEVEL_DEBUG) {
+        redis_raft_callbacks.log = NULL;
+    }
+
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
 }
 

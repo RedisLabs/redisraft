@@ -59,7 +59,7 @@ static int parseLogLevel(const char *value)
 {
     int i;
     for (i = 0; loglevels[i] != NULL; i++) {
-        if (!strcmp(value, loglevels[i])) {
+        if (!strcasecmp(value, loglevels[i])) {
             return i;
         }
     }
