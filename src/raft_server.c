@@ -1219,41 +1219,41 @@ raft_entry_t** raft_get_entries_from_idx(raft_server_t* me_, raft_index_t idx, i
 
 int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
 {
-    if (!raft_node_is_active(node)) {
-        return 0;
-    }
-
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     assert(node);
     assert(node != me->node);
 
-    if (!(me->cb.send_appendentries))
-        return -1;
-
-    msg_appendentries_t ae = {};
-    ae.term = me->current_term;
-    ae.leader_commit = raft_get_commit_idx(me_);
-    ae.prev_log_idx = 0;
-    ae.prev_log_term = 0;
-    ae.msg_id = me->msg_id;
+    if (!raft_node_is_active(node)) {
+        return 0;
+    }
 
     raft_index_t next_idx = raft_node_get_next_idx(node);
 
     /* figure out if the client needs a snapshot sent */
-    if (0 < me->snapshot_last_idx && next_idx < me->snapshot_last_idx)
+    if (me->snapshot_last_idx > 0 && next_idx <= me->snapshot_last_idx)
     {
         if (me->cb.send_snapshot)
             me->cb.send_snapshot(me_, me->udata, node);
+
         return RAFT_ERR_NEEDS_SNAPSHOT;
     }
+
+    if (!me->cb.send_appendentries)
+        return -1;
+
+    msg_appendentries_t ae = {
+        .term = me->current_term,
+        .leader_commit = raft_get_commit_idx(me_),
+        .msg_id = me->msg_id,
+    };
 
     ae.entries = raft_get_entries_from_idx(me_, next_idx, &ae.n_entries);
     assert((!ae.entries && 0 == ae.n_entries) ||
             (ae.entries && 0 < ae.n_entries));
 
     /* previous log is the log just before the new logs */
-    if (1 < next_idx)
+    if (next_idx > 1)
     {
         raft_entry_t* prev_ety = raft_get_entry_from_idx(me_, next_idx - 1);
         if (!prev_ety)
@@ -1498,7 +1498,7 @@ int raft_end_snapshot(raft_server_t *me_)
     /* If needed, remove compacted logs */
     int e = me->log_impl->poll(me->log, me->snapshot_last_idx + 1);
     if (e != 0)
-        return -1;
+        return e;
 
     me->snapshot_in_progress = 0;
 
@@ -1511,8 +1511,7 @@ int raft_end_snapshot(raft_server_t *me_)
     if (!raft_is_leader(me_))
         return 0;
 
-    int i;
-    for (i = 0; i < me->num_nodes; i++)
+    for (int i = 0; i < me->num_nodes; i++)
     {
         raft_node_t* node = me->nodes[i];
 
@@ -1522,7 +1521,7 @@ int raft_end_snapshot(raft_server_t *me_)
         raft_index_t next_idx = raft_node_get_next_idx(node);
 
         /* figure out if the client needs a snapshot sent */
-        if (0 < me->snapshot_last_idx && next_idx < me->snapshot_last_idx)
+        if (me->snapshot_last_idx > 0 && next_idx <= me->snapshot_last_idx)
         {
             if (me->cb.send_snapshot)
                 me->cb.send_snapshot(me_, me->udata, node);

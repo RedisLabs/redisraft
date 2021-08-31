@@ -63,8 +63,7 @@ static int __raft_send_appendentries_capture(raft_server_t* raft,
                               raft_node_t* node,
                               msg_appendentries_t* msg)
 {
-    msg_appendentries_t* msg_captured = (msg_appendentries_t*)udata;
-    memcpy(msg_captured, msg, sizeof(msg_appendentries_t));
+    *((msg_appendentries_t*)udata) = *msg;
     return 0;
 }
 
@@ -486,20 +485,20 @@ void TestRaft_follower_load_from_snapshot_fails_if_log_is_newer(CuTest * tc)
     CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 2, 2));
 }
 
-void TestRaft_leader_sends_appendentries_when_node_next_index_was_compacted(CuTest* tc)
+void TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted(CuTest* tc)
 {
     raft_cbs_t funcs = {
-        .send_appendentries = __raft_send_appendentries_capture,
+        .send_snapshot = __raft_send_snapshot_increment
     };
 
-    msg_appendentries_t ae;
+    int increment = 0;
 
     void *r = raft_new();
-    raft_set_callbacks(r, &funcs, &ae);
+    raft_set_callbacks(r, &funcs, &increment);
 
     raft_node_t* node;
     raft_add_node(r, NULL, 1, 1);
-    node = raft_add_node(r, NULL, 2, 0);
+    raft_add_node(r, NULL, 2, 0);
     raft_add_node(r, NULL, 3, 0);
 
     /* entry 1 */
@@ -520,6 +519,23 @@ void TestRaft_leader_sends_appendentries_when_node_next_index_was_compacted(CuTe
 
     raft_set_state(r, RAFT_STATE_LEADER);
     raft_set_current_term(r, 2);
+
+    /* verify snapshot is sent */
+    int rc = raft_send_appendentries(r, node);
+    CuAssertIntEquals(tc, RAFT_ERR_NEEDS_SNAPSHOT, rc);
+    CuAssertIntEquals(tc, 1, increment);
+
+    /* update callbacks, verify correct appendreq is sent after the snapshot */
+    funcs = (raft_cbs_t) {
+        .send_appendentries = __raft_send_appendentries_capture,
+    };
+
+    msg_appendentries_t ae;
+    raft_set_callbacks(r, &funcs, &ae);
+
+    /* node wants an entry just one after the snapshot index */
+    raft_node_set_next_idx(node, raft_get_current_idx(r) + 1);
+
     CuAssertIntEquals(tc, 0, raft_send_appendentries(r, node));
     CuAssertIntEquals(tc, 2, ae.term);
     CuAssertIntEquals(tc, 3, ae.prev_log_idx);
@@ -652,7 +668,7 @@ void TestRaft_leader_sends_appendentries_with_correct_prev_log_idx_when_snapshot
      */
     raft_node_t* p = raft_add_node(r, NULL, 2, 0);
     CuAssertTrue(tc, NULL != p);
-    raft_node_set_next_idx(p, 4);
+    raft_node_set_next_idx(p, 5);
 
     /* receive appendentries messages */
     raft_send_appendentries(r, p);
@@ -783,7 +799,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_fails_if_already_loaded);
     SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_does_not_break_cluster_safety);
     SUITE_ADD_TEST(suite, TestRaft_follower_load_from_snapshot_fails_if_log_is_newer);
-    SUITE_ADD_TEST(suite, TestRaft_leader_sends_appendentries_when_node_next_index_was_compacted);
+    SUITE_ADD_TEST(suite, TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted);
     SUITE_ADD_TEST(suite, TestRaft_recv_entry_fails_if_snapshot_in_progress);
     SUITE_ADD_TEST(suite, TestRaft_recv_entry_succeeds_if_snapshot_nonblocking_apply_is_set);
     SUITE_ADD_TEST(suite, TestRaft_follower_recv_appendentries_is_successful_when_previous_log_idx_equals_snapshot_last_idx);
