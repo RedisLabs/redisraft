@@ -2977,6 +2977,7 @@ void TestRaft_leader_recv_appendentries_response_jumps_to_lower_next_idx(
     aer.term = 2;
     aer.success = 0;
     aer.current_idx = 1;
+    aer.prev_log_idx = ae->prev_log_idx;
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertIntEquals(tc, 2, raft_node_get_next_idx(node));
 
@@ -3031,6 +3032,7 @@ void TestRaft_leader_recv_appendentries_response_decrements_to_lower_next_idx(
     aer.term = 2;
     aer.success = 0;
     aer.current_idx = 4;
+    aer.prev_log_idx = ae->prev_log_idx;
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertIntEquals(tc, 4, raft_node_get_next_idx(node));
 
@@ -3044,6 +3046,7 @@ void TestRaft_leader_recv_appendentries_response_decrements_to_lower_next_idx(
     aer.term = 2;
     aer.success = 0;
     aer.current_idx = 4;
+    aer.prev_log_idx = ae->prev_log_idx;
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertIntEquals(tc, 3, raft_node_get_next_idx(node));
 

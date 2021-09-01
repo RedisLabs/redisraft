@@ -777,6 +777,7 @@ void TestRaft_leader_sends_snapshot_if_log_was_compacted(CuTest* tc)
     aer.term = 1;
     aer.success = 0;
     aer.current_idx = 1;
+    aer.prev_log_idx = raft_node_get_next_idx(node) - 1;
 
     raft_recv_appendentries_response(r, node, &aer);
     CuAssertIntEquals(tc, 1, send_snapshot_count);

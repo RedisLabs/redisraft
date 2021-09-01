@@ -209,6 +209,9 @@ typedef struct
     /** If success, this is the highest log IDX we've received and appended to
      * our log; otherwise, this is the our currentIndex */
     raft_index_t current_idx;
+
+    /** what the leader thouught was the index of the log just before the newest_entry */
+    raft_index_t prev_log_idx;
 } msg_appendentries_response_t;
 
 typedef void* raft_server_t;

@@ -600,6 +600,11 @@ int raft_recv_appendentries_response(raft_server_t* me_,
     if (!raft_is_leader(me_))
         return RAFT_ERR_NOT_LEADER;
 
+    if (raft_node_get_last_acked_msgid(node) > r->msg_id) {
+        // this was received out of order and is now irrelevant.
+        return 0;
+    }
+
     /* If response contains term T > currentTerm: set currentTerm = T
        and convert to follower (§5.3) */
     if (me->current_term < r->term)
@@ -614,13 +619,16 @@ int raft_recv_appendentries_response(raft_server_t* me_,
     else if (me->current_term != r->term)
         return 0;
 
+    // if we got here, it means that the follower has acked us as a leader, even if it cant accept the append_entry
+    raft_node_set_last_ack(node, r->msg_id, r->term);
+
     raft_index_t match_idx = raft_node_get_match_idx(node);
 
     if (0 == r->success)
     {
         /* If AppendEntries fails because of log inconsistency:
            decrement nextIndex and retry (§5.3) */
-        raft_index_t next_idx = raft_node_get_next_idx(node);
+        raft_index_t next_idx = r->prev_log_idx + 1;
         assert(0 < next_idx);
         /* Stale response -- ignore */
         if (r->current_idx < match_idx)
@@ -649,8 +657,6 @@ int raft_recv_appendentries_response(raft_server_t* me_,
         if (0 == e)
             raft_node_set_has_sufficient_logs(node);
     }
-
-    raft_node_set_last_ack(node, r->msg_id, r->term);
 
     if (r->current_idx <= match_idx)
         return 0;
@@ -715,6 +721,7 @@ int raft_recv_appendentries(
               ae->n_entries);
 
     r->msg_id = ae->msg_id;
+    r->prev_log_idx = ae->prev_log_idx;
     r->success = 0;
 
     if (raft_is_candidate(me_) && me->current_term == ae->term)
@@ -1245,7 +1252,7 @@ int raft_send_appendentries(raft_server_t* me_, raft_node_t* node)
     msg_appendentries_t ae = {
         .term = me->current_term,
         .leader_commit = raft_get_commit_idx(me_),
-        .msg_id = me->msg_id,
+        .msg_id = ++me->msg_id,
     };
 
     ae.entries = raft_get_entries_from_idx(me_, next_idx, &ae.n_entries);
