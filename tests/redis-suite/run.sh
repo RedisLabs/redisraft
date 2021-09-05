@@ -37,10 +37,16 @@ run_tests() {
         --tags -needs:save \
         --tags -needs:reset \
         --tags -needs:config-maxmemory \
+        --tags -needs:latency \
         --tags -pause \
         --tags -tracking \
+        --tags -cli \
+        --tags -querybuf \
         $*
+    local retcode=$?
     popd
+
+    return $retcode
 }
 
 # Make sure we're running from the right place
@@ -51,4 +57,7 @@ fi
 
 setup
 run_tests $*
+retcode=$?
 teardown
+
+exit $retcode
