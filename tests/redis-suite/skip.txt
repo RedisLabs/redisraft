@@ -39,6 +39,8 @@ BZPOPMIN with same key multiple times should work
 MULTI/EXEC is isolated from the point of view of BZPOPMIN
 BZPOPMIN with variadic ZADD
 BZPOPMIN with zero timeout should block indefinitely
+BLPOP: with zero timeout should block indefinitely
+BRPOP: with zero timeout should block indefinitely
 
 -- RESP3 Not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/100
@@ -51,6 +53,9 @@ ZPOP with count - skiplist RESP3
 ZRANGESTORE RESP3
 ZRANDMEMBER with RESP3
 HRANDFIELD with RESP3
+RESP3 attributes
+RESP3 attributes readraw
+RESP3 attributes on RESP2
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
@@ -60,6 +65,7 @@ XREAD: XADD + DEL + LPUSH should not awake client
 XREAD with same stream name multiple times should work
 XREAD + multiple XADD inside transaction
 XREAD streamID edge (blocking)
+Blocking XREAD waiting old data
 XGROUP DESTROY should unblock XREADGROUP with -NOGROUP
 RENAME can unblock XREADGROUP with data
 RENAME can unblock XREADGROUP with -NOGROUP
@@ -74,7 +80,7 @@ Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall
 Timedout script does not cause a false dead client
 Timedout script link is still usable after Lua returns
 Timedout scripts that modified data can't be killed by SCRIPT KILL
-
+Timedout read-only scripts can be killed by SCRIPT KILL
 
 -- MULTI/EXEC handling incompatibilities, mainly becuase RedisRaft implements
 -- its own logic while passing some non-data commands to Redis. Consider our
