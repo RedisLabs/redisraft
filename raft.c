@@ -763,7 +763,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
 
 static void callRaftPeriodic(uv_timer_t *handle)
 {
-    RedisRaftCtx *rr = uv_handle_get_data((uv_handle_t *) handle);
+    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
     int ret;
 
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
@@ -864,7 +864,6 @@ static void RedisRaftThread(void *arg)
             rr->config->raft_interval, rr->config->raft_interval);
     uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
             rr->config->reconnect_interval);
-
     uv_run(rr->loop, UV_RUN_DEFAULT);
 
     /**
