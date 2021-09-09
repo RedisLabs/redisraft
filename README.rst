@@ -211,14 +211,14 @@ When we receive an entry log from the client it's possible we might not be a lea
 
 If we aren't currently the leader of the raft cluster, we MUST send a redirect error message to the client. This is so that the client can connect directly to the leader in future connections. This enables future requests to be faster (ie. no redirects are required after the first redirect until the leader changes).
 
-We use the ``raft_get_current_leader`` function to check who is the current leader.
+We use the ``raft_get_leader_id`` function to check who is the current leader.
 
 *Example of ticketd sending a 301 HTTP redirect response:*
 
 .. code-block:: c
 
     /* redirect to leader if needed */
-    raft_node_t* leader = raft_get_current_leader_node(sv->raft);
+    raft_node_t* leader = raft_get_leader_node(sv->raft);
     if (!leader)
     {
         return h2oh_respond_with_error(req, 503, "Leader unavailable");
