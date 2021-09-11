@@ -41,6 +41,25 @@ BZPOPMIN with variadic ZADD
 BZPOPMIN with zero timeout should block indefinitely
 BLPOP: with zero timeout should block indefinitely
 BRPOP: with zero timeout should block indefinitely
+BLMPOP_LEFT, LPUSH + DEL should not awake blocked client
+BLMPOP_LEFT, LPUSH + DEL + SET should not awake blocked client
+MULTI/EXEC is isolated from the point of view of BLMPOP_LEFT
+BLMPOP_LEFT with variadic LPUSH
+BLMPOP with multiple blocked clients
+Circular BRPOPLPUSH
+BRPOPLPUSH does not affect WATCH while still blocked
+BLMPOP_LEFT: with zero timeout should block indefinitely
+BLMPOP_RIGHT: with zero timeout should block indefinitely
+BLMPOP_LEFT when new key is moved into place
+BLMPOP_LEFT when result key is created by SORT..STORE
+BLMPOP_LEFT: with single empty list argument
+BLMPOP_LEFT: with non-integer timeout
+BLMPOP_LEFT: arguments are empty
+BLMPOP_RIGHT when new key is moved into place
+BLMPOP_RIGHT when result key is created by SORT..STORE
+BLMPOP_RIGHT: with single empty list argument
+BLMPOP_RIGHT: with non-integer timeout
+BLMPOP_RIGHT: arguments are empty
 
 -- RESP3 Not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/100
@@ -56,6 +75,9 @@ HRANDFIELD with RESP3
 RESP3 attributes
 RESP3 attributes readraw
 RESP3 attributes on RESP2
+ZINTER RESP3 - listpack
+Basic ZPOP - listpack RESP3
+ZPOP with count - listpack RESP3
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
