@@ -48,6 +48,7 @@ def load(fname):
 
 ffi.cdef('void *malloc(size_t __size);')
 ffi.cdef(load('include/raft.h'))
+ffi.cdef(load('include/raft_private.h'))
 ffi.cdef(load('include/raft_log.h'))
 
 ffi.cdef('raft_entry_t *raft_entry_newdata(void *data);')

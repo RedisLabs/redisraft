@@ -196,7 +196,7 @@ typedef struct
 typedef struct
 {
     /** the msg_id this response refers to */
-    unsigned long msg_id;
+    raft_msg_id_t msg_id;
 
     /** currentTerm, to force other leader/candidate to step down */
     raft_term_t term;

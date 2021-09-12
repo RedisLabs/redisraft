@@ -60,10 +60,10 @@ import coloredlogs
 import docopt
 import logging
 import random
-import re
 import sys
 import terminaltables
 import traceback
+import os
 
 from raft_cffi import ffi, lib
 
@@ -222,6 +222,75 @@ def raft_notify_membership_event(raft, udata, node, ety, event_type):
     return ffi.from_handle(udata).notify_membership_event(node, ety, event_type)
 
 
+def find_leader():
+    max_term = -1
+    leader = None
+    for s in net.servers:
+        if lib.raft_is_leader(s.raft):
+            term = lib.raft_get_current_term(s.raft)
+            if term > max_term:
+                max_term = term
+                leader = s
+
+    return leader
+
+
+def get_voting_node_ids(leader):
+    voting_nodes_ids = []
+
+    for i in range(net.server_id + 1):
+        if i == 0:
+            continue
+        node = lib.raft_get_node(leader.raft, i)
+        if node == ffi.NULL:
+            continue
+        if lib.raft_node_is_voting(node) != 0:
+            voting_nodes_ids.append(i)
+
+    return voting_nodes_ids
+
+
+def verify_read(arg):
+    leader = find_leader()
+    if leader is None:
+        logger.error("failed to find leader")
+        os._exit(-1)
+
+    voter_ids = get_voting_node_ids(leader)
+    num_nodes = len(voter_ids)
+
+    # primary verification logic.  we always need to count more than the required, looking to see that for voters,
+    # the read_queue_id they have recorded is equal to our greater than the arg (i.e. the read_queue id this was sent on
+    required = int(num_nodes / 2) + 1
+    count = 0
+
+    leader_term = lib.raft_get_current_term(net.servers[leader.id-1].raft)
+
+    for i in voter_ids:
+        if net.servers[i-1] == leader:
+            count += 1
+            continue
+
+        msg_id = lib.raft_get_max_seen_msg_id(net.servers[i-1].raft)
+        follower_term = lib.raft_get_current_term(net.servers[i-1].raft)
+        if msg_id >= arg and leader_term == follower_term:
+            count += 1
+
+    if count < required:
+        logger.error(f"verify_read failed {count} < {required}")
+        os._exit(-1)
+
+
+def handle_read_queue(arg, can_read):
+    val = int(ffi.cast("int", arg))
+    if can_read != 0:
+        verify_read(val)
+        logger.debug(f"handling read_request {val}")
+        net.last_seen_read_queue_msg_id = val
+    else:
+        logger.debug(f"ignoring read_request {val}")
+
+
 def raft_log(raft, node, udata, buf):
     server = ffi.from_handle(lib.raft_get_udata(raft))
     # if server.id in [1] or (node and node.id in [1]):
@@ -255,6 +324,7 @@ class Network(object):
         self.partitions = set()
         self.no_random_period = False
         self.duplex_partition = False
+        self.last_seen_read_queue_msg_id = -1
 
         self.server_id = 0
 
@@ -291,6 +361,13 @@ class Network(object):
                 e = sv.recv_entry(ety)
                 assert e == 0 or e == lib.RAFT_ERR_NOT_LEADER
                 break
+
+    def push_read(self):
+        for sv in self.active_servers:
+            if lib.raft_is_leader(sv.raft):
+                logger.debug(f"adding a read_request to {sv.id}")
+                msg_id = lib.raft_get_msg_id(sv.raft) + 1
+                lib.raft_queue_read_request(sv.raft, sv.handle_read_queue, ffi.cast("void *", msg_id))
 
     def id2server(self, id):
         for server in self.servers:
@@ -342,11 +419,19 @@ class Network(object):
                 server.periodic(self.random.randint(1, 100))
 
         # Deadlock detection
-        if self.latest_applied_log_idx != 0 and self.latest_applied_log_iteration + 5000 < self.iteration:
+        if self.client_rate != 0 and self.latest_applied_log_idx != 0 and self.latest_applied_log_iteration + 5000 < self.iteration:
             logger.error("deadlock detected iteration:{0} appliedidx:{1}\n".format(
                 self.latest_applied_log_iteration,
                 self.latest_applied_log_idx,
                 ))
+            self.diagnostic_info()
+            sys.exit(1)
+
+        leader = find_leader()
+        if leader and self.last_seen_read_queue_msg_id + 5000 < lib.raft_get_msg_id(self.servers[leader.id - 1].raft):
+            logger.error("deadlock detected in handling reads: last seen read queue msg_id {0} current at {1}, iter: {2}\n".format(
+                self.last_seen_read_queue_msg_id, lib.raft_get_msg_id(leader.raft), self.iteration,
+            ))
             self.diagnostic_info()
             sys.exit(1)
 
@@ -369,6 +454,7 @@ class Network(object):
         for partition in self.partitions:
             # Partitions are in one direction
             if partition[0] is sendor and partition[1] is sendee:
+                logger.info(f"dropping message from {sendor.id} to {sendee.id}")
                 return
             # duplex partitions prevent both directions from sending traffic
             if self.duplex_partition and (
@@ -789,6 +875,7 @@ class RaftServer(object):
         self.raft_node_has_sufficient_logs = ffi.callback("int(raft_server_t* raft, void *user_data, raft_node_t* node)", raft_node_has_sufficient_logs)
         self.raft_notify_membership_event = ffi.callback("void(raft_server_t* raft, void *user_data, raft_node_t* node, raft_entry_t* ety, raft_membership_e)", raft_notify_membership_event)
         self.raft_log = ffi.callback("void(raft_server_t*, raft_node_id_t, void*, const char* buf)", raft_log)
+        self.handle_read_queue = ffi.callback("void(void *arg, int can_read)", handle_read_queue)
 
     def recv_entry(self, ety):
         # FIXME: leak
@@ -1039,7 +1126,7 @@ class RaftServer(object):
 
     def entry_append(self, ety, ety_idx):
         try:
-            assert not self.fsm_log or self.fsm_log[-1].term <= ety.term
+            assert not self.fsm_log or self.fsm_log[-1].term <= ety.term, f"node {self.id}'s term {self.fsm_log[-1].term} > to entry term {ety.term}"
         except Exception as e:
             self.abort_exception = e
             # FIXME: consider returning RAFT_ERR_SHUTDOWN
@@ -1180,6 +1267,7 @@ if __name__ == '__main__':
             logger.addHandler(fh)
             logger.propagate = False
 
+    global net
     net = Network(int(args['--seed']))
 
     net.dupe_rate = int(args['--dupe_rate'])
@@ -1204,6 +1292,8 @@ if __name__ == '__main__':
     for i in range(0, int(args['--iterations'])):
         net.iteration += 1
         try:
+            net.push_read()
+            net.poll_messages()
             net.periodic()
             net.poll_messages()
         except:

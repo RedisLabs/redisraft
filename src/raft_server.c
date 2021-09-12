@@ -730,6 +730,7 @@ int raft_recv_appendentries(
     }
 
     r->msg_id = ae->msg_id;
+
     r->prev_log_idx = ae->prev_log_idx;
     r->success = 0;
 
@@ -751,6 +752,10 @@ int raft_recv_appendentries(
                     "AE term %ld is less than current term %ld",
                     ae->term, me->current_term);
         goto out;
+    }
+
+    if (me->max_seen_msg_id < ae->msg_id) {
+        me->max_seen_msg_id = ae->msg_id;
     }
 
     /* update current leader because ae->term is up to date */
@@ -810,6 +815,13 @@ int raft_recv_appendentries(
 
     r->success = 1;
     r->current_idx = ae->prev_log_idx;
+    /* synchronize msg_id to leader.  not really needed for raft, but needed for virtraft for msg_id to be increasing
+     * cluster wide so that can verify read_queue correctness easily.  Otherwise, it be fine for msg_id to be unique to
+     * each raft_server_t.
+     */
+    if (ae->msg_id > me->msg_id) {
+        me->msg_id = ae->msg_id;
+    }
 
     /* 3. If an existing entry conflicts with a new one (same index
        but different terms), delete the existing entry and all that

@@ -109,6 +109,10 @@ typedef struct {
      * we're still the leader.
      */
     raft_msg_id_t msg_id;
+    /*
+     * the maximum msg_id we've seen from our current leader.  reset on term change
+     */
+    raft_msg_id_t max_seen_msg_id;
     raft_read_request_t *read_queue_head;
     raft_read_request_t *read_queue_tail;
 } raft_server_private_t;
@@ -165,5 +169,11 @@ extern void *(*raft_malloc)(size_t size);
 extern void *(*raft_calloc)(size_t nmemb, size_t size);
 extern void *(*raft_realloc)(void *ptr, size_t size);
 extern void (*raft_free)(void *ptr);
+
+/* get the max message id this server has seen from its current leader, reset to 0 on term change */
+raft_msg_id_t raft_get_max_seen_msg_id(raft_server_t* me_);
+/* get the server's (primarily for leader) current msg_id */
+raft_msg_id_t raft_get_msg_id(raft_server_t* me_);
+
 
 #endif /* RAFT_PRIVATE_H_ */

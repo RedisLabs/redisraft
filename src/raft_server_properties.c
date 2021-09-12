@@ -93,6 +93,7 @@ int raft_set_current_term(raft_server_t* me_, const raft_term_t term)
         }
         me->current_term = term;
         me->voted_for = voted_for;
+        me->max_seen_msg_id = 0;
     }
     return 0;
 }
@@ -275,4 +276,16 @@ int raft_is_single_node_voting_cluster(raft_server_t *me_)
     raft_server_private_t* me = (raft_server_private_t*)me_;
 
     return (1 == raft_get_num_voting_nodes(me_) && raft_node_is_voting(me->node));
+}
+
+raft_msg_id_t raft_get_msg_id(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*)me_;
+    return me->msg_id;
+}
+
+raft_msg_id_t raft_get_max_seen_msg_id(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*)me_;
+    return me->max_seen_msg_id;
 }
