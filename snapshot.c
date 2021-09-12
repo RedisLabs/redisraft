@@ -177,8 +177,8 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     memset(sr, 0, sizeof(*sr));
 
-    int ret = read(rr->snapshot_child_fd, sr, sizeof(*sr));
-    if (ret == -1) {
+    int ret = (int) read(rr->snapshot_child_fd, sr, sizeof(*sr));
+    if (ret < 0) {
         /* Not ready yet? */
         if (errno == EAGAIN) {
             return 0;
@@ -242,7 +242,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     }
 
     if (raft_begin_snapshot(rr->raft, RAFT_SNAPSHOT_NONBLOCKING_APPLY) < 0) {
-        LOG_DEBUG("Failed to iniaite snapshot, raft_begin_snapshot() failed.");
+        LOG_DEBUG("Failed to initiate snapshot, raft_begin_snapshot() failed.");
         return RR_ERROR;
     }
     LOG_DEBUG("Snapshot scope: first_entry_idx=%lu, current_idx=%lu",
@@ -302,7 +302,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
         sr.magic = SNAPSHOT_RESULT_MAGIC;
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
-            rr->config->rdb_filename, getpid());
+            rr->config->rdb_filename, (int) getpid());
 
         if (rdbSave(sr.rdb_filename, NULL) != 0) {
             snprintf(sr.err, sizeof(sr.err) - 1, "%s", "rdbSave() failed");
@@ -444,7 +444,7 @@ static RRStatus storeSnapshotData(RedisRaftCtx *rr, RedisModuleString *data_str)
         return RR_ERROR;
     }
 
-    LOG_DEBUG("Saved received snapshot to file: %s, %lu bytes",
+    LOG_DEBUG("Saved received snapshot to file: %s, %zu bytes",
             rr->config->rdb_filename, data_len);
 
     return RR_OK;
@@ -758,7 +758,7 @@ static int snapshotSendData(Node *node)
 
     NodeAddPendingResponse(node, false);
 
-    NODE_LOG_DEBUG(node, "Sent snapshot: %lu bytes, term %ld, index %ld",
+    NODE_LOG_DEBUG(node, "Sent snapshot: %zu bytes, term %ld, index %ld",
                 node->snapshot_size, raft_get_snapshot_last_term(rr->raft),
                 raft_get_snapshot_last_idx(rr->raft));
     return 0;
@@ -784,7 +784,7 @@ static void snapshotOnRead(uv_fs_t *req)
     uv_fs_req_cleanup(req);
 
     if (req->result == node->snapshot_size && snapshotSendData(node) == 0) {
-        NODE_LOG_DEBUG(node, "Loaded snapshot: %s: %lu bytes",
+        NODE_LOG_DEBUG(node, "Loaded snapshot: %s: %zu bytes",
                 rr->config->rdb_filename, node->snapshot_size);
     }
 
