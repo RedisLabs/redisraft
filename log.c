@@ -965,7 +965,7 @@ void RaftLogArchiveFiles(RedisRaftCtx *rr)
     unlink(idx_filename);
     RedisModule_Free(idx_filename);
 
-    char bak_filename_maxlen = strlen(rr->config->raft_log_filename) + 100;
+    size_t bak_filename_maxlen = strlen(rr->config->raft_log_filename) + 100;
     char bak_filename[bak_filename_maxlen];
     snprintf(bak_filename, bak_filename_maxlen - 1,
             "%s.%d.bak", rr->config->raft_log_filename, raft_get_nodeid(rr->raft));

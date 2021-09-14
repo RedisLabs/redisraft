@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <strings.h>
+#include <inttypes.h>
 
 #include "redisraft.h"
 
@@ -49,17 +50,30 @@ static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
+static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RaftReq* req = entry->user_data;
+
+    if (!req) {
+        return NULL;
+    }
+
+    entry->user_data = NULL;
+    entry->free_func = NULL;
+    rr->client_attached_entries--;
+
+    return req;
+}
+
 /* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
  * in a RaftReq should keep the client blocked until the log entry is committed and applied.
  */
 
 static void entryFreeAttachedRaftReq(raft_entry_t *ety)
 {
-    RaftReq *req = (RaftReq *) ety->user_data;
-    ety->user_data = NULL;
+    RaftReq *req = entryDetachRaftReq(&redis_raft, ety);
 
     if (req) {
-        redis_raft.client_attached_entries--;
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
         RaftReqFree(req);
     }
@@ -212,8 +226,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     if (req) {
         /* Free request now, we don't need it anymore */
-        entry->user_data = NULL;
-        rr->client_attached_entries--;
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
 }
@@ -279,7 +292,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %d:%d:%d:%d",
+                node, "RAFT.REQUESTVOTE %d %d %ld:%d:%ld:%ld",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->term,
@@ -607,7 +620,7 @@ static char *raftMembershipInfoString(raft_server_t *raft)
             addr[1] = '\0';
         }
 
-        buf = catsnprintf(buf, &buflen, " id=%ld,voting=%d,active=%d,addr=%s",
+        buf = catsnprintf(buf, &buflen, " id=%d,voting=%d,active=%d,addr=%s",
             raft_node_get_id(rn),
             raft_node_is_voting(rn),
             raft_node_is_active(rn),
@@ -1737,12 +1750,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
-    raft_entry_release(entry);
-
     if (e != 0) {
         replyRaftError(req->ctx, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
         goto exit;
     }
+
+    raft_entry_release(entry);
 
     /* If we're a single node we can try to apply now, as we have no need
      * or way to wait for AE responses to do that.
@@ -1797,7 +1812,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "role:%s\r\n"
             "is_voting:%s\r\n"
             "leader_id:%d\r\n"
-            "current_term:%d\r\n"
+            "current_term:%ld\r\n"
             "num_nodes:%d\r\n"
             "num_voting_nodes:%d\r\n",
             REDISRAFT_VERSION,
@@ -1822,7 +1837,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
         }
 
         s = catsnprintf(s, &slen,
-                "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d,last_conn_secs=%ld,conn_errors=%lu,conn_oks=%lu\r\n",
+                "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d,last_conn_secs=%lld,conn_errors=%lu,conn_oks=%lu\r\n",
                 i, node->id, ConnGetStateStr(node->conn),
                 raft_node_is_voting(rnode) ? "yes" : "no",
                 node->addr.host, node->addr.port,
@@ -1832,10 +1847,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     s = catsnprintf(s, &slen,
             "\r\n# Log\r\n"
-            "log_entries:%d\r\n"
-            "current_index:%d\r\n"
-            "commit_index:%d\r\n"
-            "last_applied_index:%d\r\n"
+            "log_entries:%ld\r\n"
+            "current_index:%ld\r\n"
+            "commit_index:%ld\r\n"
+            "last_applied_index:%ld\r\n"
             "file_size:%lu\r\n"
             "cache_memory_size:%lu\r\n"
             "cache_entries:%lu\r\n"
@@ -1858,7 +1873,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     s = catsnprintf(s, &slen,
             "\r\n# Clients\r\n"
-            "clients_in_multi_state:%d\r\n"
+            "clients_in_multi_state:%"PRIu64"\r\n"
             "proxy_reqs:%llu\r\n"
             "proxy_failed_reqs:%llu\r\n"
             "proxy_failed_responses:%llu\r\n"

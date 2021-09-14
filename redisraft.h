@@ -27,6 +27,11 @@
 
 #define UNUSED(x)   ((void) x)
 
+/* Disable GNU attributes for non-GNU compilers */
+#ifndef __GNUC__
+    #define __attribute__(a)
+#endif
+
 /* --------------- Forward declarations -------------- */
 
 struct RaftReq;
@@ -649,7 +654,7 @@ bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
-char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...);
+char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)  __attribute__((format(printf, 3, 4)));
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int stringmatch(const char *pattern, const char *string, int nocase);
 int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
