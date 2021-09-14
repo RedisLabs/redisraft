@@ -1,0 +1,7 @@
+---
+
+# Install core dependencies for building and running stuff.
+
+- name: Install core packages
+  apt: name={{ packages }} state=latest
+  become: true

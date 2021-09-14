@@ -1,0 +1,4 @@
+---
+home_dir: "{{ ansible_env.HOME }}"
+build_dir: "{{ home_dir }}/build"
+memtier_benchmark_build_dir: "{{ build_dir }}/memtier_benchmark"

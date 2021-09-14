@@ -1,0 +1,13 @@
+---
+packages:
+  - build-essential
+  - libsystemd-dev
+  - cmake
+  - autoconf
+  - automake
+  - libtool
+  - libssl-dev
+  - libevent-dev
+  - libpcre3-dev
+  - zlib1g-dev
+  - pkg-config

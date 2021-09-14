@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description=RedisRaft Cluster
+Requires={% for i in instances -%} redisraft@{{ i.port }}.service {% endfor %}
+
+[Install]
+WantedBy=multi-user.target
+

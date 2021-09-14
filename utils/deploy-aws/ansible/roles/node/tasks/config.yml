@@ -1,0 +1,35 @@
+---
+
+- name: RedisRaft services up
+  systemd:
+    state: started
+    name: redisraft.target
+  become: true
+
+- name: Create cluster
+  command: |
+    redis-cli -p "{{ item['port'] }}" raft.cluster init
+  register: cluster_init
+  changed_when: "'OK' in cluster_init.stdout"
+  with_items: "{{ instances }}"
+  when: inventory_hostname == groups['nodes'][0]
+
+- name: Join cluster nodes
+  command: >
+    redis-cli -p "{{ item['port'] }}"
+    raft.cluster join "{{ hostvars[groups['nodes'][0]].private_ip }}:{{ item['port'] }}"
+  register: cluster_join
+  changed_when: "'OK' in cluster_join.stdout"
+  with_items: "{{ instances }}"
+  when: inventory_hostname != groups['nodes'][0]
+
+- name: Link shardgroups
+  command: >
+    redis-cli -p "{{ item[0] }}"
+    raft.shardgroup link "{{ private_ip }}:{{ item[1] }}"
+  register: shardgroup_link
+  changed_when: "'OK' in shardgroup_link.stdout"
+  when: item[0] != item[1]
+  with_nested:
+    - "{{ instances | map(attribute='port') | list }}"
+    - "{{ instances | map(attribute='port') | list }}"

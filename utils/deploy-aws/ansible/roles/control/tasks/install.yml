@@ -1,0 +1,32 @@
+---
+- name: Checkout memtier_benchmark
+  git:
+    repo: "{{ memtier_benchmark_url }}"
+    dest: "{{ memtier_benchmark_build_dir }}"
+    version: "{{ memtier_benchmark_version }}"
+
+- name: Bootstrap memtier_benchmark autotools
+  command:
+    chdir: "{{ memtier_benchmark_build_dir }}"
+    cmd: autoreconf -ivf
+    creates: configure
+
+- name: Configure memtier_benchmark autotools
+  command:
+    chdir: "{{ memtier_benchmark_build_dir }}"
+    cmd: ./configure
+    creates: Makefile
+  register: configure
+
+- name: Build memtier_benchmark
+  make:
+    chdir: "{{ memtier_benchmark_build_dir }}"
+  register: make
+  when: configure.changed
+
+- name: Install memtier_benchmark
+  make:
+    chdir: "{{ memtier_benchmark_build_dir }}"
+    target: install
+  when: make.changed
+  become: true
