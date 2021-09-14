@@ -793,7 +793,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     for (i = 0; i < argc; i++) {
         size_t slen;
         const char *s = RedisModule_StringPtrLen(argv[i], &slen);
-        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", slen, s);
+        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", (int) slen, s);
     }
 
     RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft starting, arguments: %s", str);
