@@ -75,7 +75,7 @@ typedef struct {
     raft_msg_id_t last_acked_msg_id;
 
     /* what this node thinks is the node ID of the current leader or
-     * RAFT_UNKNOWN_NODE_ID if there isn't a known current leader. */
+     * RAFT_NODE_ID_NONE if there isn't a known current leader. */
     raft_node_id_t leader_id;
 
     /* callbacks */
@@ -120,6 +120,8 @@ typedef struct {
 int raft_election_start(raft_server_t* me);
 
 int raft_become_candidate(raft_server_t* me);
+
+int raft_become_precandidate(raft_server_t* me);
 
 void raft_randomize_election_timeout(raft_server_t* me_);
 

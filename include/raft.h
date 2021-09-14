@@ -28,17 +28,17 @@ typedef enum {
     RAFT_MEMBERSHIP_REMOVE,
 } raft_membership_e;
 
-#define RAFT_UNKNOWN_NODE_ID (-1)
-
 typedef enum {
     RAFT_STATE_NONE,
     RAFT_STATE_FOLLOWER,
+    RAFT_STATE_PRECANDIDATE,
     RAFT_STATE_CANDIDATE,
     RAFT_STATE_LEADER
 } raft_state_e;
 
 /** Allow entries to apply while taking a snapshot */
 #define RAFT_SNAPSHOT_NONBLOCKING_APPLY     1
+#define RAFT_NODE_ID_NONE                   (-1)
 
 typedef enum {
     /**
@@ -131,6 +131,9 @@ typedef struct
  * This message could force a leader/candidate to become a follower. */
 typedef struct
 {
+    /** 1 if this is a prevote message, 0 otherwise */
+    int prevote;
+
     /** currentTerm, to force other leader/candidate to step down */
     raft_term_t term;
 
@@ -148,6 +151,12 @@ typedef struct
  * Indicates if node has accepted the server's vote request. */
 typedef struct
 {
+    /** 1 if this is a prevote message, 0 otherwise */
+    int prevote;
+
+    /** term of received requestvote msg */
+    raft_term_t request_term;
+
     /** currentTerm, for candidate to update itself */
     raft_term_t term;
 
@@ -285,7 +294,7 @@ typedef int (
  * This callback is optional
  * @param[in] raft The Raft server making this callback
  * @param[in] node_id The node id that is the subject of this log. If log is not
- *                    related to a node, this could be 'RAFT_UNKNOWN_NODE_ID'.
+ *                    related to a node, this could be 'RAFT_NODE_ID_NONE'.
  * @param[in] user_data User data that is passed from Raft server
  * @param[in] buf The buffer that was logged */
 typedef void (
@@ -819,6 +828,10 @@ int raft_is_follower(raft_server_t* me);
 int raft_is_leader(raft_server_t* me);
 
 /**
+ * @return 1 if precandidate; 0 otherwise */
+int raft_is_precandidate(raft_server_t* me);
+
+/**
  * @return 1 if candidate; 0 otherwise */
 int raft_is_candidate(raft_server_t* me);
 
@@ -883,7 +896,7 @@ int raft_get_voted_for(raft_server_t* me);
 
 /** Get what this node thinks the node ID of the leader is.
  * @return node of what this node thinks is the valid leader;
- *   RAFT_UNKNOWN_NODE_ID if there is no leader */
+ *   RAFT_NODE_ID_NONE if there is no leader */
 raft_node_id_t raft_get_leader_id(raft_server_t* me_);
 
 /** Get what this node thinks the node of the leader is.

@@ -204,6 +204,11 @@ int raft_is_leader(raft_server_t* me_)
     return raft_get_state(me_) == RAFT_STATE_LEADER;
 }
 
+int raft_is_precandidate(raft_server_t* me_)
+{
+    return raft_get_state(me_) == RAFT_STATE_PRECANDIDATE;
+}
+
 int raft_is_candidate(raft_server_t* me_)
 {
     return raft_get_state(me_) == RAFT_STATE_CANDIDATE;

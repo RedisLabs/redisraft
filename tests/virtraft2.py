@@ -101,6 +101,8 @@ def state2str(state):
         return colorama.Fore.GREEN + 'leader' + colorama.Style.RESET_ALL
     elif state == lib.RAFT_STATE_CANDIDATE:
         return 'candidate'
+    elif state == lib.RAFT_STATE_PRECANDIDATE:
+        return 'pre-candidate'
     elif state == lib.RAFT_STATE_FOLLOWER:
         return 'follower'
     else:
