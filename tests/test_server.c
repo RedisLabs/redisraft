@@ -4254,6 +4254,45 @@ void TestRaft_removed_node_starts_election(CuTest * tc)
     raft_destroy(r);
 }
 
+int cb_send_appendentries(raft_server_t* raft,
+                         void* udata, raft_node_t* node, msg_appendentries_t* msg)
+{
+    CuTest * tc = udata;
+    CuAssertIntEquals(tc, raft_get_nodeid(raft), msg->leader_id);
+    CuAssertIntEquals(tc, raft_get_msg_id(raft), msg->msg_id);
+    CuAssertIntEquals(tc, raft_get_current_term(raft), msg->term);
+    CuAssertIntEquals(tc, raft_get_commit_idx(raft), msg->leader_commit);
+    CuAssertIntEquals(tc, 1, msg->prev_log_idx);
+    CuAssertIntEquals(tc, 7, msg->prev_log_term);
+
+    return 0;
+}
+
+void TestRaft_verify_append_entries_fields_are_set(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+        .send_appendentries = cb_send_appendentries,
+    };
+
+    void *r = raft_new();
+    raft_set_callbacks(r, &funcs, tc);
+    raft_add_node(r, NULL, 100, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    raft_set_current_term(r, 7);
+
+    raft_entry_t *ety = __MAKE_ENTRY(1, 7, "aaa");
+    raft_append_entry(r, ety);
+    raft_append_entry(r, ety);
+    raft_append_entry(r, ety);
+    raft_append_entry(r, ety);
+
+    raft_set_current_term(r, 300);
+    raft_set_commit_idx(r, 4);
+    raft_node_set_next_idx(raft_get_node(r, 2), 2);
+    raft_send_appendentries_all(r);
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -4388,6 +4427,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_recv_appendreq_from_unknown_node);
     SUITE_ADD_TEST(suite, TestRaft_unknown_node_can_become_leader);
     SUITE_ADD_TEST(suite, TestRaft_removed_node_starts_election);
+    SUITE_ADD_TEST(suite, TestRaft_verify_append_entries_fields_are_set);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
