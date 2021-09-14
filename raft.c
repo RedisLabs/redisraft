@@ -50,17 +50,30 @@ static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
+static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RaftReq* req = entry->user_data;
+
+    if (!req) {
+        return NULL;
+    }
+
+    entry->user_data = NULL;
+    entry->free_func = NULL;
+    rr->client_attached_entries--;
+
+    return req;
+}
+
 /* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
  * in a RaftReq should keep the client blocked until the log entry is committed and applied.
  */
 
 static void entryFreeAttachedRaftReq(raft_entry_t *ety)
 {
-    RaftReq *req = (RaftReq *) ety->user_data;
-    ety->user_data = NULL;
+    RaftReq *req = entryDetachRaftReq(&redis_raft, ety);
 
     if (req) {
-        redis_raft.client_attached_entries--;
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
         RaftReqFree(req);
     }
@@ -213,8 +226,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     if (req) {
         /* Free request now, we don't need it anymore */
-        entry->user_data = NULL;
-        rr->client_attached_entries--;
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
 }
@@ -1738,12 +1750,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
-    raft_entry_release(entry);
-
     if (e != 0) {
         replyRaftError(req->ctx, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
         goto exit;
     }
+
+    raft_entry_release(entry);
 
     /* If we're a single node we can try to apply now, as we have no need
      * or way to wait for AE responses to do that.
