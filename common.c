@@ -54,20 +54,20 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
 
     switch (error) {
         case RAFT_ERR_NOT_LEADER:
-            RedisModule_ReplyWithError(ctx, "-ERR not leader");
+            RedisModule_ReplyWithError(ctx, "ERR not leader");
             break;
         case RAFT_ERR_SHUTDOWN:
             LOG_ERROR("Raft requires immediate shutdown!");
             RedisModule_Call(ctx, "SHUTDOWN", "");
             break;
         case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
-            RedisModule_ReplyWithError(ctx, "-ERR a voting change is already in progress");
+            RedisModule_ReplyWithError(ctx, "ERR a voting change is already in progress");
             break;
         case RAFT_ERR_NOMEM:
-            RedisModule_ReplyWithError(ctx, "-OOM Raft out of memory");
+            RedisModule_ReplyWithError(ctx, "OOM Raft out of memory");
             break;
         default:
-            snprintf(buf, sizeof(buf) - 1, "-ERR Raft error %d", error);
+            snprintf(buf, sizeof(buf) - 1, "ERR Raft error %d", error);
             RedisModule_ReplyWithError(ctx, buf);
             break;
     }
