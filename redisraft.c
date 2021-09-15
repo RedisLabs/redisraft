@@ -771,20 +771,17 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
             REDISRAFT_VERSION,
             REDISRAFT_GIT_SHA1);
 
-    /* Create a logging context */
-    if (RedisModule_GetDetachedThreadSafeContext) {
-        redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
-    } else {
-        redis_raft_log_ctx = RedisModule_GetThreadSafeContext(NULL);
-    }
-
     /* Sanity check Redis version */
     if (RedisModule_SubscribeToServerEvent == NULL ||
             RedisModule_RegisterCommandFilter == NULL ||
-            RedisModule_GetCommandKeys == NULL) {
+            RedisModule_GetCommandKeys == NULL ||
+            RedisModule_GetDetachedThreadSafeContext == NULL) {
         RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0.9 or newer!");
         return REDISMODULE_ERR;
     }
+
+    /* Create a logging context */
+    redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
 
     /* Report arguments */
     size_t str_len = 1024;
