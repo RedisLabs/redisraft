@@ -868,7 +868,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     int alen;
 
     /* Make sure we have a leader, or return a -CLUSTERDOWN message */
-    raft_node_t *leader_node = raft_get_current_leader_node(rr->raft);
+    raft_node_t *leader_node = raft_get_leader_node(rr->raft);
     if (!leader_node) {
         RedisModule_ReplyWithError(req->ctx,
                 "CLUSTERDOWN No raft leader");
@@ -897,7 +897,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
             alen += addClusterSlotNodeReply(rr, req->ctx, leader_node);
             for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
                 raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
-                if (raft_node_get_id(raft_node) == raft_get_current_leader(rr->raft) ||
+                if (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft) ||
                         !raft_node_is_active(raft_node)) {
                     continue;
                 }
