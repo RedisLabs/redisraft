@@ -488,6 +488,7 @@ void raft_become_follower(raft_server_t* me_)
     raft_set_state(me_, RAFT_STATE_FOLLOWER);
     raft_randomize_election_timeout(me_);
     me->timeout_elapsed = 0;
+    me->leader_id = RAFT_NODE_ID_NONE;
 }
 
 static int msgid_cmp(const void *a, const void *b)
@@ -648,7 +649,7 @@ int raft_recv_appendentries_response(raft_server_t* me_,
         if (0 != e)
             return e;
         raft_become_follower(me_);
-        me->leader_id = RAFT_NODE_ID_NONE;
+
         return 0;
     }
     else if (me->current_term != r->term)
@@ -932,7 +933,6 @@ int raft_recv_requestvote(raft_server_t* me_,
             goto done;
         }
         raft_become_follower(me_);
-        me->leader_id = RAFT_NODE_ID_NONE;
     }
 
     if (me->current_term > vr->term) {
@@ -1011,7 +1011,7 @@ int raft_recv_requestvote_response(raft_server_t* me_,
         if (0 != e)
             return e;
         raft_become_follower(me_);
-        me->leader_id = RAFT_NODE_ID_NONE;
+
         return 0;
     }
 
