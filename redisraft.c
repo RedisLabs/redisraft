@@ -163,11 +163,12 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
-    if (sscanf(tmpstr, "%ld:%d:%ld:%ld",
+    if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld",
+                &req->r.requestvote.msg.prevote,
                 &req->r.requestvote.msg.term,
                 &req->r.requestvote.msg.candidate_id,
                 &req->r.requestvote.msg.last_log_idx,
-                &req->r.requestvote.msg.last_log_term) != 4) {
+                &req->r.requestvote.msg.last_log_term) != 5) {
         RedisModule_ReplyWithError(ctx, "invalid message");
         goto error_cleanup;
     }
@@ -306,12 +307,13 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
-    if (sscanf(tmpstr, "%ld:%ld:%ld:%ld:%lu",
+    if (sscanf(tmpstr, "%d:%ld:%ld:%ld:%ld:%lu",
+                &req->r.appendentries.msg.leader_id,
                 &req->r.appendentries.msg.term,
                 &req->r.appendentries.msg.prev_log_idx,
                 &req->r.appendentries.msg.prev_log_term,
                 &req->r.appendentries.msg.leader_commit,
-                &req->r.appendentries.msg.msg_id) != 5) {
+                &req->r.appendentries.msg.msg_id) != 6) {
         RedisModule_ReplyWithError(ctx, "invalid message");
         goto error_cleanup;
     }

@@ -252,16 +252,20 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
         return;
     }
 
-    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2 ||
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 4 ||
             reply->element[0]->type != REDIS_REPLY_INTEGER ||
-            reply->element[1]->type != REDIS_REPLY_INTEGER) {
+            reply->element[1]->type != REDIS_REPLY_INTEGER ||
+            reply->element[2]->type != REDIS_REPLY_INTEGER ||
+            reply->element[3]->type != REDIS_REPLY_INTEGER) {
         NODE_LOG_ERROR(node, "invalid RAFT.REQUESTVOTE reply");
         return;
     }
 
     msg_requestvote_response_t response = {
-        .term = reply->element[0]->integer,
-        .vote_granted = reply->element[1]->integer
+        .prevote = reply->element[0]->integer,
+        .request_term = reply->element[1]->integer,
+        .term = reply->element[2]->integer,
+        .vote_granted = reply->element[3]->integer
     };
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
@@ -292,9 +296,10 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %ld:%d:%ld:%ld",
+                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
+                msg->prevote,
                 msg->term,
                 msg->candidate_id,
                 msg->last_log_idx,
@@ -389,7 +394,8 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     argvlen[2] = snprintf(source_node_str, sizeof(source_node_str)-1, "%d", raft_get_nodeid(raft));
 
     argv[3] = msg_str;
-    argvlen[3] = snprintf(msg_str, sizeof(msg_str)-1, "%ld:%ld:%ld:%ld:%lu",
+    argvlen[3] = snprintf(msg_str, sizeof(msg_str)-1, "%d:%ld:%ld:%ld:%ld:%lu",
+            msg->leader_id,
             msg->term,
             msg->prev_log_idx,
             msg->prev_log_term,
@@ -488,10 +494,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
 /* ------------------------------------ Utility Callbacks ------------------------------------ */
 
-static void raftLog(raft_server_t *raft, raft_node_t *node, void *user_data, const char *buf)
+static void raftLog(raft_server_t *raft, raft_node_id_t node, void *user_data, const char *buf)
 {
-    if (node) {
-        Node *n = raft_node_get_udata(node);
+    raft_node_t* raft_node = raft_get_node(raft, node);
+    if (raft_node) {
+        Node *n = raft_node_get_udata(raft_node);
         if (n) {
             NODE_TRACE(n, "<raftlib> %s", buf);
             return;
@@ -1316,7 +1323,9 @@ static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    RedisModule_ReplyWithArray(req->ctx, 2);
+    RedisModule_ReplyWithArray(req->ctx, 4);
+    RedisModule_ReplyWithLongLong(req->ctx, response.prevote);
+    RedisModule_ReplyWithLongLong(req->ctx, response.request_term);
     RedisModule_ReplyWithLongLong(req->ctx, response.term);
     RedisModule_ReplyWithLongLong(req->ctx, response.vote_granted);
 
@@ -1821,7 +1830,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             getStateStr(rr),
             role,
             me ? (raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no") : "-",
-            rr->raft ? raft_get_current_leader(rr->raft) : -1,
+            rr->raft ? raft_get_leader_id(rr->raft) : -1,
             rr->raft ? raft_get_current_term(rr->raft) : 0,
             rr->raft ? raft_get_num_nodes(rr->raft) : 0,
             rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0);

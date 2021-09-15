@@ -106,7 +106,7 @@ RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
     static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
 
-    raft_node_t *leader = raft_get_current_leader_node(rr->raft);
+    raft_node_t *leader = raft_get_leader_node(rr->raft);
     if (!leader) {
         RedisModule_ReplyWithError(req->ctx, err_clusterdown);
         return RR_ERROR;
