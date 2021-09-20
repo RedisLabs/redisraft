@@ -208,8 +208,15 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     int i;
     for (i = 0; i < argc - 1; i++) {
-        cmd->argv[i] =  argv[i + 1];
-        RedisModule_RetainString(req->ctx, cmd->argv[i]);
+        /* TODO: We currently duplicate the string instead of using RetainString
+         * due to a problem introduced by https://github.com/redis/redis/pull/5834
+         * where a retained string may still be mutated upon returning to Redis,
+         * so we end up with a race that can result with corruption before we
+         * serialize the request into a log entry entry.
+         *
+         * Revisit this if/when the Module API addresses this issue in a better way.
+         */
+        cmd->argv[i] = RedisModule_CreateStringFromString(NULL, argv[i + 1]);
     }
     RaftReqSubmit(&redis_raft, req);
 
