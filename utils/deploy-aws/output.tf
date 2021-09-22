@@ -1,5 +1,5 @@
 output "cluster_node_private_addr" {
-   description = "Private addressess of cluster nodes"
+   description = "Private addresses of cluster nodes"
    value = aws_instance.node.*.private_ip
 }
 
