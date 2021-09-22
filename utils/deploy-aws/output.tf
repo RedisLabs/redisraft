@@ -4,7 +4,7 @@ output "cluster_node_private_addr" {
 }
 
 output "cluster_node_public_addr" {
-   description = "Public addressess of cluster nodes"
+   description = "Public addresses of cluster nodes"
    value = aws_instance.node.*.public_ip
 }
 
