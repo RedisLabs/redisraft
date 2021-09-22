@@ -1,0 +1,5 @@
+---
+home_dir: "{{ ansible_env.HOME }}"
+build_dir: "{{ home_dir }}/build"
+redisraft_build_dir: "{{ build_dir }}/redisraft"
+redis_build_dir: "{{ build_dir }}/redis"

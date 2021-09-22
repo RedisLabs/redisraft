@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+
+[Unit]
+Description=RedisRaft Instance
+After=network.target
+
+[Service]
+WorkingDirectory={{ runtime_dir }}/redisraft-%i
+Type=notify
+LimitNOFILE=65535
+User={{ runtime_user }}
+ExecStart={{ install_dir }}/bin/redis-server {{ runtime_dir }}/redisraft-%i/redis.conf
+StandardOutput=file:/{{ runtime_dir }}/redisraft-%i/stderr.log

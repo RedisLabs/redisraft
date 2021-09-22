@@ -1,0 +1,19 @@
+---
+
+# Deploy everything
+
+- name: Deploy RedisRaft Cluster
+  hosts: nodes
+  remote_user: ubuntu
+
+  roles:
+    - common
+    - node
+
+- name: Deploy Control node
+  hosts: control
+  remote_user: ubuntu
+
+  roles:
+    - common
+    - control

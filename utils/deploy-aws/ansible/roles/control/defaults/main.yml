@@ -1,0 +1,3 @@
+---
+memtier_benchmark_url: https://github.com/redislabs/memtier_benchmark
+memtier_benchmark_version: master
