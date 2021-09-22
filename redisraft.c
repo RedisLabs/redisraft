@@ -426,10 +426,18 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_LOADSNAPSHOT);
-    req->r.loadsnapshot.snapshot = argv[4];
+
+    /* TODO: We currently duplicate the string instead of using RetainString
+     * due to a problem introduced by https://github.com/redis/redis/pull/5834
+     * where a retained string may still be mutated upon returning to Redis,
+     * so we end up with a race that can result with corruption before we
+     * serialize the request into a log entry entry.
+     *
+     * Revisit this if/when the Module API addresses this issue in a better way.
+     */
+    req->r.loadsnapshot.snapshot = RedisModule_CreateStringFromString(NULL, argv[4]);
     req->r.loadsnapshot.idx = idx;
     req->r.loadsnapshot.term = term;
-    RedisModule_RetainString(ctx, req->r.loadsnapshot.snapshot);
 
     RaftReqSubmit(&redis_raft, req);
 
