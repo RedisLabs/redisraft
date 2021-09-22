@@ -20,7 +20,7 @@ Some chaos we generate:
 
 Usage:
   virtraft --servers SERVERS [-d RATE] [-D RATE] [-c RATE] [-C RATE] [-m RATE]
-                             [-P RATE] [-s SEED] [-i ITERS] [-p] [--tsv]
+                             [-P RATE] [-s SEED] [-i ITERS] [-p] [--tsv] [--rqm MULTI]
                              [-q] [-v] [-l LEVEL] [-j] [-L LOGFILE] [--duplex_partition]
   virtraft --version
   virtraft --help
@@ -41,6 +41,7 @@ Options:
   -i --iterations ITERS      Number of iterations before the simulation ends
                              [default: 1000]
   --tsv                      Output node status tab separated values at exit
+  --rqm MULTI                multiplier to use for node_id in read_queue test [default: 10000000000]
   -v --verbose               Show debug logs
   -j --json_output           JSON output for diagnostics
   -l --log_level LEVEL       Set log level
@@ -253,10 +254,9 @@ def get_voting_node_ids(leader):
 
 
 def verify_read(arg):
-    leader = find_leader()
-    if leader is None:
-        logger.error("failed to find leader")
-        os._exit(-1)
+    node_id = int(arg / net.rqm)
+    arg = arg % net.rqm
+    leader = net.servers[node_id - 1]
 
     voter_ids = get_voting_node_ids(leader)
     num_nodes = len(voter_ids)
@@ -266,16 +266,14 @@ def verify_read(arg):
     required = int(num_nodes / 2) + 1
     count = 0
 
-    leader_term = lib.raft_get_current_term(net.servers[leader.id-1].raft)
-
     for i in voter_ids:
         if net.servers[i-1] == leader:
             count += 1
             continue
 
-        msg_id = lib.raft_get_max_seen_msg_id(net.servers[i-1].raft)
-        follower_term = lib.raft_get_current_term(net.servers[i-1].raft)
-        if msg_id >= arg and leader_term == follower_term:
+        node = lib.raft_get_node(net.servers[i-1].raft, leader.id)
+        msg_id = lib.raft_node_get_max_seen_msg_id(node)
+        if msg_id >= arg:
             count += 1
 
     if count < required:
@@ -284,7 +282,7 @@ def verify_read(arg):
 
 
 def handle_read_queue(arg, can_read):
-    val = int(ffi.cast("int", arg))
+    val = int(ffi.cast("long", arg))
     if can_read != 0:
         verify_read(val)
         logger.debug(f"handling read_request {val}")
@@ -327,6 +325,7 @@ class Network(object):
         self.no_random_period = False
         self.duplex_partition = False
         self.last_seen_read_queue_msg_id = -1
+        self.rqm = 10000000000
 
         self.server_id = 0
 
@@ -367,9 +366,9 @@ class Network(object):
     def push_read(self):
         for sv in self.active_servers:
             if lib.raft_is_leader(sv.raft):
-                logger.debug(f"adding a read_request to {sv.id}")
                 msg_id = lib.raft_get_msg_id(sv.raft) + 1
-                lib.raft_queue_read_request(sv.raft, sv.handle_read_queue, ffi.cast("void *", msg_id))
+                arg = sv.id * net.rqm + msg_id
+                lib.raft_queue_read_request(sv.raft, sv.handle_read_queue, ffi.cast("void *", arg))
 
     def id2server(self, id):
         for server in self.servers:
@@ -1280,6 +1279,7 @@ if __name__ == '__main__':
     net.partition_rate = int(args['--partition_rate'])
     net.no_random_period = 1 == int(args['--no_random_period'])
     net.duplex_partition = 1 == int(args['--duplex_partition'])
+    net.rqm = int(args['--rqm'])
 
     net.num_of_servers = int(args['--servers'])
 
@@ -1294,9 +1294,9 @@ if __name__ == '__main__':
     for i in range(0, int(args['--iterations'])):
         net.iteration += 1
         try:
-            net.push_read()
-            net.poll_messages()
             net.periodic()
+            net.poll_messages()
+            net.push_read()
             net.poll_messages()
         except:
             # for server in net.servers:

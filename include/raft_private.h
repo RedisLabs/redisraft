@@ -172,9 +172,11 @@ extern void *(*raft_calloc)(size_t nmemb, size_t size);
 extern void *(*raft_realloc)(void *ptr, size_t size);
 extern void (*raft_free)(void *ptr);
 
-/* get the max message id this server has seen from its current leader, reset to 0 on term change */
-raft_msg_id_t raft_get_max_seen_msg_id(raft_server_t* me_);
-/* get the server's (primarily for leader) current msg_id */
+/* update the max_seen_msg_id for this node */
+void raft_node_update_max_seen_msg_id(raft_node_t *me_, raft_msg_id_t msg_id);
+/* get the max message id this server has seen from its the specified node */
+raft_msg_id_t raft_node_get_max_seen_msg_id(raft_node_t *me_);
+/* get the server's current msg_id */
 raft_msg_id_t raft_get_msg_id(raft_server_t* me_);
 
 

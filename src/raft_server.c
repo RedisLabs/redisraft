@@ -778,8 +778,8 @@ int raft_recv_appendentries(
         goto out;
     }
 
-    if (me->max_seen_msg_id < ae->msg_id) {
-        me->max_seen_msg_id = ae->msg_id;
+    if (node != NULL) {
+        raft_node_update_max_seen_msg_id(node, ae->msg_id);
     }
 
     /* update current leader because ae->term is up to date */

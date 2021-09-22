@@ -36,6 +36,7 @@ typedef struct
     /* last AE heartbeat response received */
     raft_term_t last_acked_term;
     raft_msg_id_t last_acked_msgid;
+    raft_msg_id_t max_seen_msgid;
 } raft_node_private_t;
 
 raft_node_t* raft_node_new(void* udata, raft_node_id_t id)
@@ -206,4 +207,18 @@ raft_msg_id_t raft_node_get_last_acked_msgid(raft_node_t* me_)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
     return me->last_acked_msgid;
+}
+
+void raft_node_update_max_seen_msg_id(raft_node_t *me_, raft_msg_id_t msg_id)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    if (msg_id > me->max_seen_msgid) {
+        me->max_seen_msgid = msg_id;
+    }
+}
+
+raft_msg_id_t raft_node_get_max_seen_msg_id(raft_node_t *me_)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    return me->max_seen_msgid;
 }
