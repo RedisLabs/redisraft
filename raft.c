@@ -644,8 +644,12 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
             LOG_INFO("State change: Node is now a follower, term %ld",
                     raft_get_current_term(raft));
             break;
+        case RAFT_STATE_PRECANDIDATE:
+            LOG_INFO("State change: Election starting, node is now a pre-candidate, term %ld",
+                     raft_get_current_term(raft));
+            break;
         case RAFT_STATE_CANDIDATE:
-            LOG_INFO("State change: Election starting, node is now a candidate, term %ld",
+            LOG_INFO("State change: Node is now a candidate, term %ld",
                     raft_get_current_term(raft));
             break;
         case RAFT_STATE_LEADER:
@@ -1788,23 +1792,26 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 {
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
+    const char* role;
 
-    char role[10];
     if (!rr->raft) {
-        strcpy(role, "-");
+        role = "-";
     } else {
         switch (raft_get_state(rr->raft)) {
             case RAFT_STATE_FOLLOWER:
-                strcpy(role, "follower");
+                role = "follower";
                 break;
             case RAFT_STATE_LEADER:
-                strcpy(role, "leader");
+                role = "leader";
+                break;
+            case RAFT_STATE_PRECANDIDATE:
+                role = "pre-candidate";
                 break;
             case RAFT_STATE_CANDIDATE:
-                strcpy(role, "candidate");
+                role = "candidate";
                 break;
             default:
-                strcpy(role, "(none)");
+                role = "(none)";
                 break;
         }
     }
