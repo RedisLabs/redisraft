@@ -23,11 +23,10 @@ jobs:
     - name: Set repository variables
       env:
         REDISRAFT_REPO: 'redislabs/redisraft'
-        REDISRAFT_VERSION: ${{ env.GITHUB_SHA }}
+        REDISRAFT_VERSION: ${{ github.sha }}
       run: |
         echo "REDISRAFT_REPO=${{ github.event.inputs.repository || env.REDISRAFT_REPO }}" >> $GITHUB_ENV
         echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV
-        echo "repository:$REDISRAFT_REPO version:$REDISRAFT_VERSION"
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
     - name: Build containers
