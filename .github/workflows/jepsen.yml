@@ -3,18 +3,32 @@ name: Jepsen
 on:
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Repository, e.g redislabs/redisraft'
+        required: true
+      version:
+        description: 'Commit hash, e.g 98d8f29'
+        required: true
 
 jobs:
   jepsen:
     runs-on: ubuntu-20.04
-    if: github.repository == 'redislabs/redisraft'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
     steps:
     - uses: actions/checkout@v1
+    - name: Set repository variables
+      env:
+        REDISRAFT_REPO: 'redislabs/redisraft'
+        REDISRAFT_VERSION: ${{ github.sha }}
+      run: |
+        echo "REDISRAFT_REPO=${{ github.event.inputs.repository || env.REDISRAFT_REPO }}" >> $GITHUB_ENV
+        echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
-    - name: Get revision
-      id: vars
-      run: echo "::set-output name=git_sha::$(git rev-parse --short HEAD)"
     - name: Build containers
       run: cd jepsen/docker && ./genkeys.sh && docker-compose build
     - name: Start containers
@@ -30,7 +44,8 @@ jobs:
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
                   --redis-version 6.2.2 \
-                  --raft-version ${{ steps.vars.outputs.git_sha }} | rg --passthrough '^0 failures'
+                  --raft-repo https://github.com/${{ env.REDISRAFT_REPO }} \
+                  --raft-version ${{ env.REDISRAFT_VERSION }} | rg --passthrough '^0 failures'
     - name: Archive Jepsen results
       uses: actions/upload-artifact@v2
       if: failure()
