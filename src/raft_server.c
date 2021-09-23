@@ -266,11 +266,11 @@ void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, raft_i
     if (!raft_entry_is_cfg_change(ety))
         return;
 
-    if (!me->cb.log_get_node_id)
+    if (!me->cb.get_node_id)
         return;
 
     void* udata = raft_get_udata(me_);
-    raft_node_id_t node_id = me->cb.log_get_node_id(me_, udata, ety, idx);
+    raft_node_id_t node_id = me->cb.get_node_id(me_, udata, ety, idx);
     raft_node_t* node = raft_get_node(me_, node_id);
     int is_self = node_id == raft_get_nodeid(me_);
 
@@ -315,11 +315,11 @@ void raft_handle_remove_cfg_change(raft_server_t* me_, raft_entry_t* ety, const 
     if (!raft_entry_is_cfg_change(ety))
         return;
 
-    if (!me->cb.log_get_node_id)
+    if (!me->cb.get_node_id)
         return;
 
     void* udata = raft_get_udata(me_);
-    raft_node_id_t node_id = me->cb.log_get_node_id(me_, udata, ety, idx);
+    raft_node_id_t node_id = me->cb.get_node_id(me_, udata, ety, idx);
     raft_node_t* node = raft_get_node(me_, node_id);
 
     switch (ety->type)
@@ -1194,7 +1194,7 @@ int raft_apply_entry(raft_server_t* me_)
     if (!raft_entry_is_cfg_change(ety))
         goto exit;
 
-    raft_node_id_t node_id = me->cb.log_get_node_id(me_, raft_get_udata(me_), ety, log_idx);
+    raft_node_id_t node_id = me->cb.get_node_id(me_, raft_get_udata(me_), ety, log_idx);
     raft_node_t* node = raft_get_node(me_, node_id);
 
     switch (ety->type) {

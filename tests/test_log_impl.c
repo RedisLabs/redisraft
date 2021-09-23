@@ -11,7 +11,7 @@
 #include "raft.h"
 #include "helpers.h"
 
-static int __logentry_get_node_id(
+static raft_node_id_t __get_node_id(
     raft_server_t* raft,
     void *udata,
     raft_entry_t *ety,
@@ -131,8 +131,7 @@ void TestLogImpl_pop(CuTest * tc)
 
     void *r = raft_new();
     raft_cbs_t funcs = {
-        .log_get_node_id = __logentry_get_node_id
-    };
+        .get_node_id = __get_node_id};
 
     raft_set_callbacks(r, &funcs, NULL);
 

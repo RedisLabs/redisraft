@@ -360,6 +360,25 @@ typedef int (
     void *user_data,
     raft_entry_t *entry,
     raft_index_t entry_idx
+);
+
+/** Callback for determining which node this configuration log entry
+ * affects. This call only applies to configuration change log entries.
+ * @return the node ID of the node
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] entry The entry that the event is happening to.
+ * @param[in] entry_idx The entries index in the log
+*  @return the node ID of the node
+ * */
+typedef raft_node_id_t (
+*func_get_node_id_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_entry_t *entry,
+    raft_index_t entry_idx
     );
 
 /** Callback for being notified of membership changes.
@@ -427,7 +446,7 @@ typedef struct
     /** Callback for determining which node this configuration log entry
      * affects. This call only applies to configuration change log entries.
      * @return the node ID of the node */
-    func_logentry_event_f log_get_node_id;
+    func_get_node_id_f get_node_id;
 
     /** Callback for detecting when a non-voting node has sufficient logs. */
     func_node_has_sufficient_logs_f node_has_sufficient_logs;

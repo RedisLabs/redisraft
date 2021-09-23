@@ -211,7 +211,7 @@ def raft_logentry_pop(raft, udata, ety, ety_idx):
     return ffi.from_handle(udata).entry_pop(ety, ety_idx)
 
 
-def raft_logentry_get_node_id(raft, udata, ety, ety_idx):
+def raft_get_node_id(raft, udata, ety, ety_idx):
     change_entry = ffi.from_handle(lib.raft_entry_getdata(ety))
     assert isinstance(change_entry, ChangeRaftEntry)
     return change_entry.node_id
@@ -773,7 +773,7 @@ class RaftServer(object):
         cbs.applylog = self.raft_applylog
         cbs.persist_vote = self.raft_persist_vote
         cbs.persist_term = self.raft_persist_term
-        cbs.log_get_node_id = self.raft_logentry_get_node_id
+        cbs.get_node_id = self.raft_get_node_id
         cbs.node_has_sufficient_logs = self.raft_node_has_sufficient_logs
         cbs.notify_membership_event = self.raft_notify_membership_event
         cbs.log = self.raft_log
@@ -872,7 +872,7 @@ class RaftServer(object):
         self.raft_logentry_offer = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_offer)
         self.raft_logentry_poll = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_poll)
         self.raft_logentry_pop = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_pop)
-        self.raft_logentry_get_node_id = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_get_node_id)
+        self.raft_get_node_id = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_get_node_id)
         self.raft_node_has_sufficient_logs = ffi.callback("int(raft_server_t* raft, void *user_data, raft_node_t* node)", raft_node_has_sufficient_logs)
         self.raft_notify_membership_event = ffi.callback("void(raft_server_t* raft, void *user_data, raft_node_t* node, raft_entry_t* ety, raft_membership_e)", raft_notify_membership_event)
         self.raft_log = ffi.callback("void(raft_server_t*, raft_node_id_t, void*, const char* buf)", raft_log)

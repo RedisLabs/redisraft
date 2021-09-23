@@ -70,7 +70,7 @@ static int __raft_send_appendentries(raft_server_t* raft,
     return 0;
 }
 
-static int __raft_log_get_node_id(raft_server_t* raft,
+static raft_node_id_t __raft_get_node_id(raft_server_t* raft,
         void *udata,
         raft_entry_t *entry,
         raft_index_t entry_idx)
@@ -3737,7 +3737,7 @@ void TestRaft_leader_recv_entry_add_nonvoting_node_remove_and_revert(CuTest *tc)
             .applylog = __raft_applylog,
             .persist_term = __raft_persist_term,
             .node_has_sufficient_logs = __raft_node_has_sufficient_logs,
-            .log_get_node_id = __raft_log_get_node_id
+            .get_node_id = __raft_get_node_id
     };
     raft_log_cbs_t log_funcs = {
             .log_offer = __raft_log_offer
@@ -3785,8 +3785,7 @@ void TestRaft_leader_recv_appendentries_response_set_has_sufficient_logs_after_v
         .applylog = __raft_applylog,
         .persist_term = __raft_persist_term,
         .node_has_sufficient_logs = __raft_node_has_sufficient_logs,
-        .log_get_node_id = __raft_log_get_node_id
-    };
+        .get_node_id = __raft_get_node_id};
     raft_log_cbs_t log_funcs = {
         .log_offer = __raft_log_offer
     };
@@ -4120,8 +4119,7 @@ void TestRaft_recv_appendreq_from_unknown_node(CuTest * tc)
 void TestRaft_unknown_node_can_become_leader(CuTest * tc)
 {
     raft_cbs_t funcs = {
-        .log_get_node_id = __raft_log_get_node_id
-    };
+        .get_node_id = __raft_get_node_id};
 
     void *r = raft_new();
     raft_set_callbacks(r, &funcs, NULL);
@@ -4211,8 +4209,7 @@ void TestRaft_unknown_node_can_become_leader(CuTest * tc)
 void TestRaft_removed_node_starts_election(CuTest * tc)
 {
     raft_cbs_t funcs = {
-        .log_get_node_id = __raft_log_get_node_id
-    };
+        .get_node_id = __raft_get_node_id};
 
     void *r = raft_new();
     raft_set_callbacks(r, &funcs, NULL);
