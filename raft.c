@@ -296,14 +296,15 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
+                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld:%d",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->prevote,
                 msg->term,
                 msg->candidate_id,
                 msg->last_log_idx,
-                msg->last_log_term) != REDIS_OK) {
+                msg->last_log_term,
+                msg->transfer_leader) != REDIS_OK) {
         NODE_TRACE(node, "failed requestvote");
     } else {
         NodeAddPendingResponse(node, false);
