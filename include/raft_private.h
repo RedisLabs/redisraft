@@ -115,6 +115,11 @@ typedef struct {
     raft_msg_id_t max_seen_msg_id;
     raft_read_request_t *read_queue_head;
     raft_read_request_t *read_queue_tail;
+
+    raft_node_id_t node_transferring_leader_to; // the node we are targeting for leadership
+    long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
+
+    int timeout_now;
 } raft_server_private_t;
 
 int raft_election_start(raft_server_t* me);

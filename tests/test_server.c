@@ -3953,6 +3953,76 @@ void TestRaft_single_node_commits_noop(CuTest * tc)
     CuAssertStrEquals(tc, "success", str);
 }
 
+/*
+ * tests:
+ * 1) if requestvote transfer_leader flag is not set, will not accept a request vote, as not timed out
+ * 2) if requestvote transfer_leader flag is set, will accept a request vote, even though not timed out
+ */
+void TestRaft_server_recv_requestvote_with_transfer_node(CuTest * tc)
+{
+    raft_cbs_t funcs = { 0 };
+
+    /* Setup cluster */
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+    raft_add_node(r, NULL, 3, 0);
+    raft_set_current_term(r, 1);
+    raft_set_election_timeout(r, 1000);
+    raft_set_state(r, RAFT_STATE_LEADER);
+
+    /* setup requestvote struct */
+    msg_requestvote_t rv = {
+            .term = 2,
+            .candidate_id = 2,
+            .last_log_idx = 0,
+            .last_log_term = 1,
+            .transfer_leader = 0,
+    };
+    msg_requestvote_response_t rvr;
+
+    /* test #1: try to request a vote without transfer leader flag */
+    raft_recv_requestvote(r, raft_get_node(r, 2), &rv, &rvr);
+    CuAssertTrue(tc, 1 != rvr.vote_granted);
+
+    /* test #2: try to request a vote with the transfer leader flag */
+    rv.transfer_leader = 1;
+    raft_recv_requestvote(r, raft_get_node(r, 2), &rv, &rvr);
+    CuAssertTrue(tc, 1 == rvr.vote_granted);
+}
+
+/*
+ * tests:
+ * 1) if we set timeout_now, then periodic function should always declare election, even when not timed out yet
+ */
+void TestRaft_targeted_node_becomes_candidate_when_before_real_timeout_occurs(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+            .persist_term = __raft_persist_term,
+            .persist_vote = __raft_persist_vote,
+            .send_requestvote = __raft_send_requestvote,
+    };
+
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+
+    raft_set_timeout_now(r);
+
+    /*  1 second election timeout */
+    raft_set_election_timeout(r, 1000);
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    /* i.e. not a timeout, only 1 out of 1000 */
+    raft_periodic(r, 1);
+
+    /* is a candidate now */
+    CuAssertTrue(tc, 1 == raft_is_precandidate(r));
+}
+
 void quorum_msg_id_correctness_cb(void* arg, int can_read)
 {
     (void) can_read;
@@ -4007,6 +4077,81 @@ void TestRaft_quorum_msg_id_correctness(CuTest * tc)
     raft_node_set_last_ack(raft_get_node(r, 3), 2, 1);
     raft_periodic(r, 200);
     CuAssertIntEquals(tc, 1, val);
+}
+
+int timeoutnow_sent = 0;
+
+int __fake_timeoutnow(raft_server_t* raft, raft_node_t* node)
+{
+    timeoutnow_sent = 1;
+
+    return 0;
+}
+
+void TestRaft_callback_timeoutnow_at_set_if_up_to_date(CuTest *tc)
+{
+    timeoutnow_sent = 0;
+
+    raft_cbs_t funcs = {
+            .send_timeoutnow = __fake_timeoutnow,
+    };
+
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    raft_set_state(r, RAFT_STATE_LEADER);
+    raft_set_current_term(r, 2);
+    raft_set_commit_idx(r, 0);
+    raft_set_last_applied_idx(r, 0);
+
+    /* append entry to increment current_idx */
+    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 2, 1, 1, "aaaa");
+
+    /* shouldn't trigger callback as match_idx isn't uptodate */
+    raft_transfer_leader(r, 2, 0);
+    CuAssertTrue(tc, 0 == timeoutnow_sent);
+
+    raft_reset_transfer_leader(r);
+
+    /* should trigger callback */
+    raft_node_set_match_idx(raft_get_node(r, 2), 2);
+    raft_transfer_leader(r, 2, 0);
+    CuAssertTrue(tc, 1 == timeoutnow_sent);
+}
+
+void TestRaft_callback_timeoutnow_at_send_appendentries_response_if_up_to_date(CuTest *tc)
+{
+    timeoutnow_sent = 0;
+
+    raft_cbs_t funcs = {
+            .send_timeoutnow = __fake_timeoutnow,
+    };
+
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    raft_set_state(r, RAFT_STATE_LEADER);
+    raft_set_current_term(r, 2);
+    raft_set_commit_idx(r, 0);
+    raft_set_last_applied_idx(r, 0);
+
+    /* append entry to increment current_idx */
+    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 2, 1, 1, "aaaa");
+
+    /* shouldn't trigger callback as match_idx isn't uptodate */
+    raft_transfer_leader(r, 2, 0);
+    CuAssertTrue(tc, 0 == timeoutnow_sent);
+
+    msg_appendentries_response_t aer;
+    aer.term = 2;
+    aer.success = 1;
+    aer.current_idx = 2;
+    raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
+    CuAssertTrue(tc, 1 == timeoutnow_sent);
 }
 
 void TestRaft_leader_steps_down_if_there_is_no_quorum(CuTest * tc)
@@ -4422,6 +4567,10 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_unknown_node_can_become_leader);
     SUITE_ADD_TEST(suite, TestRaft_removed_node_starts_election);
     SUITE_ADD_TEST(suite, TestRaft_verify_append_entries_fields_are_set);
+    SUITE_ADD_TEST(suite, TestRaft_server_recv_requestvote_with_transfer_node);
+    SUITE_ADD_TEST(suite, TestRaft_targeted_node_becomes_candidate_when_before_real_timeout_occurs);
+    SUITE_ADD_TEST(suite, TestRaft_callback_timeoutnow_at_set_if_up_to_date);
+    SUITE_ADD_TEST(suite, TestRaft_callback_timeoutnow_at_send_appendentries_response_if_up_to_date);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);

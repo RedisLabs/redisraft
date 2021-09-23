@@ -288,3 +288,33 @@ raft_msg_id_t raft_get_msg_id(raft_server_t* me_)
     raft_server_private_t* me = (raft_server_private_t*)me_;
     return me->msg_id;
 }
+
+/* Stop trying to transfer leader to a targeted node
+ * internally used because either we have timed out our attempt or because we are no longer the leader
+ * possible to be used by a client as well.
+ */
+void raft_reset_transfer_leader(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    me->node_transferring_leader_to = RAFT_NODE_ID_NONE;
+    me->transfer_leader_time = 0;
+}
+
+/* return the targeted node_id if we are in the middle of attempting a leadership transfer
+ * return RAFT_NODE_ID_NONE if no leadership transfer is in progress
+ */
+raft_node_id_t raft_get_transfer_leader(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    return me->node_transferring_leader_to;
+}
+
+/* Forces the raft server to invoke an election on the next raft_periodic function call */
+void raft_set_timeout_now(raft_server_t* me_)
+{
+    raft_server_private_t* me = (raft_server_private_t*) me_;
+
+    me->timeout_now = 1;
+}
