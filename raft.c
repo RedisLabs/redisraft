@@ -2010,6 +2010,11 @@ static void handleDebugSendSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    if (req->r.debug.d.nodecfg.id == raft_get_nodeid(rr->raft)) {
+        RedisModule_ReplyWithError(req->ctx, "ERR leader cannot send snapshot to itself");
+        goto exit;
+    }
+
     if (raftSendSnapshot(rr->raft, rr, node) != 0) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to send snapshot");
         goto exit;
