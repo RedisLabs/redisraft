@@ -7,6 +7,3 @@
 [submodule "deps/raft"]
 	path = deps/raft
 	url = https://github.com/redislabs/raft
-[submodule "deps/cmocka"]
-	path = deps/cmocka
-	url = https://git.cryptomilk.org/projects/cmocka.git
