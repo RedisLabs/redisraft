@@ -48,7 +48,7 @@ jobs:
                   --raft-version ${{ env.REDISRAFT_VERSION }} | rg --passthrough '^0 failures'
     - name: Archive Jepsen results
       uses: actions/upload-artifact@v2
-      if: failure()
+      if: failure() || cancelled()
       with:
         name: jepsen-results
         path: ./jepsen/docker/store
