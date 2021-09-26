@@ -330,14 +330,15 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
+                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld:%d",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->prevote,
                 msg->term,
                 msg->candidate_id,
                 msg->last_log_idx,
-                msg->last_log_term) != REDIS_OK) {
+                msg->last_log_term,
+                msg->transfer_leader) != REDIS_OK) {
         NODE_TRACE(node, "failed requestvote");
     } else {
         NodeAddPendingResponse(node, false);
@@ -683,8 +684,12 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
             LOG_INFO("State change: Node is now a follower, term %ld",
                     raft_get_current_term(raft));
             break;
+        case RAFT_STATE_PRECANDIDATE:
+            LOG_INFO("State change: Election starting, node is now a pre-candidate, term %ld",
+                     raft_get_current_term(raft));
+            break;
         case RAFT_STATE_CANDIDATE:
-            LOG_INFO("State change: Election starting, node is now a candidate, term %ld",
+            LOG_INFO("State change: Node is now a candidate, term %ld",
                     raft_get_current_term(raft));
             break;
         case RAFT_STATE_LEADER:
@@ -706,7 +711,7 @@ raft_cbs_t redis_raft_callbacks = {
     .persist_vote = raftPersistVote,
     .persist_term = raftPersistTerm,
     .log = raftLog,
-    .log_get_node_id = raftLogGetNodeId,
+    .get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
@@ -1827,23 +1832,26 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 {
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
+    const char* role;
 
-    char role[10];
     if (!rr->raft) {
-        strcpy(role, "-");
+        role = "-";
     } else {
         switch (raft_get_state(rr->raft)) {
             case RAFT_STATE_FOLLOWER:
-                strcpy(role, "follower");
+                role = "follower";
                 break;
             case RAFT_STATE_LEADER:
-                strcpy(role, "leader");
+                role = "leader";
+                break;
+            case RAFT_STATE_PRECANDIDATE:
+                role = "pre-candidate";
                 break;
             case RAFT_STATE_CANDIDATE:
-                strcpy(role, "candidate");
+                role = "candidate";
                 break;
             default:
-                strcpy(role, "(none)");
+                role = "(none)";
                 break;
         }
     }

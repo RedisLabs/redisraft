@@ -163,12 +163,13 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
-    if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld",
+    if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld:%d",
                 &req->r.requestvote.msg.prevote,
                 &req->r.requestvote.msg.term,
                 &req->r.requestvote.msg.candidate_id,
                 &req->r.requestvote.msg.last_log_idx,
-                &req->r.requestvote.msg.last_log_term) != 5) {
+                &req->r.requestvote.msg.last_log_term,
+                &req->r.requestvote.msg.transfer_leader) != 6) {
         RedisModule_ReplyWithError(ctx, "invalid message");
         goto error_cleanup;
     }

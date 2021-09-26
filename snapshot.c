@@ -329,6 +329,9 @@ static int updateNodeFromSnapshot(RedisRaftCtx *rr, raft_node_t *node, SnapshotC
 {
     int ret = 0;
 
+    /* Clear inactive flag, a node in the snapshot cannot be inactive */
+    raft_node_set_active(node, 1);
+
     if (cfg->voting != raft_node_is_voting(node)) {
         raft_node_set_voting(node, cfg->voting);
         raft_node_set_voting_committed(node, cfg->voting);
