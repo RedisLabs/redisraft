@@ -242,26 +242,14 @@ static void raftSendNodeShutdown(raft_node_t *raft_node)
         return;
     }
 
-    char tmp[32];
-    snprintf(tmp, sizeof(tmp), "%d", raft_node_get_id(raft_node));
-
-    char* argv[2] = {
-        "RAFT.NODESHUTDOWN",
-        tmp
-    };
-
-    size_t argvlen[2] = {
-        strlen("RAFT.NODESHUTDOWN"),
-        strlen(tmp)
-    };
-
     if (!ConnIsConnected(node->conn)) {
         NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
         return;
     }
 
-    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), NULL,
-                        node, 2, (const char **)argv, argvlen) != REDIS_OK) {
+    if (redisAsyncCommand(ConnGetRedisCtx(node->conn), NULL, NULL,
+                "%s %d", "RAFT.NODESHUTDOWN",
+                (int) raft_node_get_id(raft_node)) != REDIS_OK) {
         NODE_TRACE(node, "failed to send raft.nodeshutdown");
     }
 }
