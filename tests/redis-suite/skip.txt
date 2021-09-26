@@ -1,96 +1,29 @@
 -- Blocking commands not supported
-BLPOP, LPUSH + DEL should not awake blocked client
-BLPOP, LPUSH + DEL + SET should not awake blocked client
-BLPOP with same key multiple times should work (issue #801)
-MULTI/EXEC is isolated from the point of view of BLPOP
 BLPOP with variadic LPUSH
-BRPOPLPUSH with zero timeout should block indefinitely
-BLMOVE left left with zero timeout should block indefinitely
-BLMOVE left right with zero timeout should block indefinitely
-BLMOVE right left with zero timeout should block indefinitely
-BLMOVE right right with zero timeout should block indefinitely
-BLMOVE (left, left) with a client BLPOPing the target list
-BLMOVE (left, right) with a client BLPOPing the target list
-BLMOVE (right, left) with a client BLPOPing the target list
-BLMOVE (right, right) with a client BLPOPing the target list
-BRPOPLPUSH with wrong destination type
-BRPOPLPUSH maintains order of elements after failure
-BRPOPLPUSH with multiple blocked clients
 Linked LMOVEs
-PUSH resulting from BRPOPLPUSH affect WATCH
-BLPOP when new key is moved into place
-BLPOP when result key is created by SORT..STORE
-BLPOP: with single empty list argument
-BLPOP: with non-integer timeout
-BLPOP: arguments are empty
-BRPOP: with single empty list argument
-BRPOP: with non-integer timeout
-BRPOP: arguments are empty
 client unblock tests
-BZPOPMIN, ZADD + DEL should not awake blocked client
-BZPOPMIN, ZADD + DEL + SET should not awake blocked client
-BZPOPMIN with same key multiple times should work
-MULTI/EXEC is isolated from the point of view of BZPOPMIN
-BZPOPMIN with variadic ZADD
-BZPOPMIN with zero timeout should block indefinitely
-BZPOPMIN, ZADD + DEL should not awake blocked client
-BZPOPMIN, ZADD + DEL + SET should not awake blocked client
-BZPOPMIN with same key multiple times should work
-MULTI/EXEC is isolated from the point of view of BZPOPMIN
-BZPOPMIN with variadic ZADD
-BZPOPMIN with zero timeout should block indefinitely
-BLPOP: with zero timeout should block indefinitely
-BRPOP: with zero timeout should block indefinitely
-BLMPOP_LEFT, LPUSH + DEL should not awake blocked client
-BLMPOP_LEFT, LPUSH + DEL + SET should not awake blocked client
-MULTI/EXEC is isolated from the point of view of BLMPOP_LEFT
-BLMPOP_LEFT with variadic LPUSH
-BLMPOP with multiple blocked clients
-Circular BRPOPLPUSH
-BRPOPLPUSH does not affect WATCH while still blocked
-BLMPOP_LEFT: with zero timeout should block indefinitely
-BLMPOP_RIGHT: with zero timeout should block indefinitely
-BLMPOP_LEFT when new key is moved into place
-BLMPOP_LEFT when result key is created by SORT..STORE
-BLMPOP_LEFT: with single empty list argument
-BLMPOP_LEFT: with non-integer timeout
-BLMPOP_LEFT: arguments are empty
-BLMPOP_RIGHT when new key is moved into place
-BLMPOP_RIGHT when result key is created by SORT..STORE
-BLMPOP_RIGHT: with single empty list argument
-BLMPOP_RIGHT: with non-integer timeout
-BLMPOP_RIGHT: arguments are empty
+.*B[RL]POP.*
+.*B[RLZ]MPOP.*
+.*BLMOVE.*
+.*B[LR]POP.*
+.*BZM?POP_?MIN.*
+.*BZM?POP_?MAX.*
+LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
+
 
 -- RESP3 Not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/100
-ZINTER RESP3 - ziplist
-Basic ZPOP - ziplist RESP3
-ZPOP with count - ziplist RESP3
-ZINTER RESP3 - skiplist
-Basic ZPOP - skiplist RESP3
-ZPOP with count - skiplist RESP3
-ZRANGESTORE RESP3
-ZRANDMEMBER with RESP3
-HRANDFIELD with RESP3
-RESP3 attributes
-RESP3 attributes readraw
-RESP3 attributes on RESP2
-ZINTER RESP3 - listpack
-Basic ZPOP - listpack RESP3
-ZPOP with count - listpack RESP3
+.*RESP3.*
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
-Blocking XREAD waiting new data
-XREAD: XADD + DEL should not awake client
-XREAD: XADD + DEL + LPUSH should not awake client
-XREAD with same stream name multiple times should work
-XREAD + multiple XADD inside transaction
-XREAD streamID edge (blocking)
-Blocking XREAD waiting old data
-XGROUP DESTROY should unblock XREADGROUP with -NOGROUP
-RENAME can unblock XREADGROUP with data
-RENAME can unblock XREADGROUP with -NOGROUP
+.*XREAD.*
+.*XADD.*
+.*XRANGE.*
+COPY basic usage for stream
+Keyspace notifications: stream events test
+lazy free a stream with all types of metadata
+lazy free a stream with deleted cgroup
 
 -- Timeouts and termination of Lua scripts is not possible when scripts are
 -- replicated and executed by individual nodes.
