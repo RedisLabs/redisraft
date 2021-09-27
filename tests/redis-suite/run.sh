@@ -38,6 +38,7 @@ run_tests() {
         --tags -needs:reset \
         --tags -needs:config-maxmemory \
         --tags -needs:latency \
+        --tags -stream \
         --tags -pause \
         --tags -tracking \
         --tags -cli \
