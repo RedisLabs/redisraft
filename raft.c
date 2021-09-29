@@ -231,6 +231,28 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     }
 }
 
+static void raftSendNodeShutdown(raft_node_t *raft_node)
+{
+    if (!raft_node) {
+        return;
+    }
+
+    Node *node = raft_node_get_udata(raft_node);
+    if (!node) {
+        return;
+    }
+
+    if (!ConnIsConnected(node->conn)) {
+        NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
+        return;
+    }
+
+    if (redisAsyncCommand(ConnGetRedisCtx(node->conn), NULL, NULL,
+                "RAFT.NODESHUTDOWN %d",
+                (int) raft_node_get_id(raft_node)) != REDIS_OK) {
+        NODE_TRACE(node, "failed to send raft.nodeshutdown");
+    }
+}
 
 /* ------------------------------------ RequestVote ------------------------------------ */
 
@@ -476,6 +498,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 LOG_DEBUG("Removing this node from the cluster");
                 return RAFT_ERR_SHUTDOWN;
             }
+
+            if (raft_is_leader(raft)) {
+                raftSendNodeShutdown(raft_get_node(raft, req->id));
+            }
+
             break;
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry, entry_idx);
@@ -2177,6 +2204,27 @@ exit:
     RaftReqFree(req);
 }
 
+static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
+        LOG_ERROR("Received invalid nodeshutdown message with id : %d.",
+                  req->r.node_shutdown.id);
+        return;
+    }
+
+    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+
+    if (rr->config->raft_log_filename) {
+        RaftLogArchiveFiles(rr);
+    }
+
+    if (rr->config->rdb_filename) {
+        archiveSnapshot(rr);
+    }
+
+    RaftReqFree(req);
+    exit(0);
+}
 
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
@@ -2194,5 +2242,6 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
+    handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
     NULL
 };

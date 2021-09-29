@@ -673,6 +673,30 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
+                               RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    long long node_id;
+    if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
+        (node_id && !VALID_NODE_ID(node_id))) {
+        RedisModule_ReplyWithError(ctx, "invalid node id");
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_NODE_SHUTDOWN);
+    req->r.node_shutdown.id = (raft_node_id_t) node_id;
+
+    RaftReqSubmit(rr, req);
+
+    return REDISMODULE_OK;
+}
 
 static void handleClientDisconnect(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
@@ -768,6 +792,11 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.debug",
                 cmdRaftDebug, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.nodeshutdown",
+                cmdRaftNodeShutdown, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
