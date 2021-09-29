@@ -248,7 +248,7 @@ static void raftSendNodeShutdown(raft_node_t *raft_node)
     }
 
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), NULL, NULL,
-                "%s %d", "RAFT.NODESHUTDOWN",
+                "RAFT.NODESHUTDOWN %d",
                 (int) raft_node_get_id(raft_node)) != REDIS_OK) {
         NODE_TRACE(node, "failed to send raft.nodeshutdown");
     }
