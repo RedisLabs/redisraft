@@ -22,9 +22,6 @@ library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
 
 ### Building
 
-The module is mostly self-contained; its few dependencies are available as git
-submodules under `deps`.
-
 To compile the module, you will need:
 * Build essentials (a compiler, GNU make, etc.)
 * CMake
@@ -32,8 +29,6 @@ To compile the module, you will need:
 
 To build, simply run:
 
-    git submodule init
-    git submodule update
     make
 
 ### Creating a RedisRaft Cluster

@@ -40,8 +40,6 @@ As a rule of thumb, make sure the amount of memory available for Redis is at lea
 Building
 --------
 
-The RedisRaft module is mostly self-contained; all of its dependencies are provided as git submodules under `deps`.
-
 To compile the module you will need:
 * Build essentials (a compiler, GNU make, etc.)
 * CMake
