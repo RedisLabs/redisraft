@@ -1,3 +1,0 @@
-[submodule "deps/raft"]
-	path = deps/raft
-	url = https://github.com/redislabs/raft
