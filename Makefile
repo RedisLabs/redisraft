@@ -89,7 +89,7 @@ TEST_OBJECTS = \
 	tests/test_serialization.o
 DUT_OBJECTS = \
 	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
-TEST_LIBS = $(BUILDDIR)/lib/libcmocka-static.a $(DUT_LIBS) -lpthread
+TEST_LIBS = $(BUILDDIR)/lib/libcmocka-static.a $(DUT_LIBS) -lpthread -ldl
 
 .PHONY: clean-tests
 clean-tests:

@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <strings.h>
+#include <stdlib.h>
 
 #include "redisraft.h"
 #include "crc16.h"

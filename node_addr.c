@@ -8,6 +8,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include "redisraft.h"
 
 /* Attempt to parse a node address in the form of <addr>:<port>
