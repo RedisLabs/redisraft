@@ -219,7 +219,7 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
 
     /* copy default options setup from redisAsyncConnect with support for timeout */
     redisOptions options = {0};
-    options.timeout = &conn->timeout;
+    options.connect_timeout = &conn->timeout;
 
     REDIS_OPTIONS_SET_TCP(&options, conn->ipaddr, conn->addr.port);
 
