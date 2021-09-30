@@ -1,6 +1,3 @@
-[submodule "deps/libuv"]
-	path = deps/libuv
-	url = https://github.com/libuv/libuv
 [submodule "deps/raft"]
 	path = deps/raft
 	url = https://github.com/redislabs/raft
