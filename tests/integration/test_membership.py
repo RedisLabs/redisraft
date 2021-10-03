@@ -253,3 +253,42 @@ def test_join_while_cluster_is_down(cluster):
     Thread(target=resume_nodes, daemon=True).start()
     cluster.add_node(raft_args={'join-timeout': 10}, single_run=True,
                             join_addr_list=[cluster.node(3).address])
+
+
+def test_transfer_not_leader(cluster):
+    cluster.create(3)
+
+    with raises(ResponseError, match="not leader"):
+        cluster.node(2).transfer_leader(3)
+
+
+def test_transfer_invalid(cluster):
+    cluster.create(3)
+
+    with raises(ResponseError, match="invalid node id"):
+        cluster.leader_node().transfer_leader(4)
+
+
+def test_transfer_succeed(cluster):
+    cluster.create(3);
+
+    cluster.leader_node().transfer_leader(2)
+
+
+def test_transfer_timeout(cluster):
+    cluster.create(3);
+    cluster.node(2).pause()
+    with raises(ResponseError, match='transfer timed out'):
+        cluster.leader_node().transfer_leader(2)
+
+
+def test_transfer_unexpected(cluster):
+    cluster.create(3)
+    cluster.node(2).pause()
+
+    def timeout():
+        time.sleep(0.1)
+        cluster.node(3).timeout_now()
+    Thread(target=timeout, daemon=True).start()
+    with raises(ResponseError, match="different node elected leader"):
+        cluster.leader_node().transfer_leader(2)

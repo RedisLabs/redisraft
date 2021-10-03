@@ -255,6 +255,7 @@ typedef struct RedisRaftCtx {
     raft_index_t last_snapshot_idx;
     raft_term_t last_snapshot_term;
     struct RaftReq *debug_req;    /* Current RAFT.DEBUG request context, if processing one */
+    struct RaftReq *transfer_req; /* RaftReq if a leader transfer is in progress */
     bool callbacks_set;         /* TODO: Needed? */
     int snapshot_child_fd;      /* Pipe connected to snapshot child process */
     RaftSnapshotInfo snapshot_info; /* Current snapshot info */
@@ -383,7 +384,9 @@ enum RaftReqType {
     RR_SHARDGROUP_ADD,
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
-    RR_NODE_SHUTDOWN
+    RR_NODE_SHUTDOWN,
+    RR_TRANSFER_LEADER,
+    RR_TIMEOUT_NOW,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -524,6 +527,7 @@ typedef struct RaftReq {
         struct {
             raft_node_id_t id;
         } node_shutdown;
+        raft_node_id_t node_to_transfer_leader;
     } r;
 } RaftReq;
 

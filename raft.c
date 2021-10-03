@@ -31,7 +31,10 @@ const char *RaftReqTypeStr[] = {
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUP_GET"
+    "RR_SHARDGROUP_GET",
+    "RR_SHARDGROUP_LINK",
+    "RR_TRANSFER_LEADER",
+    "RR_TIMEOUT_NOW",
 };
 
 /* Forward declarations */
@@ -454,6 +457,51 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     return 0;
 }
 
+/* ------------------------------------ Timeout Follower --------------------------------- */
+
+static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privdata)
+{
+    Node *node = privdata;
+    //RedisRaftCtx *rr = node->rr;
+
+    NodeDismissPendingResponse(node);
+
+    redisReply *reply = r;
+    if (!reply) {
+        NODE_TRACE(node, "RAFT.TIMEOUT_NOW failed: connection dropped.");
+        ConnMarkDisconnected(node->conn);
+        return;
+    }
+    if (reply->type == REDIS_REPLY_ERROR) {
+        NODE_TRACE(node, "RAFT.TIMEOUT_NOW error: %s", reply->str);
+        return;
+    }
+
+    if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str)) {
+        NODE_LOG_ERROR(node, "invalid RAFT.TIMEOUT_NOW reply");
+        return;
+    }
+}
+
+static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
+{
+    Node *node = raft_node_get_udata(raft_node);
+
+    if (!ConnIsConnected(node->conn)) {
+        NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
+        return 0;
+    }
+
+    if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleTimeoutNowResponse,
+                          node, "RAFT.TIMEOUT_NOW") != REDIS_OK) {
+        NODE_TRACE(node, "failed timeout now");
+    } else {
+        NodeAddPendingResponse(node, false);
+    }
+
+    return 0;
+}
+
 /* ------------------------------------ Log Callbacks ------------------------------------ */
 
 static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
@@ -665,6 +713,15 @@ static char *raftMembershipInfoString(raft_server_t *raft)
     return buf;
 }
 
+static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state);
+
+static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_transfer_state_e state)
+{
+    if (redis_raft.transfer_req) {
+        handleTransferLeaderComplete(raft, state);
+    }
+}
+
 static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
 {
     switch (state) {
@@ -704,7 +761,9 @@ raft_cbs_t redis_raft_callbacks = {
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
     .notify_membership_event = raftNotifyMembershipEvent,
-    .notify_state_event = raftNotifyStateEvent
+    .notify_state_event = raftNotifyStateEvent,
+    .send_timeoutnow = raftSendTimeoutNow,
+    .notify_transfer_event = raftNotifyTransferEvent,
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
@@ -1339,6 +1398,82 @@ void RaftReqHandleQueue(uv_async_t *handle)
 /*
  * Implementation of specific request types.
  */
+
+static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
+{
+    if (!redis_raft.transfer_req) {
+        LOG_ERROR("leader transfer update: but no req to correlate it to!");
+        return;
+    }
+
+    char e[40];
+    switch (state) {
+        case RAFT_STATE_LEADERSHIP_TRANSFER_EXPECTED_LEADER:
+            RedisModule_ReplyWithSimpleString(redis_raft.transfer_req->ctx, "OK");
+            break;
+        case RAFT_STATE_LEADERSHIP_TRANSFER_UNEXPECTED_LEADER:
+            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR different node elected leader");
+            break;
+        case RAFT_STATE_LEADERSHIP_TRANSFER_TIMEOUT:
+            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR transfer timed out");
+            break;
+        default:
+            snprintf(e, 40,"ERR unknown case: %d", state);
+            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, e);
+            break;
+    }
+
+    RaftReqFree(redis_raft.transfer_req);
+    redis_raft.transfer_req = NULL;
+}
+
+static void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
+{
+    int err;
+
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
+    if ((err = raft_transfer_leader(rr->raft, req->r.node_to_transfer_leader, 0)) != 0) {
+        char e[128];
+        switch (err) {
+            case RAFT_ERR_NOT_LEADER:
+                RedisModule_ReplyWithError(req->ctx, "ERR not leader");
+                break;
+            case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
+                RedisModule_ReplyWithError(req->ctx, "ERR transfer already in progress");
+                break;
+            case RAFT_ERR_INVALID_NODEID:
+                snprintf(e, 128, "ERR invalid node id: %d", req->r.node_to_transfer_leader);
+                RedisModule_ReplyWithError(req->ctx, e);
+                break;
+            default:
+                snprintf(e, 128, "ERR unknown error transferring leader: %d", err);
+                RedisModule_ReplyWithError(req->ctx, e);
+                break;
+        }
+        goto exit;
+    }
+    redis_raft.transfer_req = req;
+    return;
+
+exit:
+    RaftReqFree(req);
+}
+
+static void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
+{
+    if (checkRaftState(rr, req) == RR_ERROR) {
+        goto exit;
+    }
+
+    raft_set_timeout_now(rr->raft);
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
 
 static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -2249,5 +2384,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
     handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
+    handleTransferLeader,   /* RR_TRANSFER_LEADER */
+    handleTimeoutNow,       /* RR_TIMEOUT_NOW */
     NULL
 };
