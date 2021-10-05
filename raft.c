@@ -968,7 +968,8 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
 
 static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
 {
-    unsigned int id;
+    unsigned int tmp;
+    raft_node_id_t id;
 
     /* Generate a random id and validate:
      * 1. It's not zero (reserved value)
@@ -977,8 +978,8 @@ static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
      */
 
     do {
-        RedisModule_GetRandomBytes((unsigned char *) &id, sizeof(id));
-        id &= ~(1<<31);
+        RedisModule_GetRandomBytes((unsigned char *) &tmp, sizeof(tmp));
+        id = (raft_node_id_t) (tmp & ~(1u << 31));
     } while (!id || (rr->raft && raft_get_node(rr->raft, id) != NULL) || hasNodeIdBeenUsed(rr, id));
 
     return id;
