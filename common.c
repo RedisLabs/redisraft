@@ -176,7 +176,9 @@ bool parseMovedReply(const char *str, NodeAddr *addr)
 
     /* Handle current or cluster-style -MOVED replies. */
     const char *p = strrchr(str, ' ');
-    return NodeAddrParse(p + 1, strlen(p), addr);
+    /* Move the pointer past the space. */
+    p++;
+    return NodeAddrParse(p, strlen(p), addr);
 }
 
 /* Invoked when the connection is not connected or actively attempting
