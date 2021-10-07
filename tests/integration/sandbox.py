@@ -277,6 +277,12 @@ class RedisRaft(object):
     def current_index(self):
         return self.raft_info()['current_index']
 
+    def transfer_leader(self, target):
+        return self.client.execute_command('raft.transfer_leader', target)
+
+    def timeout_now(self):
+        return self.client.execute_command('raft.timeout_now')
+
     @staticmethod
     def _wait_for_condition(test_func, timeout_func, timeout=3):
         retries = timeout * 10

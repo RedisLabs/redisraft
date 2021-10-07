@@ -129,7 +129,61 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+/* RAFT.TRANSFER_LEADER [target_node_id]
+  *   Attempt to transfer raft cluster leadership to targeted node
+ * Reply:
+ * ???
+ */
+
+static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    int target_node_id;
+    if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR) {
+        LOG_ERROR("failed to convert %s", RedisModule_StringPtrLen(argv[1], NULL));
+        RedisModule_ReplyWithError(ctx, "invalid target node id");
+        return REDISMODULE_OK;
+    }
+
+    if (target_node_id == rr->config->id) {
+        RedisModule_ReplyWithError(ctx, "can't transfer to self");
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
+    req->r.node_to_transfer_leader = target_node_id;
+
+    RaftReqSubmit(rr, req);
+    return REDISMODULE_OK;
+}
+
+/* RAFT.TIMEOUT_NOW
+ *   instruct this node to force an election
+ * Reply:
+ * ???
+ */
+
+static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    if (argc != 1) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_TIMEOUT_NOW);
+    RaftReqSubmit(rr, req);
+
+    return REDISMODULE_OK;
+}
+
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]:[transfer_leader]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -777,6 +831,16 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.ae",
                 cmdRaftAppendEntries, "write", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.transfer_leader",
+                                  cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.timeout_now",
+                                  cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

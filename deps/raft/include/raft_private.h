@@ -118,6 +118,7 @@ typedef struct {
 
     raft_node_id_t node_transferring_leader_to; // the node we are targeting for leadership
     long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
+    int sent_timeout_now; // if we've already sent a leadership transfer signal
 
     int timeout_now;
 } raft_server_private_t;
@@ -184,5 +185,7 @@ raft_msg_id_t raft_node_get_max_seen_msg_id(raft_node_t *me_);
 /* get the server's current msg_id */
 raft_msg_id_t raft_get_msg_id(raft_server_t* me_);
 
+/* attempt to abort the leadership transfer */
+void raft_reset_transfer_leader(raft_server_t* me_, int timed_out);
 
 #endif /* RAFT_PRIVATE_H_ */
