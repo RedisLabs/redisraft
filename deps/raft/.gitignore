@@ -1,0 +1,10 @@
+*.o
+*.gcno
+*~
+libraft.a
+libraft.so
+.env/
+.hypothesis/
+**/__pycache__
+cmake-build*
+.idea
