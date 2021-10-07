@@ -715,11 +715,12 @@ static char *raftMembershipInfoString(raft_server_t *raft)
 
 static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state);
 
+/* just keep libraft callbacks together
+ * so this just calls the redisraft RaftReq compleition function, which is kept together with its functions
+ */
 static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_transfer_state_e state)
 {
-    if (redis_raft.transfer_req) {
-        handleTransferLeaderComplete(raft, state);
-    }
+    handleTransferLeaderComplete(raft, state);
 }
 
 static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
