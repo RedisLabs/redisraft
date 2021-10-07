@@ -36,8 +36,13 @@ typedef enum {
     RAFT_STATE_PRECANDIDATE,
     RAFT_STATE_CANDIDATE,
     RAFT_STATE_LEADER,
-    RAFT_STATE_LEADERSHIP_TRANSFER_FAILED
 } raft_state_e;
+
+typedef enum {
+    RAFT_STATE_LEADERSHIP_TRANSFER_TIMEOUT,
+    RAFT_STATE_LEADERSHIP_TRANSFER_UNEXPECTED_LEADER,
+    RAFT_STATE_LEADERSHIP_TRANSFER_EXPECTED_LEADER,
+} raft_transfer_state_e;
 
 /** Allow entries to apply while taking a snapshot */
 #define RAFT_SNAPSHOT_NONBLOCKING_APPLY     1
@@ -423,6 +428,22 @@ typedef void (
     raft_state_e state
     );
 
+/** Call for being notified of leadership transfer events.
+ *
+ *  Implementing this callback is optional
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] state the leadership transfer result
+ */
+typedef void (
+        *func_transfer_event_f
+)   (
+        raft_server_t* raft,
+        void *user_data,
+        raft_transfer_state_e state
+);
+
 /** Callback for sending TimeoutNow RPC messages
  * @param[in] raft The Raft server making this callback
  * @param[in] node The node that we are sending this message to
@@ -473,6 +494,9 @@ typedef struct
 
     /** Callback for being notified of state changes (optional). */
     func_state_event_f notify_state_event;
+
+    /** Callbakc for notified of transfer leadership events (optional) */
+    func_transfer_event_f notify_transfer_event;
 
     /** Callback for catching debugging log messages
      * This callback is optional */
@@ -1284,9 +1308,6 @@ void raft_process_read_queue(raft_server_t* me_);
  * timeout = timeout in ms before this transfer is aborted.  if 0, use default election timeout
  */
 int raft_transfer_leader(raft_server_t* me_, raft_node_id_t node_id, long timeout);
-
-/* attempt to abort the leadership transfer */
-void raft_reset_transfer_leader(raft_server_t* me_);
 
 /* get the targeted node_id if a leadership transfer is in progress, or RAFT_NODE_ID_NONE if not */
 raft_node_id_t raft_get_transfer_leader(raft_server_t* me_);
