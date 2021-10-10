@@ -428,17 +428,19 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
             msg->leader_commit,
             msg->msg_id);
 
-    argv[4] = nentries_str;
-    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%d", msg->n_entries);
-
     int i;
-    for (i = 0; i < msg->n_entries; i++) {
+    unsigned long total_size = 0;
+    for (i = 0; i < msg->n_entries && (redis_raft.send_ae_size_limit == 0 || total_size < redis_raft.send_ae_size_limit); i++) {
         raft_entry_t *e = msg->entries[i];
         argv[5 + i*2] = RedisModule_Alloc(64);
         argvlen[5 + i*2] = snprintf(argv[5 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
         argvlen[6 + i*2] = e->data_len;
         argv[6 + i*2] = e->data;
+        total_size += e->data_len;
     }
+
+    argv[4] = nentries_str;
+    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%d", i);
 
     if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), handleAppendEntriesResponse,
                 node, argc, (const char **)argv, argvlen) != REDIS_OK) {
@@ -447,7 +449,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
         NodeAddPendingResponse(node, false);
     }
 
-    for (i = 0; i < msg->n_entries; i++) {
+    while (--i >= 0) {
         RedisModule_Free(argv[5 + i*2]);
     }
 

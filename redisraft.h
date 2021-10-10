@@ -268,6 +268,7 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
     unsigned long snapshots_loaded;             /* Number of snapshots loaded */
+    unsigned long send_ae_size_limit;           /* soft limit in bytes of ae requests.  only one entry is allowed to exceed limit */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
