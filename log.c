@@ -429,18 +429,18 @@ static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config, int fl
     return log;
 }
 
-int writeLogHeader(FILE *logfile, RaftLog *log)
+int writeLogHeader(RaftLog *log)
 {
-    if (writeBegin(logfile, 8) < 0 ||
-        writeBuffer(logfile, "RAFTLOG", 7) < 0 ||
-        writeUnsignedInteger(logfile, RAFTLOG_VERSION, 4) < 0 ||
-        writeBuffer(logfile, log->dbid, strlen(log->dbid)) < 0 ||
-        writeUnsignedInteger(logfile, log->node_id, 20) < 0 ||
-        writeUnsignedInteger(logfile, log->snapshot_last_term, 20) < 0 ||
-        writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
-        writeUnsignedInteger(logfile, log->term, 20) < 0 ||
-        writeInteger(logfile, log->vote, 11) < 0 ||
-        writeEnd(logfile, log->fsync) < 0) {
+    if (writeBegin(log->file, 8) < 0 ||
+        writeBuffer(log->file, "RAFTLOG", 7) < 0 ||
+        writeUnsignedInteger(log->file, RAFTLOG_VERSION, 4) < 0 ||
+        writeBuffer(log->file, log->dbid, strlen(log->dbid)) < 0 ||
+        writeUnsignedInteger(log->file, log->node_id, 20) < 0 ||
+        writeUnsignedInteger(log->file, log->snapshot_last_term, 20) < 0 ||
+        writeUnsignedInteger(log->file, log->snapshot_last_idx, 20) < 0 ||
+        writeUnsignedInteger(log->file, log->term, 20) < 0 ||
+        writeInteger(log->file, log->vote, 11) < 0 ||
+        writeEnd(log->file, log->fsync) < 0) {
             return -1;
     }
 
@@ -449,26 +449,25 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
 
 int updateLogHeader(RaftLog *log)
 {
-    int ret;
+    int ret, err;
 
-    /* Avoid same file open twice */
-    fclose(log->file);
-    log->file = NULL;
-
-    FILE *file = fopen(log->filename, "r+");
-    if (!file) {
-        PANIC("Failed to update log header: %s: %s",
+    if (log->file) {
+        err = fseek(log->file, 0L, SEEK_SET);
+        if (!err) {
+            PANIC("Failed to seek to beginning of log file: %s", strerror(errno));
+        }
+    } else {
+        log->file = fopen(log->filename, "r+");
+        if (!log->file) {}
+        PANIC("Failed to open log file: %s: %s",
                 log->filename, strerror(errno));
     }
 
-    ret = writeLogHeader(file, log);
-    fclose(file);
+    ret = writeLogHeader(log);
 
-    /* Reopen */
-    log->file = fopen(log->filename, "a+");
-    if (!log->file) {
-        PANIC("Failed to reopen log file: %s: %s",
-                log->filename, strerror(errno));
+    err = fseek(log->file, 0L, SEEK_END);
+    if (!err) {
+        PANIC("failed to seek to end of log file: %s", strerror(errno));
     }
 
     return ret;
@@ -496,7 +495,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     ftruncate(fileno(log->idxfile), 0);
 
     /* Write log start */
-    if (writeLogHeader(log->file, log) < 0) {
+    if (writeLogHeader(log) < 0) {
         LOG_ERROR("Failed to create Raft log: %s: %s", filename, strerror(errno));
         RaftLogClose(log);
         log = NULL;
@@ -643,7 +642,7 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
 
     if (ftruncate(fileno(log->file), 0) < 0 ||
         ftruncate(fileno(log->idxfile), 0) < 0 ||
-        writeLogHeader(log->file, log) < 0) {
+        writeLogHeader(log) < 0) {
 
         return RR_ERROR;
     }
