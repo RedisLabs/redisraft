@@ -453,7 +453,7 @@ int updateLogHeader(RaftLog *log)
 
     if (log->file) {
         err = fseek(log->file, 0L, SEEK_SET);
-        if (!err) {
+        if (err) {
             PANIC("Failed to seek to beginning of log file: %s", strerror(errno));
         }
     } else {
@@ -466,7 +466,7 @@ int updateLogHeader(RaftLog *log)
     ret = writeLogHeader(log);
 
     err = fseek(log->file, 0L, SEEK_END);
-    if (!err) {
+    if (err) {
         PANIC("failed to seek to end of log file: %s", strerror(errno));
     }
 
