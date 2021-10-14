@@ -1548,8 +1548,6 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     msg_entry_response_t response;
     int e;
 
-    printf("Hello world config change\n");
-
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
@@ -1576,8 +1574,6 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
                 RedisModule_ReplyWithError(req->ctx, "node id does not exist");
                 goto exit;
             }
-
-            printf("removing node %d\n", req->r.cfgchange.id);
 
             type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
