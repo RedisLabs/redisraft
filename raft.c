@@ -1548,6 +1548,8 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     msg_entry_response_t response;
     int e;
 
+    printf("Hello world config change\n");
+
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
@@ -1575,6 +1577,8 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
                 goto exit;
             }
 
+            printf("removing node %d\n", req->r.cfgchange.id);
+
             type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:
@@ -1588,12 +1592,14 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     entryAttachRaftReq(rr, entry, req);
 
     e = raft_recv_entry(rr->raft, entry, &response);
-    raft_entry_release(entry);
     if (e != 0) {
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
         replyRaftError(req->ctx, e);
         goto exit;
     }
 
+    raft_entry_release(entry);
     switch (req->type) {
         case RR_CFGCHANGE_ADDNODE:
             // we don't have to block on add node, its all through join which blocks itself
