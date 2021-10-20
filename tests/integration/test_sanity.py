@@ -9,6 +9,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import time
 from redis import ResponseError
 from pytest import raises, skip
+from justredis import Redis
 from .sandbox import RedisRaft
 
 
@@ -59,6 +60,13 @@ def test_reelection_basic_flow(cluster):
     cluster.node(1).terminate()
     cluster.node(2).wait_for_election()
     assert cluster.execute('set', 'key2', 'value')
+
+
+def test_resp3(cluster):
+    cluster.create(3)
+    c = Redis().from_url(f"redis://localhost:{cluster.node(cluster.leader).port}")
+    assert c("hset", "foo", "bar", "baz") == 1
+    assert c("hgetall", "foo") == [b'bar', b'baz']
 
 
 def test_proxying(cluster):

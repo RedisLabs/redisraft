@@ -49,7 +49,7 @@ class PipeLogger(threading.Thread):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, raft_args=None,
-                 use_id_arg=True, cluster_id=0):
+                 use_id_arg=True, cluster_id=0, resp3=False):
         if raft_args is None:
             raft_args = {}
         else:

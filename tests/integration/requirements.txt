@@ -2,3 +2,4 @@ redis==3.4.1
 pytest==4.5.0
 pytest-optional-tests==0.1.1
 pytest-timeout==1.3.4
+justredis==0.0.1a3

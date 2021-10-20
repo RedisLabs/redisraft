@@ -1240,9 +1240,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Cluster configuration */
-    if (rr->config->sharding) {
-        ShardingInfoInit(rr);
-    }
+    ShardingInfoInit(rr);
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *
