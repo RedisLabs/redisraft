@@ -1,10 +1,9 @@
 /*
  * This file is part of RedisRaft.
  *
- * Copyright (c) 2020 Redis Labs
+ * Copyright (c) 2020-2021 Redis Ltd.
  *
- * RedisRaft is dual licensed under the GNU Affero General Public License version 3
- * (AGPLv3) or the Redis Source Available License (RSAL).
+ * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
 #include "redisraft.h"

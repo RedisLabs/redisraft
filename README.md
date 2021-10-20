@@ -76,4 +76,4 @@ Please consult the [documentation](docs/TOC.md) for more information.
 
 ## License
 
-RedisRaft is dual-licensed under the [GNU Affero General Public License (AGPL) Version 3](LICENSE.agpl) and the [Redis Source Available License (RSAL)](LICENSE.rsal).
+RedisRaft is licensed under the [Redis Source Available License (RSAL)](LICENSE.rsal).
