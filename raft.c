@@ -1608,8 +1608,7 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             // block until removed, so don't reply here
             return;
         default:
-            replyRaftError(req->ctx, e);
-            break;
+	    assert(0);
     }
 
 exit:
