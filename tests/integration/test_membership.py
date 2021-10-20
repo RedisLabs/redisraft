@@ -67,14 +67,17 @@ def test_single_voting_change_enforced(cluster):
     cluster.node(3).terminate()
     cluster.node(4).terminate()
 
-    assert cluster.node(1).client.execute_command(
-        'RAFT.NODE', 'REMOVE', '5') == b'OK'
-    with raises(ResponseError,
-            match='a voting change is already in progress'):
-        assert cluster.node(1).client.execute_command(
-            'RAFT.NODE', 'REMOVE', '4') == b'OK'
+    # Initiate process again with a longer timeout, and release the
+    # cluster while in progress.
+    def remove_node_blocked():
+        cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '5')
+    Thread(target=remove_node_blocked, daemon=True).start()
 
-    time.sleep(1)
+    time.sleep(0.2)
+
+    with raises(ResponseError, match='a voting change is already in progress'):
+        cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4')
+
     assert cluster.node(1).raft_info()['num_nodes'] == 5
 
 

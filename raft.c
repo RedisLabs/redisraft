@@ -538,11 +538,21 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 {
     RedisRaftCtx *rr = user_data;
     RaftCfgChange *req;
+    RaftReq *raftReq;
 
     switch (entry->type) {
         case RAFT_LOGTYPE_REMOVE_NODE:
+            raftReq = entryDetachRaftReq(rr, entry);
             req = (RaftCfgChange *) entry->data;
+
+            // unblock client on removal of node, if this is the node it was submitted on
+            if (raftReq) {
+                RedisModule_ReplyWithSimpleString(raftReq->ctx, "OK");
+                RaftReqFree(raftReq);
+            }
+
             if (req->id == raft_get_nodeid(raft)) {
+                // doesn't matter to unblock leader on removal, as node will exit anyways
                 LOG_DEBUG("Removing this node from the cluster");
                 return RAFT_ERR_SHUTDOWN;
             }
@@ -1575,20 +1585,31 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     entry->id = rand();
     entry->type = type;
     memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
+    entryAttachRaftReq(rr, entry, req);
 
-    if ((e = raft_recv_entry(rr->raft, entry, &response)) != 0) {
+    e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
         replyRaftError(req->ctx, e);
-    } else {
-        if (req->type == RR_CFGCHANGE_REMOVENODE) {
-            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-        } else {
-            RedisModule_ReplyWithArray(req->ctx, 2);
-            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
-            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
-        }
+        goto exit;
     }
 
     raft_entry_release(entry);
+    switch (req->type) {
+        case RR_CFGCHANGE_ADDNODE:
+            // we don't have to block on add node, its all through join which blocks itself
+            entryDetachRaftReq(rr, entry);
+            RedisModule_ReplyWithArray(req->ctx, 2);
+            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
+            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
+            break;
+        case RR_CFGCHANGE_REMOVENODE:
+            // block until removed, so don't reply here
+            return;
+        default:
+	    assert(0);
+    }
 
 exit:
     RaftReqFree(req);
