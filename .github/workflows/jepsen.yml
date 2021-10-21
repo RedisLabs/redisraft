@@ -29,6 +29,8 @@ jobs:
         echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
+    - name: Configure core_pattern
+      run: echo "core.%p" | tee /proc/sys/kernel/core_pattern
     - name: Build containers
       run: cd jepsen/docker && ./genkeys.sh && docker-compose build
     - name: Start containers
