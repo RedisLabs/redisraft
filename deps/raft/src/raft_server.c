@@ -1110,8 +1110,11 @@ int raft_recv_entry(raft_server_t* me_,
          * Don't send the entry to peers who are behind, to prevent them from
          * becoming congested. */
         raft_index_t next_idx = raft_node_get_next_idx(node);
-        if (next_idx == raft_get_current_idx(me_))
-            raft_send_appendentries(me_, node);
+        if (next_idx == raft_get_current_idx(me_)) {
+            if (!me->cb.delay_send_appendentries || !me->cb.delay_send_appendentries(me_)) {
+                raft_send_appendentries(me_, node);
+            }
+        }
     }
 
     /* if we are the only voter, commit now, as no appendentries_response will occur */

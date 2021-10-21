@@ -456,6 +456,16 @@ typedef int (
         raft_node_t* node
     );
 
+/** Callback for determing if we should delay sending appendentries requests
+ * @param[in] raft The Raft server making this callback
+ * @return 0 if we shouldn't delay, 1 if we should
+ */
+typedef int (
+*func_delay_send_appendentries_f
+)   (
+        raft_server_t *raft
+    );
+
 typedef struct
 {
     /** Callback for sending request vote messages */
@@ -504,6 +514,10 @@ typedef struct
 
     /** Callback for sending TimeoutNow RPC messages to nodes */
     func_send_timeoutnow_f send_timeoutnow;
+
+    /** Callback for enabling delaying sending of appendentries in raft_recv_entry
+     * This callback is optional */
+    func_delay_send_appendentries_f delay_send_appendentries;
 } raft_cbs_t;
 
 /** A generic notification callback used to allow Raft to notify caller
