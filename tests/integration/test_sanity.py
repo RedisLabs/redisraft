@@ -5,6 +5,7 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
+import socket
 
 import time
 from redis import ResponseError
@@ -64,9 +65,17 @@ def test_reelection_basic_flow(cluster):
 
 def test_resp3(cluster):
     cluster.create(3)
-    c = Redis().from_url(f"redis://localhost:{cluster.node(cluster.leader).port}")
-    assert c("hset", "foo", "bar", "baz") == 1
-    assert c("hgetall", "foo") == [b'bar', b'baz']
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    host_ip = socket.gethostbyname('localhost')
+    s.connect((host_ip, cluster.node(cluster.leader).port))
+
+    s.send("hello 3\n".encode())
+    assert s.recv(1024).decode().startswith("%7")
+    s.send("hset foo brar baz\n".encode())
+    assert s.recv(1024).decode().startswith(":1")
+    s.send("hgetall foo\n".encode())
+    assert s.recv(1024).decode() == '%1\r\n$4\r\nbrar\r\n$3\r\nbaz\r\n'
 
 
 def test_proxying(cluster):
