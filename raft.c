@@ -764,7 +764,7 @@ int delaySendAppendEntries(raft_server_t *raft) {
     int ret;
 
     uv_mutex_lock(&redis_raft.rqueue_mutex);
-    ret = STAILQ_EMPTY(&redis_raft.rqueue);
+    ret = !STAILQ_EMPTY(&redis_raft.rqueue);
     uv_mutex_unlock(&redis_raft.rqueue_mutex);
 
     return ret;
