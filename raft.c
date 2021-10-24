@@ -760,6 +760,16 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
     RedisModule_Free(s);
 }
 
+int delaySendAppendEntries(raft_server_t *raft) {
+    int ret;
+
+    uv_mutex_lock(&redis_raft.rqueue_mutex);
+    ret = STAILQ_EMPTY(&redis_raft.rqueue);
+    uv_mutex_unlock(&redis_raft.rqueue_mutex);
+
+    return ret;
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -774,6 +784,7 @@ raft_cbs_t redis_raft_callbacks = {
     .notify_state_event = raftNotifyStateEvent,
     .send_timeoutnow = raftSendTimeoutNow,
     .notify_transfer_event = raftNotifyTransferEvent,
+    .delay_send_appendentries = delaySendAppendEntries,
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
