@@ -71,10 +71,10 @@ def test_resp3(cluster):
 
     s.send("*2\r\n$5\r\nHELLO\r\n$1\r\n3\r\n".encode())
     assert s.recv(1024).decode().startswith("%7")
-    s.send("hset foo brar baz\n".encode())
+    s.send("*4\r\n$4\r\nhset\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$3\r\nbaz\r\n".encode())
     assert s.recv(1024).decode().startswith(":1")
-    s.send("hgetall foo\n".encode())
-    assert s.recv(1024).decode() == '%1\r\n$4\r\nbrar\r\n$3\r\nbaz\r\n'
+    s.send("*2\r\n$7\r\nhgetall\r\n$3\r\nfoo\r\n".encode())
+    assert s.recv(1024).decode() == '%1\r\n$3\r\nbar\r\n$3\r\nbaz\r\n'
 
 
 def test_proxying(cluster):
