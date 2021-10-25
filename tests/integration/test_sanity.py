@@ -10,7 +10,6 @@ import socket
 import time
 from redis import ResponseError
 from pytest import raises, skip
-from justredis import Redis
 from .sandbox import RedisRaft
 
 
@@ -70,7 +69,7 @@ def test_resp3(cluster):
     host_ip = socket.gethostbyname('localhost')
     s.connect((host_ip, cluster.node(cluster.leader).port))
 
-    s.send("hello 3\n".encode())
+    s.send("*2\r\n$5\r\nHELLO\r\n$1\r\n3\r\n".encode())
     assert s.recv(1024).decode().startswith("%7")
     s.send("hset foo brar baz\n".encode())
     assert s.recv(1024).decode().startswith(":1")
