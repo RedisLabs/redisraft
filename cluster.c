@@ -935,6 +935,11 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    if (!redis_raft.sharding_info) {
+        RedisModule_ReplyWithError(req->ctx, "ERR cluster mode not enabled");
+        goto exit;
+    }
+
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
