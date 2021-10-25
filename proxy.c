@@ -36,51 +36,6 @@ static RRStatus hiredisReplyToModule(redisReply *reply, RedisModuleCtx *ctx)
         case REDIS_REPLY_ERROR:
             RedisModule_ReplyWithError(ctx, reply->str);
             break;
-        case REDIS_REPLY_DOUBLE:
-            RedisModule_ReplyWithDouble(ctx, reply->dval);
-            break;
-        case REDIS_REPLY_BOOL:
-            RedisModule_ReplyWithBool(ctx, reply->integer);
-            break;
-        case REDIS_REPLY_MAP:
-            RedisModule_ReplyWithMap(ctx, reply->elements);
-            for (i = 0; i < reply->elements; i += 2) {
-                if (hiredisReplyToModule(reply->element[i], ctx) != RR_OK) {
-                    RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
-                }
-                if (hiredisReplyToModule(reply->element[i+1], ctx) != RR_OK) {
-                    RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
-                }
-            }
-            break;
-        case REDIS_REPLY_SET:
-            RedisModule_ReplyWithSet(ctx, reply->elements);
-            for (i = 0; i < reply->elements; i++) {
-                if (hiredisReplyToModule(reply->element[i], ctx) != RR_OK) {
-                    RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
-                }
-            }
-            break;
-        case REDIS_REPLY_PUSH:
-            // TODO: don't know how to handle this
-            // While RedisModule_ReplyWithPush is in the header, I can't see any reference to it in the actual redis code
-            RedisModule_ReplyWithPush(ctx, reply->elements);
-            for (i = 0; i < reply->elements; i++) {
-                if (hiredisReplyToModule(reply->element[i], ctx) != RR_OK) {
-                    RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
-                }
-            }
-            break;
-        case REDIS_REPLY_BIGNUM:
-            // TODO: don't seem to have a function for this?
-            // RedisModule_ReplyWithBigNumber(ctx, rep->str, reply->len);
-            // break;
-            return RR_ERROR;
-        case REDIS_REPLY_VERB:
-            RedisModule_ReplyWithVerbatimStringType(ctx, reply->str, reply->len, reply->vtype);
-            break;
-        case REDIS_REPLY_ATTR:
-            // per hiredis documentation not used as of redis 6.0.6? https://codechina.csdn.net/mirrors/redis/hiredis
         default:
             return RR_ERROR;
     }
