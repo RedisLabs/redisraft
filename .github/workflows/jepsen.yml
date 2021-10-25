@@ -30,7 +30,7 @@ jobs:
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
     - name: Configure core_pattern
-      run: sudo sh -c 'echo "core.%p" | tee /proc/sys/kernel/core_pattern'
+      run: echo "core.%p" | sudo tee /proc/sys/kernel/core_pattern
     - name: Build containers
       run: cd jepsen/docker && ./genkeys.sh && docker-compose build
     - name: Start containers
