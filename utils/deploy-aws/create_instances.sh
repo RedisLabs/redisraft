@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SHARDS=4
+SHARDS=9
 NODES=3
 BASE_PORT=5000
 
