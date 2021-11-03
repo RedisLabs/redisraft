@@ -19,7 +19,7 @@ INSTANCE_LEADER_NODE[{{ i.port }}]={{ i.leader_node }}
 
 # ---- Configuration ends here ----
 
-setup() {
+init() {
     set -e
 
     echo "=== Creating cluster on leader nodes ==="

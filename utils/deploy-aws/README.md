@@ -50,6 +50,14 @@ Next, run Ansible to install and configure the nodes:
         -i ansible/inventory/hosts.cfg \
         --extra-vars "@instances.yml" ansible/site.yml
 
+It is also possible to deploy a custom version of RedisRaft:
+
+    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
+        -i ansible/inventory/hosts.cfg \
+        --extra-vars redisraft_url=https://github.com/yossigo/redisraft \
+        --extra-vars redisraft_version=test-branch \
+        --extra-vars "@instances.yml" ansible/site.yml
+
 ### Login to control node and run a quick benchmark
 
 To login to the control node, you will have to have the SSH private key
