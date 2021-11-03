@@ -1902,6 +1902,14 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
+    /* When we're in cluster mode, go through handleSharding. This will perform
+     * hash slot validation and return an error / redirection if necessary. We do this
+     * before checkLeader() to avoid multiple redirect hops.
+     */
+    if (rr->config->sharding && handleSharding(rr, req) != RR_OK) {
+        goto exit;
+    }
+
     /* Confirm that we're the leader and handle redirect or proxying if not. */
     if (checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
@@ -1914,13 +1922,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
             goto exit;
         }
         return;
-    }
-
-    /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary.
-     */
-    if (rr->config->sharding && handleSharding(rr, req) != RR_OK) {
-        goto exit;
     }
 
     /* Handle the special case of read-only commands here: if quroum reads
