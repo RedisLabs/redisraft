@@ -27,7 +27,7 @@ variables are set with your AWS credentials.
 Run `./create_instances.sh` to create a `instances.yml` file that describes the
 shards (shard groups), hash slots and ports. For example:
 
-    ./create_instances.sh --shards 3 --base-port 5000
+    ./create_instances.sh --shards 9 --nodes 3 --base-port 5000
 
 ### Create AWS infrastructure with Terraform
 
@@ -46,14 +46,11 @@ generated.
 
 Next, run Ansible to install and configure the nodes:
 
-    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
-        -i ansible/inventory/hosts.cfg \
-        --extra-vars "@instances.yml" ansible/site.yml
+    ansible-playbook --extra-vars "@instances.yml" ansible/site.yml
 
 It is also possible to deploy a custom version of RedisRaft:
 
-    ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
-        -i ansible/inventory/hosts.cfg \
+    ansible-playbook \
         --extra-vars redisraft_url=https://github.com/yossigo/redisraft \
         --extra-vars redisraft_version=test-branch \
         --extra-vars "@instances.yml" ansible/site.yml
