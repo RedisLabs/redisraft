@@ -11,3 +11,4 @@ packages:
   - libpcre3-dev
   - zlib1g-dev
   - pkg-config
+  - redis-tools

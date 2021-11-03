@@ -4,5 +4,7 @@ redisraft_version: master
 redis_url: https://github.com/redis/redis
 redis_version: unstable
 install_dir: /usr/local
-runtime_dir: /var/lib
-runtime_user: redis
+runtime_dir: /var/lib/redisraft
+runtime_user: redisraft
+redisraft_config:
+  raft-log-fsync: "no"

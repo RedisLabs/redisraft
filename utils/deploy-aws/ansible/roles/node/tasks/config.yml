@@ -1,35 +1,43 @@
 ---
-
-- name: RedisRaft services up
-  systemd:
-    state: started
-    name: redisraft.target
+- name: Create instance directories
+  file:
+    path: "{{ runtime_dir }}/redisraft-{{ item['port'] }}"
+    owner: "{{ runtime_user }}"
+    group: "{{ runtime_user }}"
+    mode: 0755
+    state: directory
+  with_items: "{{ instances }}"
   become: true
 
-- name: Create cluster
-  command: |
-    redis-cli -p "{{ item['port'] }}" raft.cluster init
-  register: cluster_init
-  changed_when: "'OK' in cluster_init.stdout"
+- name: Create instance config files
+  template:
+    src: redis_conf.j2
+    dest: "{{ runtime_dir }}/redisraft-{{ item['port'] }}/redis.conf"
+    owner: "{{ runtime_user }}"
+    group: "{{ runtime_user }}"
+    mode: 0644
   with_items: "{{ instances }}"
-  when: inventory_hostname == groups['nodes'][0]
+  become: true
 
-- name: Join cluster nodes
-  command: >
-    redis-cli -p "{{ item['port'] }}"
-    raft.cluster join "{{ hostvars[groups['nodes'][0]].private_ip }}:{{ item['port'] }}"
-  register: cluster_join
-  changed_when: "'OK' in cluster_join.stdout"
-  with_items: "{{ instances }}"
-  when: inventory_hostname != groups['nodes'][0]
+- name: RedisRaft systemd unit file
+  template:
+    src: systemd_redisraft.j2
+    dest: /lib/systemd/system/redisraft@.service
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - reload_systemd
+    - start_redisraft
+  become: true
 
-- name: Link shardgroups
-  command: >
-    redis-cli -p "{{ item[0] }}"
-    raft.shardgroup link "{{ private_ip }}:{{ item[1] }}"
-  register: shardgroup_link
-  changed_when: "'OK' in shardgroup_link.stdout"
-  when: item[0] != item[1]
-  with_nested:
-    - "{{ instances | map(attribute='port') | list }}"
-    - "{{ instances | map(attribute='port') | list }}"
+- name: RedisRaft systemd target file
+  template:
+    src: systemd_redisraft_target.j2
+    dest: /lib/systemd/system/redisraft.target
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - reload_systemd
+  become: true
