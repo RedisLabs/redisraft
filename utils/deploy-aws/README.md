@@ -14,9 +14,7 @@ Getting Started
 ### Prerequisites
 
 1. Terraform: download and install [here](https://www.terraform.io/downloads.html).
-2. Ansible: on recent Ubuntu, simply use:
-
-    apt-get install ansible ansible-mitogen
+2. Ansible: on Ubuntu, use `apt-get install ansible ansible-mitogen`.
 
 ### Prepare Terraform configuration
 
