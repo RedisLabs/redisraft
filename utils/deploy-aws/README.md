@@ -55,16 +55,38 @@ It is also possible to deploy a custom version of RedisRaft:
         --extra-vars redisraft_version=test-branch \
         --extra-vars "@instances.yml" ansible/site.yml
 
-### Login to control node and run a quick benchmark
+### Login to control node, initialize the cluster and run a quick benchmark
 
 To login to the control node, you will have to have the SSH private key
 available and run:
 
     ssh ubuntu@<control_node_public_addr>
 
+Next, initialize the cluster:
+
+    ./cluster.sh init
+
+If you need to explicitly control shard placement, it is possible to manipulate
+`cluster.sh` before running `init`.
+
+You can now run `memtier_benchmark`. In order to get information about
+endpoints, use:
+
+    ./cluster.sh endpoints
+
 You can then run a quick benchmark:
 
-    memtier_benchmark --cluster -s <cluster_node_private_addr> -p <base port>
+    memtier_benchmark --cluster -s <some endpoint addr> -p <some endpoint port>
+
+### Changing configuration
+
+To change a RedisRaft configuration parameter across all nodes, use:
+
+    ./cluster.sh redisraft-config-set <param> <value>
+
+To change a Redis configuration parameter across all nodes, use:
+
+    ./cluster.sh redis-config-set <param> <value>
 
 Tearing down
 ------------
