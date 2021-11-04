@@ -11,6 +11,13 @@ other tests can be performed.
 Getting Started
 ---------------
 
+### Prerequisites
+
+1. Terraform: download and install [here](https://www.terraform.io/downloads.html).
+2. Ansible: on recent Ubuntu, simply use:
+
+    apt-get install ansible ansible-mitogen
+
 ### Prepare Terraform configuration
 
 Copy `sample.tfvars` to `myfile.tfvars` and modify the configuration:
