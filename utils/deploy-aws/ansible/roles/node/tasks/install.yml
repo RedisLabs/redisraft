@@ -1,36 +1,4 @@
 ---
-- name: Checkout Redis
-  git:
-    repo: "{{ redis_url }}"
-    dest: "{{ redis_build_dir }}"
-    version: "{{ redis_version }}"
-
-- name: Build Redis
-  make:
-    chdir: "{{ redis_build_dir }}"
-  register: make_redis
-  changed_when: "'Makefile.dep' in make_redis.stdout"
-
-- name: Install Redis
-  make:
-    chdir: "{{ redis_build_dir }}"
-    target: install
-    params:
-      PREFIX: "{{ install_dir }}"
-  when: make_redis.changed
-  become: true
-
-- name: Checkout RedisRaft
-  git:
-    repo: "{{ redisraft_url }}"
-    dest: "{{ redisraft_build_dir }}"
-    version: "{{ redisraft_version }}"
-    recursive: true
-
-- name: Build RedisRaft
-  make:
-    chdir: "{{ redisraft_build_dir }}"
-
 - name: Create RedisRaft module target dir
   file:
     path: "{{ install_dir }}/lib"
@@ -40,6 +8,52 @@
     state: directory
   become: true
 
+- name: Create user
+  user:
+    name: "{{ runtime_user }}"
+    shell: /bin/bash
+    state: present
+  become: true
+
+- name: Checkout Redis
+  git:
+    repo: "{{ redis_url }}"
+    dest: "{{ redis_build_dir }}"
+    version: "{{ redis_version }}"
+  register: checkout_redis
+
+- name: Build Redis
+  command:
+    chdir: "{{ redis_build_dir }}"
+    cmd: make -j
+    creates: redis_server
+  register: build_redis
+  when: checkout_redis.changed
+
+- name: Install Redis
+  make:
+    chdir: "{{ redis_build_dir }}"
+    target: install
+    params:
+      PREFIX: "{{ install_dir }}"
+  become: true
+  when: build_redis.changed
+
+- name: Checkout RedisRaft
+  git:
+    repo: "{{ redisraft_url }}"
+    dest: "{{ redisraft_build_dir }}"
+    version: "{{ redisraft_version }}"
+    recursive: true
+  register: checkout_redisraft
+
+- name: Build RedisRaft
+  command:
+    chdir: "{{ redisraft_build_dir }}"
+    cmd: make -j
+  register: build_redisraft
+  when: checkout_redisraft.changed
+
 - name: Install RedisRaft module
   copy:
     src: "{{ redisraft_build_dir }}/redisraft.so"
@@ -48,52 +62,4 @@
     mode: '0755'
     owner: 'root'
   become: true
-
-- name: Create user
-  user:
-    name: "{{ runtime_user }}"
-    shell: /bin/bash
-    state: present
-  become: true
-
-- name: Create instance directories
-  file:
-    path: "{{ runtime_dir }}/redisraft-{{ item['port'] }}"
-    owner: "{{ runtime_user }}"
-    group: "{{ runtime_user }}"
-    mode: 0755
-    state: directory
-  with_items: "{{ instances }}"
-  become: true
-
-- name: Create instance config files
-  template:
-    src: redis_conf.j2
-    dest: "{{ runtime_dir }}/redisraft-{{ item['port'] }}/redis.conf"
-    owner: "{{ runtime_user }}"
-    group: "{{ runtime_user }}"
-    mode: 0644
-  with_items: "{{ instances }}"
-  become: true
-
-- name: RedisRaft systemd unit file
-  template:
-    src: systemd_redisraft.j2
-    dest: /lib/systemd/system/redisraft@.service
-    owner: root
-    group: root
-    mode: 0644
-  notify:
-    - reload_systemd
-  become: true
-
-- name: RedisRaft systemd target file
-  template:
-    src: systemd_redisraft_target.j2
-    dest: /lib/systemd/system/redisraft.target
-    owner: root
-    group: root
-    mode: 0644
-  notify:
-    - reload_systemd
-  become: true
+  when: build_redisraft.changed

@@ -1,2 +1,3 @@
 ---
-- include: install.yml
+- include: memtier_benchmark.yml
+- include: cluster.yml

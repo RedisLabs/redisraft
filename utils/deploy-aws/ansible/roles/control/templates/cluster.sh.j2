@@ -1,0 +1,136 @@
+#!/bin/bash
+# {{ ansible_managed }}
+
+# ---- Configuration starts here ----
+
+# Node Configuration
+NODES="{% for n in groups['nodes'] -%} {{ loop.index }} {% endfor %}"
+declare -A NODE_ADDR
+{% for n in groups['nodes'] %}
+NODE_ADDR[{{ loop.index }}]={{ hostvars[n].ansible_default_ipv4.address }}
+{% endfor %}
+
+# Instance Configuration
+PORTS="{% for i in instances -%} {{ i.port }} {% endfor %}"
+declare -A INSTANCE_LEADER_NODE
+{% for i in instances %}
+INSTANCE_LEADER_NODE[{{ i.port }}]={{ i.leader_node }}
+{% endfor %}
+
+# ---- Configuration ends here ----
+
+init() {
+    set -e
+
+    echo "=== Creating cluster on leader nodes ==="
+    for port in ${PORTS}; do
+        local addr=${NODE_ADDR[${INSTANCE_LEADER_NODE[$port]}]}
+        echo -n "- $addr:$port :: "
+        redis-cli -h ${NODE_ADDR[${INSTANCE_LEADER_NODE[$port]}]} -p $port RAFT.CLUSTER INIT
+    done
+
+    echo ""
+    echo "=== Joining other nodes ==="
+    for port in ${PORTS}; do
+        local leader_node=${INSTANCE_LEADER_NODE[$port]}
+        local leader_addr=${NODE_ADDR[$leader_node]}
+        for node in ${NODES}; do
+            local addr=${NODE_ADDR[$node]}
+            [ $node = $leader_node ] && continue    # Skip leaders
+
+            echo -n "- $addr:$port -> $leader_addr:$port :: "
+            redis-cli -h ${addr} -p ${port} RAFT.CLUSTER JOIN ${leader_addr}:${port}
+        done
+    done
+
+    echo ""
+    echo "=== Linking shardgroups ==="
+    for target_port in ${PORTS}; do
+        for source_port in ${PORTS}; do
+            [ $target_port = $source_port ] && continue
+            local target_port_leader_node=${INSTANCE_LEADER_NODE[$target_port]}
+            local target_port_leader_addr=${NODE_ADDR[$target_port_leader_node]}
+
+            local source_port_leader_node=${INSTANCE_LEADER_NODE[$source_port]}
+            local source_port_leader_addr=${NODE_ADDR[$source_port_leader_node]}
+
+            echo -n "- ${target_port_leader_addr}:${target_port} -> ${source_port_leader_addr}:${source_port} :: "
+            redis-cli \
+                -h ${target_port_leader_addr} -p ${target_port} \
+                RAFT.SHARDGROUP LINK ${source_port_leader_addr}:${source_port}
+        done
+    done
+}
+
+run_command() {
+    set -e
+
+    for node in $NODES; do
+        local node_addr=${NODE_ADDR[$node]}
+        for port in $PORTS; do
+            echo -n "- $node_addr:$port :: "
+            redis-cli -h $node_addr -p $port $*
+        done
+    done
+}
+
+redis_config_set() {
+    echo ""
+    echo "=== Issuing CONFIG SET $* ==="
+    run_command CONFIG SET $*
+}
+
+redisraft_config_set() {
+    echo ""
+    echo "=== Issuing RAFT.CONFIG SET $* ==="
+    run_command RAFT.CONFIG SET $*
+}
+
+endpoints() {
+    echo ""
+    echo "NODE  ADDR            PORT"
+    for node in $NODES; do
+        for port in $PORTS; do
+            printf "%-5s %-15s %s\n" $node ${NODE_ADDR[$node]} $port
+        done
+    done
+}
+
+usage() {
+    echo "usage:"
+    echo ""
+    echo "  cluster.sh init"
+    echo "      Perform first-time cluster initialization."
+    echo ""
+    echo "  cluster.sh endpoints"
+    echo "      Print information about cluster endpoints."
+    echo ""
+    echo "  cluster.sh redis-config-set [param] [value]"
+    echo "      Configure a Redis parameter across all cluster nodes."
+    echo ""
+    echo "  cluster.sh redisraft-config-set [param] [value]"
+    echo "      Configure a RedisRaft parameter across all cluster nodes."
+    exit 2
+}
+
+case "$1" in
+    init)
+        init
+        ;;
+    endpoints)
+        endpoints
+        ;;
+    redis-config-set)
+        shift
+        [ $# = 2 ] || usage
+        redis_config_set $*
+        ;;
+    redisraft-config-set)
+        shift
+        [ $# = 2 ] || usage
+        redisraft_config_set $*
+        ;;
+    *)
+        usage
+        ;;
+esac

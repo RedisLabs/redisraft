@@ -3,5 +3,5 @@
 # Install core dependencies for building and running stuff.
 
 - name: Install core packages
-  apt: name={{ packages }} state=latest
+  apt: name={{ packages }} state=latest update_cache=true
   become: true

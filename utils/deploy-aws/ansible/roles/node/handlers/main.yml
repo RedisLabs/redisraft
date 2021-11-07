@@ -3,3 +3,9 @@
   systemd:
     daemon_reload: true
   become: true
+
+- name: start_redisraft
+  systemd:
+    state: started
+    name: redisraft.target
+  become: true

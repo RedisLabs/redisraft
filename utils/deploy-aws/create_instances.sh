@@ -1,6 +1,7 @@
 #!/bin/bash
 
-SHARDS=4
+SHARDS=9
+NODES=3
 BASE_PORT=5000
 
 abort() {
@@ -14,18 +15,24 @@ gen_instances() {
     for ((i = 1; i <= SHARDS; i++)); do
         local port=$((BASE_PORT + i - 1))
         local start_slot=$(((i-1) * slots_per_shard))
+        local leader_node=$(((i % NODES) + 1))
         if [ $i == $SHARDS ]; then
             end_slot=16383
         else
             end_slot=$((start_slot + slots_per_shard - 1))
         fi
 
-        echo "  - {\"port\": $port, \"start_hslot\": $start_slot, \"end_hslot\": $end_slot}"
+        echo "  - {\"port\": $port, \"start_hslot\": $start_slot, \"end_hslot\": $end_slot, \"leader_node\": $leader_node}"
     done
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --nodes)
+            shift
+            [ $# -gt 0 ] || abort "Missing --nodes argument"
+            NODES=$1
+            ;;
         --shards)
             shift
             [ $# -gt 0 ] || abort "Missing --shards argument"
@@ -44,6 +51,7 @@ while [ $# -gt 0 ]; do
 done
 
 echo "Creating instances.yml with the following configuration:"
+echo "Nodes: $NODES"
 echo "Shards: $SHARDS"
 echo "Base Port: $BASE_PORT"
 

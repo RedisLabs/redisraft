@@ -1,6 +1,6 @@
 [nodes]
 %{ for i in nodes ~}
-${i.public_ip} private_ip=${i.private_ip}
+${i.public_ip}
 %{ endfor ~}
 
 [control]
