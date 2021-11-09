@@ -857,8 +857,13 @@ static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *c
     return 1;
 }
 
-/* doesn't handle mutiple slot ranges or importing/exports yet */
-RedisModuleString * generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
+/* Returns a string representation of the hash slot range assigned to the
+ * specified shardgroup.
+ *
+ * Currently doesn't handle handle mutiple slot ranges or importing/migrating
+ * yet.
+ */
+RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
 {
     if (sg->start_slot != sg->end_slot) {
         return RedisModule_CreateStringPrintf(ctx, "%d-%d", sg->start_slot, sg->end_slot);
@@ -867,15 +872,19 @@ RedisModuleString * generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
     }
 }
 
-static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], NodeAddr *addr, char *flags,
-                                    char *master, int ping_sent, int pong_recv, raft_term_t epoch, char *link_state,
+/* Formats a CLUSTER NODES line and appends it to ret */
+static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], NodeAddr *addr, const char *flags,
+                                    const char *master, int ping_sent, int pong_recv, raft_term_t epoch, const char *link_state,
                                     RedisModuleString *slots)
 {
     size_t len;
-    const char * temp;
+    const char *temp;
+    size_t slots_len;
+    const char *slots_str;
 
+    slots_str = RedisModule_StringPtrLen(slots, &slots_len);
     RedisModuleString* str = RedisModule_CreateStringPrintf(NULL,
-                                                           "%s %s:%d@%d %s %s %d %d %ld %s %s\n",
+                                                           "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
                                                            node_id,
                                                            addr->host,
                                                            addr->port,
@@ -886,7 +895,7 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
                                                            pong_recv,
                                                            epoch,
                                                            link_state,
-                                                           RedisModule_StringPtrLen(slots, NULL));
+                                                           (int) slots_len, slots_str);
 
     temp = RedisModule_StringPtrLen(str, &len);
     RedisModule_StringAppendBuffer(NULL, ret, temp, len);
@@ -894,8 +903,8 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     RedisModule_FreeString(NULL, str);
 }
 
+/* Formats a CLUSTER NODES line from a raft node structure and appends it to ret. */
 static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
-                                        RaftReq *req,
                                         RedisModuleString *ret,
                                         raft_node_t *raft_node,
                                         RedisModuleString *slots)
@@ -918,8 +927,8 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     }
 
     /* should we record heartbeat and reply times for ping/pong */
-    char * flags = self ? "myself" : "noflags";
-    char * master = leader ? "master" : "slave";
+    char *flags = self ? "myself" : "noflags";
+    char *master = leader ? "master" : "slave";
     int ping_sent = 0;
     int pong_recv = 0;
 
@@ -934,25 +943,21 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
 
 /* Produce a CLUSTER NODES compatible reply, including:
  *
- * 1. Local cluster's slotrange and nodes
- * 2. all configured shardgroups with their slot ranges and nodes.
+ * 1. Local cluster's slot range and nodes
+ * 2. All configured shardgroups with their slot ranges and nodes.
  */
 
 static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
 {
-    /* Make sure we have a leader, or return a -CLUSTERDOWN message */
-    raft_node_t *leader_node = raft_get_leader_node(rr->raft);
+    raft_node_t *leader_node = getLeaderNodeOrReply(rr, req);
     if (!leader_node) {
-        RedisModule_ReplyWithError(req->ctx,
-                                   "CLUSTERDOWN No raft leader");
         return;
     }
-
     ShardingInfo *si = rr->sharding_info;
 
-    RedisModuleString * ret = RedisModule_CreateString(req->ctx, "", 0);
+    RedisModuleString *ret = RedisModule_CreateString(req->ctx, "", 0);
 
-    for(int i=0; i < si->shard_groups_num; i++) {
+    for (int i = 0; i < si->shard_groups_num; i++) {
         ShardGroup *sg = si->shard_groups[i];
         RedisModuleString *slots = generateSlots(req->ctx, sg);
 
@@ -962,7 +967,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
                 if (!raft_node_is_active(raft_node)) {
                     continue;
                 }
-                addClusterNodeReplyFromNode(rr, req, ret, raft_node, slots);
+                addClusterNodeReplyFromNode(rr, ret, raft_node, slots);
             }
         } else { /* the other shard groups we reply out of the shard group data */
             for (int j = 0; j < sg->nodes_num; j++) {
@@ -994,12 +999,8 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
 static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
 {
     int alen;
-
-    /* Make sure we have a leader, or return a -CLUSTERDOWN message */
-    raft_node_t *leader_node = raft_get_leader_node(rr->raft);
+    raft_node_t *leader_node = getLeaderNodeOrReply(rr, req);
     if (!leader_node) {
-        RedisModule_ReplyWithError(req->ctx,
-                "CLUSTERDOWN No raft leader");
         return;
     }
 

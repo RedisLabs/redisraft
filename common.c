@@ -98,13 +98,38 @@ void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr)
     RedisModule_Free(reply);
 }
 
-/* Check that this node is a Raft leader.  If not, reply with -MOVED and
- * return an error.
+static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
+
+/* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
+ * and return NULL.
+ *
+ * Note: it's possible to have an elected but unknown leader node, in which
+ * case NULL will also be returned.
+ */
+raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req)
+{
+    raft_node_t *node = raft_get_leader_node(rr->raft);
+    if (!node) {
+        RedisModule_ReplyWithError(req->ctx, err_clusterdown);
+    }
+
+    return node;
+}
+
+/* Checks that we *have* a Raft leader and its identity.
+ *
+ * If no leader is currently elected, replies a -CLUSTERDOWN error and
+ * return RR_ERROR.
+ *
+ * If ret_leader is provided, it is used to return the current leader
+ * by reference along with an RR_OK return value.
+ *
+ * If ret_leader is not provided and the current node is NOT the leader,
+ * a -MOVED reply is generated with the current leader and RR_ERROR is
+ * returned.
  */
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
-    static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
-
     raft_node_t *leader = raft_get_leader_node(rr->raft);
     if (!leader) {
         RedisModule_ReplyWithError(req->ctx, err_clusterdown);
