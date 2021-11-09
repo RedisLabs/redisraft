@@ -857,6 +857,134 @@ static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *c
     return 1;
 }
 
+/* doesn't handle mutiple slot ranges or importing/exports yet */
+RedisModuleString * generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
+{
+    if (sg->start_slot != sg->end_slot) {
+        return RedisModule_CreateStringPrintf(ctx, "%d-%d", sg->start_slot, sg->end_slot);
+    } else {
+        return RedisModule_CreateStringPrintf(ctx, "%d", sg->start_slot);
+    }
+}
+
+static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], NodeAddr *addr, char *flags,
+                                    char *master, int ping_sent, int pong_recv, raft_term_t epoch, char *link_state,
+                                    RedisModuleString *slots)
+{
+    size_t len;
+    const char * temp;
+
+    RedisModuleString* str = RedisModule_CreateStringPrintf(NULL,
+                                                           "%s %s:%d@%d %s %s %d %d %ld %s %s\n",
+                                                           node_id,
+                                                           addr->host,
+                                                           addr->port,
+                                                           addr->port,
+                                                           flags,
+                                                           master,
+                                                           ping_sent,
+                                                           pong_recv,
+                                                           epoch,
+                                                           link_state,
+                                                           RedisModule_StringPtrLen(slots, NULL));
+
+    temp = RedisModule_StringPtrLen(str, &len);
+    RedisModule_StringAppendBuffer(NULL, ret, temp, len);
+
+    RedisModule_FreeString(NULL, str);
+}
+
+static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
+                                        RaftReq *req,
+                                        RedisModuleString *ret,
+                                        raft_node_t *raft_node,
+                                        RedisModuleString *slots)
+{
+    Node *node = raft_node_get_udata(raft_node);
+    NodeAddr *addr;
+
+    int leader = (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft));
+    int self = (raft_node_get_id(raft_node) == raft_get_nodeid(rr->raft));
+
+    /* Stale nodes should not exist but we prefer to be defensive.
+     * Our own node doesn't have a connection so we don't expect a Node object.
+     */
+    if (node) {
+        addr = &node->addr;
+    } else if (raft_get_my_node(rr->raft) == raft_node) {
+        addr = &rr->config->addr;
+    } else {
+        return;
+    }
+
+    /* should we record heartbeat and reply times for ping/pong */
+    char * flags = self ? "myself" : "noflags";
+    char * master = leader ? "master" : "slave";
+    int ping_sent = 0;
+    int pong_recv = 0;
+
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
+    snprintf(node_id, sizeof(node_id), "%.32s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+
+    raft_term_t epoch = raft_get_current_term(redis_raft.raft);
+    char *link_state = "connected";
+
+    appendClusterNodeString(ret, node_id, addr, flags, master, ping_sent, pong_recv, epoch, link_state, slots);
+}
+
+/* Produce a CLUSTER NODES compatible reply, including:
+ *
+ * 1. Local cluster's slotrange and nodes
+ * 2. all configured shardgroups with their slot ranges and nodes.
+ */
+
+static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
+{
+    /* Make sure we have a leader, or return a -CLUSTERDOWN message */
+    raft_node_t *leader_node = raft_get_leader_node(rr->raft);
+    if (!leader_node) {
+        RedisModule_ReplyWithError(req->ctx,
+                                   "CLUSTERDOWN No raft leader");
+        return;
+    }
+
+    ShardingInfo *si = rr->sharding_info;
+
+    RedisModuleString * ret = RedisModule_CreateString(req->ctx, "", 0);
+
+    for(int i=0; i < si->shard_groups_num; i++) {
+        ShardGroup *sg = si->shard_groups[i];
+        RedisModuleString *slots = generateSlots(req->ctx, sg);
+
+        if (i == 0) { /* our own shardgroup we reply out of the node data */
+            for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
+                raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
+                if (!raft_node_is_active(raft_node)) {
+                    continue;
+                }
+                addClusterNodeReplyFromNode(rr, req, ret, raft_node, slots);
+            }
+        } else { /* the other shard groups we reply out of the shard group data */
+            for (int j = 0; j < sg->nodes_num; j++) {
+                char *flags = "noflags";
+                char *master = "-";
+                int ping_sent = 0;
+                int pong_recv = 0;
+                int epoch = 0;
+                char *link_state = "connected";
+
+                appendClusterNodeString(ret, sg->nodes[j].node_id, &sg->nodes[j].addr, flags, master, ping_sent,
+                                        pong_recv, epoch, link_state, slots);
+            }
+        }
+
+        RedisModule_FreeString(req->ctx, slots);
+    }
+
+    RedisModule_ReplyWithString(req->ctx, ret);
+    RedisModule_FreeString(req->ctx, ret);
+}
+
 /* Produce a CLUSTER SLOTS compatible reply, including:
  *
  * 1. Local cluster's slot range and nodes.
@@ -921,7 +1049,9 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
 
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
  *
- * Currently only supporting CLUSTER SLOTS.
+ * Currently only supports:
+ *   - SLOTS.
+ *   - NODES.
  */
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
 {
@@ -940,6 +1070,9 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
 
     if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5) && cmd->argc == 2) {
         addClusterSlotsReply(rr, req);
+        goto exit;
+    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5) && cmd->argc == 2) {
+        addClusterNodesReply(rr, req);
         goto exit;
     } else {
         RedisModule_ReplyWithError(req->ctx,
