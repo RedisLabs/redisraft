@@ -216,8 +216,12 @@ def test_shard_group_linking(cluster_factory):
     assert node1[8] == b"0-1"
     node3 = cluster_nodes[3].split(b' ')
     assert node3[2] == b"noflags"
-    assert node3[3] == b"-"
+    assert node3[3] == b"master"
     assert node3[8] == b"2-16383"
+    node4 = cluster_nodes[4].split(b' ')
+    assert node4[2] == b"noflags"
+    assert node4[3] == b"slave"
+    assert node4[8] == b"2-16383"
     assert cluster_nodes[6] == b"";  # empty entry after final "\r\n" from split
 
     # Terminate leader on cluster 2, wait for re-election and confirm

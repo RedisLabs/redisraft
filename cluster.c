@@ -972,7 +972,10 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
         } else { /* the other shard groups we reply out of the shard group data */
             for (int j = 0; j < sg->nodes_num; j++) {
                 char *flags = "noflags";
-                char *master = "-";
+                /* SHARDGROUP GET only works on leader
+                 * SHARDGROUP GET lists nodes in order of idx, but 0 will always be self, i.e. leader
+                 */
+                char *master = j == 0 ? "master" : "slave";
                 int ping_sent = 0;
                 int pong_recv = 0;
                 int epoch = 0;
