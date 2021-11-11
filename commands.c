@@ -103,6 +103,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx)
             /* Admin commands - bypassed */
             { "auth",                   CMD_SPEC_DONT_INTERCEPT },
             { "ping",                   CMD_SPEC_DONT_INTERCEPT },
+            { "hello",                  CMD_SPEC_DONT_INTERCEPT },
             { "save",                   CMD_SPEC_DONT_INTERCEPT },
             { "bgsave",                 CMD_SPEC_DONT_INTERCEPT },
             { "module",                 CMD_SPEC_DONT_INTERCEPT },

@@ -149,7 +149,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
 
         enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(
-                ctx, cmd, "v", &c->argv[1], c->argc - 1);
+                ctx, cmd, "0v", &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
 
