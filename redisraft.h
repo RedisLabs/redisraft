@@ -619,6 +619,7 @@ void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 const char *raft_logtype_str(int type);
 void replyRaftError(RedisModuleCtx *ctx, int error);
+raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);

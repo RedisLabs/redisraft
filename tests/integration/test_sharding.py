@@ -104,7 +104,6 @@ def test_shard_group_propagation(cluster):
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
     assert len(cluster_slots) == 2
 
-
 def test_shard_group_snapshot_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(1, raft_args={
@@ -202,6 +201,28 @@ def test_shard_group_linking(cluster_factory):
     assert cs[1][0] == 2
     assert cs[1][1] == 16383
     assert cs[1][2][1] == cluster2.leader_node().port  # first node is leader
+
+    # Verify CLUSTER NODES looks good
+    cluster_nodes_raw = cluster1.node(1).client.execute_command('CLUSTER', 'NODES')
+    cluster_nodes = cluster_nodes_raw.split(b"\r\n")
+    assert len(cluster_nodes) == 7  # blank entry at the end
+    node0 = cluster_nodes[0].split(b' ')
+    assert node0[2] == b"myself"
+    assert node0[3] == b"master"
+    assert node0[8] == b"0-1"
+    node1 = cluster_nodes[1].split(b' ')
+    assert node1[2] == b"noflags"
+    assert node1[3] == b"slave"
+    assert node1[8] == b"0-1"
+    node3 = cluster_nodes[3].split(b' ')
+    assert node3[2] == b"noflags"
+    assert node3[3] == b"master"
+    assert node3[8] == b"2-16383"
+    node4 = cluster_nodes[4].split(b' ')
+    assert node4[2] == b"noflags"
+    assert node4[3] == b"slave"
+    assert node4[8] == b"2-16383"
+    assert cluster_nodes[6] == b"";  # empty entry after final "\r\n" from split
 
     # Terminate leader on cluster 2, wait for re-election and confirm
     # propagation.
