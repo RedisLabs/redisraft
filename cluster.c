@@ -936,7 +936,7 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
     }
 
     if (!redis_raft.sharding_info) {
-        RedisModule_ReplyWithError(req->ctx, "ERR cluster mode not enabled");
+        RedisModule_ReplyWithError(req->ctx, "ERR This instance has cluster support disabled");
         goto exit;
     }
 
