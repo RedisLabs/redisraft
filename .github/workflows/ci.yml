@@ -13,7 +13,7 @@ jobs:
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
-      run: make
+      run: make COVERAGE=1
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
@@ -21,7 +21,7 @@ jobs:
         ref: 'unstable'
         path: 'redis'
     - name: Build Redis
-      run: cd redis && make
+      run: cd redis && make gcov
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -33,3 +33,8 @@ jobs:
     - name: Run tests
       run:
           PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests
+    - name: Generate coverage info
+      run:
+        geninfo -o coverage.info .
+    - name: Upload to codecov
+      uses: codecov/codecov-action@v2
