@@ -77,6 +77,7 @@ NODE_CONNECTING = 1
 NODE_CONNECTED = 2
 NODE_DISCONNECTING = 3
 
+SNAPSHOT_SIZE = 41 * 1023
 
 class ServerDoesNotExist(Exception):
     pass
@@ -125,9 +126,11 @@ def err2str(err):
         lib.RAFT_ERR_ONE_VOTING_CHANGE_ONLY: 'RAFT_ERR_ONE_VOTING_CHANGE_ONLY',
         lib.RAFT_ERR_SHUTDOWN: 'RAFT_ERR_SHUTDOWN',
         lib.RAFT_ERR_NOMEM: 'RAFT_ERR_NOMEM',
-        lib.RAFT_ERR_NEEDS_SNAPSHOT: 'RAFT_ERR_NEEDS_SNAPSHOT',
         lib.RAFT_ERR_SNAPSHOT_IN_PROGRESS: 'RAFT_ERR_SNAPSHOT_IN_PROGRESS',
         lib.RAFT_ERR_SNAPSHOT_ALREADY_LOADED: 'RAFT_ERR_SNAPSHOT_ALREADY_LOADED',
+        lib.RAFT_INVALID_NODEID: 'RAFT_INVALID_NODEID',
+        lib.RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS: 'RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS',
+        lib.RAFT_ERR_DONE: 'RAFT_ERR_DONE',
         lib.RAFT_ERR_LAST: 'RAFT_ERR_LAST',
     }[err]
 
@@ -177,8 +180,45 @@ def raft_send_appendentries(raft, udata, node, msg):
     return 0
 
 
-def raft_send_snapshot(raft, udata, node):
-    return ffi.from_handle(udata).send_snapshot(node)
+def raft_send_snapshot(raft, udata, node, msg):
+    server = ffi.from_handle(udata)
+    dst_server = ffi.from_handle(lib.raft_node_get_udata(node))
+    server.network.enqueue_msg(msg, server, dst_server)
+    return 0
+
+
+def raft_load_snapshot(raft, udata, index, term):
+    return ffi.from_handle(udata).load_snapshot(index, term)
+
+
+def raft_clear_snapshot(raft, udata):
+    return ffi.from_handle(udata).clear_snapshot()
+
+
+def raft_get_snapshot_chunk(raft, udata, node, offset, chunk):
+    server = ffi.from_handle(udata)
+    chunk.len = min(4096, len(server.snapshot_buf) - offset)
+    chunk.last_chunk = offset + chunk.len == len(server.snapshot_buf)
+    chunk.data = ffi.from_buffer("char*", server.snapshot_buf, 0) + offset
+
+    target_node = ffi.from_handle(lib.raft_node_get_udata(node))
+
+    # If receiver node has more than 8 messages to be consumed, apply some
+    # backpressure by returning RAFT_ERR_DONE
+    count = 0
+    for message in target_node.network.messages:
+        if message.sendee == target_node:
+            count += 1
+
+    if count > 8 or chunk.len == 0:
+        return lib.RAFT_ERR_DONE
+
+    return 0
+
+
+def raft_store_snapshot_chunk(raft, udata, index, offset, chunk):
+    buf = ffi.buffer(chunk.data, chunk.len)
+    return ffi.from_handle(udata).store_snapshot(offset, buf)
 
 
 def raft_applylog(raft, udata, ety, idx):
@@ -238,17 +278,16 @@ def find_leader():
     return leader
 
 
-def get_voting_node_ids(leader):
+def get_voting_node_ids(server):
     voting_nodes_ids = []
 
-    for i in range(net.server_id + 1):
-        if i == 0:
-            continue
-        node = lib.raft_get_node(leader.raft, i)
+    for i in range(0, lib.raft_get_num_nodes(server.raft)):
+        node = lib.raft_get_node_from_idx(server.raft, i)
         if node == ffi.NULL:
             continue
+
         if lib.raft_node_is_voting(node) != 0:
-            voting_nodes_ids.append(i)
+            voting_nodes_ids.append(lib.raft_node_get_id(node))
 
     return voting_nodes_ids
 
@@ -499,14 +538,22 @@ class Network(object):
                 logger.error(msg.sendee.debug_log())
                 self.diagnostic_info()
                 sys.exit(1)
-            elif lib.RAFT_ERR_NEEDS_SNAPSHOT == e:
-                pass  # TODO: pretend as if snapshot works
             else:
                 self.enqueue_msg(response, msg.sendee, msg.sendor)
 
         elif msg_type == 'msg_appendentries_response_t *':
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             lib.raft_recv_appendentries_response(msg.sendee.raft, node, msg.data)
+
+        elif msg_type == 'msg_snapshot_t *':
+            response = ffi.new('msg_snapshot_response_t *')
+            node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
+            lib.raft_recv_snapshot(msg.sendee.raft, node, msg.data, response)
+            self.enqueue_msg(response, msg.sendee, msg.sendor)
+
+        elif msg_type == 'msg_snapshot_response_t *':
+            node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
+            lib.raft_recv_snapshot_response(msg.sendee.raft, node, msg.data)
 
         elif msg_type == 'msg_requestvote_t *':
             response = ffi.new('msg_requestvote_response_t*')
@@ -762,6 +809,7 @@ class RaftServer(object):
         self.raft = lib.raft_new()
         self.udata = ffi.new_handle(self)
         self.removed = False
+        self.old_status = None
 
         network.add_server(self)
 
@@ -770,6 +818,10 @@ class RaftServer(object):
         cbs.send_requestvote = self.raft_send_requestvote
         cbs.send_appendentries = self.raft_send_appendentries
         cbs.send_snapshot = self.raft_send_snapshot
+        cbs.load_snapshot = self.raft_load_snapshot
+        cbs.clear_snapshot = self.raft_clear_snapshot
+        cbs.get_snapshot_chunk = self.raft_get_snapshot_chunk
+        cbs.store_snapshot_chunk = self.raft_store_snapshot_chunk
         cbs.applylog = self.raft_applylog
         cbs.persist_vote = self.raft_persist_vote
         cbs.persist_term = self.raft_persist_term
@@ -790,6 +842,14 @@ class RaftServer(object):
         self.fsm_dict = {}
         self.fsm_log = []
 
+        self.random = random.Random(self.id)
+
+        # Dummy snapshot file for this node
+        self.snapshot_buf = bytearray(SNAPSHOT_SIZE)
+
+        # Save incoming snapshot chunks to this buffer
+        self.snapshot_recv_buf = bytearray(SNAPSHOT_SIZE)
+
     def __str__(self):
         return '<Server: {0}>'.format(self.id)
 
@@ -805,6 +865,9 @@ class RaftServer(object):
         #     self,
         #     connectstatus2str(self.connection_status),
         #     connectstatus2str(new_status)))
+        if new_status == NODE_DISCONNECTING and self.old_status is not None:
+            self.old_status = self.connection_status
+
         self.connection_status = new_status
 
     def debug_log(self):
@@ -820,6 +883,9 @@ class RaftServer(object):
             return
 
         assert(lib.raft_snapshot_is_in_progress(self.raft))
+
+        # Generate a dummy snapshot
+        self.snapshot_buf = bytearray(self.random.randbytes(SNAPSHOT_SIZE))
 
         e = lib.raft_end_snapshot(self.raft)
         assert(e == 0)
@@ -865,7 +931,11 @@ class RaftServer(object):
     def load_callbacks(self):
         self.raft_send_requestvote = ffi.callback("int(raft_server_t*, void*, raft_node_t*, msg_requestvote_t*)", raft_send_requestvote)
         self.raft_send_appendentries = ffi.callback("int(raft_server_t*, void*, raft_node_t*, msg_appendentries_t*)", raft_send_appendentries)
-        self.raft_send_snapshot = ffi.callback("int(raft_server_t*, void* , raft_node_t*)", raft_send_snapshot)
+        self.raft_send_snapshot = ffi.callback("int(raft_server_t*, void* , raft_node_t*, msg_snapshot_t*)", raft_send_snapshot)
+        self.raft_load_snapshot = ffi.callback("int(raft_server_t*, void*, raft_index_t, raft_term_t)", raft_load_snapshot)
+        self.raft_clear_snapshot = ffi.callback("int(raft_server_t*, void*)", raft_clear_snapshot)
+        self.raft_get_snapshot_chunk = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_size_t offset, raft_snapshot_chunk_t*)", raft_get_snapshot_chunk)
+        self.raft_store_snapshot_chunk = ffi.callback("int(raft_server_t*, void*, raft_index_t index, raft_size_t offset, raft_snapshot_chunk_t*)", raft_store_snapshot_chunk)
         self.raft_applylog = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_applylog)
         self.raft_persist_vote = ffi.callback("int(raft_server_t*, void*, raft_node_id_t)", raft_persist_vote)
         self.raft_persist_term = ffi.callback("int(raft_server_t*, void*, raft_term_t, raft_node_id_t)", raft_persist_term)
@@ -990,13 +1060,31 @@ class RaftServer(object):
             self.snapshot.members.append(
                 SnapshotMember(id, lib.raft_node_is_voting_committed(n)))
 
-    def load_snapshot(self, snapshot, other):
+    def clear_snapshot(self):
+        self.snapshot_recv_buf = bytearray(SNAPSHOT_SIZE)
+        return 0
+
+    def store_snapshot(self, offset, data):
+        for i in range(0, len(data)):
+            self.snapshot_recv_buf[offset + i] = bytes(data)[i]
+
+        return 0
+
+    def load_snapshot(self, index, term):
         logger.debug('{} loading snapshot'.format(self))
-        e = lib.raft_begin_load_snapshot(
-            self.raft,
-            snapshot.last_term,
-            snapshot.last_idx,
-        )
+
+        leader = find_leader()
+        leader_snapshot = leader.snapshot_buf
+
+        # Copy received snapshot as our snapshot and clear the temp buf
+        self.snapshot_buf[:] = self.snapshot_recv_buf
+        self.snapshot_recv_buf = bytearray(SNAPSHOT_SIZE)
+
+        # Validate received snapshot against the leader's snapshot
+        for i in range(len(self.snapshot_buf)):
+            assert self.snapshot_buf[i] == leader_snapshot[i]
+
+        e = lib.raft_begin_load_snapshot(self.raft, term, index)
         logger.debug(f"return value from raft_begin_load_snapshot = {e}")
         if e == -1:
             return 0
@@ -1007,17 +1095,11 @@ class RaftServer(object):
         else:
             assert False
 
-        # Send appendentries response for this snapshot
-        response = ffi.new('msg_appendentries_response_t*')
-        response.success = 1
-        response.current_idx = snapshot.last_idx
-        response.term = lib.raft_get_current_term(self.raft)
-        self.network.enqueue_msg(response, self, other)
-
+        snapshot_info = leader.snapshot
         node_id = lib.raft_get_nodeid(self.raft)
 
         # set membership configuration according to snapshot
-        for member in snapshot.members:
+        for member in snapshot_info.members:
             if -1 == member.id:
                 continue
 
@@ -1053,37 +1135,17 @@ class RaftServer(object):
         assert(lib.raft_get_log_count(self.raft) == 0)
 
         self.do_membership_snapshot()
-        self.snapshot.image = dict(snapshot.image)
-        self.snapshot.last_term = snapshot.last_term
-        self.snapshot.last_idx = snapshot.last_idx
+        self.snapshot.image = dict(snapshot_info.image)
+        self.snapshot.last_term = snapshot_info.last_term
+        self.snapshot.last_idx = snapshot_info.last_idx
 
         assert(lib.raft_get_my_node(self.raft))
         # assert(sv->snapshot_fsm);
 
-        self.fsm_dict = dict(snapshot.image)
+        self.fsm_dict = dict(snapshot_info.image)
 
         # logger.warning('{} loaded snapshot t:{} idx:{}'.format(
         #     self, snapshot.last_term, snapshot.last_idx))
-
-    def send_snapshot(self, node):
-        assert not lib.raft_snapshot_is_in_progress(self.raft)
-
-        # FIXME: Why would this happen?
-        if not hasattr(self, 'snapshot'):
-            return 0
-
-        node_sv = ffi.from_handle(lib.raft_node_get_udata(node))
-
-        # TODO: Why would this happen?
-        # seems odd that we would send something to a node that didn't exist
-        if not node_sv:
-            return 0
-
-        # NOTE:
-        # In a real server we would have to send the snapshot file to the
-        # other node. Here we have the convenience of the transfer being
-        # "immediate".
-        node_sv.load_snapshot(self.snapshot, self)
         return 0
 
     def persist_vote(self, voted_for):
@@ -1177,8 +1239,9 @@ class RaftServer(object):
             server = self.network.id2server(change.node_id)
 
             if ety.type == lib.RAFT_LOGTYPE_REMOVE_NODE:
-                pass
-
+                if server.old_status is not None:
+                    server.set_connection_status(self.old_status)
+                    server.old_status = None
             elif ety.type == lib.RAFT_LOGTYPE_ADD_NONVOTING_NODE:
                 logger.error("POP disconnect {} {}".format(self, ety_idx))
                 server.set_connection_status(NODE_DISCONNECTED)
@@ -1214,10 +1277,19 @@ class RaftServer(object):
             else:
                 node = lib.raft_get_node(self.raft, node_id)
                 lib.raft_node_set_udata(node, server.udata)
+        elif event_type == lib.RAFT_MEMBERSHIP_REMOVE:
+            node_id = lib.raft_node_get_id(node)
+            try:
+                server = self.network.id2server(node_id)
+                server.set_connection_status(NODE_DISCONNECTED)
+            except ServerDoesNotExist:
+                pass
+
+
 
     def debug_statistic_keys(self):
-        return ["node", "state", "status", "removed", "current", "last_log_term", "term", "committed", "applied",
-                "log_count", "#peers", "#voters", "cfg_change", "snapshot", "partitioned", "leader"]
+        return ["node", "state", "leader", "status", "removed", "current", "last_log_term", "term", "committed", "applied",
+                "log_count", "#peers", "#voters", "cfg_change", "snapshot", "partitioned", "voters"]
 
     def debug_statistics(self):
         partitioned_from = []
@@ -1229,6 +1301,7 @@ class RaftServer(object):
             "node": lib.raft_get_nodeid(self.raft),
             "state": state2str(lib.raft_get_state(self.raft)),
             "current": lib.raft_get_current_idx(self.raft),
+            "leader": lib.raft_get_leader_id(self.raft),
             "last_log_term": lib.raft_get_last_log_term(self.raft),
             "term": lib.raft_get_current_term(self.raft),
             "committed": lib.raft_get_commit_idx(self.raft),
@@ -1241,7 +1314,7 @@ class RaftServer(object):
             "snapshot": lib.raft_get_snapshot_last_idx(self.raft),
             "removed": getattr(self, 'removed', False),
             "partitioned": partitioned_from,
-            "leader": lib.raft_get_leader_id(self.raft),
+            "voters": get_voting_node_ids(self),
         }
 
 

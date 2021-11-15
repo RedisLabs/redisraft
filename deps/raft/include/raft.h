@@ -17,11 +17,12 @@ typedef enum {
     RAFT_ERR_ONE_VOTING_CHANGE_ONLY=-3,
     RAFT_ERR_SHUTDOWN=-4,
     RAFT_ERR_NOMEM=-5,
-    RAFT_ERR_NEEDS_SNAPSHOT=-6,
-    RAFT_ERR_SNAPSHOT_IN_PROGRESS=-7,
-    RAFT_ERR_SNAPSHOT_ALREADY_LOADED=-8,
-    RAFT_ERR_INVALID_NODEID=-9,
-    RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS=-10,
+    RAFT_ERR_SNAPSHOT_IN_PROGRESS=-6,
+    RAFT_ERR_SNAPSHOT_ALREADY_LOADED=-7,
+    RAFT_ERR_INVALID_NODEID=-8,
+    RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS=-9,
+    RAFT_ERR_DONE=-10,
+    RAFT_ERR_STALE_TERM=-11,
     RAFT_ERR_LAST=-100,
 } raft_error_e;
 
@@ -120,6 +121,21 @@ typedef struct raft_entry
  * applied to the FSM. */
 typedef raft_entry_t msg_entry_t;
 
+typedef struct
+{
+    /** chunk offset */
+    raft_size_t offset;
+
+    /** Chunk data pointer */
+    void *data;
+
+    /** Chunk len */
+    raft_size_t len;
+
+    /** 1 if this is the last chunk */
+    int last_chunk;
+} raft_snapshot_chunk_t;
+
 /** Entry message response.
  * Indicates to client if entry was committed or not. */
 typedef struct
@@ -174,6 +190,47 @@ typedef struct
     /** true means candidate received vote */
     int vote_granted;
 } msg_requestvote_response_t;
+
+typedef struct
+{
+    /** currentTerm, for follower to update itself */
+    raft_term_t term;
+
+    /** used to identify the sender node. Useful when this message is received
+     * from the nodes that are not part of the configuration yet. */
+    raft_node_id_t leader_id;
+
+    /** id, to make it possible to associate responses with requests. */
+    raft_msg_id_t msg_id;
+
+    /** last included index of the snapshot */
+    raft_index_t snapshot_index;
+
+    /** last included term of the snapshot */
+    raft_term_t snapshot_term;
+
+    /** snapshot chunk **/
+    raft_snapshot_chunk_t chunk;
+
+} msg_snapshot_t;
+
+typedef struct
+{
+    /** the msg_id this response refers to */
+    raft_msg_id_t msg_id;
+
+    /** currentTerm, to force other leader to step down */
+    raft_term_t term;
+
+    /** indicates last acknowledged snapshot offset by the follower */
+    raft_size_t offset;
+
+    /** 1 if request is accepted */
+    int success;
+
+     /** 1 if this is a response to the final chunk */
+    int last_chunk;
+} msg_snapshot_response_t;
 
 /** Appendentries message.
  * This message is used to tell nodes if it's safe to apply entries to the FSM.
@@ -266,21 +323,111 @@ typedef int (
     msg_appendentries_t* msg
     );
 
-/**
- * Log compaction
- * Callback for telling the user to send a snapshot.
- *
+/** Callback for sending snapshot messages.
  * @param[in] raft Raft server making this callback
  * @param[in] user_data User data that is passed from Raft server
  * @param[in] node Node's ID that needs a snapshot sent to
+ * @param[in] msg  Snapshot msg
  **/
 typedef int (
 *func_send_snapshot_f
 )   (
     raft_server_t* raft,
     void *user_data,
-    raft_node_t* node
+    raft_node_t* node,
+    msg_snapshot_t* msg
     );
+
+/** Callback for loading the received snapshot. User should load snapshot using
+ * raft_begin_load_snapshot() and raft_end_load_snapshot();
+ * e.g
+ *
+ * int loadsnapshot_callback()
+ * {
+ *      // User loads the received snapshot
+ *      int rc = loadSnapshotData();
+ *      if (rc != 0) {
+ *          return rc;
+ *      }
+ *
+ *      rc = raft_begin_load_snapshot(raft, snapshot_term, snapshot_index);
+ *      if (rc != 0) {
+ *           return -1;
+ *      }
+ *
+ *      // User should configure nodes using configuration data in the snapshot
+ *      // e.g Using raft_add_node(), raft_node_set_voting() etc.
+ *      configureNodesFromSnapshot();
+ *
+ *      raft_end_load_snapshot(raft);
+ *      return 0;
+ * }
+ *
+ * @param[in] raft Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] snapshot_index Received snapshot index
+ * @param[in] snapshot_term  Received snapshot term
+ * @return 0 on success */
+typedef int (
+*func_load_snapshot_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_index_t snapshot_index,
+    raft_term_t snapshot_term
+);
+
+/** Callback to get a chunk from the snapshot file. This chunk will be sent
+ * to the follower.
+ *
+ *  'chunk' struct fields should be filled with the appropriate data.
+ *  To apply backpressure, return RAFT_ERR_DONE.
+ * @param[in] raft Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] node Chunk will be sent to this node
+ * @param[in] offset Snapshot offset we request
+ * @param[in] chunk Snapshot chunk
+ * @return 0 on success */
+typedef int (
+*func_get_snapshot_chunk_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_node_t* node,
+    raft_size_t offset,
+    raft_snapshot_chunk_t* chunk
+);
+
+/** Callback to store a snapshot chunk. This chunk is received from the leader.
+ * @param[in] raft Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @param[in] snapshot_index Last index of the received snapshot
+ * @param[in] offset Offset of the chunk we received
+ * @param[in] chunk Snapshot chunk
+ * @return 0 on success */
+typedef int (
+*func_store_snapshot_chunk_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_index_t snapshot_index,
+    raft_size_t offset,
+    raft_snapshot_chunk_t* chunk
+);
+
+/** Callback to clear incoming snapshot file. This might be called to clean up
+ * a partial snapshot file. e.g While we are still receiving snapshot, leader
+ * takes another snapshot and starts to send it.
+ *
+ * @param[in] raft Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @return 0 on success */
+typedef int (
+*func_clear_snapshot_f
+)   (
+    raft_server_t* raft,
+    void *user_data
+);
 
 /** Callback for detecting when non-voting nodes have obtained enough logs.
  * This triggers only when there are no pending configuration changes.
@@ -464,8 +611,22 @@ typedef struct
     /** Callback for sending appendentries messages */
     func_send_appendentries_f send_appendentries;
 
-    /** Callback for notifying user that a node needs a snapshot sent */
+    /** Callback for sending snapshot messages */
     func_send_snapshot_f send_snapshot;
+
+    /** Callback for loading snapshot. This will be called when we complete
+     * receiving snapshot from the leader */
+    func_load_snapshot_f load_snapshot;
+
+    /** Callback to get a chunk of the snapshot file */
+    func_get_snapshot_chunk_f get_snapshot_chunk;
+
+    /** Callback to store a chunk of the snapshot */
+    func_store_snapshot_chunk_f store_snapshot_chunk;
+
+    /** Callback to dismiss temporary file which is used for incoming
+     * snapshot chunks */
+    func_clear_snapshot_f clear_snapshot;
 
     /** Callback for finite state machine application
      * Return 0 on success.
@@ -777,7 +938,6 @@ int raft_periodic(raft_server_t* me, int msec_elapsed);
  * @param[out] r The resulting response
  * @return
  *  0 on success
- *  RAFT_ERR_NEEDS_SNAPSHOT
  *  */
 int raft_recv_appendentries(raft_server_t* me,
                             raft_node_t* node,
@@ -794,6 +954,28 @@ int raft_recv_appendentries(raft_server_t* me,
 int raft_recv_appendentries_response(raft_server_t* me,
                                      raft_node_t* node,
                                      msg_appendentries_response_t* r);
+
+/** Receive a snapshot message.
+ * @param[in] node The node who sent us this message
+ * @param[in] req The snapshot message
+ * @param[out] resp The resulting response
+ * @return
+ *  0 on success  */
+int raft_recv_snapshot(raft_server_t* me_,
+                       raft_node_t* node,
+                       msg_snapshot_t *req,
+                       msg_snapshot_response_t *resp);
+
+/** Receive a response from a snapshot message we sent.
+ * @param[in] node The node who sent us this message
+ * @param[in] r The snapshot response message
+ * @return
+ *  0 on success;
+ *  -1 on error;
+ *  RAFT_ERR_NOT_LEADER server is not the leader */
+int raft_recv_snapshot_response(raft_server_t* me_,
+                                raft_node_t* node,
+                                msg_snapshot_response_t *r);
 
 /** Receive a requestvote message.
  * @param[in] node The node who sent us this message
@@ -1314,5 +1496,7 @@ raft_node_id_t raft_get_transfer_leader(raft_server_t* me_);
 
 /* cause this server to force an election on its next raft_periodic function call */
 void raft_set_timeout_now(raft_server_t* me_);
+
+raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me_);
 
 #endif /* RAFT_H_ */

@@ -84,6 +84,8 @@ void CuAssertPtrEquals_LineMsg(CuTest* tc,
 
 #define CuAssertPtrNotNull(tc,p)        CuAssert_Line((tc),__FILE__,__LINE__,"null pointer unexpected",(p != NULL))
 #define CuAssertPtrNotNullMsg(tc,msg,p) CuAssert_Line((tc),__FILE__,__LINE__,(msg),(p != NULL))
+#define CuAssertPtrNull(tc,p)        CuAssert_Line((tc),__FILE__,__LINE__,"null pointer expected",(p == NULL))
+#define CuAssertPtrNullMsg(tc,msg,p) CuAssert_Line((tc),__FILE__,__LINE__,(msg),(p == NULL))
 
 /* CuSuite */
 
