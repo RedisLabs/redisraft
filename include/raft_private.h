@@ -99,11 +99,15 @@ typedef struct {
     raft_index_t snapshot_last_idx;
     raft_term_t snapshot_last_term;
 
-    /* Previous index/term values stored during snapshot,
-     * which are restored if the operation is cancelled.
-     */
-    raft_index_t saved_snapshot_last_idx;
-    raft_term_t saved_snapshot_last_term;
+    /* Next index/term values stored during snapshot */
+    raft_index_t next_snapshot_last_idx;
+    raft_term_t next_snapshot_last_term;
+
+    /* Last included index of the incoming snapshot */
+    raft_index_t snapshot_recv_idx;
+
+    /* Current offset of the incoming snapshot */
+    raft_size_t snapshot_recv_offset;
 
     /* Read requests that await a network round trip to confirm
      * we're still the leader.
@@ -166,8 +170,6 @@ int raft_is_single_node_voting_cluster(raft_server_t *me_);
 
 int raft_votes_is_majority(int nnodes, int nvotes);
 
-raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me_);
-
 void raft_node_set_last_ack(raft_node_t* me_, raft_msg_id_t msgid, raft_term_t term);
 
 raft_msg_id_t raft_node_get_last_acked_msgid(raft_node_t* me_);
@@ -187,5 +189,9 @@ raft_msg_id_t raft_get_msg_id(raft_server_t* me_);
 
 /* attempt to abort the leadership transfer */
 void raft_reset_transfer_leader(raft_server_t* me_, int timed_out);
+
+raft_size_t raft_node_get_snapshot_offset(raft_node_t *me_);
+
+void raft_node_set_snapshot_offset(raft_node_t *me_, raft_size_t snapshot_offset);
 
 #endif /* RAFT_PRIVATE_H_ */

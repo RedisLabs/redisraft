@@ -69,11 +69,120 @@ static int __raft_send_appendentries_capture(raft_server_t* raft,
 
 static int __raft_send_snapshot_increment(raft_server_t* raft,
         void* udata,
-        raft_node_t* node)
+        raft_node_t* node,
+        msg_snapshot_t *msg)
 {
     int *counter = udata;
 
     (*counter)++;
+    return 0;
+}
+
+static int __raft_get_snapshot_chunk(raft_server_t* raft,
+    void *user_data,
+    raft_node_t* node,
+    raft_size_t offset,
+    raft_snapshot_chunk_t* chunk)
+{
+    if (offset > 0) {
+        return RAFT_ERR_DONE;
+    }
+
+    chunk->data = "test";
+    chunk->len = strlen("test");
+    chunk->last_chunk = 1;
+
+    return 0;
+}
+
+static int __raft_store_snapshot_chunk(raft_server_t* raft,
+    void *user_data,
+    raft_index_t snapshot_index,
+    raft_size_t offset,
+    raft_snapshot_chunk_t* chunk)
+{
+    return 0;
+}
+
+static int __raft_clear_snapshot(raft_server_t* raft,
+    void *user_data)
+{
+    return 0;
+}
+
+struct test_data
+{
+    int send;
+    int get_chunk;
+    int store_chunk;
+    int clear;
+    int load;
+};
+
+static int test_send_snapshot_increment(raft_server_t* raft,
+                                          void* udata,
+                                          raft_node_t* node,
+                                          msg_snapshot_t *msg)
+{
+    struct test_data *t = udata;
+
+    t->send++;
+    return 0;
+}
+
+static int test_get_snapshot_chunk(raft_server_t* raft,
+                                     void *user_data,
+                                     raft_node_t* node,
+                                     raft_size_t offset,
+                                     raft_snapshot_chunk_t* chunk)
+{
+    struct test_data *t = user_data;
+
+    t->get_chunk++;
+
+    if (offset > 0) {
+        return RAFT_ERR_DONE;
+    }
+
+    chunk->data = "test";
+    chunk->len = strlen("test");
+    chunk->last_chunk = 1;
+
+    return 0;
+}
+
+static int test_store_snapshot_chunk(raft_server_t* raft,
+                                       void *user_data,
+                                       raft_index_t snapshot_index,
+                                       raft_size_t offset,
+                                       raft_snapshot_chunk_t* chunk)
+{
+    struct test_data *t = user_data;
+
+    t->store_chunk++;
+    return 0;
+}
+
+static int test_clear_snapshot(raft_server_t* raft,
+                                 void *user_data)
+{
+    struct test_data *t = user_data;
+    t->clear++;
+
+    return 0;
+}
+
+static int test_load_snapshot(raft_server_t* raft,
+                               void *user_data,
+                              raft_index_t snapshot_index,
+                              raft_term_t snapshot_term)
+{
+    struct test_data *t = user_data;
+    t->load++;
+
+    raft_begin_load_snapshot(raft, snapshot_term, snapshot_index);
+    raft_end_load_snapshot(raft);
+
     return 0;
 }
 
@@ -450,6 +559,8 @@ void TestRaft_follower_load_from_snapshot_does_not_break_cluster_safety(CuTest *
     };
 
     void *r = raft_new();
+    raft_set_current_term(r, 1);
+
     raft_set_callbacks(r, &funcs, NULL);
 
     raft_add_node(r, NULL, 1, 1);
@@ -488,12 +599,16 @@ void TestRaft_follower_load_from_snapshot_fails_if_log_is_newer(CuTest * tc)
 void TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted(CuTest* tc)
 {
     raft_cbs_t funcs = {
-        .send_snapshot = __raft_send_snapshot_increment
+        .send_snapshot = __raft_send_snapshot_increment,
+        .clear_snapshot = __raft_clear_snapshot,
+        .store_snapshot_chunk = __raft_store_snapshot_chunk,
+        .get_snapshot_chunk = __raft_get_snapshot_chunk
     };
 
     int increment = 0;
 
     void *r = raft_new();
+    raft_set_current_term(r, 3);
     raft_set_callbacks(r, &funcs, &increment);
 
     raft_node_t* node;
@@ -518,11 +633,10 @@ void TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted(CuTest* t
     raft_node_set_next_idx(node, raft_get_current_idx(r));
 
     raft_set_state(r, RAFT_STATE_LEADER);
-    raft_set_current_term(r, 2);
 
     /* verify snapshot is sent */
     int rc = raft_send_appendentries(r, node);
-    CuAssertIntEquals(tc, RAFT_ERR_NEEDS_SNAPSHOT, rc);
+    CuAssertIntEquals(tc, 0, rc);
     CuAssertIntEquals(tc, 1, increment);
 
     /* update callbacks, verify correct appendreq is sent after the snapshot */
@@ -537,7 +651,7 @@ void TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted(CuTest* t
     raft_node_set_next_idx(node, raft_get_current_idx(r) + 1);
 
     CuAssertIntEquals(tc, 0, raft_send_appendentries(r, node));
-    CuAssertIntEquals(tc, 2, ae.term);
+    CuAssertIntEquals(tc, 3, ae.term);
     CuAssertIntEquals(tc, 3, ae.prev_log_idx);
     CuAssertIntEquals(tc, 2, ae.prev_log_term);
 }
@@ -730,7 +844,10 @@ void TestRaft_leader_sends_snapshot_if_log_was_compacted(CuTest* tc)
 {
     raft_cbs_t funcs = {
         .send_snapshot = __raft_send_snapshot_increment,
-        .send_appendentries = __raft_send_appendentries
+        .send_appendentries = __raft_send_appendentries,
+        .clear_snapshot = __raft_clear_snapshot,
+        .store_snapshot_chunk = __raft_store_snapshot_chunk,
+        .get_snapshot_chunk = __raft_get_snapshot_chunk
     };
 
     int send_snapshot_count = 0;
@@ -782,6 +899,138 @@ void TestRaft_leader_sends_snapshot_if_log_was_compacted(CuTest* tc)
     CuAssertIntEquals(tc, 1, send_snapshot_count);
 }
 
+void TestRaft_clear_snapshot_on_leader_change(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+        .send_snapshot = test_send_snapshot_increment,
+        .send_appendentries = __raft_send_appendentries,
+        .clear_snapshot = test_clear_snapshot,
+        .load_snapshot = test_load_snapshot,
+        .store_snapshot_chunk = test_store_snapshot_chunk,
+        .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+
+    msg_snapshot_t msg = {
+        .leader_id = 2,
+        .snapshot_index = 1,
+        .snapshot_term = 1,
+        .msg_id = 1,
+        .chunk.data = "tmp",
+        .chunk.len = strlen("tmp"),
+        .chunk.last_chunk = 0,
+    };
+
+    msg_snapshot_response_t resp = {0};
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 1, data.store_chunk);
+
+    msg.msg_id = 2;
+    msg.leader_id = 3;
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 1, data.clear);
+    CuAssertIntEquals(tc, 2, data.store_chunk);
+}
+
+void TestRaft_reject_wrong_offset(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+        .send_snapshot = test_send_snapshot_increment,
+        .send_appendentries = __raft_send_appendentries,
+        .clear_snapshot = test_clear_snapshot,
+        .load_snapshot = test_load_snapshot,
+        .store_snapshot_chunk = test_store_snapshot_chunk,
+        .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+
+    msg_snapshot_t msg = {
+        .leader_id = 2,
+        .snapshot_index = 1,
+        .snapshot_term = 1,
+        .msg_id = 1,
+        .chunk.data = "tmp",
+        .chunk.offset = 0,
+        .chunk.len = 50,
+        .chunk.last_chunk = 0,
+    };
+
+    msg_snapshot_response_t resp = {0};
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 1, data.store_chunk);
+
+    msg.chunk.offset = 80;
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+
+    CuAssertIntEquals(tc, 0, resp.success);
+    CuAssertIntEquals(tc, 50, resp.offset);
+}
+
+void TestRaft_set_last_chunk_on_duplicate(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+        .send_snapshot = test_send_snapshot_increment,
+        .send_appendentries = __raft_send_appendentries,
+        .clear_snapshot = test_clear_snapshot,
+        .load_snapshot = test_load_snapshot,
+        .store_snapshot_chunk = test_store_snapshot_chunk,
+        .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+
+    msg_snapshot_t msg = {
+        .term = 1,
+        .leader_id = 2,
+        .snapshot_index = 5,
+        .snapshot_term = 1,
+        .msg_id = 1,
+        .chunk.data = "tmp",
+        .chunk.offset = 0,
+        .chunk.len = 50,
+        .chunk.last_chunk = 1,
+    };
+
+    msg_snapshot_response_t resp = {0};
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 1, data.store_chunk);
+    CuAssertIntEquals(tc, 1, data.load);
+
+    msg_snapshot_t msg2 = {
+        .term = 1,
+        .leader_id = 2,
+        .snapshot_index = 4,
+        .snapshot_term = 1,
+        .msg_id = 1,
+        .chunk.offset = 0,
+        .chunk.len = 50,
+        .chunk.last_chunk = 0,
+    };
+
+    raft_recv_snapshot(r, NULL, &msg2, &resp);
+
+    CuAssertIntEquals(tc, 1, resp.success);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -806,6 +1055,9 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_leader_sends_appendentries_with_correct_prev_log_idx_when_snapshotted);
     SUITE_ADD_TEST(suite, TestRaft_cancel_snapshot_restores_state);
     SUITE_ADD_TEST(suite, TestRaft_leader_sends_snapshot_if_log_was_compacted);
+    SUITE_ADD_TEST(suite, TestRaft_clear_snapshot_on_leader_change);
+    SUITE_ADD_TEST(suite, TestRaft_reject_wrong_offset);
+    SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_on_duplicate);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);

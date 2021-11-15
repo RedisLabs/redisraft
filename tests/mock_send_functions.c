@@ -70,7 +70,7 @@ static int __append_msg(
         llqueue_offer(peer->inbox, m2);
     }
 
-    return 1;
+    return 0;
 }
 
 int sender_requestvote(raft_server_t* raft,
