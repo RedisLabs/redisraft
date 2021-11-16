@@ -418,8 +418,23 @@ typedef struct ShardGroupNode {
 } ShardGroupNode;
 
 /* Max length of a ShardGroup string, including newline and null terminator
- * but excluding nodes */
-#define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 10 + 1 + 1)
+ * but excluding nodes and shard groups */
+#define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
+
+enum SlotRangeType {
+    SLOTRANGE_STABLE,
+    SLOTRANGE_IMPORTING,
+    SLOTRANGE_MIGRATING,
+};
+
+
+#define SLOT_RANGE_MAXLEN (10 + 1 + 10 + 1 + 10 + 1 + 1)
+
+typedef struct ShardGroupSlotRange {
+    unsigned int start_slot; /* First slot, inclusive */
+    unsigned int end_slot;   /* Last slot, inclusive */
+    enum SlotRangeType type; /* type of slot range, normal, importing, exporting */
+} ShardGroupSlotRange;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
  * is assigned with a specific range of hash slots.
@@ -427,8 +442,8 @@ typedef struct ShardGroupNode {
 typedef struct ShardGroup {
     /* Configuration */
     unsigned int id;                     /* Local shardgroup identifier */
-    unsigned int start_slot;             /* First slot, inclusive */
-    unsigned int end_slot;               /* Last slot, inclusive */
+    unsigned int slot_ranges_num;        /* Number of slot ranges */
+    ShardGroupSlotRange * slot_ranges;    /* individual slot ranges */
     unsigned int nodes_num;              /* Number of nodes listed */
     ShardGroupNode *nodes;               /* Nodes array */
 
