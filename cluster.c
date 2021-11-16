@@ -707,7 +707,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 /* Parse a ShardGroup specification as passed directly to RAFT.SHARDGROUP ADD.
  * Shard group syntax is as follows:
  *
- *  [num_slots] [num_nodes] [start slot] [end slot] [node-uid node-addr:node-port] [node-uid node-addr:node-port...]
+ *  [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
  *
  * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx,
  * and RR_ERROR is returned.
@@ -720,16 +720,15 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     ShardGroupInit(sg);
 
     if (RedisModule_StringToLongLong(argv[0], &num_slots) != REDISMODULE_OK ||
-            RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
+            RedisModule_StringToLongLong(argv[1], &num_nodes) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message");
     }
 
     /* Validate node arguments count is correct */
-    if (argc -2 != (num_slots * 3) + (num_nodes * 2)) {
+    if ((argc - 2) != (num_slots * 3) + (num_nodes * 2)) {
         RedisModule_WrongArity(ctx);
         goto error;
     }
-
     int argidx = 2; /* Next arg to consume */
 
     /* Parse slots */
