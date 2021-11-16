@@ -1092,54 +1092,52 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     }
 
     ShardingInfo *si = rr->sharding_info;
-    RedisModule_ReplyWithArray(req->ctx, si->shard_groups_num);
+    RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    int num_slots = 0;
 
     for (int i = 0; i < si->shard_groups_num; i++) {
-        int alen = 2;
         ShardGroup *sg = si->shard_groups[i];
 
         /* Dump Raft nodes now. Leader (master) first, followed by others */
         RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-        RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges_num);
-        RedisModule_ReplyWithLongLong(req->ctx, sg->nodes_num);
-
         for (int j = 0; j < sg->slot_ranges_num; j++) {
+            num_slots++;
+            int slot_len = 0;
+
             RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].start_slot); /* Start slot */
             RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].end_slot);   /* End slot */
-            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].type);       /* Slots type */
-            alen += 3;
-        }
+            slot_len += 2;
 
-        if (i == 0) {
-            /* Local cluster's ShardGroup: we list the leader node first,
-             * followed by all cluster nodes we know. This information does not
-             * come from the ShardGroup.
-             */
+            if (i == 0) {
+                /* Local cluster's ShardGroup: we list the leader node first,
+                 * followed by all cluster nodes we know. This information does not
+                 * come from the ShardGroup.
+                */
 
-            alen += addClusterSlotNodeReply(rr, req->ctx, leader_node);
-            for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
-                raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
-                if (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft) ||
-                        !raft_node_is_active(raft_node)) {
-                    continue;
+                slot_len += addClusterSlotNodeReply(rr, req->ctx, leader_node);
+                for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
+                    raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
+                    if (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft) ||
+                            !raft_node_is_active(raft_node)) {
+                        continue;
+                    }
+
+                    slot_len += addClusterSlotNodeReply(rr, req->ctx, raft_node);
                 }
+            } else {
+                /* Remote cluster: we simply dump what the ShardGroup configuration
+                * tells us.
+                */
 
-                alen += addClusterSlotNodeReply(rr, req->ctx, raft_node);
+                for (int j = 0; j < sg->nodes_num; j++) {
+                    slot_len += addClusterSlotShardGroupNodeReply(rr, req->ctx, &sg->nodes[j]);
+                }
             }
-            RedisModule_ReplySetArrayLength(req->ctx, alen);
-        } else {
-            /* Remote cluster: we simply dump what the ShardGroup configuration
-             * tells us.
-             */
-
-            for (int j = 0; j < sg->nodes_num; j++) {
-                alen += addClusterSlotShardGroupNodeReply(rr, req->ctx, &sg->nodes[j]);
-            }
-
-            RedisModule_ReplySetArrayLength(req->ctx, alen);
+            RedisModule_ReplySetArrayLength(req->ctx, slot_len);
         }
     }
+    RedisModule_ReplySetArrayLength(req->ctx, num_slots);
 }
 
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
