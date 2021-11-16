@@ -151,17 +151,23 @@ static void test_serialize_shardgroup(void **state)
           .addr = { .host = "3.3.3.3", .port = 3333 }
         }
     };
+    ShardGroupSlotRange r = {
+            .start_slot = 1,
+            .end_slot = 1000,
+            .type = SLOTRANGE_STABLE,
+    };
     ShardGroup sg = {
         .id = 99,
-        .start_slot = 1,
-        .end_slot = 1000,
+        .slot_ranges_num = 1,
+        .slot_ranges = &r,
         .nodes_num = 3,
         .nodes = nodes
     };
 
     char *str = ShardGroupSerialize(&sg);
     assert_string_equal(str,
-            "99:1:1000:3\n"
+            "99:1:3\n"
+            "1:1000:0\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n");
@@ -171,7 +177,8 @@ static void test_serialize_shardgroup(void **state)
 
 static void test_deserialize_shardgroup(void **state)
 {
-    const char *s1 = "99:1:1000:3\n"
+    const char *s1 = "99:1:3\n"
+            "1:1000:0\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n";
@@ -180,8 +187,10 @@ static void test_deserialize_shardgroup(void **state)
     /* Happy path */
     assert_int_equal(ShardGroupDeserialize(s1, strlen(s1), &sg), RR_OK);
     assert_int_equal(sg.id, 99);
-    assert_int_equal(sg.start_slot, 1);
-    assert_int_equal(sg.end_slot, 1000);
+    assert_int_equal(sg.slot_ranges_num, 1);
+    assert_int_equal(sg.slot_ranges[0].start_slot, 1);
+    assert_int_equal(sg.slot_ranges[0].end_slot, 1000);
+    assert_int_equal(sg.slot_ranges[0].type, SLOTRANGE_STABLE);
     assert_int_equal(sg.nodes_num, 3);
 
     assert_string_equal(sg.nodes[0].node_id, "12345678901234567890123456789012aabbccdd");
@@ -197,20 +206,24 @@ static void test_deserialize_shardgroup(void **state)
     assert_int_equal(sg.nodes[2].addr.port, 3333);
 
     test_free(sg.nodes);
-
+    test_free(sg.slot_ranges);
     /* Errors */
 
-    /* Missing nodes */
-    const char *s2 = "99:0:1000:1\n";
+    /* Missing slot ranges */
+    const char *s2 = "99:1:0\n";
     assert_int_equal(ShardGroupDeserialize(s2, strlen(s2), &sg), RR_ERROR);
 
+    /* Missing nodes */
+    const char *s3 = "99:0:1\n";
+    assert_int_equal(ShardGroupDeserialize(s2, strlen(s3), &sg), RR_ERROR);
+
     /* Unterminated node line */
-    const char *s3 = "99:0:1000:1\nunterminated";
-    assert_int_equal(ShardGroupDeserialize(s3, strlen(s3), &sg), RR_ERROR);
+    const char *s4 = "99:1:3\nunterminated";
+    assert_int_equal(ShardGroupDeserialize(s3, strlen(s4), &sg), RR_ERROR);
 
     /* Overflow node id */
-    const char *s4 = "99:0:1000:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
-    assert_int_equal(ShardGroupDeserialize(s4, strlen(s4), &sg), RR_ERROR);
+    const char *s5 = "99:0:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
+    assert_int_equal(ShardGroupDeserialize(s4, strlen(s5), &sg), RR_ERROR);
 }
 
 const struct CMUnitTest serialization_tests[] = {
