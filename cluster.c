@@ -222,24 +222,20 @@ int compareShardGroups(ShardGroup *a, ShardGroup *b)
  */
 RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
 {
-    if (reply->type != REDIS_REPLY_ARRAY || reply->elements < 3) {
+    if (reply->type != REDIS_REPLY_ARRAY) {
         return RR_ERROR;
     }
 
     /* num_slots and num_nodes */
-    if (reply->element[0]->type != REDIS_REPLY_INTEGER ||
-        reply->element[1]->type != REDIS_REPLY_INTEGER) {
+    if (reply->element[0]->type != REDIS_REPLY_INTEGER) {
         return RR_ERROR;
     }
 
     long long num_slots = reply->element[0]->integer;
-    long long num_nodes = reply->element[1]->integer;
-    int elemidx = 2; /* Next element to consume */
+    long long num_nodes = (reply->elements - 1 - (3 * num_slots))/2;
+    int elemidx = 1; /* Next element to consume */
 
-    /* Validate arguments count is correct */
-    if (reply->elements != (2 + num_slots * 3 + num_nodes *2)) {
-        return RR_ERROR;
-    }
+    sg->slot_ranges_num = num_slots;
     sg->slot_ranges = RedisModule_Alloc(sizeof(ShardGroupSlotRange) * num_slots);
     for (int i = 0; i < num_slots; i++) {
         sg->slot_ranges[i].start_slot = reply->element[elemidx++]->integer;

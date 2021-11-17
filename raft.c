@@ -2350,19 +2350,28 @@ exit:
 
 void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 {
-    int alen;
-
+    int alen = 0;
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
     }
 
+    ShardGroup *sg = rr->sharding_info->shard_groups[0];
+
+    ShardGroupSlotRange *sr = &sg->slot_ranges[0];
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_start_hslot);
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_end_hslot);
-    alen = 2;
+    RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges_num);
+
+    alen += 1;
+
+    for(int i = 0; i < sg->slot_ranges_num; i++) {
+        RedisModule_ReplyWithLongLong(req->ctx, sr->start_slot);
+        RedisModule_ReplyWithLongLong(req->ctx, sr->end_slot);
+        RedisModule_ReplyWithLongLong(req->ctx, sr->type);
+        alen += 3;
+    }
 
     for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
@@ -2389,9 +2398,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 
         alen += 2;
     }
-
     RedisModule_ReplySetArrayLength(req->ctx, alen);
-
 exit:
     RaftReqFree(req);
 }
