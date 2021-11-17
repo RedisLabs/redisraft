@@ -234,39 +234,49 @@ typedef struct RaftSnapshotInfo {
     NodeIdEntry *used_node_ids;  /* All node ids that are, or have ever been, part of this cluster */
 } RaftSnapshotInfo;
 
+typedef struct SnapshotFile {
+    void *mmap;
+    size_t len;
+} SnapshotFile;
+
 /* Global Raft context */
 typedef struct RedisRaftCtx {
-    void *raft;                 /* Raft library context */
-    RedisModuleCtx *ctx;        /* Redis module thread-safe context; only used to push commands
-                                   we get from the leader. */
-    RedisRaftState state;       /* Raft module state */
-    uv_thread_t thread;         /* Raft I/O thread */
-    uv_loop_t *loop;            /* Raft I/O loop */
-    uv_async_t rqueue_sig;      /* A signal we have something on rqueue */
-    uv_timer_t raft_periodic_timer;     /* Invoke Raft periodic func */
-    uv_timer_t node_reconnect_timer;    /* Handle connection issues */
-    uv_mutex_t rqueue_mutex;    /* Mutex protecting rqueue access */
-    STAILQ_HEAD(rqueue, RaftReq) rqueue;     /* Requests queue (Redis thread -> Raft thread) */
-    struct RaftLog *log;        /* Raft persistent log; May be NULL if not used */
-    struct EntryCache *logcache;
-    struct RedisRaftConfig *config;     /* User provided configuration */
-    bool snapshot_in_progress;  /* Indicates we're creating a snapshot in the background */
-    raft_index_t last_snapshot_idx;
-    raft_term_t last_snapshot_term;
-    struct RaftReq *debug_req;    /* Current RAFT.DEBUG request context, if processing one */
-    struct RaftReq *transfer_req; /* RaftReq if a leader transfer is in progress */
-    bool callbacks_set;         /* TODO: Needed? */
-    int snapshot_child_fd;      /* Pipe connected to snapshot child process */
-    RaftSnapshotInfo snapshot_info; /* Current snapshot info */
-    RedisModuleCommandFilter *registered_filter;
-    struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
+    void *raft;                                  /* Raft library context */
+    RedisModuleCtx *ctx;                         /* Redis module thread-safe context; only used to push
+                                                    commands we get from the leader. */
+    RedisRaftState state;                        /* Raft module state */
+    uv_thread_t thread;                          /* Raft I/O thread */
+    uv_loop_t *loop;                             /* Raft I/O loop */
+    uv_async_t rqueue_sig;                       /* A signal we have something on rqueue */
+    uv_timer_t raft_periodic_timer;              /* Invoke Raft periodic func */
+    uv_timer_t node_reconnect_timer;             /* Handle connection issues */
+    uv_mutex_t rqueue_mutex;                     /* Mutex protecting rqueue access */
+    STAILQ_HEAD(rqueue, RaftReq) rqueue;         /* Requests queue (Redis thread -> Raft thread) */
+    struct RaftLog *log;                         /* Raft persistent log; May be NULL if not used */
+    struct EntryCache *logcache;                 /* Log entry cache to keep entries in memory for faster access */
+    struct RedisRaftConfig *config;              /* User provided configuration */
+    bool snapshot_in_progress;                   /* Indicates we're creating a snapshot in the background */
+    raft_index_t incoming_snapshot_idx;          /* Incoming snapshot's last included idx to verify chunks
+                                                    belong to the same snapshot */
+    char incoming_snapshot_file[256];            /* File name for incoming snapshots. When received fully,
+                                                    it will be renamed to the original rdb file */
+    raft_index_t last_snapshot_idx;              /* Last included idx of the snapshot operation currently in progress */
+    raft_term_t last_snapshot_term;              /* Last included term of the snapshot operation currently in progress */
+    int snapshot_child_fd;                       /* Pipe connected to snapshot child process */
+    SnapshotFile outgoing_snapshot_file;         /* Snapshot file memory map to send to followers */
+    RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
+    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
+    struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
+    RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
+    struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
+
     /* General stats */
-    unsigned long client_attached_entries;      /* Number of log entries attached to user connections */
-    unsigned long long proxy_reqs;              /* Number of proxied requests */
-    unsigned long long proxy_failed_reqs;       /* Number of failed proxy requests, i.e. did not send */
-    unsigned long long proxy_failed_responses;  /* Number of failed proxy responses, i.e. did not complete */
-    unsigned long proxy_outstanding_reqs;       /* Number of proxied requests pending */
-    unsigned long snapshots_loaded;             /* Number of snapshots loaded */
+    unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
+    unsigned long long proxy_reqs;               /* Number of proxied requests */
+    unsigned long long proxy_failed_reqs;        /* Number of failed proxy requests, i.e. did not send */
+    unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
+    unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
+    unsigned long snapshots_loaded;              /* Number of snapshots loaded */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -341,15 +351,6 @@ typedef struct Node {
     RedisRaftCtx *rr;               /* RedisRaftCtx handle */
     Connection *conn;               /* Connection to node */
     NodeAddr addr;                  /* Node's address */
-    bool load_snapshot_in_progress; /* Are we currently pushing a snapshot? */
-    raft_index_t load_snapshot_idx; /* Index of snapshot we're pushing */
-    time_t load_snapshot_last_time; /* Last time we pushed a snapshot */
-    uv_fs_t uv_snapshot_req;        /* libuv handle managing snapshot loading from disk */
-    uv_file uv_snapshot_file;       /* libuv handle for snapshot file */
-    size_t snapshot_size;           /* Size of snapshot we're pushing */
-    char *snapshot_buf;             /* Snapshot buffer; TODO: Currently we buffer the entire RDB
-                                     * because hiredis will not stream it for us. */
-    uv_buf_t uv_snapshot_buf;       /* libuv wrapper for snapshot_buf */
     long pending_raft_response_num;     /* Number of pending Raft responses */
     long pending_proxy_response_num;    /* Number of pending proxy responses */
     STAILQ_HEAD(pending_responses, PendingResponse) pending_responses;
@@ -377,7 +378,7 @@ enum RaftReqType {
     RR_REQUESTVOTE,
     RR_REDISCOMMAND,
     RR_INFO,
-    RR_LOADSNAPSHOT,
+    RR_SNAPSHOT,
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
@@ -511,10 +512,12 @@ typedef struct RaftReq {
             msg_entry_response_t response;
         } redis;
         struct {
+            void *data;
+            raft_node_id_t src_node_id;
             raft_term_t term;
             raft_index_t idx;
-            RedisModuleString *snapshot;
-        } loadsnapshot;
+            msg_snapshot_t msg;
+        } snapshot;
         struct {
             unsigned long long client_id;
         } client_disconnect;
@@ -719,15 +722,19 @@ RRStatus ConfigureRedis(RedisModuleCtx *ctx);
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
-void handleLoadSnapshot(RedisRaftCtx *rr, RaftReq *req);
-void checkLoadSnapshotProgress(RedisRaftCtx *rr);
+void initSnapshotTransferData(RedisRaftCtx *ctx);
+void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
+void handleSnapshot(RedisRaftCtx *rr, RaftReq *req);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
-void handleCompact(RedisRaftCtx *rr, RaftReq *req);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
-int raftSendSnapshot(raft_server_t *raft, void *user_data, raft_node_t *raft_node);
+int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_index_t idx, raft_term_t term);
+int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, msg_snapshot_t *msg);
+int raftClearSnapshot(raft_server_t *raft, void *udata);
+int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
+int raftStoreSnapshotChunk(raft_server_t *raft, void *udata, raft_index_t idx, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 void archiveSnapshot(RedisRaftCtx *rr);
 
 /* proxy.c */

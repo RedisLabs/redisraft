@@ -134,7 +134,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx)
             { "raft.node",              CMD_SPEC_DONT_INTERCEPT },
             { "raft.ae",                CMD_SPEC_DONT_INTERCEPT },
             { "raft.requestvote",       CMD_SPEC_DONT_INTERCEPT },
-            { "raft.loadsnapshot",      CMD_SPEC_DONT_INTERCEPT },
+            { "raft.snapshot",          CMD_SPEC_DONT_INTERCEPT },
             { "raft.debug",             CMD_SPEC_DONT_INTERCEPT },
             { "raft.info",              CMD_SPEC_DONT_INTERCEPT },
             { "raft.nodeshutdown",      CMD_SPEC_DONT_INTERCEPT },
