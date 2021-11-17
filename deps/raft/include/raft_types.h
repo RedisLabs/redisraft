@@ -21,6 +21,11 @@ typedef long int raft_term_t;
 typedef long int raft_index_t;
 
 /**
+ * Size type. This should be at least 64 bits.
+ */
+typedef unsigned long long raft_size_t;
+
+/**
  * Unique node identifier.
  */
 typedef int raft_node_id_t;

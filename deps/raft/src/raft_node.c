@@ -33,6 +33,9 @@ typedef struct
 
     raft_node_id_t id;
 
+    /* Next snapshot offset to send to this node */
+    raft_size_t snapshot_offset;
+
     /* last AE heartbeat response received */
     raft_term_t last_acked_term;
     raft_msg_id_t last_acked_msgid;
@@ -221,4 +224,16 @@ raft_msg_id_t raft_node_get_max_seen_msg_id(raft_node_t *me_)
 {
     raft_node_private_t* me = (raft_node_private_t*)me_;
     return me->max_seen_msgid;
+}
+
+raft_size_t raft_node_get_snapshot_offset(raft_node_t *me_)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    return me->snapshot_offset;
+}
+
+void raft_node_set_snapshot_offset(raft_node_t *me_, raft_size_t snapshot_offset)
+{
+    raft_node_private_t* me = (raft_node_private_t*)me_;
+    me->snapshot_offset = snapshot_offset;
 }

@@ -446,16 +446,23 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return REDISMODULE_OK;
 }
 
-/* RAFT.LOADSNAPSHOT [target-node-id] [current-term] [snapshot-last-index] [data]
- *   Load the specified snapshot (e.g. Raft paper's InstallSnapshot RPC).
+/* RAFT.SNAPSHOT [target-node-id] [src_node_id]
+ *               [term]:[leader_id]:[msg_id]:[snapshot_index]:[snapshot_term]:[chunk_offset]:[last_chunk]
+ *               [chunk_data]
+ *   Store the specified snapshot chunk (e.g. Raft paper's InstallSnapshot RPC).
  *
  *  Reply:
- *    -LEADER ||
- *    :0 (already have snapshot or newer)
- *    :1 (loaded)
+ *    -NOCLUSTER ||
+ *    -LOADING ||
+ *    *5
+ *    :<term>
+ *    :<msg_id>
+ *    :<offset>
+ *    :<success>
+ *    :<last_chunk>
  */
 
-static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
@@ -471,15 +478,26 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
             return REDISMODULE_OK;
         }
 
-    long long term;
-    long long idx;
-    if (RedisModule_StringToLongLong(argv[2], &term) != REDISMODULE_OK ||
-        RedisModule_StringToLongLong(argv[3], &idx) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid numeric values");
-        return REDISMODULE_OK;
+    RaftReq *req = RaftReqInit(ctx, RR_SNAPSHOT);
+    if (RedisModuleStringToInt(argv[2], &req->r.snapshot.src_node_id) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "invalid source node id");
+        goto error;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_LOADSNAPSHOT);
+    size_t tmplen;
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
+
+    if (sscanf(tmpstr, "%lu:%d:%lu:%lu:%lu:%llu:%d",
+               &req->r.snapshot.msg.term,
+               &req->r.snapshot.msg.leader_id,
+               &req->r.snapshot.msg.msg_id,
+               &req->r.snapshot.msg.snapshot_index,
+               &req->r.snapshot.msg.snapshot_term,
+               &req->r.snapshot.msg.chunk.offset,
+               &req->r.snapshot.msg.chunk.last_chunk) != 7) {
+        RedisModule_ReplyWithError(ctx, "invalid message");
+        goto error;
+    }
 
     /* TODO: We currently duplicate the string instead of using RetainString
      * due to a problem introduced by https://github.com/redis/redis/pull/5834
@@ -489,12 +507,19 @@ static int cmdRaftLoadSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, in
      *
      * Revisit this if/when the Module API addresses this issue in a better way.
      */
-    req->r.loadsnapshot.snapshot = RedisModule_CreateStringFromString(NULL, argv[4]);
-    req->r.loadsnapshot.idx = idx;
-    req->r.loadsnapshot.term = term;
+    req->r.snapshot.data = RedisModule_CreateStringFromString(NULL, argv[4]);
 
-    RaftReqSubmit(&redis_raft, req);
+    size_t len;
+    void *data = (void*) RedisModule_StringPtrLen(req->r.snapshot.data, &len);
 
+    req->r.snapshot.msg.chunk.data = data;
+    req->r.snapshot.msg.chunk.len = len;
+
+    RaftReqSubmit(rr, req);
+    return REDISMODULE_OK;
+
+error:
+    RaftReqFree(req);
     return REDISMODULE_OK;
 }
 
@@ -848,8 +873,8 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.loadsnapshot",
-                cmdRaftLoadSnapshot, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+    if (RedisModule_CreateCommand(ctx, "raft.snapshot",
+                cmdRaftSnapshot, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

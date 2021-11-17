@@ -26,7 +26,7 @@ const char *RaftReqTypeStr[] = {
     "RR_REQUESTVOTE",
     "RR_REDISCOMMAND",
     "RR_INFO",
-    "RR_LOADSNAPSHOT",
+    "RR_SNAPSHOT",
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
@@ -770,6 +770,10 @@ raft_cbs_t redis_raft_callbacks = {
     .applylog = raftApplyLog,
     .node_has_sufficient_logs = raftNodeHasSufficientLogs,
     .send_snapshot = raftSendSnapshot,
+    .load_snapshot = raftLoadSnapshot,
+    .clear_snapshot = raftClearSnapshot,
+    .get_snapshot_chunk = raftGetSnapshotChunk,
+    .store_snapshot_chunk = raftStoreSnapshotChunk,
     .notify_membership_event = raftNotifyMembershipEvent,
     .notify_state_event = raftNotifyStateEvent,
     .send_timeoutnow = raftSendTimeoutNow,
@@ -844,8 +848,6 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     return RR_OK;
 }
 
-int raft_get_num_snapshottable_logs(raft_server_t *);
-
 /* Check if Redis is loading an RDB file */
 static bool checkRedisLoading(RedisRaftCtx *rr)
 {
@@ -887,7 +889,10 @@ static void handleLoadingState(RedisRaftCtx *rr)
             PANIC("Failed to create local Raft node [id %d]", rr->config->id);
         }
 
+        initSnapshotTransferData(rr);
+
         if (rr->snapshot_info.loaded) {
+            createOutgoingSnapshotMmap(rr);
             configureFromSnapshot(rr);
         }
 
@@ -1095,6 +1100,8 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize raft_node");
         return RR_ERROR;
     }
+
+    initSnapshotTransferData(rr);
 
     /* Become leader and create initial entry */
     rr->state = REDIS_RAFT_UP;
@@ -1311,8 +1318,8 @@ void RaftReqFree(RaftReq *req)
             }
             // TODO: hold a reference from entry so we can disconnect our req
             break;
-        case RR_LOADSNAPSHOT:
-            RedisModule_FreeString(req->ctx, req->r.loadsnapshot.snapshot);
+        case RR_SNAPSHOT:
+            RedisModule_FreeString(req->ctx, req->r.snapshot.data);
             break;
         case RR_CLUSTER_JOIN:
             NodeAddrListFree(req->r.cluster_join.addr);
@@ -2140,6 +2147,8 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
         PANIC("Failed to initialize raft_node");
     }
 
+    initSnapshotTransferData(rr);
+
     rr->state = REDIS_RAFT_UP;
 
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
@@ -2201,10 +2210,7 @@ static void handleDebugSendSnapshot(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (raftSendSnapshot(rr->raft, rr, node) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR failed to send snapshot");
-        goto exit;
-    }
+    raft_node_set_next_idx(node, raft_get_snapshot_last_idx(rr->raft));
 
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
 
@@ -2399,7 +2405,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleRequestVote,      /* RR_REQUESTVOTE */
     handleRedisCommand,     /* RR_REDISCOMMAND */
     handleInfo,             /* RR_INFO */
-    handleLoadSnapshot,     /* RR_LOADSNAPSHOT */
+    handleSnapshot,         /* RR_SNAPSHOT */
     handleDebug,            /* RR_DEBUG */
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
