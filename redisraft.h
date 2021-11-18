@@ -336,6 +336,8 @@ typedef struct RedisRaftConfig {
     int sharding_start_hslot;           /* First cluster hash slot */
     int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
+
+    char * resp_call_fmt;               /* format string to use in RedisModule_Call() */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {

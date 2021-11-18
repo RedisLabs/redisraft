@@ -400,6 +400,13 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->sharding_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
     config->sharding_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+
+    /* for backwards compatibility with older redis version that don't support "0v"m */
+    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
+        config->resp_call_fmt = "0v";
+    } else {
+        config->resp_call_fmt = "v";
+    }
 }
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
