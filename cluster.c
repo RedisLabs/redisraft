@@ -226,29 +226,30 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
         return RR_ERROR;
     }
 
-    /* num_slots and num_nodes */
-    if (reply->element[0]->type != REDIS_REPLY_INTEGER) {
+    /* check if it has 2 elements and both are arrays */
+    if (reply->elements != 2 ||
+        reply->element[0]->type != REDIS_REPLY_ARRAY ||
+        reply->element[1]->type != REDIS_REPLY_ARRAY) {
         return RR_ERROR;
     }
 
-    long long num_slots = reply->element[0]->integer;
-    long long num_nodes = (reply->elements - 1 - (3 * num_slots))/2;
-    int elemidx = 1; /* Next element to consume */
+    sg->slot_ranges_num = reply->element[0]->elements;
+    sg->nodes_num = reply->element[1]->elements;
 
-    sg->slot_ranges_num = num_slots;
-    sg->slot_ranges = RedisModule_Alloc(sizeof(ShardGroupSlotRange) * num_slots);
-    for (int i = 0; i < num_slots; i++) {
-        sg->slot_ranges[i].start_slot = reply->element[elemidx++]->integer;
-        sg->slot_ranges[i].end_slot = reply->element[elemidx++]->integer;
-        sg->slot_ranges[i].type = reply->element[elemidx++]->integer;
+    sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
+    for (int i = 0; i < sg->slot_ranges_num; i++) {
+        // FIXME: be defensive
+        sg->slot_ranges[i].start_slot = reply->element[0]->element[i]->element[0]->integer;
+        sg->slot_ranges[i].end_slot = reply->element[0]->element[i]->element[1]->integer;
+        sg->slot_ranges[i].type = reply->element[0]->element[i]->element[2]->integer;
     }
 
-    sg->nodes_num = num_nodes;
-    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * num_nodes);
+    sg->nodes = RedisModule_Calloc(sg->nodes_num, sizeof(ShardGroupNode));
 
     /* Parse nodes */
-    for (int i = 0; i < num_nodes; i++) {
-        redisReply *elem = reply->element[elemidx++];
+    for (int i = 0; i < sg->nodes_num; i++) {
+        // FIXME: be defensive
+        redisReply *elem = reply->element[1]->element[i]->element[0];
 
         if (elem->type != REDIS_REPLY_STRING ||
             elem->len != RAFT_SHARDGROUP_NODEID_LEN) {
@@ -259,7 +260,7 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
         sg->nodes[i].node_id[elem->len] = '\0';
 
         /* Advance to node address and port */
-        elem = reply->element[elemidx++];
+        elem = reply->element[1]->element[i]->element[1];
         if (elem->type != REDIS_REPLY_STRING ||
             !NodeAddrParse(elem->str, elem->len, &sg->nodes[i].addr)) {
             goto error;
