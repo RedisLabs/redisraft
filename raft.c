@@ -148,8 +148,15 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         }
 
         enterRedisModuleCall();
+        /* for backwards compatability with older redis version that don't support "0v"m */
+        char * fmt;
+        if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
+            fmt = "0v";
+        } else {
+            fmt = "v";
+        }
         RedisModuleCallReply *reply = RedisModule_Call(
-                ctx, cmd, "0v", &c->argv[1], c->argc - 1);
+                ctx, cmd, fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
 
