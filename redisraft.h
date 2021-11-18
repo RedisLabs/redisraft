@@ -277,6 +277,8 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
+
+    char * resp_call_fmt;               /* format string to use in RedisModule_Call() */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -336,8 +338,6 @@ typedef struct RedisRaftConfig {
     int sharding_start_hslot;           /* First cluster hash slot */
     int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
-
-    char * resp_call_fmt;               /* format string to use in RedisModule_Call() */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {

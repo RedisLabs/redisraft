@@ -149,7 +149,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
 
         enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(
-                ctx, cmd, redis_raft.config->resp_call_fmt, &c->argv[1], c->argc - 1);
+                ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
 
@@ -1237,6 +1237,13 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
     rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
+
+    /* for backwards compatibility with older redis version that don't support "0v"m */
+    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
+        rr->resp_call_fmt = "0v";
+    } else {
+        rr->resp_call_fmt = "v";
+    }
 
     /* Client state for MULTI support */
     multiClientState = RedisModule_CreateDict(ctx);
