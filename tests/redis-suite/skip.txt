@@ -10,11 +10,6 @@ client unblock tests
 .*BZM?POP_?MAX.*
 LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
 
-
--- RESP3 Not supported
--- See: https://github.com/RedisLabs/redisraft/issues/100
-.*RESP3.*
-
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
 .*XREAD.*
