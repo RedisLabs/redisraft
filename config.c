@@ -8,6 +8,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 
 #include "redisraft.h"
