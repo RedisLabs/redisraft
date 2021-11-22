@@ -785,6 +785,39 @@ void ShardingInfoInit(RedisRaftCtx *rr)
     ShardingInfoReset(rr);
 }
 
+void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
+{
+     char * str = RedisModule_Strdup(rr->config->slot_config);
+
+    sg->slot_ranges_num = 1;
+    char * pos = str;
+    while ((pos = strchr(pos+1, ','))) {
+        sg->slot_ranges_num++;
+    }
+    sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
+
+    char * token = strtok(str, ",");
+    for(int i = 0; i < sg->slot_ranges_num; i++) {
+        unsigned long val;
+        if ((pos = strchr(token, ':'))) {
+            *pos = '\0';
+            val = strtoul(token, NULL, 10);
+            sg->slot_ranges[i].start_slot = val;
+            val = strtoul(pos+1, NULL, 10);
+            sg->slot_ranges[i].end_slot = val;
+        } else {
+            val = strtoul(token, NULL, 10);
+            sg->slot_ranges[i].start_slot = val;
+            sg->slot_ranges[i].end_slot = val;
+        }
+        sg->slot_ranges[i].type = SLOTRANGE_STABLE;
+
+        token = strtok(NULL, ",");
+    }
+
+     RedisModule_Free(str);
+}
+
 /* Free and reset the ShardingInfo structure.
  *
  * This is called after ShardingInfo has already been allocated, and typically
@@ -810,16 +843,14 @@ void ShardingInfoReset(RedisRaftCtx *rr)
         si->hash_slots_map[i] = 0;
 
     /* Add our local mapping */
-    ShardGroupSlotRange *r = RedisModule_Alloc(sizeof(ShardGroupSlotRange));
-    r->start_slot = rr->config->sharding_start_hslot;
-    r->end_slot = rr->config->sharding_end_hslot;
-    r->type = SLOTRANGE_STABLE;
     ShardGroup sg = {
-        .slot_ranges_num = 1,
-        .slot_ranges = r,
+        .slot_ranges_num = 0,
+        .slot_ranges = NULL,
         .nodes_num = 0,
         .nodes = NULL
     };
+
+    FillShardSlots(rr, &sg);
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
     RedisModule_Assert(ret == RR_OK);
@@ -1089,23 +1120,26 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     }
 
     ShardingInfo *si = rr->sharding_info;
-    RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    int num_slots = 0;
+    unsigned int num_slots = 0;
+    for (int i = 0; i < si->shard_groups_num; i++) {
+        num_slots += si->shard_groups[i]->slot_ranges_num;
+    }
+
+    RedisModule_ReplyWithArray(req->ctx, num_slots);
 
     for (int i = 0; i < si->shard_groups_num; i++) {
         ShardGroup *sg = si->shard_groups[i];
 
-        /* Dump Raft nodes now. Leader (master) first, followed by others */
-        RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
         for (int j = 0; j < sg->slot_ranges_num; j++) {
-            num_slots++;
+            RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
             int slot_len = 0;
 
             RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].start_slot); /* Start slot */
             RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].end_slot);   /* End slot */
             slot_len += 2;
 
+            /* Dump Raft nodes now. Leader (master) first, followed by others */
             if (i == 0) {
                 /* Local cluster's ShardGroup: we list the leader node first,
                  * followed by all cluster nodes we know. This information does not
@@ -1131,10 +1165,10 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
                     slot_len += addClusterSlotShardGroupNodeReply(rr, req->ctx, &sg->nodes[j]);
                 }
             }
+
             RedisModule_ReplySetArrayLength(req->ctx, slot_len);
         }
     }
-    RedisModule_ReplySetArrayLength(req->ctx, num_slots);
 }
 
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
