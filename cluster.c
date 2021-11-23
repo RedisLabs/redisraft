@@ -238,7 +238,14 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
 
     sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
     for (int i = 0; i < sg->slot_ranges_num; i++) {
-        // FIXME: be defensive
+        if (reply->element[0]->element[i]->type != REDIS_REPLY_ARRAY ||
+            reply->element[0]->element[i]->elements != 3 ||
+            reply->element[0]->element[i]->element[0]->type != REDIS_REPLY_INTEGER ||
+            reply->element[0]->element[i]->element[1]->type != REDIS_REPLY_INTEGER ||
+            reply->element[0]->element[i]->element[2]->type != REDIS_REPLY_INTEGER) {
+            goto error;
+        }
+
         sg->slot_ranges[i].start_slot = reply->element[0]->element[i]->element[0]->integer;
         sg->slot_ranges[i].end_slot = reply->element[0]->element[i]->element[1]->integer;
         sg->slot_ranges[i].type = reply->element[0]->element[i]->element[2]->integer;
@@ -248,7 +255,11 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
 
     /* Parse nodes */
     for (int i = 0; i < sg->nodes_num; i++) {
-        // FIXME: be defensive
+        if (reply->element[1]->element[i]->type != REDIS_REPLY_ARRAY ||
+            reply->element[1]->element[i]->elements != 2) {
+            goto error;
+        }
+
         redisReply *elem = reply->element[1]->element[i]->element[0];
 
         if (elem->type != REDIS_REPLY_STRING ||
@@ -270,8 +281,14 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
     return RR_OK;
 
 error:
-    RedisModule_Free(sg->nodes);
-    sg->nodes = NULL;
+    if (sg->slot_ranges) {
+        RedisModule_Free(sg->nodes);
+        sg->slot_ranges = NULL;
+    }
+    if (sg->nodes) {
+        RedisModule_Free(sg->nodes);
+        sg->nodes = NULL;
+    }
 
     return RR_ERROR;
 }
