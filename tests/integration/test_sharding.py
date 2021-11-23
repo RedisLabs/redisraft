@@ -34,8 +34,7 @@ def test_shard_group_sanity(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '0'})
+        'slot-config': '0'})
 
     c = cluster.node(1).client
 
@@ -62,8 +61,7 @@ def test_shard_group_sanity(cluster):
 def test_shard_group_validation(cluster):
     cluster.create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1000'})
+        'slot-config': '0:1000'})
 
     c = cluster.node(1).client
 
@@ -88,8 +86,7 @@ def test_shard_group_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1000'})
+        'slot-config': '0:1000'})
 
     c = cluster.node(1).client
     assert c.execute_command(
@@ -108,8 +105,7 @@ def test_shard_group_snapshot_propagation(cluster):
     # Create a cluster with just a single slot
     cluster.create(1, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1000'})
+        'slot-config': '0:1000'})
 
     c = cluster.node(1).client
     assert c.execute_command(
@@ -132,8 +128,7 @@ def test_shard_group_snapshot_propagation(cluster):
 def test_shard_group_persistence(cluster):
     cluster.create(1, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1000'})
+        'slot-config': '0:1000'})
 
     n1 = cluster.node(1)
     assert n1.client.execute_command(
@@ -169,13 +164,11 @@ def test_shard_group_persistence(cluster):
 def test_shard_group_linking(cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1',
+        'slot-config': '0:1',
         'shardgroup-update-interval': 500})
     cluster2 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '2',
-        'sharding-end-hslot': '16383',
+        'slot-config': '2:16383',
         'shardgroup-update-interval': 500})
 
     # Not expected to have coverage
@@ -244,12 +237,10 @@ def test_shard_group_linking_checks(cluster_factory):
     # linking should fail.
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '1'})
+        'slot-config': '0:1'})
     cluster2 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '1',
-        'sharding-end-hslot': '16383'})
+        'slot-config': '1:16383'})
 
     # Link
     with raises(ResponseError, match='failed to link'):
@@ -264,12 +255,10 @@ def test_shard_group_refresh(cluster_factory):
 
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '0',
-        'sharding-end-hslot': '8191'})
+        'slot-config': '0:8191'})
     cluster2 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'sharding-start-hslot': '8192',
-        'sharding-end-hslot': '16383'})
+        'slot-config': '8192:16383'})
 
     assert cluster1.node(1).client.execute_command(
         'RAFT.SHARDGROUP', 'LINK',
