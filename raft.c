@@ -1626,6 +1626,8 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
             break;
         case RR_CFGCHANGE_REMOVENODE:
+            /* Block until removed, so don't reply here. */
+
             /* Special case, we are the only node and our node has been removed */
             if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
                 raft_get_num_voting_nodes(rr->raft) == 0) {
