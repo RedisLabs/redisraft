@@ -86,9 +86,9 @@ def test_ignored_commands(cluster):
     cluster.node(1).start()
 
     # ignored commands should give a non existent command redis error
-    with raises(ResponseError, match='unknown command `ignored`, with args beginning with: `test`, `command`, '):
+    with raises(ResponseError, match="unknown command"):
         cluster.node(1).client.execute_command("ignored", "test", "command")
-    with raises(ResponseError, match='unknown command `mycommand`, with args beginning with: `to`, `ignore`, '):
+    with raises(ResponseError, match="unknown command"):
         cluster.node(1).client.execute_command("mycommand", "to", "ignore")
 
     # while not ignored commands should give an uninitialized cluster error
