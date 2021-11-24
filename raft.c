@@ -912,6 +912,20 @@ static void handleLoadingState(RedisRaftCtx *rr)
     }
 }
 
+static void shutdownAfterRemoval(RedisRaftCtx *rr)
+{
+    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+
+    if (rr->config->raft_log_filename) {
+        RaftLogArchiveFiles(rr);
+    }
+    if (rr->config->rdb_filename) {
+        archiveSnapshot(rr);
+    }
+
+    exit(0);
+}
+
 static void callRaftPeriodic(uv_timer_t *handle)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
@@ -953,13 +967,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     if (ret == RAFT_ERR_SHUTDOWN) {
-        LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
-
-        if (rr->config->raft_log_filename)
-            RaftLogArchiveFiles(rr);
-        if (rr->config->rdb_filename)
-            archiveSnapshot(rr);
-        exit(0);
+        shutdownAfterRemoval(rr);
     }
 
     assert(ret == 0);
@@ -1618,7 +1626,15 @@ static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
             break;
         case RR_CFGCHANGE_REMOVENODE:
-            // block until removed, so don't reply here
+            /* Block until removed, so don't reply here. */
+
+            /* Special case, we are the only node and our node has been removed */
+            if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
+                raft_get_num_voting_nodes(rr->raft) == 0) {
+                RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+                RaftReqFree(req);
+                shutdownAfterRemoval(rr);
+            }
             return;
         default:
 	    assert(0);
@@ -2388,18 +2404,8 @@ static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
         return;
     }
 
-    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
-
-    if (rr->config->raft_log_filename) {
-        RaftLogArchiveFiles(rr);
-    }
-
-    if (rr->config->rdb_filename) {
-        archiveSnapshot(rr);
-    }
-
     RaftReqFree(req);
-    exit(0);
+    shutdownAfterRemoval(rr);
 }
 
 static RaftReqHandler RaftReqHandlers[] = {

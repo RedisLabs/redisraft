@@ -128,16 +128,19 @@ def test_full_cluster_remove(cluster):
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
 
+    # remove the leader node finally
+    leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
+
     # make sure other nodes are down
-    for node_id in (2, 3, 4, 5):
+    for node_id in (1, 2, 3, 4, 5):
         assert cluster.node(node_id).verify_down()
 
     # and make sure they start up in uninitialized state
-    for node_id in (2, 3, 4, 5):
+    for node_id in (1, 2, 3, 4, 5):
         cluster.node(node_id).terminate()
         cluster.node(node_id).start()
 
-    for node_id in (2, 3, 4, 5):
+    for node_id in (1, 2, 3, 4, 5):
         assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
 
 
