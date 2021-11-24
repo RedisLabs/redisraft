@@ -13,8 +13,9 @@
 
 static RedisModuleDict *commandSpecDict = NULL;
 
-RRStatus CommandSpecInit(RedisModuleCtx *ctx)
+RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
+    static CommandSpec dont_intercept = {"", CMD_SPEC_DONT_INTERCEPT};
     static CommandSpec commands[] = {
             /* Core Redis Commands */
             { "get",                    CMD_SPEC_READONLY },
@@ -150,6 +151,21 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx)
                 RedisModule_FreeDict(ctx, commandSpecDict);
                 return RR_ERROR;
         }
+    }
+
+    if (config->ignored_commands) {
+        char *temp = RedisModule_Strdup(config->ignored_commands);
+        char *tok = strtok(temp, ",");
+        while (tok != NULL) {
+            if (RedisModule_DictSetC(commandSpecDict, tok,
+                                     strlen(tok), &dont_intercept) != REDISMODULE_OK) {
+                RedisModule_Free(temp);
+                printf("FAILURE!: %s\n", tok);
+                return RR_ERROR;
+            }
+            tok = strtok(NULL, ",");
+        }
+        RedisModule_Free(temp);
     }
 
     return RR_OK;

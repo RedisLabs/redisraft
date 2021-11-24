@@ -9,6 +9,8 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 from redis import ResponseError
 from pytest import raises
 
+from .sandbox import RedisRaft
+
 
 def test_config_sanity(cluster):
     """
@@ -68,3 +70,27 @@ def test_invalid_configs(cluster):
 
     with raises(ResponseError, match='.*invalid .*value'):
         r1.raft_config_set('request-timeout', 'nonint')
+
+
+def test_ignored_commands(cluster):
+    """
+    ignored commands
+    """
+    # create a non initialized single node cluster
+    cluster.nodes = {1: RedisRaft(1, cluster.base_port + 1,
+              config=cluster.config,
+              raft_args={"ignored-commands": "ignored,mycommand"},
+              cluster_id=cluster.cluster_id)}
+
+    cluster.node(1).cleanup()
+    cluster.node(1).start()
+
+    # ignored commands should give a non existent command redis error
+    with raises(ResponseError, match='unknown command `ignored`, with args beginning with: `test`, `command`, '):
+        cluster.node(1).client.execute_command("ignored", "test", "command")
+    with raises(ResponseError, match='unknown command `mycommand`, with args beginning with: `to`, `ignore`, '):
+        cluster.node(1).client.execute_command("mycommand", "to", "ignore")
+
+    # while not ignored commands should give an uninitialized cluster error
+    with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
+        cluster.node(1).client.execute_command("set", "a", "b")
