@@ -337,7 +337,7 @@ typedef struct RedisRaftConfig {
     int sharding_start_hslot;           /* First cluster hash slot */
     int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
-    char *ignored_commands;             /* comma delimited list of strings to ignore */
+    char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
