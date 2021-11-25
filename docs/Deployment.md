@@ -379,6 +379,6 @@ A comma sepeated list of additional commands that RedisRaft should not intercept
 
 Im general this is useful when used with other modules that don't wnat some or all of their commands handled via raft.
 
-*Example*: ignore,mycommand
+*Example*: command1,command2
 
 By default, this configuration option will be mepty and no additional commands will be ignored beyond those RedisRaft is hard coded to ignore.
