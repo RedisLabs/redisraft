@@ -165,10 +165,6 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
                 RedisModule_Free(temp);
                 return RR_ERROR;
             }
-
-            CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, tok, strlen(tok), NULL);
-            printf("val = %d\n", cs->flags);
-
             tok = strtok(NULL, ",");
         }
         RedisModule_Free(temp);
