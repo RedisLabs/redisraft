@@ -372,3 +372,13 @@ The interval (in milliseconds) between attempts to refresh shardgroup configurat
 of foreign shardgroup clusters.
 
 *Default: 5000*
+
+### `ignored-commands`
+
+A comma sepeated list of additional commands that RedisRaft should not intercept and append to the Raft log before executing.
+
+Im general this is useful when used with other modules that don't wnat some or all of their commands handled via raft.
+
+*Example*: ignore,mycommand
+
+By default, this configuration option will be mepty and no additional commands will be ignored beyond those RedisRaft is hard coded to ignore.
