@@ -2361,7 +2361,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
      * 1. slot ranges -> each element is a 3 element array start/end/type
      * 2. nodes -> each element is a 2 element array id/address
      */
-    RedisModule_ReplyWithArray(req->ctx, 2);
+    RedisModule_ReplyWithArray(req->ctx, 3);
+    RedisModule_ReplyWithLongLong(req->ctx, sg->id);
     RedisModule_ReplyWithArray(req->ctx, sg->slot_ranges_num);
     for(int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange * sr = &sg->slot_ranges[i];
@@ -2371,9 +2372,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_ReplyWithLongLong(req->ctx, sr->type);
     }
 
-    //
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    int count = 0;
+    int node_count = 0;
     for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
         if (!raft_node_is_active(raft_node))
@@ -2389,7 +2389,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
             addr = &node->addr;
         }
 
-        count++;
+        node_count++;
         RedisModule_ReplyWithArray(req->ctx, 2);
         char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
         snprintf(node_id, sizeof(node_id), "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
@@ -2400,7 +2400,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_ReplyWithStringBuffer(req->ctx, addrstr, strlen(addrstr));
 
     }
-    RedisModule_ReplySetArrayLength(req->ctx, count);
+    RedisModule_ReplySetArrayLength(req->ctx, node_count);
 exit:
     RaftReqFree(req);
 }

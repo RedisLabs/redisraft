@@ -10,6 +10,7 @@
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
+#include <sys/random.h>
 
 #include "redisraft.h"
 
@@ -33,6 +34,7 @@ static const char *CONF_LOGLEVEL = "loglevel";
 static const char *CONF_SHARDING = "sharding";
 static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
+static const char *CONF_SHARDGROUP_ID = "shardgroup-id";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -196,6 +198,14 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (*errptr != '\0' || val < 0)
             goto invalid_value;
         target->shardgroup_update_interval = (int) val;
+    } else if (!strcmp(keyword, CONF_SHARDGROUP_ID)) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (val > UINT_MAX)
+            goto invalid_value;
+        if (*errptr != '\0' || val < 0)
+            goto invalid_value;
+        target->shardgroup_id = (unsigned int) val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -360,6 +370,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, CONF_SHARDGROUP_UPDATE_INTERVAL, config->shardgroup_update_interval);
     }
+    if (stringmatch(pattern, CONF_SHARDGROUP_ID, 1)) {
+        len++;
+        replyConfigInt(ctx, CONF_SHARDGROUP_ID, config->shardgroup_id);
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -385,6 +399,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->sharding = false;
     config->slot_config = "0:16383",
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    assert(getrandom(&config->shardgroup_id, sizeof(unsigned int), GRND_NONBLOCK) == sizeof(unsigned int));
 }
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)

@@ -336,6 +336,7 @@ typedef struct RedisRaftConfig {
     bool sharding;                      /* Are we running in a sharding configuration? */
     char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
+    unsigned int shardgroup_id;
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -466,7 +467,8 @@ typedef struct ShardGroup {
  */
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
-    ShardGroup **shard_groups;           /* Shard groups array */
+    ShardGroup **shard_groups;
+    RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
 
     /* Maps hash slots to ShardGroups indexes.
      *
