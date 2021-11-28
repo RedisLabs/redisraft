@@ -228,9 +228,9 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
 
     /* check if it has 2 elements and both are arrays */
     if (reply->elements != 3 ||
-        reply->element[0]->type != REDIS_REPLY_INTEGER ||
-        reply->element[1]->type != REDIS_REPLY_ARRAY ||
-        reply->element[2]->type != REDIS_REPLY_ARRAY) {
+        reply->element[0]->type != REDIS_REPLY_INTEGER || /* shardgroup_id */
+        reply->element[1]->type != REDIS_REPLY_ARRAY || /* slots array */
+        reply->element[2]->type != REDIS_REPLY_ARRAY) { /* nodes array */
         return RR_ERROR;
     }
 
@@ -242,9 +242,9 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
     for (int i = 0; i < sg->slot_ranges_num; i++) {
         if (reply->element[1]->element[i]->type != REDIS_REPLY_ARRAY ||
             reply->element[1]->element[i]->elements != 3 ||
-            reply->element[1]->element[i]->element[0]->type != REDIS_REPLY_INTEGER ||
-            reply->element[1]->element[i]->element[1]->type != REDIS_REPLY_INTEGER ||
-            reply->element[1]->element[i]->element[2]->type != REDIS_REPLY_INTEGER) {
+            reply->element[1]->element[i]->element[0]->type != REDIS_REPLY_INTEGER || /* start slot */
+            reply->element[1]->element[i]->element[1]->type != REDIS_REPLY_INTEGER || /* end slot */
+            reply->element[1]->element[i]->element[2]->type != REDIS_REPLY_INTEGER) { /* slot types */
             goto error;
         }
 
@@ -258,7 +258,7 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
     /* Parse nodes */
     for (int i = 0; i < sg->nodes_num; i++) {
         if (reply->element[2]->element[i]->type != REDIS_REPLY_ARRAY ||
-            reply->element[2]->element[i]->elements != 2) {
+            reply->element[2]->element[i]->elements != 2) { /* 1) nodeid and 2) addr (host:port) */
             goto error;
         }
 
@@ -577,6 +577,9 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         ShardGroupInit(&sg);
 
         sg.id = RedisModule_LoadUnsigned(rdb);
+        if (i == 0) {
+            rr->config->shardgroup_id = sg.id;
+        }
 
         /* Load Slot Range */
         sg.slot_ranges_num = RedisModule_LoadUnsigned(rdb);
@@ -703,6 +706,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     si->shard_groups = RedisModule_Realloc(si->shard_groups, sizeof(ShardGroup *) * si->shard_groups_num);
 
     ShardGroup *sg = si->shard_groups[sg_idx] = RedisModule_Alloc(sizeof(ShardGroup));
+    sg->id = new_sg->id;
     sg->slot_ranges_num = new_sg->slot_ranges_num;
     sg->slot_ranges = RedisModule_Alloc(sizeof(ShardGroupSlotRange) * sg->slot_ranges_num);
     memcpy(sg->slot_ranges, new_sg->slot_ranges, sizeof(ShardGroupSlotRange) * new_sg->slot_ranges_num);

@@ -255,10 +255,12 @@ def test_shard_group_refresh(cluster_factory):
 
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'slot-config': '0:8191'})
+        'slot-config': '0:8191',
+        'shardgroup-id': '1'})
     cluster2 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'slot-config': '8192:16383'})
+        'slot-config': '8192:16383',
+        'shardgroup-id': '2'})
 
     assert cluster1.node(1).client.execute_command(
         'RAFT.SHARDGROUP', 'LINK',
