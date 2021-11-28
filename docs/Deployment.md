@@ -375,10 +375,10 @@ of foreign shardgroup clusters.
 
 ### `ignored-commands`
 
-A comma sepeated list of additional commands that RedisRaft should not intercept and append to the Raft log before executing.
+A comma seperated list of additional commands that RedisRaft should not intercept, and therefore not append to the Raft log before executing.
 
-Im general this is useful when used with other modules that don't wnat some or all of their commands handled via raft.
+In general this is useful when used with other modules that don't want some or all of their commands handled via raft.
 
 *Example*: command1,command2
 
-By default, this configuration option will be mepty and no additional commands will be ignored beyond those RedisRaft is hard coded to ignore.
+By default, this configuration option will be empty and no additional commands will be ignored beyond those RedisRaft is hard coded to ignore.
