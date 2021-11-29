@@ -943,7 +943,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    if (CommandSpecInit(ctx) == RR_ERROR) {
+    if (CommandSpecInit(ctx, &config) == RR_ERROR) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize internal command table");
         return REDISMODULE_ERR;
     }

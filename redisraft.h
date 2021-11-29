@@ -337,6 +337,7 @@ typedef struct RedisRaftConfig {
     int sharding_start_hslot;           /* First cluster hash slot */
     int sharding_end_hslot;             /* Last cluster hash slot */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
+    char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -778,7 +779,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *pReq);
 void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 
 /* commands.c */
-RRStatus CommandSpecInit(RedisModuleCtx *ctx);
+RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 

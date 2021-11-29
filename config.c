@@ -34,6 +34,7 @@ static const char *CONF_SHARDING = "sharding";
 static const char *CONF_SHARDING_START_HSLOT = "sharding-start-hslot";
 static const char *CONF_SHARDING_END_HSLOT = "sharding-end-hslot";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
+static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -207,6 +208,11 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (*errptr != '\0' || val < 0)
             goto invalid_value;
         target->shardgroup_update_interval = (int) val;
+    } else if (!strcmp(keyword, CONF_IGNORED_COMMANDS)) {
+        if (target->ignored_commands) {
+            RedisModule_Free(target->ignored_commands);
+        }
+        target->ignored_commands = RedisModule_Strdup(value);
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -374,6 +380,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     if (stringmatch(pattern, CONF_SHARDGROUP_UPDATE_INTERVAL, 1)) {
         len++;
         replyConfigInt(ctx, CONF_SHARDGROUP_UPDATE_INTERVAL, config->shardgroup_update_interval);
+    }
+    if (stringmatch(pattern, CONF_IGNORED_COMMANDS, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands);
     }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
