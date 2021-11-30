@@ -2362,7 +2362,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
      * 2. nodes -> each element is a 2 element array id/address
      */
     RedisModule_ReplyWithArray(req->ctx, 3);
-    RedisModule_ReplyWithLongLong(req->ctx, sg->id);
+    RedisModule_ReplyWithCString(req->ctx, redis_raft.snapshot_info.dbid);
     RedisModule_ReplyWithArray(req->ctx, sg->slot_ranges_num);
     for(int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange * sr = &sg->slot_ranges[i];

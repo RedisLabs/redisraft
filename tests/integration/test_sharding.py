@@ -45,6 +45,7 @@ def test_shard_group_sanity(cluster):
     # Add a fake shardgroup to get complete coverage
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'ADD',
+        '12345678901234567890123456789012',
         '1', '1',
         '1', '16383', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -69,6 +70,7 @@ def test_shard_group_validation(cluster):
     with raises(ResponseError, match='invalid'):
         c.execute_command(
             'RAFT.SHARDGROUP', 'ADD',
+            '12345678901234567890123456789012',
             '1', '1',
             '1001', '20000', '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -77,6 +79,7 @@ def test_shard_group_validation(cluster):
     with raises(ResponseError, match='invalid'):
         c.execute_command(
             'RAFT.SHARDGROUP', 'ADD',
+            '12345678901234567890123456789012',
             '1', '1',
             '1000', '1001', '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -91,6 +94,7 @@ def test_shard_group_propagation(cluster):
     c = cluster.node(1).client
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'ADD',
+        '100',
         '1', '1',
         '1001', '16383', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -110,6 +114,7 @@ def test_shard_group_snapshot_propagation(cluster):
     c = cluster.node(1).client
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'ADD',
+        '12345678901234567890123456789012',
         '1', '1',
         '1001', '16383', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -133,6 +138,7 @@ def test_shard_group_persistence(cluster):
     n1 = cluster.node(1)
     assert n1.client.execute_command(
         'RAFT.SHARDGROUP', 'ADD',
+        '12345678901234567890123456789012',
         '1', '1',
         '1001', '16383', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -255,12 +261,10 @@ def test_shard_group_refresh(cluster_factory):
 
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'slot-config': '0:8191',
-        'shardgroup-id': '1'})
+        'slot-config': '0:8191'})
     cluster2 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
-        'slot-config': '8192:16383',
-        'shardgroup-id': '2'})
+        'slot-config': '8192:16383'})
 
     assert cluster1.node(1).client.execute_command(
         'RAFT.SHARDGROUP', 'LINK',
