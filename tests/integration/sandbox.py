@@ -459,6 +459,10 @@ class Cluster(object):
 
         return self
 
+    def config_set(self, param, value):
+        for node in self.nodes.values():
+            node.client.config_set(param, value)
+
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
 
