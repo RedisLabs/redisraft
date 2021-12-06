@@ -30,6 +30,7 @@ const char *RaftReqTypeStr[] = {
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
+    "RR_SHARDGROUP_UPDATE",
     "RR_SHARDGROUP_GET",
     "RR_SHARDGROUP_LINK",
     "RR_TRANSFER_LEADER",
@@ -2343,6 +2344,26 @@ exit:
     RaftReqFree(req);
 }
 
+void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
+{
+    /* Must be done on a leader */
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, NULL) == RR_ERROR) {
+        goto exit;
+    }
+
+    /* TODO: validate/handle slot range changes */
+
+    if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, req) == RR_ERROR) goto exit;
+
+    return;
+
+exit:
+    RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+    RaftReqFree(req);
+}
+
 /* Handles RAFT.SHARDGROUP GET which includes:
  * - Description of the local cluster as a shardgroup, including all nodes
  * - Description of remote shardgroups as last tracked.
@@ -2431,6 +2452,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleDebug,            /* RR_DEBUG */
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
+    handleShardGroupUpdate, /* RR_SHARDGROUP_UPDATE */
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
     handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
