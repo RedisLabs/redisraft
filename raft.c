@@ -1774,6 +1774,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             /* Just swap our commands with the EXEC command and proceed. */
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, &multiState->cmds);
+            req->r.redis.multi = 1;
         }
 
         RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
@@ -2349,18 +2350,34 @@ void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
+        RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
         goto exit;
     }
 
-    /* TODO: validate/handle slot range changes */
+    /* TODO: validate/handle slot range changes:
+     *  i.e. preventing stable overlap switching to migrating or adding as importing
+     */
+    ShardGroup *sg = getShardGroupById(rr, req->r.shardgroup_add.id);
+    if (sg == NULL) {
+        RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+        goto exit;
+    }
 
-    if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
-                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, req) == RR_ERROR) goto exit;
+    if (compareShardGroups(sg, &req->r.shardgroup_add) != 0) {
+        if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, NULL) == RR_ERROR) {
+            RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+            goto exit;
+        }
 
-    return;
+        /* wait till return till after update is applied */
+        return;
+    }
+
+    /* no changes, immediate return */
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
 
 exit:
-    RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
     RaftReqFree(req);
 }
 

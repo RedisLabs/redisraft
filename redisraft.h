@@ -527,6 +527,7 @@ typedef struct RaftReq {
             int hash_slot;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
+            int multi;
         } redis;
         struct {
             void *data;
@@ -775,6 +776,8 @@ char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+int compareShardGroups(ShardGroup *a, ShardGroup *b);
+ShardGroup * getShardGroupById(RedisRaftCtx *rr, char id[RAFT_DBID_LEN+1]);
 
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);

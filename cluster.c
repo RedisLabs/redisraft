@@ -699,19 +699,13 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
-    ShardingInfo *si = rr->sharding_info;
-
     if (!strncmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
         /* TODO: This is our cluster, so will have to handle add and removing nodes */
     } else {
-        unsigned int *idx = RedisModule_DictGetC(si->shard_group_map, new_sg->id, sizeof(new_sg->id), NULL);
-
-        if (idx == NULL || *idx == 0 || *idx >= si->shard_groups_num) {
-            /* Should never equal 0, as that's reserved for local cluster */
+        ShardGroup *sg = getShardGroupById(rr, new_sg->id);
+        if (sg == NULL) {
             return RR_ERROR;
         }
-
-        ShardGroup *sg = si->shard_groups[*idx];
 
         sg->nodes_num = new_sg->nodes_num;
         sg->nodes = RedisModule_Realloc(sg->nodes, sizeof(ShardGroupNode) * sg->nodes_num);
@@ -719,6 +713,20 @@ RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     }
 
     return RR_OK;
+}
+
+ShardGroup * getShardGroupById(RedisRaftCtx *rr, char id[RAFT_DBID_LEN+1])
+{
+    ShardingInfo *si = rr->sharding_info;
+
+    unsigned int *idx = RedisModule_DictGetC(si->shard_group_map, id, (RAFT_DBID_LEN+1)*sizeof(char), NULL);
+
+    if (idx == NULL || *idx == 0 || *idx >= si->shard_groups_num) {
+        /* Should never equal 0, as that's reserved for local cluster */
+        return NULL;
+    }
+
+    return si->shard_groups[*idx];
 }
 
 /* Add a new ShardGroup to the active ShardingInfo. Validation is done according to
