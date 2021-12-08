@@ -2365,7 +2365,7 @@ void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
 
     if (compareShardGroups(sg, &req->r.shardgroup_add) != 0) {
         if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
-                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, NULL) == RR_ERROR) {
+                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, req) == RR_ERROR) {
             RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
             goto exit;
         }
