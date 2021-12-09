@@ -44,6 +44,7 @@ following general exceptions:
 * Multiple databases (i.e. `SELECT`) are not supported.
 * Blocking commands (e.g. `BLPOP`) are not supported.
 * Publish/Subscribe and Streams are not yet supported.
+* WATCH and UNWATCH are not currently supported.
 
 The following table summarizes the supported commands along with any caveats:
 
@@ -154,8 +155,8 @@ The following table summarizes the supported commands along with any caveats:
 | TTL               | Yes       | See [1]  |
 | TYPE              | Yes       |          |
 | UNLINK            | Yes       |          |
-| UNWATCH           | Yes       | See [3]  |
-| WATCH             | Yes       | See [3]  |
+| UNWATCH           | No        |          |
+| WATCH             | No        |          |
 | ZADD              | Yes       |          |
 | ZCARD             | Yes       |          |
 | ZCOUNT            | Yes       |          |
@@ -186,7 +187,7 @@ Notes:
 
 2. Blocking operations are not supported.
 
-3. `WATCH` and `UNWATCH` are not supported in two cases: when [*Explicit Mode*](Development.md#explicit-mode) or [*Follower Proxy*](Development.md#follower-proxy-mode) is enabled. `MULTI/EXEC/DISCARD` are not supported in *Explicit Mode* but can be used with *Follower Proxy*.
+3. `WATCH` and `UNWATCH` are not currently supported.
 
 4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
