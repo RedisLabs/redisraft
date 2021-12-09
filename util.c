@@ -274,7 +274,9 @@ next:
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param)
 {
     RedisModule_ThreadSafeContextLock(rr->ctx);
+    enterRedisModuleCall();
     RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "INFO", "c", section);
+    exitRedisModuleCall();
     RedisModule_ThreadSafeContextUnlock(rr->ctx);
     assert(reply != NULL);
 

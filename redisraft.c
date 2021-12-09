@@ -742,7 +742,9 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         size_t exec_cmd_len;
         const char *exec_cmd = RedisModule_StringPtrLen(argv[2], &exec_cmd_len);
 
+        enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(ctx, exec_cmd, "v", &argv[3], argc - 3);
+        exitRedisModuleCall();
         if (!reply) {
             RedisModule_ReplyWithError(ctx, "Bad command or failed to execute");
         } else {
@@ -802,6 +804,9 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
      * skip.
      */
     if (checkInRedisModuleCall()) {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
+        RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "Skipping: %.*s\n", (int) len, str);
         return;
     }
 
@@ -981,7 +986,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     }
 
     redis_raft.registered_filter = RedisModule_RegisterCommandFilter(ctx,
-        interceptRedisCommands, REDISMODULE_CMDFILTER_NOSELF);
+        interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientDisconnect) != REDISMODULE_OK) {
