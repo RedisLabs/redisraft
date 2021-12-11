@@ -915,6 +915,16 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
+    /* Sanity check that not running with cluster_enabled */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
+    const char * val = RedisModule_ServerInfoGetFieldC(info, "cluster_enabled");
+    int cluster_enabled = strncmp("1", val, 1);
+    RedisModule_FreeServerInfo(ctx, info);
+    if (!cluster_enabled) {
+        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis not be started with cluster_enabled!");
+        return REDISMODULE_ERR;
+    }
+
     /* Create a logging context */
     redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
 

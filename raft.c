@@ -1220,6 +1220,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     memset(rr, 0, sizeof(RedisRaftCtx));
     STAILQ_INIT(&rr->rqueue);
 
+
     /* Register an atexit handler to tell us we're exiting.  Redis offers no
      * other way and we need to be aware of this to avoid getting into execution
      * flows that involve libuv workers that self destructor using .dtors.
@@ -1819,6 +1820,36 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
     return false;
 }
 
+void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+
+    const char * section = "all";
+
+    if (cmd->argc > 2) {
+        /* Note: we can't use RM_WrongArity here because our req->ctx is a thread-safe context
+         * with a synthetic client that no longer has the original argv.
+         */
+        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
+        goto exit;
+    }
+    if (cmd->argc == 2) {
+        section = RedisModule_StringPtrLen(cmd->argv[1], NULL);
+    }
+
+    RedisModuleCallReply *reply = RedisModule_Call(req->ctx, "INFO", "c", section);
+    size_t info_len;
+    const char *info = RedisModule_CallReplyProto(reply, &info_len);
+
+    char * pos = strstr(info, "cluster_enabled:0");
+    pos += 16;
+    *pos = '1';
+
+    RedisModule_ReplyWithStringBuffer(req->ctx, info, info_len);
+
+    exit:
+    RaftReqFree(req);
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -1827,6 +1858,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
  *
  * Currently intercepted commands:
  * - CLUSTER
+ * - INFO
  *
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
@@ -1835,6 +1867,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 {
     const char _cmd_cluster[] = "CLUSTER";
+    const char _cmd_info[] = "INFO";
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
@@ -1842,6 +1875,12 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
     if (cmd_len == sizeof(_cmd_cluster) - 1 &&
         !strncasecmp(cmd_str, _cmd_cluster, sizeof(_cmd_cluster) - 1)) {
             handleClusterCommand(rr, req);
+            return true;
+    }
+
+    if (cmd_len == sizeof(_cmd_info) - 1 &&
+        !strncasecmp(cmd_str, _cmd_info, sizeof(_cmd_info) - 1)) {
+            handleInfoCommand(rr, req);
             return true;
     }
 
