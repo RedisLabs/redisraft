@@ -1842,7 +1842,7 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
 
     char * pos = strstr(info, "cluster_enabled:0");
     if (pos) {
-        pos += 16;
+        pos += strlen("cluster_enabled:");
         *pos = '1';
     }
 
