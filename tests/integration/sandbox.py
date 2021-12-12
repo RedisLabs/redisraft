@@ -48,7 +48,7 @@ class PipeLogger(threading.Thread):
 
 
 class RedisRaft(object):
-    def __init__(self, _id, port, config, raft_args=None,
+    def __init__(self, _id, port, config, redis_args=None, raft_args=None,
                  use_id_arg=True, cluster_id=0):
         if raft_args is None:
             raft_args = {}
@@ -74,6 +74,7 @@ class RedisRaft(object):
                       '--bind', '0.0.0.0',
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename]
+        self.args += redis_args if redis_args else []
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
@@ -463,7 +464,7 @@ class Cluster(object):
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
                  node_id=None, use_cluster_args=False, single_run=False,
-                 join_addr_list=None, **kwargs):
+                 join_addr_list=None, redis_args=None, **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -473,7 +474,7 @@ class Cluster(object):
             port = self.base_port + _id
         node = None
         try:
-            node = RedisRaft(_id, port, self.config, raft_args=_raft_args,
+            node = RedisRaft(_id, port, self.config, redis_args, raft_args=_raft_args,
                 **kwargs)
             if cluster_setup:
                 if self.nodes:

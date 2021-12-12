@@ -10,7 +10,18 @@ import socket
 import time
 from redis import ResponseError
 from pytest import raises, skip
-from .sandbox import RedisRaft
+from .sandbox import RedisRaft, RedisRaftFailedToStart
+
+
+def test_info(cluster):
+    r1 = cluster.add_node()
+    data = r1.client.execute_command('info')
+    assert data["cluster_enabled"] == 1
+
+
+def test_fail_cluster_enabled(cluster):
+    with raises(RedisRaftFailedToStart):
+        r1 = cluster.add_node(redis_args=["--cluster_enabled", "yes"])
 
 
 def test_add_node_as_a_single_leader(cluster):
