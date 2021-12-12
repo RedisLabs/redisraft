@@ -1823,13 +1823,13 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
 void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
 
-    const char * section = "all";
+    const char *section = "all";
 
     if (cmd->argc > 2) {
         /* Note: we can't use RM_WrongArity here because our req->ctx is a thread-safe context
          * with a synthetic client that no longer has the original argv.
          */
-        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
+        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'info' command");
         goto exit;
     }
     if (cmd->argc == 2) {
@@ -1841,12 +1841,14 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
     const char *info = RedisModule_CallReplyProto(reply, &info_len);
 
     char * pos = strstr(info, "cluster_enabled:0");
-    pos += 16;
-    *pos = '1';
+    if (pos) {
+        pos += 16;
+        *pos = '1';
+    }
 
     RedisModule_ReplyWithStringBuffer(req->ctx, info, info_len);
 
-    exit:
+exit:
     RaftReqFree(req);
 }
 
