@@ -1263,9 +1263,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Cluster configuration */
-    if (rr->config->sharding) {
-        ShardingInfoInit(rr);
-    }
+    ShardingInfoInit(rr);
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *
@@ -1840,7 +1838,7 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
     size_t info_len;
     const char *info = RedisModule_CallReplyProto(reply, &info_len);
 
-    char * pos = strstr(info, "cluster_enabled:0");
+    char *pos = strstr(info, "cluster_enabled:0");
     if (pos) {
         pos += strlen("cluster_enabled:");
         *pos = '1';

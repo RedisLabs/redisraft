@@ -606,6 +606,11 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
+    if (!redis_raft.config->sharding) {
+        RedisModule_ReplyWithError(ctx, "ERR: RedisRaft sharding not enabled");
+        return REDISMODULE_OK;
+    }
+
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
