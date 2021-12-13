@@ -107,7 +107,6 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "save",                   CMD_SPEC_DONT_INTERCEPT },
             { "bgsave",                 CMD_SPEC_DONT_INTERCEPT },
             { "module",                 CMD_SPEC_DONT_INTERCEPT },
-            { "info",                   CMD_SPEC_DONT_INTERCEPT },
             { "client",                 CMD_SPEC_DONT_INTERCEPT },
             { "config",                 CMD_SPEC_DONT_INTERCEPT },
             { "monitor",                CMD_SPEC_DONT_INTERCEPT },

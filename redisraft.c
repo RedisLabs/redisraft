@@ -606,6 +606,11 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
+    if (!redis_raft.config->sharding) {
+        RedisModule_ReplyWithError(ctx, "ERR: RedisRaft sharding not enabled");
+        return REDISMODULE_OK;
+    }
+
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
@@ -912,6 +917,15 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
             RedisModule_GetCommandKeys == NULL ||
             RedisModule_GetDetachedThreadSafeContext == NULL) {
         RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0.9 or newer!");
+        return REDISMODULE_ERR;
+    }
+
+    /* Sanity check that not running with cluster_enabled */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
+    int cluster_enabled = (int) RedisModule_ServerInfoGetFieldSigned(info, "cluster_enabled", NULL);
+    RedisModule_FreeServerInfo(ctx, info);
+    if (cluster_enabled) {
+        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis not be started with cluster_enabled!");
         return REDISMODULE_ERR;
     }
 
