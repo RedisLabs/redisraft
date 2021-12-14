@@ -783,6 +783,26 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+static int cmdRaftSort(RedisModuleCtx *ctx,
+                       RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_SORT);
+    req->r.sort_command.argv = &argv[1];
+    req->r.sort_command.argc = argc - 1;
+
+    RaftReqSubmit(rr, req);
+
+    return REDISMODULE_OK;
+
+}
+
 static void handleClientDisconnect(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -800,14 +820,14 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
-    /* If we're intercepting an RM_Call() processing a Raft entry,
-     * skip.
-     */
     if (checkInRedisModuleCall()) {
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
-        RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "Skipping: %.*s\n", (int) len, str);
-        return;
+        /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
+        if (redis_raft.entered_eval && sortableCommand(RedisModule_CommandFilterArgGet(filter, 0))) {
+            RedisModuleString *raft_str = RedisModule_CreateString(NULL, "SORT", 4);
+            RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+
+            return;
+        }
     }
 
     const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
@@ -895,6 +915,11 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.nodeshutdown",
                 cmdRaftNodeShutdown, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.sort",
+                cmdRaftSort, "admin", 0,0,0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

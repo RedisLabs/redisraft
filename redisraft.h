@@ -278,6 +278,8 @@ typedef struct RedisRaftCtx {
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
+
+    int entered_eval;                            /* handling a lua script */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -389,6 +391,7 @@ enum RaftReqType {
     RR_NODE_SHUTDOWN,
     RR_TRANSFER_LEADER,
     RR_TIMEOUT_NOW,
+    RR_SORT,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -532,6 +535,10 @@ typedef struct RaftReq {
             raft_node_id_t id;
         } node_shutdown;
         raft_node_id_t node_to_transfer_leader;
+        struct {
+            RedisModuleString **argv;
+            int argc;
+        } sort_command;
     } r;
 } RaftReq;
 
@@ -579,6 +586,7 @@ typedef struct {
 #define CMD_SPEC_WRITE          (1<<2)      /* Command is a (potentially) write command */
 #define CMD_SPEC_UNSUPPORTED    (1<<3)      /* Command is not supported, should be rejected */
 #define CMD_SPEC_DONT_INTERCEPT (1<<4)      /* Command should not be intercepted to RAFT */
+#define CMD_SPEC_SORTABLE       (1<<5)      /* Command output should be sorted within a lua script */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -674,6 +682,7 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
+int sortableCommand(const RedisModuleString * cmd);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
