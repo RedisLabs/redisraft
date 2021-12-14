@@ -48,6 +48,6 @@ return 1
     def to_dict(reply):
         return dict(zip(i := iter(reply), i))
 
-    myhash = to_dict(cluster.node(1).raft_debug_exec('raft.sort hgetall', 'myhash'))
-    assert to_dict(cluster.node(2).raft_debug_exec('raft.sort hgetall', 'myhash')) == myhash
-    assert to_dict(cluster.node(3).raft_debug_exec('raft.sort hgetall', 'myhash')) == myhash
+    myhash = to_dict(cluster.node(1).raft_debug_exec('hgetall', 'myhash'))
+    assert to_dict(cluster.node(2).raft_debug_exec('hgetall', 'myhash')) == myhash
+    assert to_dict(cluster.node(3).raft_debug_exec('hgetall', 'myhash')) == myhash

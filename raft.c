@@ -148,15 +148,19 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         }
 
         enterRedisModuleCall();
+        int eval = 0;
+        int old_entered_eval = 0;
         if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            old_entered_eval = redis_raft.entered_eval;
+            eval = 1;
             redis_raft.entered_eval = 1;
         }
         RedisModuleCallReply *reply = RedisModule_Call(
                 ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
-        if (redis_raft.entered_eval) {
-            redis_raft.entered_eval = 0;
+        if (eval) {
+            redis_raft.entered_eval = old_entered_eval;
         }
 
         if (reply_ctx) {

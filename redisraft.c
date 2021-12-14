@@ -825,9 +825,9 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         if (redis_raft.entered_eval && sortableCommand(RedisModule_CommandFilterArgGet(filter, 0))) {
             RedisModuleString *raft_str = RedisModule_CreateString(NULL, "SORT", 4);
             RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
-
-            return;
         }
+
+        return;
     }
 
     const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
