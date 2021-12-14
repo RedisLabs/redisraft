@@ -102,7 +102,7 @@ add_library(redisraft SHARED
         redisraft.c
         serialization.c
         snapshot.c
-	sort.c
+        sort.c
         util.c)
 
 add_dependencies(redisraft info)
