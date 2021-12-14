@@ -1844,7 +1844,10 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
         section = RedisModule_StringPtrLen(cmd->argv[1], NULL);
     }
 
+    enterRedisModuleCall();
     RedisModuleCallReply *reply = RedisModule_Call(req->ctx, "INFO", "c", section);
+    exitRedisModuleCall();
+
     size_t info_len;
     const char *info = RedisModule_CallReplyProto(reply, &info_len);
 
