@@ -75,6 +75,8 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "slaveof",                CMD_SPEC_UNSUPPORTED },
             { "replicaof",              CMD_SPEC_UNSUPPORTED },
             { "debug",                  CMD_SPEC_UNSUPPORTED },
+            { "watch",                  CMD_SPEC_UNSUPPORTED },
+            { "unwatch",                CMD_SPEC_UNSUPPORTED },
             /* Blocking commands not supported */
             { "brpop",                  CMD_SPEC_UNSUPPORTED },
             { "brpoplpush",             CMD_SPEC_UNSUPPORTED },
@@ -112,8 +114,6 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "monitor",                CMD_SPEC_DONT_INTERCEPT },
             { "command",                CMD_SPEC_DONT_INTERCEPT },
             { "shutdown",               CMD_SPEC_DONT_INTERCEPT },
-            { "watch",                  CMD_SPEC_DONT_INTERCEPT },
-            { "unwatch",                CMD_SPEC_DONT_INTERCEPT },
             { "quit",                   CMD_SPEC_DONT_INTERCEPT },
             { "subscribe",              CMD_SPEC_DONT_INTERCEPT },
             { "psubscribe",             CMD_SPEC_DONT_INTERCEPT },

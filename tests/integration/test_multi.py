@@ -131,33 +131,6 @@ def test_multi_exec_proxying(cluster):
     assert n2.raft_info()['current_index'] == 6
 
 
-def test_multi_exec_with_watch(cluster):
-    """
-    MULTI/EXEC with WATCH
-    """
-
-    r1 = cluster.add_node()
-
-    r1.client.set('watched-key', '1')
-
-    c1 = r1.client.connection_pool.get_connection('c1')
-    c1.send_command('WATCH', 'watched-key')
-    assert c1.read_response() == b'OK'
-
-    c2 = r1.client.connection_pool.get_connection('c2')
-    c2.send_command('SET', 'watched-key', '2')
-    assert c2.read_response() == b'OK'
-
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-    c1.send_command('SET', 'watched-key', '3')
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('EXEC')
-    assert c1.read_response() is None
-
-    assert r1.client.get('watched-key') == b'2'
-
-
 def test_multi_exec_with_disconnect(cluster):
     """
     MULTI/EXEC, client drops before EXEC.
