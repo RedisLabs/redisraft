@@ -391,7 +391,6 @@ enum RaftReqType {
     RR_NODE_SHUTDOWN,
     RR_TRANSFER_LEADER,
     RR_TIMEOUT_NOW,
-    RR_SORT,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -791,5 +790,8 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
+
+/* sort.c */
+void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #endif  /* _REDISRAFT_H */

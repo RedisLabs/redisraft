@@ -786,18 +786,16 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
 static int cmdRaftSort(RedisModuleCtx *ctx,
                        RedisModuleString **argv, int argc)
 {
-    RedisRaftCtx *rr = &redis_raft;
-
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_SORT);
-    req->r.sort_command.argv = &argv[1];
-    req->r.sort_command.argc = argc - 1;
 
-    RaftReqSubmit(rr, req);
+    argv++;
+    argc--;
+
+    handleSort(ctx, argv, argc);
 
     return REDISMODULE_OK;
 
@@ -823,7 +821,11 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
     if (checkInRedisModuleCall()) {
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
         if (redis_raft.entered_eval && sortableCommand(RedisModule_CommandFilterArgGet(filter, 0))) {
-            RedisModuleString *raft_str = RedisModule_CreateString(NULL, "SORT", 4);
+            size_t len;
+            const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
+            RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "should sort: %.*s", (int) len, str);
+
+            RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.SORT", 9);
             RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
         }
 

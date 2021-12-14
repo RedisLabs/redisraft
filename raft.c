@@ -1516,102 +1516,6 @@ exit:
     RaftReqFree(req);
 }
 
-static void replySortedArray(RaftReq *req, RedisModuleCallReply * reply)
-{
-    size_t len = RedisModule_CallReplyLength(reply);
-    if (len == 0) {
-        RedisModule_ReplyWithNullArray(req->ctx);
-        return;
-    }
-
-    RedisModuleDict * dict = RedisModule_CreateDict(req->ctx);
-    for(int i=0; i < len; i++) {
-        RedisModuleCallReply * entry = RedisModule_CallReplyArrayElement(reply, i);
-        size_t entry_len;
-        const char * entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
-        RedisModule_DictSetC(dict, (char *) entry_str, entry_len, NULL);
-    }
-
-    RedisModule_ReplyWithArray(req->ctx, len);
-
-    char *key;
-    size_t key_len;
-    void *data;
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &key_len, &data)) != NULL) {
-        RedisModule_ReplyWithStringBuffer(req->ctx, key, key_len);
-    }
-    RedisModule_DictIteratorStop(iter);
-    RedisModule_FreeDict(req->ctx, dict);
-}
-
-static void replySortedMap(RaftReq *req, RedisModuleCallReply * reply)
-{
-    size_t len = RedisModule_CallReplyLength(reply);
-    RedisModuleDict * dict = RedisModule_CreateDict(req->ctx);
-
-    for(int i=0; i < len; i++) {
-        RedisModuleCallReply * key;
-        RedisModuleCallReply * value;
-
-        RedisModule_CallReplyMapElement(reply, i, &key, &value);
-        size_t key_len;
-        const char * key_str = RedisModule_CallReplyStringPtr(key, &key_len);
-
-        RedisModule_DictSetC(dict, (char *) key_str, key_len, value);
-    }
-
-    RedisModule_ReplyWithMap(req->ctx, len);
-
-    char *key;
-    size_t key_len;
-    void *value;
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &key_len, &value)) != NULL) {
-        RedisModule_ReplyWithStringBuffer(req->ctx, key, key_len);
-        RedisModule_ReplyWithCallReply(req->ctx, value);
-    }
-}
-
-static void handleSort(RedisRaftCtx *rr, RaftReq *req)
-{
-    size_t cmd_len;
-    const char * cmd_str = RedisModule_StringPtrLen(req->r.sort_command.argv[0], &cmd_len);
-
-    if (!sortableCommand(req->r.sort_command.argv[0])) {
-        RedisModule_ReplyWithError(req->ctx, "ERR: not a sortable command");
-        goto exit;
-    }
-
-    enterRedisModuleCall();
-    int entered_eval = rr->entered_eval;
-    rr->entered_eval = 0;
-    RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, cmd_str, "3v", &req->r.sort_command.argv[1], req->r.sort_command.argc-1);
-    exitRedisModuleCall();
-    rr->entered_eval = entered_eval;
-
-    if (!reply) {
-        RedisModule_ReplyWithError(req->ctx, "Bad command or failed to execute");
-    } else {
-        int reply_type = RedisModule_CallReplyType(reply);
-        switch (reply_type) {
-            case REDISMODULE_REPLY_ARRAY:
-                replySortedArray(req, reply);
-                break;
-            case REDISMODULE_REPLY_MAP:
-                replySortedMap(req, reply);
-                break;
-            default:
-                RedisModule_ReplyWithCallReply(req->ctx, reply);
-        }
-
-        RedisModule_FreeCallReply(reply);
-    }
-
-exit:
-     RaftReqFree(req);
-}
-
 static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
@@ -2572,6 +2476,5 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
     handleTransferLeader,   /* RR_TRANSFER_LEADER */
     handleTimeoutNow,       /* RR_TIMEOUT_NOW */
-    handleSort,             /* RR_SORT */
     NULL
 };
