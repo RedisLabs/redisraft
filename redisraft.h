@@ -443,7 +443,7 @@ typedef struct ShardGroup {
     /* Configuration */
     char id[RAFT_DBID_LEN+1];            /* Local shardgroup identifier */
     unsigned int slot_ranges_num;        /* Number of slot ranges */
-    ShardGroupSlotRange *slot_ranges;   /* individual slot ranges */
+    ShardGroupSlotRange *slot_ranges;    /* individual slot ranges */
     unsigned int nodes_num;              /* Number of nodes listed */
     ShardGroupNode *nodes;               /* Nodes array */
 
@@ -527,7 +527,6 @@ typedef struct RaftReq {
             int hash_slot;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
-            int multi;
         } redis;
         struct {
             void *data;

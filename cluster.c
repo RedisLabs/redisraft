@@ -699,7 +699,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
-    if (!strncmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
+    if (!memcmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
         /* TODO: This is our cluster, so will have to handle add and removing nodes */
     } else {
         ShardGroup *sg = getShardGroupById(rr, new_sg->id);
@@ -1059,8 +1059,8 @@ RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
     }
 
     for (int i = 1; i < sg->slot_ranges_num; i++) {
-        RedisModuleString * tmp;
-        const char * str;
+        RedisModuleString *tmp;
+        const char *str;
         size_t len;
 
         if (sg->slot_ranges[i].start_slot != sg->slot_ranges[i].end_slot) {

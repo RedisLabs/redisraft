@@ -1774,7 +1774,6 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             /* Just swap our commands with the EXEC command and proceed. */
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, &multiState->cmds);
-            req->r.redis.multi = 1;
         }
 
         RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
