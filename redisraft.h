@@ -776,7 +776,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
-ShardGroup * getShardGroupById(RedisRaftCtx *rr, char id[RAFT_DBID_LEN+1]);
+ShardGroup * getShardGroupById(RedisRaftCtx *rr, char *id);
 
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);

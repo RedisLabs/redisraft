@@ -715,11 +715,11 @@ RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     return RR_OK;
 }
 
-ShardGroup * getShardGroupById(RedisRaftCtx *rr, char id[RAFT_DBID_LEN+1])
+ShardGroup * getShardGroupById(RedisRaftCtx *rr, char *id)
 {
     ShardingInfo *si = rr->sharding_info;
 
-    unsigned int *idx = RedisModule_DictGetC(si->shard_group_map, id, (RAFT_DBID_LEN+1)*sizeof(char), NULL);
+    unsigned int *idx = RedisModule_DictGetC(si->shard_group_map, id, strlen(id), NULL);
 
     if (idx == NULL || *idx == 0 || *idx >= si->shard_groups_num) {
         /* Should never equal 0, as that's reserved for local cluster */
@@ -743,7 +743,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
     unsigned int * idx = RedisModule_Alloc(sizeof(unsigned int));
     *idx = si->shard_groups_num;
-    if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, sizeof(new_sg->id), idx) != REDISMODULE_OK) {
+    if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), idx) != REDISMODULE_OK) {
         RedisModule_Free(idx);
         return RR_ERROR;
     }
@@ -801,6 +801,10 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     ShardGroupInit(sg);
 
     id = RedisModule_StringPtrLen(argv[0], &len);
+    if (len > RAFT_DBID_LEN) {
+        RedisModule_ReplyWithError(ctx, "ERR: shardgrup id is too long");
+        goto error;
+    }
     memcpy(sg->id, id, len);
 
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ||
