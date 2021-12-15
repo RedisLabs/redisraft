@@ -71,6 +71,36 @@ static const char *getLoglevelName(int level)
     return loglevels[level];
 }
 
+int validSlotConfig(char * slot_config) {
+    int ret = 0;
+    char *tmp = RedisModule_Strdup(slot_config);
+    char *pos = tmp;
+    char *endptr;
+    int val_l, val_h;
+    if ((pos = strchr(tmp, ':'))) {
+        *pos = '\0';
+        val_l = strtoul(tmp, &endptr, 10);
+        if (*endptr != 0 || val_l < 0 || val_l > 16383) {
+            goto exit;
+        }
+        val_h = strtoul(pos+1, &endptr, 10);
+        if (*endptr != 0 || val_h > 168383 || val_l >= val_h) {
+            goto exit;
+        }
+    } else {
+        val_l = val_h = strtoul(tmp, &endptr, 10);
+        if (*endptr != 0 || val_l < 0 || val_l > 16383) {
+            goto exit;
+        }
+    }
+
+    ret = 1;
+
+exit:
+    RedisModule_Free(tmp);
+    return ret;
+}
+
 static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
@@ -190,6 +220,10 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
         // FIXME: verify slot config
         target->slot_config = RedisModule_Strdup(value);
+        if (!validSlotConfig(target->slot_config)) {
+            snprintf(errbuf, errbuflen-1, "couldn't validsate slot_config");
+            return RR_ERROR;
+        }
     } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
