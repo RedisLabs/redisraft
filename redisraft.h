@@ -467,7 +467,6 @@ typedef struct ShardGroup {
  */
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
-    ShardGroup **shard_groups;
     RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
 
     /* Maps hash slots to ShardGroups indexes.
@@ -476,7 +475,7 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    int hash_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup * hash_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG

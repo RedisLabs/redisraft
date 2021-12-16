@@ -1870,8 +1870,8 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     if (req->r.redis.hash_slot == -1) return RR_OK;
 
     /* Make sure hash slot is mapped and handled locally. */
-    int sgid = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
-    if (!sgid) {
+    ShardGroup *sg = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
+    if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
     }
@@ -1881,8 +1881,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * of who the leader is and whether or not some configuration has changed since
      * last refresh (when refresh is implemented, in the future).
      */
-    if (sgid != 1) {
-        ShardGroup *sg = rr->sharding_info->shard_groups[sgid-1];
+    if (*sg->id != 0) {
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
         replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
@@ -2393,7 +2392,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    ShardGroup *sg = rr->sharding_info->shard_groups[0];
+    ShardGroup *sg = getShardGroupById(rr, "");
     /* 2 arrays
      * 1. slot ranges -> each element is a 3 element array start/end/type
      * 2. nodes -> each element is a 2 element array id/address
