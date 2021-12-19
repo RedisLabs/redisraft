@@ -154,7 +154,7 @@ static void test_serialize_shardgroup(void **state)
     ShardGroupSlotRange r = {
             .start_slot = 1,
             .end_slot = 1000,
-            .type = SLOTRANGE_STABLE,
+            .type = SLOTRANGE_TYPE_STABLE,
     };
     ShardGroup sg = {
         .id = "12345678901234567890123456789012",
@@ -168,7 +168,7 @@ static void test_serialize_shardgroup(void **state)
     assert_string_equal(str,
             "12345678901234567890123456789012\n"
             "1:3\n"
-            "1:1000:0\n"
+            "1:1000:1\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n");
@@ -180,7 +180,7 @@ static void test_deserialize_shardgroup(void **state)
 {
     const char *s1 = "12345678901234567890123456789012\n"
             "1:3\n"
-            "1:1000:0\n"
+            "1:1000:1\n"
             "12345678901234567890123456789012aabbccdd:1.1.1.1:1111\n"
             "12345678901234567890123456789012aabbccee:2.2.2.2:2222\n"
             "12345678901234567890123456789012aabbccff:3.3.3.3:3333\n";
@@ -192,7 +192,7 @@ static void test_deserialize_shardgroup(void **state)
     assert_int_equal(sg.slot_ranges_num, 1);
     assert_int_equal(sg.slot_ranges[0].start_slot, 1);
     assert_int_equal(sg.slot_ranges[0].end_slot, 1000);
-    assert_int_equal(sg.slot_ranges[0].type, SLOTRANGE_STABLE);
+    assert_int_equal(sg.slot_ranges[0].type, SLOTRANGE_TYPE_STABLE);
     assert_int_equal(sg.nodes_num, 3);
 
     assert_string_equal(sg.nodes[0].node_id, "12345678901234567890123456789012aabbccdd");
