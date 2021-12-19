@@ -801,6 +801,14 @@ static int cmdRaftSort(RedisModuleCtx *ctx,
 
 }
 
+static int cmdRaftRandom(RedisModuleCtx *ctx,
+                         RedisModuleString **argv, int argc)
+{
+    RedisModule_ReplyWithError(ctx, "Cannot run a command with random results in this context");
+
+    return REDISMODULE_OK;
+}
+
 static void handleClientDisconnect(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -820,13 +828,19 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
     if (checkInRedisModuleCall()) {
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
-        if (redis_raft.entered_eval && sortableCommand(RedisModule_CommandFilterArgGet(filter, 0))) {
-            size_t len;
-            const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
-            RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "should sort: %.*s", (int) len, str);
+        if (redis_raft.entered_eval) {
+            RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
+            if (sortableCommand(cmd)) {
+                size_t len;
+                const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
+                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "should sort: %.*s", (int) len, str);
 
-            RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.SORT", 9);
-            RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.SORT", 9);
+                RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+            } else if (randomCommand(cmd)) {
+                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.RANDOM", 11);
+                RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+            }
         }
 
         return;
@@ -924,6 +938,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
                 cmdRaftSort, "admin", 0,0,0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+
+    if (RedisModule_CreateCommand(ctx, "raft.random",
+                                  cmdRaftRandom, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
 
     if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
             &RedisRaftTypeMethods)) == NULL) {

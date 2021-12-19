@@ -586,6 +586,7 @@ typedef struct {
 #define CMD_SPEC_UNSUPPORTED    (1<<3)      /* Command is not supported, should be rejected */
 #define CMD_SPEC_DONT_INTERCEPT (1<<4)      /* Command should not be intercepted to RAFT */
 #define CMD_SPEC_SORTABLE       (1<<5)      /* Command output should be sorted within a lua script */
+#define CMD_SPEC_RANDOM         (1<<6)      /* Commands that are always random */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -682,6 +683,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 int sortableCommand(const RedisModuleString * cmd);
+int randomCommand(const RedisModuleString *cmd);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);

@@ -382,3 +382,13 @@ int sortableCommand(const RedisModuleString * cmd)
 
     return 0;
 }
+
+int randomCommand(const RedisModuleString *cmd)
+{
+    const CommandSpec *cs = CommandSpecGet(cmd);
+    if (cs != NULL) {
+        return (cs->flags & CMD_SPEC_RANDOM);
+    }
+
+    return 0;
+}
