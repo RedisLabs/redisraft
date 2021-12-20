@@ -10,18 +10,23 @@
 
 #include "redisraft.h"
 
-static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
+static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply, int reply_type)
 {
     size_t len = RedisModule_CallReplyLength(reply);
-    if (len == 0) {
-        RedisModule_ReplyWithNullArray(ctx);
-        return;
-    }
 
     RedisModuleDict * dict = RedisModule_CreateDict(ctx);
     for(size_t i=0; i < len; i++) {
         long *val;
-        RedisModuleCallReply * entry = RedisModule_CallReplyArrayElement(reply, i);
+        RedisModuleCallReply * entry;
+        switch (reply_type) {
+            case REDISMODULE_REPLY_ARRAY:
+                entry = RedisModule_CallReplyArrayElement(reply, i);
+                break;
+            case REDISMODULE_REPLY_SET:
+                entry = RedisModule_CallReplySetElement(reply, i);
+                break;
+        }
+
         size_t entry_len;
         const char * entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
         val = RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
@@ -32,7 +37,15 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         RedisModule_DictSetC(dict, (char *) entry_str, entry_len, val);
     }
 
-    RedisModule_ReplyWithArray(ctx, len);
+    switch (reply_type)
+    {
+        case REDISMODULE_REPLY_ARRAY:
+            RedisModule_ReplyWithArray(ctx, len);
+            break;
+        case REDISMODULE_REPLY_SET:
+            RedisModule_ReplyWithSet(ctx, len);
+            break;
+    }
 
     char *key;
     size_t key_len;
@@ -101,15 +114,13 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         int reply_type = RedisModule_CallReplyType(reply);
         switch (reply_type) {
             case REDISMODULE_REPLY_ARRAY:
-                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "got an ARRAY");
-                replySortedArray(ctx, reply);
+            case REDISMODULE_REPLY_SET:
+                replySortedArray(ctx, reply, reply_type);
                 break;
             case REDISMODULE_REPLY_MAP:
-                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "got a MAP");
                 replySortedMap(ctx, reply);
                 break;
             default:
-                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "got something else");
                 RedisModule_ReplyWithCallReply(ctx, reply);
         }
 
