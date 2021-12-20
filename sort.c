@@ -19,21 +19,30 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
     }
 
     RedisModuleDict * dict = RedisModule_CreateDict(ctx);
-    for(int i=0; i < len; i++) {
+    for(size_t i=0; i < len; i++) {
+        long *val;
         RedisModuleCallReply * entry = RedisModule_CallReplyArrayElement(reply, i);
         size_t entry_len;
         const char * entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
-        RedisModule_DictSetC(dict, (char *) entry_str, entry_len, NULL);
+        val = RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
+        if (!val) {
+            val = RedisModule_Calloc(1, sizeof(long));
+        }
+        (*val)++;
+        RedisModule_DictSetC(dict, (char *) entry_str, entry_len, val);
     }
 
     RedisModule_ReplyWithArray(ctx, len);
 
     char *key;
     size_t key_len;
-    void *data;
+    long *val;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &key_len, &data)) != NULL) {
-        RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
+    while((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
+        for(long i=0; i < *val; i++) {
+            RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
+        }
+        RedisModule_Free(val);
     }
     RedisModule_DictIteratorStop(iter);
     RedisModule_FreeDict(ctx, dict);
