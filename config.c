@@ -221,7 +221,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             goto invalid_value;
         target->sharding = val;
     } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
-        // FIXME: verify slot config
         target->slot_config = RedisModule_Strdup(value);
         if (!validSlotConfig(target->slot_config)) {
             snprintf(errbuf, errbuflen-1, "invalid 'slot_config' value");

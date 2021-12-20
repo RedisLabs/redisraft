@@ -585,9 +585,6 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
         }
         RedisModule_DictIteratorStop(iter);
     }
-
-    for (int i = 1; i < si->shard_groups_num; i++) {
-    }
 }
 
 /* Load ShardingInfo from RDB. This gets invoked by rdbLoadSnapshotInfo which uses a
@@ -723,7 +720,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
     if (!memcmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
-        /* TODO: This is our cluster, so will have to handle add and removing nodes */
+        /* TODO: when we can update slots, that is the only thing that will be updated here */
     } else {
         ShardGroup *sg = getShardGroupById(rr, new_sg->id);
         if (sg == NULL) {
@@ -757,11 +754,12 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     if (ShardingInfoValidateShardGroup(rr, new_sg) != RR_OK)
         return RR_ERROR;
 
-    unsigned int * idx = RedisModule_Alloc(sizeof(unsigned int));
     si->shard_groups_num++;
     ShardGroup *sg = RedisModule_Alloc(sizeof(ShardGroup));
     if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
-        RedisModule_Free(idx);
+        return RR_ERROR;
+    }
+    if (strlen(new_sg) >= sizeof(sg->id)) {
         return RR_ERROR;
     }
     strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);
@@ -791,7 +789,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
      * this is the shardgroup entry for our local cluster so it can be skipped.
      * */
     /* TODO: perhaps should only be called if using built in sharding mechanism */
-    if (sg->nodes_num > 0) {
+    if (    sg->nodes_num > 0) {
         sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL);
     }
 

@@ -2406,6 +2406,9 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         RedisModule_ReplyWithLongLong(req->ctx, sr->start_slot);
         RedisModule_ReplyWithLongLong(req->ctx, sr->end_slot);
         RedisModule_ReplyWithLongLong(req->ctx, sr->type);
+	assert(sr->type == SLOTRANGE_STABLE || 
+	       sr->type == SLOTRANGE_MIGRATING || 
+	       sr->type == SLOTRANGE_IMPORTING);
     }
 
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
