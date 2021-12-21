@@ -830,15 +830,15 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
         if (redis_raft.entered_eval) {
             RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-            if (sortableCommand(cmd)) {
-                size_t len;
-                const char *str = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(filter, 0), &len);
-                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "should sort: %.*s", (int) len, str);
-
-                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.SORT", 9);
+            const CommandSpec *cs = CommandSpecGet(cmd);
+            if (!cs) {
+                ;
+            } else if (cs->flags & CMD_SPEC_SORTABLE) {
+                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "inserting RAFT._SORT_REPLY");
+                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                 RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
-            } else if (randomCommand(cmd)) {
-                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT.RANDOM", 11);
+            } else if (cs->flags & CMD_SPEC_RANDOM) {
+                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
                 RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
             }
         }
@@ -934,12 +934,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.sort",
+    if (RedisModule_CreateCommand(ctx, "raft._sort_reply",
                 cmdRaftSort, "admin", 0,0,0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx, "raft.random",
+    if (RedisModule_CreateCommand(ctx, "raft._reject_random_command",
                                   cmdRaftRandom, "admin", 0,0,0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }

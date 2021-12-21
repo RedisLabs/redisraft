@@ -8,9 +8,6 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import random
 import string
 
-import time
-import logging
-
 def test_hash_deterministic_order(cluster):
     """
     Make sure hash keys maintain a deterministic order. We use Lua to
@@ -23,36 +20,224 @@ def test_hash_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    cluster.config_set('lua-replicate-commands', 'no')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
--- a value corresponding to its index in HKEYS
-local key = KEYS[1]
+-- a value corresponding to its index in result of cmd
+local key1 = "test"
+local output_key = KEYS[1]
 local i = tonumber(ARGV[1])
+local cmd = ARGV[2]
 while (i > 0) do
-    redis.call('HSET', key, 'field:' .. i, 'noval')
+    redis.call('HSET', key1, 'field:' .. i, 'noval')
     i = i - 1
 end
 
 -- Iterate fields and set values according to order
-local hash_fields = redis.call('HKEYS', 'myhash')
-for i, field in ipairs(hash_fields) do
-    redis.call('HSET', key, field, i)
+local vals = redis.call(cmd, key1)
+for i, field in ipairs(vals) do
+    if (not (cmd == "hgetall") or i % 2 == 0) then 
+        redis.call('rpush', output_key, field)
+    end 
 end
 
 return 1
 """)
-    assert script(keys=['myhash'], args=[1000]) == 1
+    key = "hkeys"
+    assert script(keys=[key], args=[1000, 'hkeys']) == 1
 
     cluster.wait_for_unanimity()
 
     def to_dict(reply):
         return dict(zip(i := iter(reply), i))
 
-    myhash = to_dict(cluster.node(1).raft_debug_exec('hgetall', 'myhash'))
-    assert to_dict(cluster.node(2).raft_debug_exec('hgetall', 'myhash')) == myhash
-    assert to_dict(cluster.node(3).raft_debug_exec('hgetall', 'myhash')) == myhash
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+    key = "hvals"
+    assert script(keys=[key], args=[1000, 'hvals']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+    key = "hgetall"
+    assert script(keys=[key], args=[1000, 'hgetall']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+
+def test_set_deterministic_order(cluster):
+    """
+    Make sure hash keys maintain a deterministic order. We use Lua to
+    create hash fields and set their values depending on the order of
+    keys.
+
+    Hash keys that exceed the 'hash-max-*' configuration settings
+    will be created as unordered hash tables and we want to confirm they
+    maintain the same order across the cluster.
+    """
+
+    cluster.create(3)
+
+    script = cluster.node(1).client.register_script("""
+-- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
+-- a value corresponding to its index in result of cmd
+local key1 = "set1"
+local key2 = "set2"
+local output_key = KEYS[1]
+local i = tonumber(ARGV[1])
+local cmd = ARGV[2]
+
+local charset = {}
+-- qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890
+for i = 48,  57 do table.insert(charset, string.char(i)) end
+for i = 65,  90 do table.insert(charset, string.char(i)) end
+for i = 97, 122 do table.insert(charset, string.char(i)) end
+
+math.randomseed(123456)
+
+function string.random(length)
+  if length > 0 then
+    return string.random(length - 1) .. charset[math.random(1, #charset)]
+  else
+    return ""
+  end
+end
+
+
+while (i > 0) do
+    local str = string.random(6)
+    redis.call('sadd', key1, str)
+    if i % 2 == 0 then
+        redis.call('sadd', key2, str)
+    end
+    i = i - 1
+end
+
+-- Iterate fields and set values according to order
+local vals
+if not (cmd == "smembers") then 
+    vals = redis.call(cmd, key1, key2)
+else
+    vals = redis.call(cmd, key1)
+end 
+for i, field in ipairs(vals) do
+    redis.call('rpush', output_key, field) 
+end
+
+return 1
+""")
+    key = "sinter"
+    assert script(keys=[key], args=[1000, 'sinter']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 500
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+    key = "sunion"
+    assert script(keys=[key], args=[1000, 'sunion']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+    key = "sdiff"
+    assert script(keys=[key], args=[1000, 'sdiff']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 500
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+    key = "smembers"
+    assert script(keys=[key], args=[1000, 'smembers']) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+
+
+def test_keys_deterministic_order(cluster):
+    """
+    Make sure hash keys maintain a deterministic order. We use Lua to
+    create hash fields and set their values depending on the order of
+    keys.
+
+    Hash keys that exceed the 'hash-max-*' configuration settings
+    will be created as unordered hash tables and we want to confirm they
+    maintain the same order across the cluster.
+    """
+
+    cluster.create(3)
+
+    script = cluster.node(1).client.register_script("""
+-- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
+-- a value corresponding to its index in result of cmd
+local output_key = KEYS[1]
+local i = tonumber(ARGV[1])
+
+local charset = {}
+-- qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890
+for i = 48,  57 do table.insert(charset, string.char(i)) end
+for i = 65,  90 do table.insert(charset, string.char(i)) end
+for i = 97, 122 do table.insert(charset, string.char(i)) end
+
+math.randomseed(123456)
+
+function string.random(length)
+  if length > 0 then
+    return string.random(length - 1) .. charset[math.random(1, #charset)]
+  else
+    return ""
+  end
+end
+
+
+while (i > 0) do
+    local str = string.random(6)
+    redis.call('set', str, 123)
+    i = i - 1
+end
+
+-- Iterate fields and set values according to order
+local vals = redis.call("keys", "*")
+for i, field in ipairs(vals) do
+    redis.call('rpush', output_key, field) 
+end
+
+return 1
+""")
+    key = "keys"
+    assert script(keys=[key], args=[1000]) == 1
+
+    cluster.wait_for_unanimity()
+
+    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    assert len(mylist) == 1000
+    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
 
 
 def test_raft_sort_hashes(cluster):
@@ -63,9 +248,9 @@ def test_raft_sort_hashes(cluster):
         cluster.execute("hset", "test", key, val)
         cluster.execute("hset", "test", key + "1", val)
 
-    hgetall = cluster.execute("raft.sort", "hgetall", "test")
-    hkeys = cluster.execute("raft.sort", "hkeys", "test")
-    hvals = cluster.execute("raft.sort", "hvals", "test")
+    hgetall = cluster.execute("raft._sort_reply", "hgetall", "test")
+    hkeys = cluster.execute("raft._sort_reply", "hkeys", "test")
+    hvals = cluster.execute("raft._sort_reply", "hvals", "test")
 
     assert len(hgetall) == 4000
     assert len(hkeys) == 2000
@@ -107,10 +292,10 @@ def test_raft_sort_sets(cluster):
         if i % 2 == 0:
             cluster.execute("sadd", "test1", val)
 
-    sinter = cluster.execute("raft.sort", "sinter", "test", "test1")
-    sunion = cluster.execute("raft.sort", "sunion", "test", "test1")
-    sdiff = cluster.execute("raft.sort", "sdiff", "test", "test1")
-    smembers = cluster.execute("raft.sort", "smembers", "test")
+    sinter = cluster.execute("raft._sort_reply", "sinter", "test", "test1")
+    sunion = cluster.execute("raft._sort_reply", "sunion", "test", "test1")
+    sdiff = cluster.execute("raft._sort_reply", "sdiff", "test", "test1")
+    smembers = cluster.execute("raft._sort_reply", "smembers", "test")
 
     assert len(sinter) == 500
     assert len(sunion) == 1000
@@ -161,7 +346,7 @@ def test_raft_sort_keys(cluster):
         val = ''.join(random.choices(string.ascii_uppercase, k=6))
         cluster.execute("set", key, val)
 
-    keys = cluster.execute("raft.sort", "keys", "*")
+    keys = cluster.execute("raft._sort_reply", "keys", "*")
 
     assert len(keys) == 1000
 

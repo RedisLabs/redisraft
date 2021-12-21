@@ -14,8 +14,8 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply, 
 {
     size_t len = RedisModule_CallReplyLength(reply);
 
-    RedisModuleDict * dict = RedisModule_CreateDict(ctx);
-    for(size_t i=0; i < len; i++) {
+    RedisModuleDict *dict = RedisModule_CreateDict(ctx);
+    for(size_t i = 0; i < len; i++) {
         long *val;
         RedisModuleCallReply * entry;
         switch (reply_type) {
@@ -64,9 +64,9 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply, 
 static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
-    RedisModuleDict * dict = RedisModule_CreateDict(ctx);
+    RedisModuleDict *dict = RedisModule_CreateDict(ctx);
 
-    for(int i=0; i < len; i++) {
+    for(size_t i = 0; i < len; i++) {
         RedisModuleCallReply * key;
         RedisModuleCallReply * value;
 
@@ -91,13 +91,14 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "in handle sort");
     if (!sortableCommand(argv[0])) {
         RedisModule_ReplyWithError(ctx, "ERR: not a sortable command");
         return;
     }
 
     size_t cmd_len;
-    const char * cmd_str = RedisModule_StringPtrLen(argv[0], &cmd_len);
+    const char *cmd_str = RedisModule_StringPtrLen(argv[0], &cmd_len);
 
     enterRedisModuleCall();
     int entered_eval = redis_raft.entered_eval;

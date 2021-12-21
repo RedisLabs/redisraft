@@ -132,23 +132,24 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "acl",                    CMD_SPEC_DONT_INTERCEPT },
 
             /* RedisRaft Commands */
-            { "raft",                   CMD_SPEC_DONT_INTERCEPT },
-            { "raft.entry",             CMD_SPEC_DONT_INTERCEPT },
-            { "raft.config",            CMD_SPEC_DONT_INTERCEPT },
-            { "raft.cluster",           CMD_SPEC_DONT_INTERCEPT },
-            { "raft.shardgroup",        CMD_SPEC_DONT_INTERCEPT },
-            { "raft.node",              CMD_SPEC_DONT_INTERCEPT },
-            { "raft.ae",                CMD_SPEC_DONT_INTERCEPT },
-            { "raft.requestvote",       CMD_SPEC_DONT_INTERCEPT },
-            { "raft.snapshot",          CMD_SPEC_DONT_INTERCEPT },
-            { "raft.debug",             CMD_SPEC_DONT_INTERCEPT },
-            { "raft.info",              CMD_SPEC_DONT_INTERCEPT },
-            { "raft.nodeshutdown",      CMD_SPEC_DONT_INTERCEPT },
-            { "raft.transfer_leader",   CMD_SPEC_DONT_INTERCEPT },
-            { "raft.timeout_now",       CMD_SPEC_DONT_INTERCEPT },
-            { "raft.sort",              CMD_SPEC_DONT_INTERCEPT },
-            { "raft.random",            CMD_SPEC_DONT_INTERCEPT },
-            { NULL,                     0 }
+            { "raft",                         CMD_SPEC_DONT_INTERCEPT },
+            { "raft.entry",                   CMD_SPEC_DONT_INTERCEPT },
+            { "raft.config",                  CMD_SPEC_DONT_INTERCEPT },
+            { "raft.cluster",                 CMD_SPEC_DONT_INTERCEPT },
+            { "raft.shardgroup",              CMD_SPEC_DONT_INTERCEPT },
+            { "raft.node",                    CMD_SPEC_DONT_INTERCEPT },
+            { "raft.ae",                      CMD_SPEC_DONT_INTERCEPT },
+            { "raft.requestvote",             CMD_SPEC_DONT_INTERCEPT },
+            { "raft.snapshot",                CMD_SPEC_DONT_INTERCEPT },
+            { "raft.debug",                   CMD_SPEC_DONT_INTERCEPT },
+            { "raft.info",                    CMD_SPEC_DONT_INTERCEPT },
+            { "raft.nodeshutdown",            CMD_SPEC_DONT_INTERCEPT },
+            { "raft.transfer_leader",         CMD_SPEC_DONT_INTERCEPT },
+            { "raft.timeout_now",             CMD_SPEC_DONT_INTERCEPT },
+            { "raft._sort_reply",             CMD_SPEC_DONT_INTERCEPT },
+            { "raft._reject_random_command",  CMD_SPEC_DONT_INTERCEPT },
+
+            { NULL,0 }
     };
 
     commandSpecDict = RedisModule_CreateDict(ctx);
