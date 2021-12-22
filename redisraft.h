@@ -426,8 +426,12 @@ enum SlotRangeType {
     SLOTRANGE_TYPE_STABLE,
     SLOTRANGE_TYPE_IMPORTING,
     SLOTRANGE_TYPE_MIGRATING,
+    SLOTRANGE_TYPE_MAX
 };
 
+static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
+    return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);
+}
 
 #define SLOT_RANGE_MAXLEN (10 + 1 + 10 + 1 + 10 + 1 + 1)
 
@@ -476,7 +480,7 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    ShardGroup * hash_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *hash_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
@@ -776,7 +780,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
-ShardGroup * getShardGroupById(RedisRaftCtx *rr, char *id);
+ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
 
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);

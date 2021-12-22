@@ -47,7 +47,7 @@ def test_shard_group_sanity(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16383', '0',
+        '1', '16383', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
@@ -63,7 +63,7 @@ def test_shard_group_sanity(cluster):
         'RAFT.SHARDGROUP', 'UPDATE',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16383', '0',
+        '1', '16383', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 2.2.2.2:2222'):
         c.set('key', 'value')
@@ -81,7 +81,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1001', '20000', '0',
+            '1001', '20000', '1',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     # Conflict
@@ -90,7 +90,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1000', '1001', '0',
+            '1000', '1001', '1',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
 
@@ -105,7 +105,7 @@ def test_shard_group_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '100',
         '1', '1',
-        '1001', '16383', '0',
+        '1001', '16383', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     cluster.wait_for_unanimity()
@@ -125,7 +125,7 @@ def test_shard_group_snapshot_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '0',
+        '1001', '16383', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     assert c.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
@@ -149,7 +149,7 @@ def test_shard_group_persistence(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '0',
+        '1001', '16383', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     cluster_slots = n1.client.execute_command('CLUSTER', 'SLOTS')

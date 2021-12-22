@@ -2401,14 +2401,11 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithCString(req->ctx, redis_raft.snapshot_info.dbid);
     RedisModule_ReplyWithArray(req->ctx, sg->slot_ranges_num);
     for(int i = 0; i < sg->slot_ranges_num; i++) {
-        ShardGroupSlotRange * sr = &sg->slot_ranges[i];
+        ShardGroupSlotRange *sr = &sg->slot_ranges[i];
         RedisModule_ReplyWithArray(req->ctx, 3);
         RedisModule_ReplyWithLongLong(req->ctx, sr->start_slot);
         RedisModule_ReplyWithLongLong(req->ctx, sr->end_slot);
         RedisModule_ReplyWithLongLong(req->ctx, sr->type);
-	assert(sr->type == SLOTRANGE_TYPE_STABLE ||
-	       sr->type == SLOTRANGE_TYPE_MIGRATING ||
-	       sr->type == SLOTRANGE_TYPE_IMPORTING);
     }
 
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
