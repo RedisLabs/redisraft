@@ -833,7 +833,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
             const CommandSpec *cs = CommandSpecGet(cmd);
             if (!cs) {
                 ;
-            } else if (cs->flags & CMD_SPEC_SORTABLE) {
+            } else if (cs->flags & CMD_SPEC_SORT_REPLY) {
                 RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "inserting RAFT._SORT_REPLY");
                 RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                 RedisModule_CommandFilterArgInsert(filter, 0, raft_str);

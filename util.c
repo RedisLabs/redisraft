@@ -372,23 +372,3 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
 
     return RR_OK;
 }
-
-int sortableCommand(const RedisModuleString * cmd)
-{
-    const CommandSpec *cs = CommandSpecGet(cmd);
-    if (cs != NULL) {
-        return (cs->flags & CMD_SPEC_SORTABLE);
-    }
-
-    return 0;
-}
-
-int randomCommand(const RedisModuleString *cmd)
-{
-    const CommandSpec *cs = CommandSpecGet(cmd);
-    if (cs != NULL) {
-        return (cs->flags & CMD_SPEC_RANDOM);
-    }
-
-    return 0;
-}
