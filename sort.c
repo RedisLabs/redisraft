@@ -92,7 +92,8 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "in handle sort");
-    if (!sortableCommand(argv[0])) {
+    const CommandSpec *cs = CommandSpecGet(argv[0]);
+    if (!cs || !(cs->flags & CMD_SPEC_SORT_REPLY)) {
         RedisModule_ReplyWithError(ctx, "ERR: not a sortable command");
         return;
     }

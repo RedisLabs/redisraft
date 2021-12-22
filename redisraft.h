@@ -678,8 +678,6 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
-int sortableCommand(const RedisModuleString * cmd);
-int randomCommand(const RedisModuleString *cmd);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
