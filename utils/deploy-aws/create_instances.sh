@@ -22,7 +22,7 @@ gen_instances() {
             end_slot=$((start_slot + slots_per_shard - 1))
         fi
 
-        echo "  - {\"port\": $port, \"start_hslot\": $start_slot, \"end_hslot\": $end_slot, \"leader_node\": $leader_node}"
+        echo "  - {\"port\": $port, \"slot-config\": "$start_slot:$end_slot", \"leader_node\": $leader_node}"
     done
 }
 

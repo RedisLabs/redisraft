@@ -759,7 +759,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
         return RR_ERROR;
     }
-    if (strlen(new_sg) >= sizeof(sg->id)) {
+    if (strlen(new_sg->id) >= sizeof(sg->id)) {
         return RR_ERROR;
     }
     strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);

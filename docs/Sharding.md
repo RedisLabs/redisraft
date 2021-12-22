@@ -188,9 +188,8 @@ Use the following RedisRaft configuration:
 * The `addr` parameter should be supplied as an IP address and not a hostname,
   to be compliant with the Redis Cluster protocol.
 * The `sharding` parameter should be set to `yes`.
-* The `sharding-start-hslot` and `sharding-end-hslot` parameters should be set to
-  their default values, which indicate all slots are managed by the local
-  cluster (no sharding).
+* The `slot-config` parameter should be set to their default values, which 
+  indicate all slots are managed by the local cluster (no sharding).
 * The `follower-proxy` parameter should be set to `no` (default).
 
 ### Redis Cluster Mode with Sharding
@@ -202,17 +201,15 @@ which consists of N instances of Redis.
 Start by setting up the different RedisRaft clusters individually. You will need
 to use the Redis Cluster Mode configuration as described above.
 
-The `sharding-start-hslot` and `sharding-end-hslot` parameters should be assigned
-individually for every RedisRaft cluster and indicate slot assignment. All nodes
-of the same RedisRaft cluster should have the same configuration.
+The `slot-config` parameter should be assigned individually for every RedisRaft 
+cluster and indicate slot assignment. All nodes of the same RedisRaft cluster 
+should have the same configuration.
 
 For example, if you're creating three equal shards you may use:
 
-* `sharding-start-hslot 0` and `sharding-end-hslot 5460` for RedisRaft cluster 1.
-* `sharding-start-hslot 5461` and `sharding-end-hslot 10921` for RedisRaft cluster
-  2.
-* `sharding-start-hslot 10922` and `sharding-end-hslot 16383` for RedisRaft
-  cluster 3.
+* `slot-config 0:5460` for RedisRaft cluster 1.
+* `slot-config 5461:10921` for RedisRaft cluster 2.
+* `slot-config 10922:16383` for RedisRaft cluster 3.
 
 After creating the three clusters, you will need to configure each cluster to
 recognize the other two clusters as external shardgroups. We refer to this

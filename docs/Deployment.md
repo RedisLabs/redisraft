@@ -346,25 +346,19 @@ Valid values for this setting are *yes* and *no*.
 
 *Default: no*
 
-### `sharding-start-hslot`
+### `slot-config`
 
-The first hash-slot assigned to this RedisRaft cluster, if sharding is used.
+A comma delimited list of slot ranges. 
 
-See [Sharding](Sharding.md) for more information on sharding.
+Each element is either <slot> or <start slot>:<end slot>.
 
-Valid values for this setting are 0-16383.
-
-*Default: 0*
-
-### `sharding-end-hslot`
-
-The last hash-slot assigned to this RedisRaft cluster, when sharding is used.
+Multiple slot ranges can be defined by specifying multiple slot range elements, such as <slot>,<start_slot>:<end_slot>
 
 See [Sharding](Sharding.md) for more information on sharding.
 
 Valid values for this setting are 0-16383.
 
-*Default: 16383*
+*Default: 0:16383*
 
 ### `shardgroup-update-interval`
 
