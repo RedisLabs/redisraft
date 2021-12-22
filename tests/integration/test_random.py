@@ -28,8 +28,32 @@ local key1 = "test"
 local output_key = KEYS[1]
 local i = tonumber(ARGV[1])
 local cmd = ARGV[2]
+
+redis.call("del", key1)
+
+-- if we wanted to be able to pass a random seed in
+local seed = 123456
+math.randomseed(seed)
+
+-- generate a random string of a given length
+-- 1. generate the set of chars to string to be generated frm
+-- qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890
+local charset = {}
+for i = 48,  57 do table.insert(charset, string.char(i)) end
+for i = 65,  90 do table.insert(charset, string.char(i)) end
+for i = 97, 122 do table.insert(charset, string.char(i)) end
+
+-- 2. recursive function to generate random string of length
+function string.random(length)
+  if length > 0 then
+    return string.random(length - 1) .. charset[math.random(1, #charset)]
+  else
+    return ""
+  end
+end
+
 while (i > 0) do
-    redis.call('HSET', key1, 'field:' .. i, 'noval')
+    redis.call('HSET', key1, 'field:' .. i, string.random(6))
     i = i - 1
 end
 
@@ -43,38 +67,35 @@ end
 
 return 1
 """)
-    key = "hkeys"
-    assert script(keys=[key], args=[1000, 'hkeys']) == 1
+    cmd = "hkeys"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    def to_dict(reply):
-        return dict(zip(i := iter(reply), i))
-
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
-    key = "hvals"
-    assert script(keys=[key], args=[1000, 'hvals']) == 1
+    cmd = "hvals"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
-    key = "hgetall"
-    assert script(keys=[key], args=[1000, 'hgetall']) == 1
+    cmd = "hgetall"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
 
 def test_set_deterministic_order(cluster):
@@ -99,14 +120,21 @@ local output_key = KEYS[1]
 local i = tonumber(ARGV[1])
 local cmd = ARGV[2]
 
-local charset = {}
+redis.call("del", key1, key2)
+
+-- if we wanted to be able to pass a random seed in
+local seed = 123456
+math.randomseed(seed)
+
+-- generate a random string of a given length
+-- 1. generate the set of chars to string to be generated frm
 -- qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890
+local charset = {}
 for i = 48,  57 do table.insert(charset, string.char(i)) end
 for i = 65,  90 do table.insert(charset, string.char(i)) end
 for i = 97, 122 do table.insert(charset, string.char(i)) end
 
-math.randomseed(123456)
-
+-- 2. recursive function to generate random string of length
 function string.random(length)
   if length > 0 then
     return string.random(length - 1) .. charset[math.random(1, #charset)]
@@ -114,7 +142,6 @@ function string.random(length)
     return ""
   end
 end
-
 
 while (i > 0) do
     local str = string.random(6)
@@ -138,45 +165,45 @@ end
 
 return 1
 """)
-    key = "sinter"
-    assert script(keys=[key], args=[1000, 'sinter']) == 1
+    cmd = "sinter"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 500
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
-    key = "sunion"
-    assert script(keys=[key], args=[1000, 'sunion']) == 1
+    cmd = "sunion"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
-    key = "sdiff"
-    assert script(keys=[key], args=[1000, 'sdiff']) == 1
+    cmd = "sdiff"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 500
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
-    key = "smembers"
-    assert script(keys=[key], args=[1000, 'smembers']) == 1
+    cmd = "smembers"
+    assert script(keys=[cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
 
 def test_keys_deterministic_order(cluster):
@@ -214,7 +241,6 @@ function string.random(length)
   end
 end
 
-
 while (i > 0) do
     local str = string.random(6)
     redis.call('set', str, 123)
@@ -229,15 +255,15 @@ end
 
 return 1
 """)
-    key = "keys"
-    assert script(keys=[key], args=[1000]) == 1
+    cmd = "keys"
+    assert script(keys=[cmd], args=[1000]) == 1
 
     cluster.wait_for_unanimity()
 
-    mylist = cluster.node(1).raft_debug_exec('lrange', key, 0, -1)
+    mylist = cluster.node(1).raft_debug_exec('lrange', cmd, 0, -1)
     assert len(mylist) == 1000
-    assert cluster.node(2).raft_debug_exec('lrange', key, 0, -1) == mylist
-    assert cluster.node(3).raft_debug_exec('lrange', key, 0, -1) == mylist
+    assert cluster.node(2).raft_debug_exec('lrange', cmd, 0, -1) == mylist
+    assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
 
 def test_raft_sort_hashes(cluster):

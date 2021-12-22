@@ -531,6 +531,7 @@ class Cluster(object):
             if exclude is not None and int(_id) in exclude:
                 continue
             node.wait_for_commit_index(commit_idx, gt_ok=True)
+            node.wait_for_log_applied()
 
     def wait_for_replication(self, exclude=None):
         current_idx = self.node(self.leader).current_index()
