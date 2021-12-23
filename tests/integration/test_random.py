@@ -11,8 +11,8 @@ import string
 def test_hash_deterministic_order(cluster):
     """
     Make sure hash keys maintain a deterministic order. We use Lua to
-    create hash fields and set their values depending on the order of
-    keys.
+    create hash fields and then add them to a list in their
+    enumerated order.
 
     Hash keys that exceed the 'hash-max-*' configuration settings
     will be created as unordered hash tables and we want to confirm they
@@ -24,8 +24,8 @@ def test_hash_deterministic_order(cluster):
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
 -- a value corresponding to its index in result of cmd
-local key1 = "test"
-local output_key = KEYS[1]
+local key1 = "KEYS[1]"
+local output_key = KEYS[2]
 local i = tonumber(ARGV[1])
 local cmd = ARGV[2]
 
@@ -68,7 +68,7 @@ end
 return 1
 """)
     cmd = "hkeys"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["test", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -78,7 +78,7 @@ return 1
     assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
     cmd = "hvals"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["test", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -88,7 +88,7 @@ return 1
     assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
     cmd = "hgetall"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["test", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -100,13 +100,9 @@ return 1
 
 def test_set_deterministic_order(cluster):
     """
-    Make sure hash keys maintain a deterministic order. We use Lua to
-    create hash fields and set their values depending on the order of
-    keys.
-
-    Hash keys that exceed the 'hash-max-*' configuration settings
-    will be created as unordered hash tables and we want to confirm they
-    maintain the same order across the cluster.
+    Make sure sets maintain a deterministic order. We use Lua to
+    add eleemnts to sets and then add them to a list in their
+    enumerated order.
     """
 
     cluster.create(3)
@@ -114,9 +110,9 @@ def test_set_deterministic_order(cluster):
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
 -- a value corresponding to its index in result of cmd
-local key1 = "set1"
-local key2 = "set2"
-local output_key = KEYS[1]
+local key1 = KEYS[1]
+local key2 = KEYS[2]
+local output_key = KEYS[3]
 local i = tonumber(ARGV[1])
 local cmd = ARGV[2]
 
@@ -166,7 +162,7 @@ end
 return 1
 """)
     cmd = "sinter"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["key1", "key2", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -176,7 +172,7 @@ return 1
     assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
     cmd = "sunion"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["key1", "key2", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -186,7 +182,7 @@ return 1
     assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
     cmd = "sdiff"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["key1", "key2", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -196,7 +192,7 @@ return 1
     assert cluster.node(3).raft_debug_exec('lrange', cmd, 0, -1) == mylist
 
     cmd = "smembers"
-    assert script(keys=[cmd], args=[1000, cmd]) == 1
+    assert script(keys=["key1", "key2", cmd], args=[1000, cmd]) == 1
 
     cluster.wait_for_unanimity()
 
@@ -208,13 +204,9 @@ return 1
 
 def test_keys_deterministic_order(cluster):
     """
-    Make sure hash keys maintain a deterministic order. We use Lua to
-    create hash fields and set their values depending on the order of
-    keys.
-
-    Hash keys that exceed the 'hash-max-*' configuration settings
-    will be created as unordered hash tables and we want to confirm they
-    maintain the same order across the cluster.
+    Make sure redis keys are listed in a deterministic order.
+    We use Lua to create keys and add them to a list in their
+    enumerated order.
     """
 
     cluster.create(3)

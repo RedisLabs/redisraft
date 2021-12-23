@@ -7,28 +7,37 @@
  */
 
 #include <strings.h>
+#include <assert.h>
 
 #include "redisraft.h"
 
-static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply, int reply_type)
+/* Sort Redis array type responses (arrays, sets....) */
+static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
+    int reply_type = RedisModule_CallReplyType(reply);
 
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
-    for(size_t i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         long *val;
-        RedisModuleCallReply * entry;
+        RedisModuleCallReply *entry;
         switch (reply_type) {
+            /* if one adds more supported type here,
+             * have to add the proper ReplyWith function below
+             */
             case REDISMODULE_REPLY_ARRAY:
                 entry = RedisModule_CallReplyArrayElement(reply, i);
                 break;
             case REDISMODULE_REPLY_SET:
                 entry = RedisModule_CallReplySetElement(reply, i);
                 break;
+            default:
+                RedisModule_ReplyWithError(ctx, "Unknown type to sort");
+                goto early_exit;
         }
 
         size_t entry_len;
-        const char * entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
+        const char *entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
         val = RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
         if (!val) {
             val = RedisModule_Calloc(1, sizeof(long));
@@ -45,34 +54,40 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply, 
         case REDISMODULE_REPLY_SET:
             RedisModule_ReplyWithSet(ctx, len);
             break;
+        default:
+            /* shouldn't get here, as should be protected above */
+            assert(0);
     }
 
     char *key;
     size_t key_len;
-    long *val;
+    unsigned long *val;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     while((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
-        for(long i=0; i < *val; i++) {
+        for (long i=0; i < *val; i++) {
             RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         }
         RedisModule_Free(val);
     }
     RedisModule_DictIteratorStop(iter);
+
+early_exit:
     RedisModule_FreeDict(ctx, dict);
 }
 
+/* Sort Redis key/value responses, that are sorted on the key */
 static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
 
-    for(size_t i = 0; i < len; i++) {
-        RedisModuleCallReply * key;
-        RedisModuleCallReply * value;
+    for (size_t i = 0; i < len; i++) {
+        RedisModuleCallReply *key;
+        RedisModuleCallReply *value;
 
         RedisModule_CallReplyMapElement(reply, i, &key, &value);
         size_t key_len;
-        const char * key_str = RedisModule_CallReplyStringPtr(key, &key_len);
+        const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
 
         RedisModule_DictSetC(dict, (char *) key_str, key_len, value);
     }
@@ -89,9 +104,9 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
     }
 }
 
+/* Calls Redis commands whose results can be sorted without semantically breaking them */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "in handle sort");
     const CommandSpec *cs = CommandSpecGet(argv[0]);
     if (!cs || !(cs->flags & CMD_SPEC_SORT_REPLY)) {
         RedisModule_ReplyWithError(ctx, "ERR: not a sortable command");
@@ -104,7 +119,6 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     enterRedisModuleCall();
     int entered_eval = redis_raft.entered_eval;
     redis_raft.entered_eval = 0;
-    RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "Calling RM_Call for: %.*s", (int) cmd_len, cmd_str);
     RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, cmd_str, "3v", &argv[1], argc-1);
     exitRedisModuleCall();
     redis_raft.entered_eval = entered_eval;
@@ -117,7 +131,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         switch (reply_type) {
             case REDISMODULE_REPLY_ARRAY:
             case REDISMODULE_REPLY_SET:
-                replySortedArray(ctx, reply, reply_type);
+                replySortedArray(ctx, reply);
                 break;
             case REDISMODULE_REPLY_MAP:
                 replySortedMap(ctx, reply);
