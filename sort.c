@@ -7,7 +7,6 @@
  */
 
 #include <strings.h>
-#include <assert.h>
 
 #include "redisraft.h"
 
@@ -19,7 +18,6 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
     for (size_t i = 0; i < len; i++) {
-        long *val;
         RedisModuleCallReply *entry;
         switch (reply_type) {
             /* if one adds more supported type here,
@@ -38,36 +36,38 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 
         size_t entry_len;
         const char *entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
-        val = RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
-        if (!val) {
-            val = RedisModule_Calloc(1, sizeof(long));
-        }
-        (*val)++;
-        RedisModule_DictSetC(dict, (char *) entry_str, entry_len, val);
+        unsigned long val = (unsigned long) RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
+        val++;
+        RedisModule_DictReplaceC(dict, (char *) entry_str, entry_len, (void *) val);
     }
 
     switch (reply_type)
     {
         case REDISMODULE_REPLY_ARRAY:
-            RedisModule_ReplyWithArray(ctx, len);
+            if (RedisModule_ReplyWithArray(ctx, len) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+                goto early_exit;
+            }
             break;
         case REDISMODULE_REPLY_SET:
-            RedisModule_ReplyWithSet(ctx, len);
+            if (RedisModule_ReplyWithSet(ctx, len) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+                goto early_exit;
+            }
             break;
         default:
             /* shouldn't get here, as should be protected above */
-            assert(0);
+            RedisModule_Assert(0);
     }
 
     char *key;
     size_t key_len;
-    unsigned long *val;
+    unsigned long val;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     while((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
-        for (long i=0; i < *val; i++) {
+        for (long i=0; i < val; i++) {
             RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         }
-        RedisModule_Free(val);
     }
     RedisModule_DictIteratorStop(iter);
 
