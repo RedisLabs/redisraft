@@ -31,8 +31,7 @@ static const char *CONF_FOLLOWER_PROXY = "follower-proxy";
 static const char *CONF_QUORUM_READS = "quorum-reads";
 static const char *CONF_LOGLEVEL = "loglevel";
 static const char *CONF_SHARDING = "sharding";
-static const char *CONF_SHARDING_START_HSLOT = "sharding-start-hslot";
-static const char *CONF_SHARDING_END_HSLOT = "sharding-end-hslot";
+static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 
@@ -73,14 +72,46 @@ static const char *getLoglevelName(int level)
     return loglevels[level];
 }
 
+int validSlotConfig(char *slot_config) {
+    int ret = 0;
+    char *tmp = RedisModule_Strdup(slot_config);
+    char *pos = tmp;
+    char *endptr;
+    int val_l, val_h;
+    if ((pos = strchr(tmp, ':'))) {
+        *pos = '\0';
+        val_l = strtoul(tmp, &endptr, 10);
+        if (*endptr != 0) {
+            goto exit;
+        }
+        val_h = strtoul(pos+1, &endptr, 10);
+        if (*endptr != 0) {
+            goto exit;
+        }
+        if (!HashSlotRangeValid(val_l, val_h)) {
+            goto exit;
+        }
+    } else {
+        val_l = val_h = strtoul(tmp, &endptr, 10);
+        if (*endptr != 0 || !HashSlotValid(val_l)) {
+            goto exit;
+        }
+    }
+
+    ret = 1;
+
+exit:
+    RedisModule_Free(tmp);
+    return ret;
+}
+
 static RRStatus processConfigParam(const char *keyword, const char *value,
         RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, CONF_ID) ||
                 !strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
-                !strcmp(keyword, CONF_SHARDING_START_HSLOT) ||
-                !strcmp(keyword, CONF_SHARDING_END_HSLOT))) {
+                !strcmp(keyword, CONF_SLOT_CONFIG))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
     }
@@ -190,18 +221,12 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->sharding = val;
-    } else if (!strcmp(keyword, CONF_SHARDING_START_HSLOT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val > INT32_MAX || !HashSlotValid((int) val))
-            goto invalid_value;
-        target->sharding_start_hslot = (int)val;
-    } else if (!strcmp(keyword, CONF_SHARDING_END_HSLOT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val > INT32_MAX || !HashSlotValid((int) val))
-            goto invalid_value;
-        target->sharding_end_hslot = (int)val;
+    } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
+        target->slot_config = RedisModule_Strdup(value);
+        if (!validSlotConfig(target->slot_config)) {
+            snprintf(errbuf, errbuflen-1, "invalid 'slot_config' value");
+            return RR_ERROR;
+        }
     } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
@@ -369,13 +394,9 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, CONF_SHARDING, config->sharding);
     }
-    if (stringmatch(pattern, CONF_SHARDING_START_HSLOT, 1)) {
+    if (stringmatch(pattern, CONF_SLOT_CONFIG, 1)) {
         len++;
-        replyConfigInt(ctx, CONF_SHARDING_START_HSLOT, config->sharding_start_hslot);
-    }
-    if (stringmatch(pattern, CONF_SHARDING_END_HSLOT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_SHARDING_END_HSLOT, config->sharding_end_hslot);
+        replyConfigStr(ctx, CONF_SLOT_CONFIG, config->slot_config);
     }
     if (stringmatch(pattern, CONF_SHARDGROUP_UPDATE_INTERVAL, 1)) {
         len++;
@@ -408,8 +429,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_fsync = true;
     config->quorum_reads = true;
     config->sharding = false;
-    config->sharding_start_hslot = REDIS_RAFT_HASH_MIN_SLOT;
-    config->sharding_end_hslot = REDIS_RAFT_HASH_MAX_SLOT;
+    config->slot_config = "0:16383",
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
 }
 

@@ -334,8 +334,7 @@ typedef struct RedisRaftConfig {
     bool raft_log_fsync;
     /* Cluster mode */
     bool sharding;                      /* Are we running in a sharding configuration? */
-    int sharding_start_hslot;           /* First cluster hash slot */
-    int sharding_end_hslot;             /* Last cluster hash slot */
+    char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
 } RedisRaftConfig;
@@ -384,6 +383,7 @@ enum RaftReqType {
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
+    RR_SHARDGROUP_UPDATE,
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_NODE_SHUTDOWN,
@@ -419,17 +419,37 @@ typedef struct ShardGroupNode {
 } ShardGroupNode;
 
 /* Max length of a ShardGroup string, including newline and null terminator
- * but excluding nodes */
-#define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 10 + 1 + 1)
+ * but excluding nodes and shard groups */
+#define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
+
+enum SlotRangeType {
+    SLOTRANGE_TYPE_UNDEF = 0,
+    SLOTRANGE_TYPE_STABLE,
+    SLOTRANGE_TYPE_IMPORTING,
+    SLOTRANGE_TYPE_MIGRATING,
+    SLOTRANGE_TYPE_MAX
+};
+
+static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
+    return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);
+}
+
+#define SLOT_RANGE_MAXLEN (10 + 1 + 10 + 1 + 10 + 1 + 1)
+
+typedef struct ShardGroupSlotRange {
+    unsigned int start_slot; /* First slot, inclusive */
+    unsigned int end_slot;   /* Last slot, inclusive */
+    enum SlotRangeType type; /* type of slot range, normal, importing, exporting */
+} ShardGroupSlotRange;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
  * is assigned with a specific range of hash slots.
  */
 typedef struct ShardGroup {
     /* Configuration */
-    unsigned int id;                     /* Local shardgroup identifier */
-    unsigned int start_slot;             /* First slot, inclusive */
-    unsigned int end_slot;               /* Last slot, inclusive */
+    char id[RAFT_DBID_LEN+1];            /* Local shardgroup identifier */
+    unsigned int slot_ranges_num;        /* Number of slot ranges */
+    ShardGroupSlotRange *slot_ranges;    /* individual slot ranges */
     unsigned int nodes_num;              /* Number of nodes listed */
     ShardGroupNode *nodes;               /* Nodes array */
 
@@ -453,7 +473,7 @@ typedef struct ShardGroup {
  */
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
-    ShardGroup **shard_groups;           /* Shard groups array */
+    RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
 
     /* Maps hash slots to ShardGroups indexes.
      *
@@ -461,7 +481,7 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    int hash_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *hash_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
@@ -760,6 +780,8 @@ char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+int compareShardGroups(ShardGroup *a, ShardGroup *b);
+ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
 
 RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);

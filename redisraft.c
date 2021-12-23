@@ -634,6 +634,21 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
         RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
+    } else if (!strncasecmp(cmd, "UPDATE", cmd_len)) {
+        if (argc < 4) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        req = RaftReqInit(ctx, RR_SHARDGROUP_UPDATE);
+        if (ShardGroupParse(ctx, &argv[2], argc - 2, &req->r.shardgroup_add) != RR_OK) {
+            /* Error reply already produced by parseShardGroupFromArgs */
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        RaftReqSubmit(&redis_raft, req);
+        return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "LINK", cmd_len)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);

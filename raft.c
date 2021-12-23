@@ -30,6 +30,7 @@ const char *RaftReqTypeStr[] = {
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
+    "RR_SHARDGROUP_UPDATE",
     "RR_SHARDGROUP_GET",
     "RR_SHARDGROUP_LINK",
     "RR_TRANSFER_LEADER",
@@ -1908,8 +1909,8 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     if (req->r.redis.hash_slot == -1) return RR_OK;
 
     /* Make sure hash slot is mapped and handled locally. */
-    int sgid = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
-    if (!sgid) {
+    ShardGroup *sg = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
+    if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
     }
@@ -1919,8 +1920,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * of who the leader is and whether or not some configuration has changed since
      * last refresh (when refresh is implemented, in the future).
      */
-    if (sgid != 1) {
-        ShardGroup *sg = rr->sharding_info->shard_groups[sgid-1];
+    if (*sg->id != 0) {
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
         replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
@@ -2382,6 +2382,42 @@ exit:
     RaftReqFree(req);
 }
 
+void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
+{
+    /* Must be done on a leader */
+    if (checkRaftState(rr, req) == RR_ERROR ||
+        checkLeader(rr, req, NULL) == RR_ERROR) {
+        RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+        goto exit;
+    }
+
+    /* TODO: validate/handle slot range changes:
+     *  i.e. preventing stable overlap switching to migrating or adding as importing
+     */
+    ShardGroup *sg = getShardGroupById(rr, req->r.shardgroup_add.id);
+    if (sg == NULL) {
+        RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+        goto exit;
+    }
+
+    if (compareShardGroups(sg, &req->r.shardgroup_add) != 0) {
+        if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, req) == RR_ERROR) {
+            RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+            goto exit;
+        }
+
+        /* wait till return till after update is applied */
+        return;
+    }
+
+    /* no changes, immediate return */
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+
+exit:
+    RaftReqFree(req);
+}
+
 /* Handles RAFT.SHARDGROUP GET which includes:
  * - Description of the local cluster as a shardgroup, including all nodes
  * - Description of remote shardgroups as last tracked.
@@ -2389,20 +2425,30 @@ exit:
 
 void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 {
-    int alen;
-
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
         goto exit;
     }
 
+    ShardGroup *sg = getShardGroupById(rr, "");
+    /* 2 arrays
+     * 1. slot ranges -> each element is a 3 element array start/end/type
+     * 2. nodes -> each element is a 2 element array id/address
+     */
+    RedisModule_ReplyWithArray(req->ctx, 3);
+    RedisModule_ReplyWithCString(req->ctx, redis_raft.snapshot_info.dbid);
+    RedisModule_ReplyWithArray(req->ctx, sg->slot_ranges_num);
+    for(int i = 0; i < sg->slot_ranges_num; i++) {
+        ShardGroupSlotRange *sr = &sg->slot_ranges[i];
+        RedisModule_ReplyWithArray(req->ctx, 3);
+        RedisModule_ReplyWithLongLong(req->ctx, sr->start_slot);
+        RedisModule_ReplyWithLongLong(req->ctx, sr->end_slot);
+        RedisModule_ReplyWithLongLong(req->ctx, sr->type);
+    }
+
     RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_start_hslot);
-    RedisModule_ReplyWithLongLong(req->ctx, rr->config->sharding_end_hslot);
-    alen = 2;
-
+    int node_count = 0;
     for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
         if (!raft_node_is_active(raft_node))
@@ -2418,6 +2464,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
             addr = &node->addr;
         }
 
+        node_count++;
+        RedisModule_ReplyWithArray(req->ctx, 2);
         char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
         snprintf(node_id, sizeof(node_id), "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
         RedisModule_ReplyWithStringBuffer(req->ctx, node_id, strlen(node_id));
@@ -2426,11 +2474,8 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         snprintf(addrstr, sizeof(addrstr), "%s:%u", addr->host, addr->port);
         RedisModule_ReplyWithStringBuffer(req->ctx, addrstr, strlen(addrstr));
 
-        alen += 2;
     }
-
-    RedisModule_ReplySetArrayLength(req->ctx, alen);
-
+    RedisModule_ReplySetArrayLength(req->ctx, node_count);
 exit:
     RaftReqFree(req);
 }
@@ -2461,6 +2506,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleDebug,            /* RR_DEBUG */
     handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
     handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
+    handleShardGroupUpdate, /* RR_SHARDGROUP_UPDATE */
     handleShardGroupGet,    /* RR_SHARDGROUP_GET */
     handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
     handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
