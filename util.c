@@ -372,3 +372,25 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
 
     return RR_OK;
 }
+
+void handleRMCallError(RedisModuleCtx *ctx, int ret_errno, const char *cmd, size_t cmd_len) {
+    /* Try to produce an error message which is similar to Redis */
+    int trunc_cmdlen = cmd_len > 256 ? 256 : (int) cmd_len;
+    size_t errmsg_len = 128 + trunc_cmdlen;   /* Big enough for msg + cmd */
+    char *errmsg = RedisModule_Alloc(errmsg_len);
+
+    switch (ret_errno) {
+        case ENOENT:
+            snprintf(errmsg, errmsg_len, "ERR unknown command `%.*s`", trunc_cmdlen, cmd);
+            break;
+        case EINVAL:
+            snprintf(errmsg, errmsg_len, "ERR wrong number of arguments for '%.*s' command",
+                     trunc_cmdlen, cmd);
+            break;
+        default:
+            snprintf(errmsg, errmsg_len, "ERR failed to execute command '%.*s'",
+                     trunc_cmdlen, cmd);
+    }
+    RedisModule_ReplyWithError(ctx, errmsg);
+    RedisModule_Free(errmsg);
+}

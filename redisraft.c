@@ -830,16 +830,16 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
         if (redis_raft.entered_eval) {
             RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-            const CommandSpec *cs = CommandSpecGet(cmd);
-            if (!cs) {
-                ;
-            } else if (cs->flags & CMD_SPEC_SORT_REPLY) {
-                RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "inserting RAFT._SORT_REPLY");
-                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
-                RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
-            } else if (cs->flags & CMD_SPEC_RANDOM) {
-                RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
-                RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+            const CommandSpec *cs;
+            if ((cs = CommandSpecGet(cmd)) != NULL) {
+                if (cs->flags & CMD_SPEC_SORT_REPLY) {
+                    RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "inserting RAFT._SORT_REPLY");
+                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
+                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                } else if (cs->flags & CMD_SPEC_RANDOM) {
+                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
+                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                }
             }
         }
 

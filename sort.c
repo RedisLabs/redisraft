@@ -30,7 +30,7 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
                 entry = RedisModule_CallReplySetElement(reply, i);
                 break;
             default:
-                RedisModule_ReplyWithError(ctx, "Unknown type to sort");
+                RedisModule_ReplyWithError(ctx, "ERR unknown type to sort");
                 goto early_exit;
         }
 
@@ -109,7 +109,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     const CommandSpec *cs = CommandSpecGet(argv[0]);
     if (!cs || !(cs->flags & CMD_SPEC_SORT_REPLY)) {
-        RedisModule_ReplyWithError(ctx, "ERR: not a sortable command");
+        RedisModule_ReplyWithError(ctx, "ERR not a sortable command");
         return;
     }
 
@@ -124,8 +124,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     redis_raft.entered_eval = entered_eval;
 
     if (!reply) {
-        RedisModule_Log(redis_raft_log_ctx, REDIS_NOTICE, "Bad command or failed to execute: %.*s", (int) cmd_len, cmd_str);
-        RedisModule_ReplyWithError(ctx, "Bad command or failed to execute");
+        handleRMCallError(ctx, errno, cmd_str, cmd_len);
     } else {
         int reply_type = RedisModule_CallReplyType(reply);
         switch (reply_type) {

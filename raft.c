@@ -167,25 +167,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                /* Try to produce an error message which is similar to Redis */
-                int trunc_cmdlen = cmdlen > 256 ? 256 : cmdlen;
-                size_t errmsg_len = 128 + trunc_cmdlen;   /* Big enough for msg + cmd */
-                char *errmsg = RedisModule_Alloc(errmsg_len);
-
-                switch (ret_errno) {
-                    case ENOENT:
-                        snprintf(errmsg, errmsg_len, "ERR unknown command `%.*s`", trunc_cmdlen, cmd);
-                        break;
-                    case EINVAL:
-                        snprintf(errmsg, errmsg_len, "ERR wrong number of arguments for '%.*s' command",
-                                trunc_cmdlen, cmd);
-                        break;
-                    default:
-                        snprintf(errmsg, errmsg_len, "ERR failed to execute command '%.*s'",
-                                trunc_cmdlen, cmd);
-                }
-                RedisModule_ReplyWithError(reply_ctx, errmsg);
-                RedisModule_Free(errmsg);
+                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 
