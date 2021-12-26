@@ -337,6 +337,7 @@ typedef struct RedisRaftConfig {
     char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
+    int external_sharding;              /* use external sharding orchestrator only */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -383,7 +384,7 @@ enum RaftReqType {
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
-    RR_SHARDGROUP_UPDATE,
+    RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_NODE_SHUTDOWN,
@@ -465,8 +466,9 @@ typedef struct ShardGroup {
     bool update_in_progress;             /* Are we currently updating? */
 } ShardGroup;
 
-#define RAFT_LOGTYPE_ADD_SHARDGROUP     (RAFT_LOGTYPE_NUM+1)
-#define RAFT_LOGTYPE_UPDATE_SHARDGROUP  (RAFT_LOGTYPE_NUM+2)
+#define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
+#define RAFT_LOGTYPE_UPDATE_SHARDGROUP   (RAFT_LOGTYPE_NUM+2)
+#define RAFT_LOGTYPE_REPLACE_SHARDGROUPS (RAFT_LOGTYPE_NUM+3)
 
 /* Sharding information, used when cluster_mode is enabled and multiple
  * RedisRaft clusters operate together to perform sharding.
@@ -551,6 +553,10 @@ typedef struct RaftReq {
         struct {
             raft_node_id_t id;
         } node_shutdown;
+        struct {
+            ShardGroup **shardgroups;
+            long long len;
+        } shardgroups_replace;
         raft_node_id_t node_to_transfer_leader;
     } r;
 } RaftReq;
@@ -780,6 +786,7 @@ char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
 
@@ -794,6 +801,7 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb);
 void ShardingInfoRDBLoad(RedisModuleIO *rdb);
 void ShardingPeriodicCall(RedisRaftCtx *rr);
 RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, void *user_data);
+RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg, int type, void *user_data);
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req);
 
 /* join.c */

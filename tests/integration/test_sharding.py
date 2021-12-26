@@ -59,14 +59,49 @@ def test_shard_group_sanity(cluster):
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         cluster.node(2).client.set('key', 'value')
 
+    cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
+
+#    assert c.execute_command(
+#        'RAFT.SHARDGROUP', 'UPDATE',
+#        '12345678901234567890123456789012',
+#        '1', '1',
+#        '1', '16383', '1',
+#        '1234567890123456789012345678901234567890', '2.2.2.2:2222') == b'OK'
+#    with raises(ResponseError, match='MOVED [0-9]+ 2.2.2.2:2222'):
+#        c.set('key', 'value')
+
+    # tests whole sale replacement, while ignoring shardgroup that corresponds to local sg
     assert c.execute_command(
-        'RAFT.SHARDGROUP', 'UPDATE',
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16383', '1',
-        '1234567890123456789012345678901234567890', '2.2.2.2:2222') == b'OK'
-    with raises(ResponseError, match='MOVED [0-9]+ 2.2.2.2:2222'):
+        '1', '1', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '2', '16383', '1',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        # this should be ignored, testing below
+        cluster.leader_node().raft_info()['dbid'],
+        '1', '1',
+        '5', '7', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+    with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
         c.set('key', 'value')
+    cluster.wait_for_unanimity()
+    cluster.node(2).wait_for_log_applied()  # to get shardgroup
+
+    cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
+    assert len(cluster_slots) == 3
+    assert cluster_slots[0][0] == 0
+    assert cluster_slots[0][1] == 0
+    assert cluster_slots[1][0] == 1
+    assert cluster_slots[1][1] == 1
+    assert cluster_slots[2][0] == 2
+    assert cluster_slots[2][1] == 16383
+
 
 def test_shard_group_validation(cluster):
     cluster.create(3, raft_args={
@@ -142,7 +177,9 @@ def test_shard_group_snapshot_propagation(cluster):
 def test_shard_group_persistence(cluster):
     cluster.create(1, raft_args={
         'sharding': 'yes',
-        'slot-config': '0:1000'})
+        'slot-config': '0:1000',
+        'external-sharding': 'yes',
+    })
 
     n1 = cluster.node(1)
     assert n1.client.execute_command(

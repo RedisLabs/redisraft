@@ -41,6 +41,7 @@ const char *RaftReqTypeStr[] = {
 static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
+static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry);
 static RaftReqHandler RaftReqHandlers[];
 
 static bool processExiting = false;
@@ -568,6 +569,10 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
         case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
             applyShardGroupChange(rr, entry);
+            break;
+        case RAFT_LOGTYPE_REPLACE_SHARDGROUPS:
+            replaceShardGroups(rr, entry);
+            break;
         default:
             break;
     }
@@ -1347,6 +1352,14 @@ void RaftReqFree(RaftReq *req)
                 req->r.shardgroup_add.nodes = NULL;
             }
             break;
+        case RR_SHARDGROUPS_REPLACE:
+            if (req->r.shardgroups_replace.shardgroups != NULL) {
+                for(int i = 0; i < req->r.shardgroups_replace.len; i++) {
+                    RedisModule_Free(req->r.shardgroups_replace.shardgroups[i]);
+                }
+                RedisModule_Free(req->r.shardgroups_replace.shardgroups);
+                req->r.shardgroups_replace.shardgroups = NULL;
+            }
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -2067,6 +2080,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "redisraft_git_sha1:%s\r\n"
             "\r\n"
             "# Raft\r\n"
+            "dbid:%s\r\n"
             "node_id:%d\r\n"
             "state:%s\r\n"
             "role:%s\r\n"
@@ -2077,6 +2091,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "num_voting_nodes:%d\r\n",
             REDISRAFT_VERSION,
             REDISRAFT_GIT_SHA1,
+            rr->snapshot_info.dbid,
             rr->config->id,
             getStateStr(rr),
             role,
@@ -2344,6 +2359,94 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
+void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    // 1. reset sharding info
+    ShardingInfo * si = rr->sharding_info;
+
+    ShardGroup *local = NULL;
+    if (si->shard_group_map != NULL) {
+        RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+
+        char * key;
+        size_t key_len;
+        ShardGroup *data;
+
+        while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
+            /* local shardgroup will not have a filled in id */
+            if (*data->id != 0) {
+                RedisModule_Free(data);
+            } else {
+                local = data;
+            }
+        }
+        RedisModule_DictIteratorStop(iter);
+        RedisModule_FreeDict(rr->ctx, si->shard_group_map);
+        si->shard_group_map = NULL;
+
+        RedisModule_Free(si->shard_group_map);
+    }
+
+    /* if we didn't identify the local shard group, we have a problem */
+    RedisModule_Assert(local != NULL);
+
+    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
+    RedisModule_DictSetC(si->shard_group_map, "", 0, local);
+    si->shard_groups_num = 1;
+    for(int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
+        if (si->hash_slots_map[i] != local) {
+            si->hash_slots_map[i] = NULL;
+        }
+    }
+
+    /* 2. iterate over payloads
+     * payload structure
+     * "# shard groups:payload1 len:payload1:....:payload n len:payload n:"
+     */
+    char * payload = entry->data;
+    char * pPayload = strchr(payload, ':');
+    *pPayload = 0;
+
+    char * endptr;
+    size_t num_payloads = strtoul(payload, &endptr, 10);
+    // verify we read all bytes belong to number */
+    RedisModule_Assert(endptr == pPayload);
+    payload = pPayload + 1;
+
+    for (int i = 0; i < num_payloads; i++) {
+        pPayload = strchr(payload, ':');
+        *pPayload = 0;
+        size_t payload_len = strtoul(payload, &endptr, 10);
+        RedisModule_Assert(endptr == pPayload);
+        payload = pPayload + 1;
+
+        ShardGroup sg;
+        if (ShardGroupDeserialize(payload, payload_len, &sg) != RR_OK) {
+            LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
+            return;
+        }
+
+        if (!memcmp(rr->snapshot_info.dbid, sg.id, sizeof(sg.id))) {
+            /* 2a. if payload is for local shardgroup, skip */
+        } else {
+            /* 2b. if payload is for remote shardgroup, deserialize and add with ShardingInfoAddShardGroup() */
+            RedisModule_Assert(ShardingInfoAddShardGroup(rr, &sg) == RR_OK);
+        }
+
+        payload += payload_len + 1;
+    }
+
+    /* If we have an attached client, handle the reply */
+    if (entry->user_data) {
+        RaftReq *req = entry->user_data;
+
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+
+        entry->user_data = NULL;
+    }
+}
+
 /* Handle adding of ShardGroup.
  * FIXME: Currently this is done locally, should instead create a
  * custom Raft log entry which calls addShardGroup when applied only.
@@ -2372,7 +2475,7 @@ exit:
     RaftReqFree(req);
 }
 
-void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
+void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
@@ -2381,28 +2484,14 @@ void handleShardGroupUpdate(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    /* TODO: validate/handle slot range changes:
-     *  i.e. preventing stable overlap switching to migrating or adding as importing
-     */
-    ShardGroup *sg = getShardGroupById(rr, req->r.shardgroup_add.id);
-    if (sg == NULL) {
+    if (ShardGroupsAppendLogEntry(rr, req->r.shardgroups_replace.len, req->r.shardgroups_replace.shardgroups,
+                                 RAFT_LOGTYPE_REPLACE_SHARDGROUPS, req) == RR_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
         goto exit;
     }
 
-    if (compareShardGroups(sg, &req->r.shardgroup_add) != 0) {
-        if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
-                                 RAFT_LOGTYPE_UPDATE_SHARDGROUP, req) == RR_ERROR) {
-            RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
-            goto exit;
-        }
-
-        /* wait till return till after update is applied */
-        return;
-    }
-
-    /* no changes, immediate return */
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    /* wait till return till after update is applied */
+    return;
 
 exit:
     RaftReqFree(req);
@@ -2484,23 +2573,23 @@ static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
 
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
-    handleClusterInit,      /* RR_CLUSTER_INIT */
-    handleClusterJoin,      /* RR_CLUSTER_JOIN */
-    handleCfgChange,        /* RR_CFGCHANGE_ADDNODE */
-    handleCfgChange,        /* RR_CFGCHANGE_REMOVENODE */
-    handleAppendEntries,    /* RR_APPENDENTRIES */
-    handleRequestVote,      /* RR_REQUESTVOTE */
-    handleRedisCommand,     /* RR_REDISCOMMAND */
-    handleInfo,             /* RR_INFO */
-    handleSnapshot,         /* RR_SNAPSHOT */
-    handleDebug,            /* RR_DEBUG */
-    handleClientDisconnect, /* RR_CLIENT_DISCONNECT */
-    handleShardGroupAdd,    /* RR_SHARDGROUP_ADD */
-    handleShardGroupUpdate, /* RR_SHARDGROUP_UPDATE */
-    handleShardGroupGet,    /* RR_SHARDGROUP_GET */
-    handleShardGroupLink,   /* RR_SHARDGROUP_LINK */
-    handleNodeShutdown,     /* RR_NODE_SHUTDOWN */
-    handleTransferLeader,   /* RR_TRANSFER_LEADER */
-    handleTimeoutNow,       /* RR_TIMEOUT_NOW */
+    handleClusterInit,         /* RR_CLUSTER_INIT */
+    handleClusterJoin,         /* RR_CLUSTER_JOIN */
+    handleCfgChange,           /* RR_CFGCHANGE_ADDNODE */
+    handleCfgChange,           /* RR_CFGCHANGE_REMOVENODE */
+    handleAppendEntries,       /* RR_APPENDENTRIES */
+    handleRequestVote,         /* RR_REQUESTVOTE */
+    handleRedisCommand,        /* RR_REDISCOMMAND */
+    handleInfo,                /* RR_INFO */
+    handleSnapshot,            /* RR_SNAPSHOT */
+    handleDebug,              /* RR_DEBUG */
+    handleClientDisconnect,   /* RR_CLIENT_DISCONNECT */
+    handleShardGroupAdd,      /* RR_SHARDGROUP_ADD */
+    handleShardGroupsReplace, /* RR_SHARDGROUP_REPLACE */
+    handleShardGroupGet,      /* RR_SHARDGROUP_GET */
+    handleShardGroupLink,     /* RR_SHARDGROUP_LINK */
+    handleNodeShutdown,       /* RR_NODE_SHUTDOWN */
+    handleTransferLeader,     /* RR_TRANSFER_LEADER */
+    handleTimeoutNow,         /* RR_TIMEOUT_NOW */
     NULL
 };

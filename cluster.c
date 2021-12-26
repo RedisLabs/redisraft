@@ -379,6 +379,58 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
     return RR_OK;
 }
 
+RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg, int type, void *user_data)
+{
+    /* Make sure we're still a leader, could have changed... */
+    /* SJP: unsure this is true in this case */
+    if (!raft_is_leader(rr->raft)) {
+        return RR_ERROR;
+    }
+
+    /* Serialize */
+    /* We reuse the existing shard group serialization
+     * Format:
+     * <num shard groups>:strlen(sg #1 payload):sg #1 pauload|...:strlen(sg #n payload):sg #n payload|
+     */
+    RedisModuleString * str = RedisModule_CreateStringPrintf(rr->ctx, "%d:", num_sg);
+    for (int i = 0; i < num_sg; i++) {
+        char *payload = ShardGroupSerialize(sg[i]);
+        RedisModuleString *payload_len = RedisModule_CreateStringPrintf(rr->ctx, "%lu:", strlen(payload));
+        size_t payload_len_str_len;
+        const char * payload_len_str = RedisModule_StringPtrLen(payload_len, &payload_len_str_len);
+        RedisModule_StringAppendBuffer(rr->ctx, str, payload_len_str, payload_len_str_len);
+        RedisModule_StringAppendBuffer(rr->ctx, str, payload, strlen(payload));
+        RedisModule_StringAppendBuffer(rr->ctx, str, ":", 1);
+        if (!payload) {
+            RedisModule_FreeString(rr->ctx, str);
+            return RR_ERROR;
+        }
+        RedisModule_Free(payload);
+    }
+
+    size_t len;
+    const char * payload = RedisModule_StringPtrLen(str, &len);
+
+    raft_entry_t *entry = raft_entry_new(len);
+    entry->type = type;
+    entry->id = rand();
+    entry->user_data = user_data;
+    memcpy(entry->data, payload, len);
+    RedisModule_Free(str);
+
+    /* Submit */
+    msg_entry_response_t response;
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    raft_entry_release(entry);
+
+    if (e != 0) {
+        LOG_ERROR("Failed to append shardgroups entry, error %d", e);
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
 /* A hiredis callback that handles the Redis reply after sending a
  * RAFT.SHARDGROUP GET command.
  *
@@ -759,19 +811,23 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     ShardingInfo *si = rr->sharding_info;
 
     /* Validate first */
-    if (ShardingInfoValidateShardGroup(rr, new_sg) != RR_OK)
+    if (ShardingInfoValidateShardGroup(rr, new_sg) != RR_OK) {
         return RR_ERROR;
+    }
 
-    si->shard_groups_num++;
+    if (strlen(new_sg->id) >= sizeof(new_sg->id)) {
+        return RR_ERROR;
+    }
     ShardGroup *sg = RedisModule_Alloc(sizeof(ShardGroup));
-    if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
-        return RR_ERROR;
-    }
-    if (strlen(new_sg->id) >= sizeof(sg->id)) {
-        return RR_ERROR;
-    }
     strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
+
+    if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
+        RedisModule_Free(sg);
+        return RR_ERROR;
+    }
+
+    si->shard_groups_num++;
 
     sg->slot_ranges_num = new_sg->slot_ranges_num;
     sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
@@ -797,7 +853,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
      * this is the shardgroup entry for our local cluster so it can be skipped.
      * */
     /* TODO: perhaps should only be called if using built in sharding mechanism */
-    if (sg->nodes_num > 0) {
+    if (!rr->config->external_sharding && sg->nodes_num > 0) {
         sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL);
     }
 
@@ -823,15 +879,17 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     id = RedisModule_StringPtrLen(argv[0], &len);
     if (len > RAFT_DBID_LEN) {
-        RedisModule_ReplyWithError(ctx, "ERR: shardgrup id is too long");
+        RedisModule_ReplyWithError(ctx, "ERR: invalid shard group message (shard group id length)");
         goto error;
     }
     memcpy(sg->id, id, len);
     sg->id[RAFT_DBID_LEN] = '\0';
 
-    if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ||
-            RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid shard group message");
+    if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
+    }
+    if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
         goto error;
     }
 
@@ -852,7 +910,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
             RedisModule_StringToLongLong(argv[argidx++], &type) != REDISMODULE_OK ||
             !HashSlotRangeValid(start_slot, end_slot) ||
             !SlotRangeTypeValid(type)) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid slot range");
+            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (slot range)");
             goto error;
         }
         sg->slot_ranges[i].start_slot = start_slot;
@@ -868,7 +926,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         const char *str = RedisModule_StringPtrLen(argv[argidx++], &len);
 
         if (len != RAFT_SHARDGROUP_NODEID_LEN) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid node id length");
+            RedisModule_ReplyWithError(ctx, "ERR: invalid shard group message (node id length)");
             goto error;
         }
 
@@ -877,7 +935,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
         str = RedisModule_StringPtrLen(argv[argidx++], &len);
         if (!NodeAddrParse(str, len, &sg->nodes[i].addr)) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid node address/port");
+            RedisModule_ReplyWithError(ctx, "ERR: invalid shard group message (node address/port)");
             goto error;
         }
     }
@@ -888,6 +946,59 @@ error:
     ShardGroupFree(sg);
     return RR_ERROR;
 }
+
+/* parses all the shardgroups in a replace call and validates them */
+RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req)
+{
+    if (RedisModule_StringToLongLong(argv[0], &req->r.shardgroups_replace.len) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid shard group message(1)");
+        return RR_ERROR;
+    }
+    req->r.shardgroups_replace.shardgroups =
+            RedisModule_Calloc(req->r.shardgroups_replace.len, sizeof(ShardGroup *));
+    argv++;
+    argc--;
+
+    int i;
+    for(i = 0; i < req->r.shardgroups_replace.len; i++) {
+        ShardGroup * sg = RedisModule_Alloc(sizeof(ShardGroup));
+        req->r.shardgroups_replace.shardgroups[i] = sg;
+
+        long long num_slots, num_nodes;
+        if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
+        }
+        if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
+            goto fail;
+        }
+
+        int num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
+        if (num_argv_entries > argc) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num entries)");
+            goto fail;
+        }
+
+        if (ShardGroupParse(ctx, argv, num_argv_entries, sg) != RR_OK) {
+            goto fail;
+        }
+
+        argv += num_argv_entries;
+        argc -= num_argv_entries;
+    }
+
+    return RR_OK;
+
+fail:
+    for (; i >= 0; i--) {
+        RedisModule_Free(req->r.shardgroups_replace.shardgroups[i]);
+    }
+
+    RedisModule_Free(req->r.shardgroups_replace.shardgroups);
+    req->r.shardgroups_replace.shardgroups = NULL;
+    return RR_ERROR;
+}
+
 
 /* Initialize ShardingInfo and add our local RedisRaft cluster as the first
  * ShardGroup.

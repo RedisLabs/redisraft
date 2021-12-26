@@ -34,6 +34,7 @@ static const char *CONF_SHARDING = "sharding";
 static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
+static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -111,7 +112,8 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, CONF_ID) ||
                 !strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
-                !strcmp(keyword, CONF_SLOT_CONFIG))) {
+                !strcmp(keyword, CONF_SLOT_CONFIG) ||
+                !strcmp(keyword, CONF_EXTERNAL_SHARDING))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
     }
@@ -221,6 +223,11 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->sharding = val;
+    } else if (!strcmp(keyword, CONF_EXTERNAL_SHARDING)) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
+        target->external_sharding = val;
     } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
         target->slot_config = RedisModule_Strdup(value);
         if (!validSlotConfig(target->slot_config)) {
@@ -394,6 +401,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigBool(ctx, CONF_SHARDING, config->sharding);
     }
+    if (stringmatch(pattern, CONF_EXTERNAL_SHARDING, 1)) {
+        len++;
+        replyConfigBool(ctx, CONF_EXTERNAL_SHARDING, config->external_sharding);
+    }
     if (stringmatch(pattern, CONF_SLOT_CONFIG, 1)) {
         len++;
         replyConfigStr(ctx, CONF_SLOT_CONFIG, config->slot_config);
@@ -429,6 +440,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->raft_log_fsync = true;
     config->quorum_reads = true;
     config->sharding = false;
+    config->external_sharding = false;
     config->slot_config = "0:16383",
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
 }
