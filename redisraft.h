@@ -278,7 +278,6 @@ typedef struct RedisRaftCtx {
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
-
     int entered_eval;                            /* handling a lua script */
 } RedisRaftCtx;
 
