@@ -246,18 +246,18 @@ def test_join_while_cluster_is_down(cluster):
         cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
                          join_addr_list=[cluster.node(3).address])
 
-    # Initiate process again with a longer timeout, and release the
-    # cluster while in progress.
-    def resume_nodes():
-        time.sleep(1)
-        cluster.node(1).resume()
-        cluster.node(2).resume()
 
-    # Join again, while failing resume nodes and recover cluster. This
-    # should succeed and not raise an exception as above.
-    Thread(target=resume_nodes, daemon=True).start()
-    cluster.add_node(raft_args={'join-timeout': 10}, single_run=True,
-                            join_addr_list=[cluster.node(3).address])
+def test_join_wrong_cluster(cluster):
+    cluster.create(3)
+
+    # Confirm nodes fails fast with bad server address
+    with raises(ResponseError, match='failed to join'):
+        cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
+                         join_addr_list=["bad-server:1234"])
+
+    # Config node can be added after failure
+    cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
+                     join_addr_list=[cluster.node(3).address])
 
 
 def test_transfer_not_leader(cluster):
