@@ -832,6 +832,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message");
+        goto error;
     }
 
     /* Validate node arguments count is correct */
