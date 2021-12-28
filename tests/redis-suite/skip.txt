@@ -64,3 +64,33 @@ UNLINK can reclaim memory in background
 -- Blocked clients not supported
 Test read commands are not blocked by client pause
 Test write commands are paused by RO
+
+-- WATCH (multi/exec) not supported
+SMOVE only notify dstset when the addition is successful
+EXEC fail on WATCHed key modified
+UNWATCH when there is nothing watched works as expected
+FLUSHALL is able to touch the watched keys
+FLUSHDB is able to touch the watched keys
+PUSH resulting from BRPOPLPUSH affect WATCH
+BRPOPLPUSH does not affect WATCH while still blocked
+client evicted due to watched key list
+WATCH inside MULTI is not allowed
+EXEC works on WATCHed key not modified
+EXEC fail on WATCHed key modified (1 key of 1 watched)
+EXEC fail on WATCHed key modified (1 key of 5 watched)
+EXEC fail on WATCHed key modified by SORT with STORE even if the result is empty
+EXEC fail on lazy expired WATCHed key
+After successful EXEC key is no longer watched
+After failed EXEC key is no longer watched
+It is possible to UNWATCH
+UNWATCH when there is nothing watched works as expected}
+FLUSHALL does not touch non affected keys
+FLUSHDB does not touch non affected keys
+SWAPDB is able to touch the watched keys that exist
+SWAPDB is able to touch the watched keys that do not exist
+WATCH is able to remember the DB a key belongs to
+WATCH will consider touched keys target of EXPIRE
+WATCH will consider touched expired keys
+DISCARD should clear the WATCH dirty flag on the client
+DISCARD should UNWATCH all the keys
+
