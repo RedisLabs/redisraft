@@ -279,7 +279,7 @@ def test_loading_log_tail(cluster):
     assert r1.client.incr('testkey')
     assert r1.client.incr('testkey')
     assert r1.client.incr('testkey')
-    r1.client.save()
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert r1.client.incr('testkey')
     assert r1.client.incr('testkey')
     assert r1.client.incr('testkey')
