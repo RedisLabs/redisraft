@@ -2333,6 +2333,7 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
                 LOG_ERROR("Failed to update shardgroup");
             break;
         default:
+            PANIC("Unknown entry type %d", entry->type);
             break;
     }
 

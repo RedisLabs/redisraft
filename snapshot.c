@@ -434,7 +434,9 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         sr.success = 1;
 
 exit:
-        write(snapshot_fds[1], &sr, sizeof(sr));
+        if (write(snapshot_fds[1], &sr, sizeof(sr)) != sizeof(sr)) {
+            PANIC("Failed to write snapshot result : %s", strerror(errno));
+        }
 
         RedisModule_ExitFromChild(0);
     }
