@@ -10,6 +10,13 @@ client unblock tests
 .*BZM?POP_?MAX.*
 LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
 
+-- Script kill not supported
+.*SCRIPT KILL.*
+test function kill
+test function kill not working on eval
+test script kill not working on function
+test wrong subcommand
+
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
 .*XREAD.*
