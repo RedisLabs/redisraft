@@ -1074,10 +1074,21 @@ RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
     return RR_OK;
 }
 
-RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
+RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config, RedisModuleString *id)
 {
     /* Initialize dbid */
-    RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
+    if (id == NULL) {
+        RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
+    } else {
+        const char *id_str;
+        size_t len;
+        id_str = RedisModule_StringPtrLen(id, &len);
+        if (len != RAFT_DBID_LEN) {
+            RedisModule_Log(ctx, REDIS_WARNING, "cluster id must be %d characters", RAFT_DBID_LEN);
+            return RR_ERROR;
+        }
+        memcpy(rr->snapshot_info.dbid, id_str, RAFT_DBID_LEN);
+    }
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
     /* This is the first node, so there are no used node ids yet */
@@ -1305,6 +1316,11 @@ void RaftReqFree(RaftReq *req)
     TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p", req, req->ctx, req->client);
 
     switch (req->type) {
+        case RR_CLUSTER_INIT:
+            if (req->r.cluster_init.id) {
+                RedisModule_FreeString(req->ctx, req->r.cluster_init.id);
+                req->r.cluster_init.id = NULL;
+            }
         case RR_APPENDENTRIES:
             /* Note: we only free the array of entries but not actual entries, as they
              * are owned by the log and should be freed when the log entry is freed.
@@ -2176,7 +2192,7 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (initCluster(req->ctx, rr, rr->config) == RR_ERROR) {
+    if (initCluster(req->ctx, rr, rr->config, req->r.cluster_init.id) == RR_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
         goto exit;
     }

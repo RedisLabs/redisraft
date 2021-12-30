@@ -524,8 +524,9 @@ error:
     return REDISMODULE_OK;
 }
 
-/* RAFT.CLUSTER INIT
+/* RAFT.CLUSTER INIT <id>
  *   Initializes a new Raft cluster.
+ *   <id> is an optional 32 character string, if set, cluster will use it for the id
  * Reply:
  *   +OK [dbid]
  *
@@ -549,11 +550,14 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strncasecmp(cmd, "INIT", cmd_len)) {
-        if (argc != 2) {
+        if (argc < 2 || argc > 3) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
         req = RaftReqInit(ctx, RR_CLUSTER_INIT);
+        if (argc == 3) {
+            req->r.cluster_init.id = RedisModule_CreateStringFromString(ctx, argv[2]);
+        }
     } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
         if (argc < 3) {
             RedisModule_WrongArity(ctx);
