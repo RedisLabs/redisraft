@@ -77,6 +77,8 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "debug",                  CMD_SPEC_UNSUPPORTED },
             { "watch",                  CMD_SPEC_UNSUPPORTED },
             { "unwatch",                CMD_SPEC_UNSUPPORTED },
+            { "save",                   CMD_SPEC_UNSUPPORTED },
+            { "bgsave",                 CMD_SPEC_UNSUPPORTED },
             /* Blocking commands not supported */
             { "brpop",                  CMD_SPEC_UNSUPPORTED },
             { "brpoplpush",             CMD_SPEC_UNSUPPORTED },
@@ -106,8 +108,6 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "auth",                   CMD_SPEC_DONT_INTERCEPT },
             { "ping",                   CMD_SPEC_DONT_INTERCEPT },
             { "hello",                  CMD_SPEC_DONT_INTERCEPT },
-            { "save",                   CMD_SPEC_DONT_INTERCEPT },
-            { "bgsave",                 CMD_SPEC_DONT_INTERCEPT },
             { "module",                 CMD_SPEC_DONT_INTERCEPT },
             { "client",                 CMD_SPEC_DONT_INTERCEPT },
             { "config",                 CMD_SPEC_DONT_INTERCEPT },
