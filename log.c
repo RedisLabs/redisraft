@@ -491,8 +491,12 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     log->node_id = config->id;
 
     /* Truncate */
-    ftruncate(fileno(log->file), 0);
-    ftruncate(fileno(log->idxfile), 0);
+    if (ftruncate(fileno(log->file), 0) < 0) {
+        PANIC("ftruncate failed : %s", strerror(errno));
+    }
+    if (ftruncate(fileno(log->idxfile), 0) < 0) {
+        PANIC("ftruncate failed : %s", strerror(errno));
+    }
 
     /* Write log start */
     if (writeLogHeader(log->file, log) < 0) {
@@ -863,7 +867,9 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
 
             raft_entry_release(e);
 
-            ftruncate(fileno(log->file), offset);
+            if (ftruncate(fileno(log->file), offset) < 0) {
+                PANIC("ftruncate failed : %s", strerror(errno));
+            }
         }
 
         freeRawLogEntry(re);
