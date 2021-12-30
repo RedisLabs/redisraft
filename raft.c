@@ -818,16 +818,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
             rr->snapshot_info.last_applied_term);
     }
 
-    /* Special case: if no other nodes, set commit index to the latest
-     * entry in the log.
-     */
-    if (raft_get_num_voting_nodes(rr->raft) == 1 || raft_get_num_nodes(rr->raft) == 1) {
-        LOG_DEBUG("No other voting nodes, setting commit index to %ld",
-            raft_get_current_idx(rr->raft));
-        raft_set_commit_idx(rr->raft, raft_get_current_idx(rr->raft));
-    } else {
-        raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
-    }
+    raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
 
     memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
