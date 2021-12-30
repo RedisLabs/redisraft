@@ -328,7 +328,7 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
 
 error:
     if (sg->slot_ranges) {
-        RedisModule_Free(sg->nodes);
+        RedisModule_Free(sg->slot_ranges);
         sg->slot_ranges = NULL;
     }
     if (sg->nodes) {
@@ -957,9 +957,6 @@ void ShardingInfoReset(RedisRaftCtx *rr)
         si->shard_group_map = NULL;
     }
 
-    if (si->shard_group_map) {
-        RedisModule_Free(si->shard_group_map);
-    }
     si->shard_group_map = RedisModule_CreateDict(rr->ctx);
 
     si->shard_groups_num = 0;
