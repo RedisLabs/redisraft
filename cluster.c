@@ -808,7 +808,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     if (strlen(new_sg->id) >= sizeof(new_sg->id)) {
         return RR_ERROR;
     }
-    ShardGroup *sg = RedisModule_Alloc(sizeof(ShardGroup));
+    ShardGroup *sg = RedisModule_Calloc(1, sizeof(ShardGroup));
     strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
 
@@ -828,7 +828,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     sg->use_conn_addr = false;
     sg->node_conn_idx = 0;
     sg->conn = NULL;
-    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * new_sg->nodes_num);
+    sg->nodes = RedisModule_Calloc(new_sg->nodes_num, sizeof(ShardGroupNode));
     memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
 
     /* Do slot mapping */
@@ -911,7 +911,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     /* Parse nodes */
     sg->nodes_num = num_nodes;
-    sg->nodes = RedisModule_Alloc(sizeof(ShardGroupNode) * num_nodes);
+    sg->nodes = RedisModule_Calloc(num_nodes, sizeof(ShardGroupNode));
     for (int i = 0; i < num_nodes; i++) {
         size_t len;
         const char *str = RedisModule_StringPtrLen(argv[argidx++], &len);
@@ -952,7 +952,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     int i;
     for(i = 0; i < req->r.shardgroups_replace.len; i++) {
-        ShardGroup *sg = RedisModule_Alloc(sizeof(ShardGroup));
+        ShardGroup *sg = RedisModule_Calloc(1, sizeof(ShardGroup));
         req->r.shardgroups_replace.shardgroups[i] = sg;
 
         long long num_slots, num_nodes;
