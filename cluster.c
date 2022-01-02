@@ -393,7 +393,7 @@ RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg
      * <num shard groups>:strlen(sg #1 payload):sg #1 payload|...:strlen(sg #n payload):sg #n payload|
      */
     size_t buflen = 4096;
-    char *buf = RedisModule_Alloc(buflen);
+    char *buf = RedisModule_Calloc(1, buflen);
     buf = catsnprintf(buf, &buflen, "%d:", num_sg);
     for (int i = 0; i < num_sg; i++) {
         char *payload = ShardGroupSerialize(sg[i]);
