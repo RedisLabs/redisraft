@@ -575,6 +575,7 @@ typedef struct RaftLog {
     const char          *filename;
     FILE                *file;
     FILE                *idxfile;
+    off_t               idxoffset;              /* Index file position */
 } RaftLog;
 
 
