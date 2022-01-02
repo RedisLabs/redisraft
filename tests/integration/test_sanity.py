@@ -19,6 +19,12 @@ def test_info(cluster):
     assert data["cluster_enabled"] == 1
 
 
+def test_set_cluster_id(cluster):
+    id = "12345678901234567890123456789012"
+    cluster.create(3, cluster_id=id)
+    data = cluster.leader_node().client.execute_command('info')
+    assert data["dbid"] == id
+
 def test_fail_cluster_enabled(cluster):
     with raises(RedisRaftFailedToStart):
         r1 = cluster.add_node(redis_args=["--cluster_enabled", "yes"])
