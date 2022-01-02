@@ -382,10 +382,6 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
             &response)) != 0) {
         NODE_TRACE(node, "raft_recv_appendentries_response failed, error %d", ret);
     }
-
-    /* Maybe we have pending stuff to apply now */
-    raft_apply_all(rr->raft);
-    raft_process_read_queue(rr->raft);
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
@@ -954,10 +950,6 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
-    if (ret == 0) {
-        ret = raft_apply_all(rr->raft);
-    }
-
     if (ret == RAFT_ERR_SHUTDOWN) {
         shutdownAfterRemoval(rr);
     }
@@ -2017,13 +2009,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     }
 
     raft_entry_release(entry);
-
-    /* If we're a single node we can try to apply now, as we have no need
-     * or way to wait for AE responses to do that.
-     */
-    if (raft_get_current_idx(rr->raft) == raft_get_commit_idx(rr->raft)) {
-        raft_apply_all(rr->raft);
-    }
 
     /* Unless applied by raft_apply_all() (and freed by it), the request
      * is pending so we don't free it or unblock the client.
