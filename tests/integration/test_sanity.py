@@ -22,8 +22,8 @@ def test_info(cluster):
 def test_set_cluster_id(cluster):
     id = "12345678901234567890123456789012"
     cluster.create(3, cluster_id=id)
-    data = cluster.leader_node().client.execute_command('info')
-    assert data["dbid"] == id
+    assert str(cluster.leader_node().raft_info()["dbid"]) == id
+
 
 def test_fail_cluster_enabled(cluster):
     with raises(RedisRaftFailedToStart):
