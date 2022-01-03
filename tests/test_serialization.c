@@ -217,15 +217,15 @@ static void test_deserialize_shardgroup(void **state)
 
     /* Missing nodes */
     const char *s3 = "99:0:1\n";
-    assert_int_equal(ShardGroupDeserialize(s2, strlen(s3), &sg), RR_ERROR);
+    assert_int_equal(ShardGroupDeserialize(s3, strlen(s3), &sg), RR_ERROR);
 
     /* Unterminated node line */
     const char *s4 = "99:1:3\nunterminated";
-    assert_int_equal(ShardGroupDeserialize(s3, strlen(s4), &sg), RR_ERROR);
+    assert_int_equal(ShardGroupDeserialize(s4, strlen(s4), &sg), RR_ERROR);
 
     /* Overflow node id */
-    const char *s5 = "99:0:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
-    assert_int_equal(ShardGroupDeserialize(s4, strlen(s5), &sg), RR_ERROR);
+    const char *s5 = "99:0:1\n1:1\n1:1000:1\n01234567890123456789012345678901234567890123456789:1.1.1.1:1111\n";
+    assert_int_equal(ShardGroupDeserialize(s5, strlen(s5), &sg), RR_ERROR);
 }
 
 const struct CMUnitTest serialization_tests[] = {
