@@ -977,6 +977,7 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
     RedisModule_Assert(ret == RR_OK);
+    ShardGroupFree(&sg);
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
