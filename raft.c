@@ -2401,29 +2401,24 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
      * payload structure
      * "# shard groups:payload1 len:payload1:....:payload n len:payload n:"
      */
-    char *payload_base = RedisModule_Alloc(entry->data_len);
-    char *payload = payload_base;
-    memcpy(payload, entry->data, entry->data_len);
-    char *pPayload = strchr(payload, ':');
-    *pPayload = 0;
+    char *payload = entry->data;
 
+    char *nl = strchr(payload, '\n');
     char *endptr;
     size_t num_payloads = strtoul(payload, &endptr, 10);
-    // verify we read all bytes belong to number */
-    RedisModule_Assert(endptr == pPayload);
-    payload = pPayload + 1;
+    RedisModule_Assert(endptr == nl);
+    payload = nl + 1;
 
     for (int i = 0; i < num_payloads; i++) {
-        pPayload = strchr(payload, ':');
-        *pPayload = 0;
+        nl = strchr(payload, '\n');
         size_t payload_len = strtoul(payload, &endptr, 10);
-        RedisModule_Assert(endptr == pPayload);
-        payload = pPayload + 1;
+        RedisModule_Assert(endptr == nl);
+        payload = nl + 1;
 
         ShardGroup sg;
         if (ShardGroupDeserialize(payload, payload_len, &sg) != RR_OK) {
             LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
-            goto exit;
+            return;
         }
 
         if (!memcmp(rr->snapshot_info.dbid, sg.id, sizeof(sg.id))) {
@@ -2445,9 +2440,6 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
 
         entry->user_data = NULL;
     }
-
-exit:
-    RedisModule_Free(payload_base);
 }
 
 /* Handle adding of ShardGroup.
