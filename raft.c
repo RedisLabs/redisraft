@@ -1074,10 +1074,10 @@ RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
     return RR_OK;
 }
 
-RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
+RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config, char *id)
 {
     /* Initialize dbid */
-    RedisModule_GetRandomHexChars(rr->snapshot_info.dbid, RAFT_DBID_LEN);
+    memcpy(rr->snapshot_info.dbid, id, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
     /* This is the first node, so there are no used node ids yet */
@@ -2176,7 +2176,7 @@ static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    if (initCluster(req->ctx, rr, rr->config) == RR_ERROR) {
+    if (initCluster(req->ctx, rr, rr->config, req->r.cluster_init.id) == RR_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
         goto exit;
     }

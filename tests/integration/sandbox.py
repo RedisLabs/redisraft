@@ -132,10 +132,15 @@ class RedisRaft(object):
                         raise err
                 time.sleep(0.1)
 
-    def init(self):
+    def init(self, cluster_id=None):
         self.cleanup()
         self.start()
-        dbid = self.cluster('init')
+
+        if cluster_id is None:
+            dbid = self.cluster('init')
+        else:
+            dbid = self.cluster('init', cluster_id)
+
         LOG.info('Cluster created: %s', dbid)
         return self
 
@@ -432,7 +437,7 @@ class Cluster(object):
     def node_addresses(self):
         return [n.address for n in self.nodes.values()]
 
-    def create(self, node_count, raft_args=None, prepopulate_log=0):
+    def create(self, node_count, raft_args=None, cluster_id=None, prepopulate_log=0):
         if raft_args is None:
             raft_args = {}
         self.raft_args = raft_args.copy()
@@ -445,7 +450,7 @@ class Cluster(object):
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():
             if _id == 1:
-                node.init()
+                node.init(cluster_id=cluster_id)
             else:
                 logging.info("{} joining".format(_id))
                 node.join(['localhost:{}'.format(self.base_port + 1)])

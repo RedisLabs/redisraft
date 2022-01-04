@@ -524,8 +524,9 @@ error:
     return REDISMODULE_OK;
 }
 
-/* RAFT.CLUSTER INIT
+/* RAFT.CLUSTER INIT <id>
  *   Initializes a new Raft cluster.
+ *   <id> is an optional 32 character string, if set, cluster will use it for the id
  * Reply:
  *   +OK [dbid]
  *
@@ -549,11 +550,26 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strncasecmp(cmd, "INIT", cmd_len)) {
-        if (argc != 2) {
+        if (argc != 2 && argc != 3) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
+
+        char cluster_id[RAFT_DBID_LEN];
+        if (argc == 2) {
+            RedisModule_GetRandomHexChars(cluster_id, RAFT_DBID_LEN);
+        } else {
+            size_t len;
+            const char *reqId = RedisModule_StringPtrLen(argv[2], &len);
+            if (len != RAFT_DBID_LEN) {
+                RedisModule_ReplyWithError(ctx, "ERR cluster id must be 32 characters");
+                return REDISMODULE_OK;
+            }
+            memcpy(cluster_id, reqId, RAFT_DBID_LEN);
+        }
+
         req = RaftReqInit(ctx, RR_CLUSTER_INIT);
+        memcpy(req->r.cluster_init.id, cluster_id, RAFT_DBID_LEN);
     } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
         if (argc < 3) {
             RedisModule_WrongArity(ctx);
