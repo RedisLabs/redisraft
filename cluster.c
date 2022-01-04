@@ -96,13 +96,14 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 {
     /* Make a mutable, null terminated copy */
     const char *s = buf;
+    const char *end = buf + buf_len;
     char *nl;
     char *endptr;
     memset(sg, 0, sizeof(*sg));
 
     /* Find shard group id */
-    nl = memchr(s, '\n', buf_len - (buf - s));
-    if (!nl || nl - buf > buf_len) {
+    nl = memchr(s, '\n', end - s);
+    if (!nl) {
         goto error;
     }
 
@@ -115,8 +116,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     s = nl + 1;
 
     /* Find slot_ranges_num*/
-    nl = memchr(s, '\n', buf_len - (buf - s));
-    if (!nl || nl - buf > buf_len) {
+    nl = memchr(s, '\n', end - s);
+    if (!nl) {
         goto error;
     }
 
@@ -125,8 +126,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     s = nl + 1;
 
     /* Find nodes_num */
-    nl = memchr(s, '\n', buf_len - (buf - s));
-    if (!nl || nl - buf > buf_len) {
+    nl = memchr(s, '\n', end - s);
+    if (!nl) {
         goto error;
     }
 
@@ -140,8 +141,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         ShardGroupSlotRange *r = &sg->slot_ranges[i];
 
         /* parse individual slot range */
-        nl = memchr(s, '\n', buf_len - (buf - s));
-        if (!nl || nl - buf > buf_len) {
+        nl = memchr(s, '\n', end - s);
+        if (!nl) {
             goto error;
         }
 
@@ -149,8 +150,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         RedisModule_Assert(endptr == nl);
         s = nl + 1;
 
-        nl = memchr(s, '\n', buf_len - (buf - s));
-        if (!nl || nl - buf > buf_len) {
+        nl = memchr(s, '\n', end - s);
+        if (!nl) {
             goto error;
         }
 
@@ -158,8 +159,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         RedisModule_Assert(endptr == nl);
         s = nl + 1;
 
-        nl = memchr(s, '\n', buf_len - (buf - s));
-        if (!nl || nl - buf > buf_len) {
+        nl = memchr(s, '\n', end - s);
+        if (!nl) {
             goto error;
         }
 
@@ -174,7 +175,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         /* parse individual node */
         ShardGroupNode *n = &sg->nodes[i];
 
-        nl = memchr(s, '\n', buf_len - (buf - s));
+        nl = memchr(s, '\n', end - s);
         if (!nl || nl - s > RAFT_SHARDGROUP_NODEID_LEN) {
             goto error;
         }
@@ -186,8 +187,8 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 
         /* Parse node address */
         s = nl + 1;
-        nl = memchr(s, '\n', buf_len - (buf - s));
-        if (!NodeAddrParse(s, nl-s, &n->addr)) {
+        nl = memchr(s, '\n', end - s);
+        if (!nl || !NodeAddrParse(s, nl-s, &n->addr)) {
             goto error;
         }
 
