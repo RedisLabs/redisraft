@@ -96,13 +96,13 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 {
     /* Make a mutable, null terminated copy */
     const char *s = buf;
+    char *nl;
     char *endptr;
-
     memset(sg, 0, sizeof(*sg));
 
     /* Find shard group id */
-    char *nl = strchr(s, '\n');
-    if (!nl) {
+    nl = strchr(s, '\n');
+    if (!nl || nl - buf > buf_len) {
         goto error;
     }
 
@@ -116,7 +116,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 
     /* Find slot_ranges_num*/
     nl = strchr(s, '\n');
-    if (!nl) {
+    if (!nl || nl - buf > buf_len) {
         goto error;
     }
 
@@ -126,7 +126,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 
     /* Find nodes_num */
     nl = strchr(s, '\n');
-    if (!nl) {
+    if (!nl || nl - buf > buf_len) {
         goto error;
     }
 
@@ -141,7 +141,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
 
         /* parse individual slot range */
         nl = strchr(s, '\n');
-        if (!nl) {
+        if (!nl || nl - buf > buf_len) {
             goto error;
         }
 
@@ -150,7 +150,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         s = nl + 1;
 
         nl = strchr(s, '\n');
-        if (!nl) {
+        if (!nl || nl - buf > buf_len) {
             goto error;
         }
 
@@ -159,7 +159,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         s = nl + 1;
 
         nl = strchr(s, '\n');
-        if (!nl) {
+        if (!nl || nl - buf > buf_len) {
             goto error;
         }
 
