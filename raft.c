@@ -636,11 +636,9 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     cfgchange->addr = node->addr;
 
     int e = raft_recv_entry(raft, entry, &response);
-    assert(e == 0);
-
     raft_entry_release(entry);
 
-    return 0;
+    return e;
 }
 
 void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t *raft_node,
