@@ -586,8 +586,13 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  * Reply:
  *   [start-slot] [end-slot] [node-id node-addr] [node-id node-addr...]
  *
- * RAFT.SHARDGROUP ADD [start-slot] [end-slot] [node-id node-addr] [node-id node-addr ...]
+ * RAFT.SHARDGROUP ADD [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
  *   Adds a new shard group configuration.
+ * Reply:
+ *   +OK
+ *
+ * RAFT.SHARDGROUP REPLACE [num shardgroups] ([shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*)*
+ *   Replaces all the external shardgroups with the external shardgroups listed here.  ignores the shardgroup set that is the local cluster
  * Reply:
  *   +OK
  *
@@ -635,14 +640,14 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
         RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
-    } else if (!strncasecmp(cmd, "UPDATE", cmd_len)) {
+    } else if (!strncasecmp(cmd, "REPLACE", cmd_len)) {
         if (argc < 4) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_SHARDGROUP_UPDATE);
-        if (ShardGroupParse(ctx, &argv[2], argc - 2, &req->r.shardgroup_add) != RR_OK) {
+        req = RaftReqInit(ctx, RR_SHARDGROUPS_REPLACE);
+        if (ShardGroupsParse(ctx, &argv[2], argc - 2, req) != RR_OK) {
             /* Error reply already produced by parseShardGroupFromArgs */
             RaftReqFree(req);
             return REDISMODULE_OK;
