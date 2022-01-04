@@ -785,6 +785,7 @@ const char *ConnGetStateStr(Connection *conn);
 char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
 void ShardGroupFree(ShardGroup *sg);
+void ShardGroupTerm(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);

@@ -197,7 +197,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     return RR_OK;
 
 error:
-    ShardGroupFree(sg);
+    ShardGroupTerm(sg);
     return RR_ERROR;
 }
 
@@ -211,7 +211,7 @@ void ShardGroupInit(ShardGroup *sg) {
 
 /* Free internal allocations of a ShardGroup.
  */
-void ShardGroupFree(ShardGroup *sg)
+void ShardGroupTerm(ShardGroup *sg)
 {
     if (sg->conn) {
         ConnAsyncTerminate(sg->conn);
@@ -227,6 +227,17 @@ void ShardGroupFree(ShardGroup *sg)
         RedisModule_Free(sg->nodes);
         sg->nodes = NULL;
     }
+}
+
+ShardGroup *ShardGroupCreate() {
+    ShardGroup *sg = RedisModule_Calloc(1, sizeof(*sg));
+    ShardGroupInit(sg);
+    return sg;
+}
+
+void ShardGroupFree(ShardGroup *sg) {
+    ShardGroupTerm(sg);
+    RedisModule_Free(sg);
 }
 
 /* -----------------------------------------------------------------------------
@@ -394,12 +405,6 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
 
 RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg, int type, void *user_data)
 {
-    /* Make sure we're still a leader, could have changed... */
-    /* SJP: unsure this is true in this case */
-    if (!raft_is_leader(rr->raft)) {
-        return RR_ERROR;
-    }
-
     /* Serialize */
     /* We reuse the existing shard group serialization
      * Format:
@@ -483,7 +488,7 @@ static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privda
                 ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
                                          RAFT_LOGTYPE_UPDATE_SHARDGROUP, NULL);
             }
-            ShardGroupFree(&recv_sg);
+            ShardGroupTerm(&recv_sg);
 
             return;
         }
@@ -739,7 +744,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
         RedisModule_Assert(ret == RR_OK);
 
-        ShardGroupFree(&sg);
+        ShardGroupTerm(&sg);
     }
 }
 
@@ -821,12 +826,12 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     if (strlen(new_sg->id) >= sizeof(new_sg->id)) {
         return RR_ERROR;
     }
-    ShardGroup *sg = RedisModule_Calloc(1, sizeof(ShardGroup));
+    ShardGroup *sg = ShardGroupCreate();
     strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
-        RedisModule_Free(sg);
+        ShardGroupFree(sg);
         return RR_ERROR;
     }
 
@@ -947,7 +952,7 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RR_OK;
 
 error:
-    ShardGroupFree(sg);
+    ShardGroupTerm(sg);
     return RR_ERROR;
 }
 
@@ -965,7 +970,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     int i;
     for(i = 0; i < req->r.shardgroups_replace.len; i++) {
-        ShardGroup *sg = RedisModule_Calloc(1, sizeof(ShardGroup));
+        ShardGroup *sg = ShardGroupCreate();
         req->r.shardgroups_replace.shardgroups[i] = sg;
 
         long long num_slots, num_nodes;
@@ -996,7 +1001,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 fail:
     for (; i >= 0; i--) {
-        RedisModule_Free(req->r.shardgroups_replace.shardgroups[i]);
+        ShardGroupFree(req->r.shardgroups_replace.shardgroups[i]);
     }
 
     RedisModule_Free(req->r.shardgroups_replace.shardgroups);
@@ -1093,7 +1098,7 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
     RedisModule_Assert(ret == RR_OK);
-    ShardGroupFree(&sg);
+    ShardGroupTerm(&sg);
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
@@ -1521,11 +1526,11 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
                     state->req = NULL;
 
                     ConnAsyncTerminate(conn);
-                    ShardGroupFree(&recv_sg);
+                    ShardGroupTerm(&recv_sg);
                     return;
                 }
             }
-            ShardGroupFree(&recv_sg);
+            ShardGroupTerm(&recv_sg);
         }
     }
 

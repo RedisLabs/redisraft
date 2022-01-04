@@ -1355,7 +1355,7 @@ void RaftReqFree(RaftReq *req)
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
                 for(int i = 0; i < req->r.shardgroups_replace.len; i++) {
-                    RedisModule_Free(req->r.shardgroups_replace.shardgroups[i]);
+                    ShardGroupFree(req->r.shardgroups_replace.shardgroups[i]);
                 }
                 RedisModule_Free(req->r.shardgroups_replace.shardgroups);
                 req->r.shardgroups_replace.shardgroups = NULL;
@@ -2341,7 +2341,7 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
             break;
     }
 
-    ShardGroupFree(&sg);
+    ShardGroupTerm(&sg);
 
     /* If we have an attached client, handle the reply */
     if (entry->user_data) {
@@ -2375,7 +2375,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
             /* local shardgroup will not have a filled in id */
             if (*data->id != 0) {
-                RedisModule_Free(data);
+                ShardGroupFree(data);
             } else {
                 local = data;
             }
@@ -2427,7 +2427,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
             /* 2b. if payload is for remote shardgroup, deserialize and add with ShardingInfoAddShardGroup() */
             RedisModule_Assert(ShardingInfoAddShardGroup(rr, &sg) == RR_OK);
         }
-        ShardGroupFree(&sg);
+        ShardGroupTerm(&sg);
         payload += payload_len + 1;
     }
 
