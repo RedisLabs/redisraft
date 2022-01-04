@@ -19,7 +19,7 @@
  */
 
 int rdbLoad(const char *filename, void *info, int flags);
-int rdbSave(const char *filename, void *info);
+int rdbSave(int flags, const char *filename, void *info);
 
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
@@ -426,7 +426,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
             rr->config->rdb_filename, (int) getpid());
 
-        if (rdbSave(sr.rdb_filename, NULL) != 0) {
+        if (rdbSave(0, sr.rdb_filename, NULL) != 0) {
             snprintf(sr.err, sizeof(sr.err) - 1, "%s", "rdbSave() failed");
             goto exit;
         }
