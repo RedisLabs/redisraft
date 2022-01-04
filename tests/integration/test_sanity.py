@@ -25,6 +25,18 @@ def test_set_cluster_id(cluster):
     assert str(cluster.leader_node().raft_info()["dbid"]) == id
 
 
+def test_set_cluster_id_too_short(cluster):
+    id = "123456789012345678901234567890"
+    with raises(ResponseError, match='cluster id must be 32 characters'):
+        cluster.create(3, cluster_id=id)
+
+
+def test_set_cluster_id_too_long(cluster):
+    id = "1234567890123456789012345678901234"
+    with raises(ResponseError, match='cluster id must be 32 characters'):
+        cluster.create(3, cluster_id=id)
+
+
 def test_fail_cluster_enabled(cluster):
     with raises(RedisRaftFailedToStart):
         r1 = cluster.add_node(redis_args=["--cluster_enabled", "yes"])
