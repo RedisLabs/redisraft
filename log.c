@@ -376,7 +376,7 @@ error:
 
 static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
-    assert(index > log->snapshot_last_idx);
+    RedisModule_Assert(index > log->snapshot_last_idx);
 
     long relidx = index - log->snapshot_last_idx - 1;
 
