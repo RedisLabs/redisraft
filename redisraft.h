@@ -558,6 +558,9 @@ typedef struct RaftReq {
             long long len;
         } shardgroups_replace;
         raft_node_id_t node_to_transfer_leader;
+        struct {
+            char id[RAFT_DBID_LEN];
+        } cluster_init;
     } r;
 } RaftReq;
 
