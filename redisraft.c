@@ -10,6 +10,7 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <dlfcn.h>
 
 #include "redisraft.h"
 
@@ -926,12 +927,26 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
             REDISRAFT_VERSION,
             REDISRAFT_GIT_SHA1);
 
+    /* With https://github.com/redis/redis/pull/9968, rdbSave() function
+     * prototype has changed. RedisRaft uses this function, we are dependent on
+     * its prototype. Here, we check existence of a symbol which was added in
+     * the same PR. So, we make sure Redis build contains this change.
+     * This check should be replaced with a proper version check after Redis 7.0
+     * release. */
+    void *handle = dlopen(NULL, RTLD_NOW);
+    if (!dlsym(handle, "rdbSaveFunctions") ) {
+        RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft requires Redis build from unstable branch!");
+        dlclose(handle);
+        return REDISMODULE_ERR;
+    }
+    dlclose(handle);
+
     /* Sanity check Redis version */
     if (RedisModule_SubscribeToServerEvent == NULL ||
             RedisModule_RegisterCommandFilter == NULL ||
             RedisModule_GetCommandKeys == NULL ||
             RedisModule_GetDetachedThreadSafeContext == NULL) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis 6.0.9 or newer!");
+        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis build from unstable branch!");
         return REDISMODULE_ERR;
     }
 
