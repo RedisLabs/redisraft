@@ -378,7 +378,7 @@ static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
     RedisModule_Assert(index > log->snapshot_last_idx);
 
-    long relidx = index - log->snapshot_last_idx - 1;
+    raft_index_t relidx = index - log->snapshot_last_idx - 1;
 
     /* skip fseek() call if not necessary */
     if (log->idxoffset != sizeof(off_t) * (relidx)) {
