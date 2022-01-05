@@ -428,6 +428,8 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
             }
 
             if (rr->debug_req->r.debug.d.compact.fail) {
+                strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
+                sr.err[sizeof(sr.err) - 1] = '\0';
                 goto exit;
             }
         }
