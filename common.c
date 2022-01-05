@@ -233,7 +233,13 @@ void joinLinkIdleCallback(Connection *conn)
         state->addr_iter = state->addr_iter->next;
     }
     if (!state->addr_iter) {
-        state->addr_iter = state->addr;
+        if (!state->started) {
+            state->started = true;
+            state->addr_iter = state->addr;
+        } else {
+            LOG_ERROR("exhausted all possible hosts to connect to");
+            goto exit_fail;
+        }
     }
 
     LOG_VERBOSE("%s cluster, connecting to %s:%u", state->type, state->addr_iter->addr.host, state->addr_iter->addr.port);
