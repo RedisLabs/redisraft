@@ -317,11 +317,13 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
 
     if (sr->magic != SNAPSHOT_RESULT_MAGIC) {
         LOG_ERROR("Corrupted snapshot result (magic=%08x)", sr->magic);
+        ret = -1;
         goto exit;
     }
 
     if (!sr->success) {
         LOG_ERROR("Snapshot failed: %s", sr->err);
+        ret = -1;
         goto exit;
     }
 
