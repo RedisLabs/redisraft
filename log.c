@@ -200,6 +200,7 @@ void RaftLogClose(RaftLog *log)
     if (log->idxfile) {
         fclose(log->idxfile);
         log->idxfile = NULL;
+        log->idxoffset = 0;
     }
     RedisModule_Free(log);
 }
@@ -375,12 +376,23 @@ error:
 
 static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
-    long relidx = index - log->snapshot_last_idx;
+    RedisModule_Assert(index > log->snapshot_last_idx);
 
-    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
-            fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
+    raft_index_t relidx = index - log->snapshot_last_idx - 1;
+
+    /* skip fseek() call if not necessary */
+    if (log->idxoffset != sizeof(off_t) * (relidx)) {
+        if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
+            return -1;
+        }
+        log->idxoffset = sizeof(off_t) * (relidx);
+    }
+
+    if (fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
         return -1;
     }
+    /* Successful fwrite(), advance the offset */
+    log->idxoffset += sizeof(off_t);
 
     return 0;
 }
@@ -644,10 +656,13 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
         log->vote = -1;
     }
 
-    if (ftruncate(fileno(log->file), 0) < 0 ||
-        ftruncate(fileno(log->idxfile), 0) < 0 ||
-        writeLogHeader(log->file, log) < 0) {
+    if (ftruncate(fileno(log->idxfile), 0) < 0) {
+        return RR_ERROR;
+    }
+    log->idxoffset = 0;
 
+    if (ftruncate(fileno(log->file), 0) < 0 ||
+        writeLogHeader(log->file, log) < 0) {
         return RR_ERROR;
     }
 
@@ -793,12 +808,18 @@ static off_t seekEntry(RaftLog *log, raft_index_t idx)
         return 0;
     }
 
-    raft_index_t relidx = idx - log->snapshot_last_idx;
-    off_t offset;
-    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0 ||
-            fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
+    raft_index_t relidx = idx - log->snapshot_last_idx - 1;
+    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
         return 0;
     }
+    log->idxoffset = sizeof(off_t) * relidx;
+
+    off_t offset;
+    if (fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
+        return 0;
+    }
+    /* Successful fread(), advance the offset */
+    log->idxoffset += sizeof(off_t);
 
     if (fseek(log->file, offset, SEEK_SET) < 0) {
         return 0;
