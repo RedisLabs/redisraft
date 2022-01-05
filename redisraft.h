@@ -277,6 +277,7 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
+    unsigned long snapshots_created;             /* Number of snapshots created */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
 } RedisRaftCtx;
 
@@ -500,6 +501,7 @@ typedef struct RaftDebugReq {
     union {
         struct {
             int delay;
+            int fail;
         } compact;
         struct {
             raft_node_id_t id;

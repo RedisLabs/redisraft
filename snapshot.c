@@ -296,6 +296,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     /* Finalize snapshot */
     raft_end_snapshot(rr->raft);
     rr->snapshot_in_progress = false;
+    rr->snapshots_created++;
 
     return RR_OK;
 }
@@ -414,7 +415,10 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     } else if (!child) {
         /* Report result */
-        SnapshotResult sr = { 0 };
+        SnapshotResult sr = { .magic = SNAPSHOT_RESULT_MAGIC};
+
+        snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
+                 rr->config->rdb_filename, (int) getpid());
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
@@ -422,11 +426,11 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
             if (delay) {
                 sleep(delay);
             }
-        }
 
-        sr.magic = SNAPSHOT_RESULT_MAGIC;
-        snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
-            rr->config->rdb_filename, (int) getpid());
+            if (rr->debug_req->r.debug.d.compact.fail) {
+                goto exit;
+            }
+        }
 
         if (rdbSave(0, sr.rdb_filename, NULL) != 0) {
             snprintf(sr.err, sizeof(sr.err) - 1, "%s", "rdbSave() failed");
