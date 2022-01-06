@@ -334,7 +334,7 @@ typedef struct RedisRaftConfig {
     bool raft_log_fsync;
     /* Cluster mode */
     bool sharding;                      /* Are we running in a sharding configuration? */
-    char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
+    const char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
     int external_sharding;              /* use external sharding orchestrator only */

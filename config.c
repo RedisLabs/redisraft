@@ -35,6 +35,7 @@ static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
+static const char *DEFAULT_SLOT_CONFIG = "0:16383";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -73,7 +74,7 @@ static const char *getLoglevelName(int level)
     return loglevels[level];
 }
 
-int validSlotConfig(char *slot_config) {
+int validSlotConfig(const char *slot_config) {
     int ret = 0;
     char *tmp = RedisModule_Strdup(slot_config);
     char *pos = tmp;
@@ -112,9 +113,13 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, CONF_ID) ||
                 !strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
-                !strcmp(keyword, CONF_SLOT_CONFIG) ||
                 !strcmp(keyword, CONF_EXTERNAL_SHARDING))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
+        return RR_ERROR;
+    }
+
+    if (redis_raft.state != REDIS_RAFT_UNINITIALIZED && !strcmp(keyword, CONF_SLOT_CONFIG)) {
+        snprintf(errbuf, errbuflen-1, "'%s' only supported before cluster init/join", keyword);
         return RR_ERROR;
     }
 
@@ -229,10 +234,18 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             goto invalid_value;
         target->external_sharding = val;
     } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
-        target->slot_config = RedisModule_Strdup(value);
-        if (!validSlotConfig(target->slot_config)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'slot_config' value");
+        char *val = RedisModule_Strdup(value);
+        if (!validSlotConfig(val)) {
+            RedisModule_Free(val);
+            snprintf(errbuf, errbuflen - 1, "invalid 'slot_config' value");
             return RR_ERROR;
+        }
+        if (target->slot_config != DEFAULT_SLOT_CONFIG) {
+            RedisModule_Free((void *) target->slot_config);
+        }
+        target->slot_config = val;
+        if (redis_raft.sharding_info) {
+            ShardingInfoReset(&redis_raft);
         }
     } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
         char *errptr;
@@ -441,7 +454,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->quorum_reads = true;
     config->sharding = false;
     config->external_sharding = false;
-    config->slot_config = "0:16383",
+    config->slot_config = DEFAULT_SLOT_CONFIG;
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
 }
 
