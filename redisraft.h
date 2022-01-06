@@ -585,6 +585,9 @@ typedef struct RaftLog {
     FILE                *file;
     FILE                *idxfile;
     off_t               idxoffset;              /* Index file position */
+    uint64_t            fsync_count;            /* Count of fsync() calls */
+    uint64_t            fsync_max;              /* Slowest fsync() call in nanoseconds */
+    uint64_t            fsync_total;            /* Total time fsync() calls consumed in nanoseconds */
 } RaftLog;
 
 
@@ -704,6 +707,7 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
+uint64_t timeMonotonicNanos();
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);

@@ -402,7 +402,9 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     /* Flush stdio files to avoid leaks from child */
     if (rr->log) {
-        RaftLogSync(rr->log);
+        if (RaftLogSync(rr->log) != RR_OK) {
+            PANIC("RaftLogSync() failed.");
+        }
     }
 
     pid_t child = RedisModule_Fork(NULL, NULL);

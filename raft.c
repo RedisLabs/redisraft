@@ -2120,6 +2120,16 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
                 node->conn->connect_errors, node->conn->connect_oks);
     }
 
+    double fsync_avg_ms = 0.0, fsync_max_ms = 0.0;
+    uint64_t fsync_count = 0;
+
+    if (rr->log) {
+        fsync_count = rr->log->fsync_count;
+        fsync_max_ms = (double) rr->log->fsync_max / 1000000.0f;
+        fsync_avg_ms = (double) rr->log->fsync_total / 1000000.0f;
+        fsync_avg_ms /= (double) rr->log->fsync_count;
+    }
+
     s = catsnprintf(s, &slen,
             "\r\n# Log\r\n"
             "log_entries:%ld\r\n"
@@ -2129,7 +2139,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "file_size:%lu\r\n"
             "cache_memory_size:%lu\r\n"
             "cache_entries:%lu\r\n"
-            "client_attached_entries:%lu\r\n",
+            "client_attached_entries:%lu\r\n"
+            "fsync_count:%"PRIu64"\r\n"
+            "fsync_max_ms:%f\r\n"
+            "fsync_avg_ms:%f\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
@@ -2137,7 +2150,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->log ? rr->log->file_size : 0,
             rr->logcache ? rr->logcache->entries_memsize : 0,
             rr->logcache ? rr->logcache->len : 0,
-            rr->client_attached_entries);
+            rr->client_attached_entries,
+            fsync_count,
+            fsync_max_ms,
+            fsync_avg_ms);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"

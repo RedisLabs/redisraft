@@ -220,21 +220,6 @@ static int writeBegin(FILE *logfile, int length)
     return n;
 }
 
-static int writeEnd(FILE *logfile, bool use_fsync)
-{
-    if (fflush(logfile) < 0) {
-        return -1;
-    }
-    if (!use_fsync) {
-        return 0;
-    }
-    if (fsync(fileno(logfile)) < 0) {
-        return -1;
-    }
-
-    return 0;
-}
-
 static int writeBuffer(FILE *logfile, const void *buf, size_t buf_len)
 {
     static const char crlf[] = "\r\n";
@@ -450,8 +435,7 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
         writeUnsignedInteger(logfile, log->snapshot_last_term, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
         writeUnsignedInteger(logfile, log->term, 20) < 0 ||
-        writeInteger(logfile, log->vote, 11) < 0 ||
-        writeEnd(logfile, log->fsync) < 0) {
+        writeInteger(logfile, log->vote, 11) < 0) {
             return -1;
     }
 
@@ -460,20 +444,23 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
 
 int updateLogHeader(RaftLog *log)
 {
-    int ret;
+    int ret = 0;
 
     /* Avoid same file open twice */
     fclose(log->file);
-    log->file = NULL;
 
-    FILE *file = fopen(log->filename, "r+");
-    if (!file) {
+    log->file = fopen(log->filename, "r+");
+    if (!log->file) {
         PANIC("Failed to update log header: %s: %s",
                 log->filename, strerror(errno));
     }
 
-    ret = writeLogHeader(file, log);
-    fclose(file);
+    if (writeLogHeader(log->file, log) < 0 ||
+        RaftLogSync(log) != RR_OK) {
+        ret = -1;
+    }
+
+    fclose(log->file);
 
     /* Reopen */
     log->file = fopen(log->filename, "a+");
@@ -511,7 +498,8 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     }
 
     /* Write log start */
-    if (writeLogHeader(log->file, log) < 0) {
+    if (writeLogHeader(log->file, log) < 0 ||
+        RaftLogSync(log) != RR_OK) {
         LOG_ERROR("Failed to create Raft log: %s: %s", filename, strerror(errno));
         RaftLogClose(log);
         log = NULL;
@@ -662,7 +650,8 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
     log->idxoffset = 0;
 
     if (ftruncate(fileno(log->file), 0) < 0 ||
-        writeLogHeader(log->file, log) < 0) {
+        writeLogHeader(log->file, log) < 0 ||
+        RaftLogSync(log) != RR_OK) {
         return RR_ERROR;
     }
 
@@ -780,16 +769,32 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 
 RRStatus RaftLogSync(RaftLog *log)
 {
-    if (writeEnd(log->file, log->fsync) < 0) {
+    uint64_t begin = timeMonotonicNanos();
+
+    if (fflush(log->file) < 0) {
+        LOG_ERROR("fflush() : %s", strerror(errno));
         return RR_ERROR;
     }
+
+    if (log->fsync) {
+        if (fsync(fileno(log->file)) < 0) {
+            LOG_ERROR("fsync() : %s", strerror(errno));
+            return RR_ERROR;
+        }
+    }
+
+    uint64_t took = timeMonotonicNanos() - begin;
+    log->fsync_count++;
+    log->fsync_total += took;
+    log->fsync_max = MAX(took, log->fsync_max);
+
     return RR_OK;
 }
 
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
     if (RaftLogWriteEntry(log, entry) != RR_OK ||
-            writeEnd(log->file, log->fsync) < 0) {
+        RaftLogSync(log) != RR_OK) {
         return RR_ERROR;
     }
 
