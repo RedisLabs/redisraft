@@ -483,7 +483,7 @@ static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privda
             sg->update_in_progress = false;
 
             /* Issue update */
-            strncpy(recv_sg.id, sg->id, RAFT_DBID_LEN);     /* Copy ID to allow correlation */
+            memcpy(recv_sg.id, sg->id, RAFT_DBID_LEN); /* Copy ID to allow correlation */
             recv_sg.id[RAFT_DBID_LEN] = '\0';
             if (compareShardGroups(sg, &recv_sg) != 0) {
                 ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
@@ -828,7 +828,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
         return RR_ERROR;
     }
     ShardGroup *sg = ShardGroupCreate();
-    strncpy(sg->id, new_sg->id, RAFT_DBID_LEN);
+    memcpy(sg->id, new_sg->id, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {

@@ -21,16 +21,16 @@ OPTIMIZATION?=-O3
 
 ifdef SANITIZER
 ifeq ($(SANITIZER),address)
-	CFLAGS += -fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
-	LDFLAGS += -fsanitize=address -static-libasan
+    CFLAGS += -fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=address -static-libasan
 else
 ifeq ($(SANITIZER),undefined)
-	CFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
-	LDFLAGS += -fsanitize=undefined
+    CFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=undefined
 else
 ifeq ($(SANITIZER),thread)
-	CFLAGS += -fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
-	LDFLAGS += -fsanitize=thread
+    CFLAGS += -fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=thread
 else
     $(error "unknown sanitizer=${SANITIZER}")
 endif
@@ -41,7 +41,7 @@ endif
 ifneq ($(TRACE),)
     CPPFLAGS += -DENABLE_TRACE
 endif
-CFLAGS += -g -Wall $(OPTIMIZATION) -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS) -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
+CFLAGS += -g -Wall -Werror $(OPTIMIZATION) -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS) -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
 LDFLAGS += $(ARCH_LDFLAGS)
 
 LIBS = \
