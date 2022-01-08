@@ -211,7 +211,7 @@ class RedisRaft(object):
                             'RedisRaft<%s> failed to start' % self.id)
                 time.sleep(0.1)
 
-    def check_leak(self):
+    def check_sanitizer_error(self):
         if (self.stdout and 'sanitizer' in self.stdout.loglines.lower() or
                 self.stderr and 'sanitizer' in self.stderr.loglines.lower()):
             raise RedisRaftSanitizer('Sanitizer error.')
@@ -230,7 +230,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> terminated', self.id)
         self.process = None
-        self.check_leak()
+        self.check_sanitizer_error()
 
     def kill(self):
         if self.process:
@@ -244,7 +244,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> killed', self.id)
         self.process = None
-        self.check_leak()
+        self.check_sanitizer_error()
 
     def restart(self, retries=5):
         self.terminate()
