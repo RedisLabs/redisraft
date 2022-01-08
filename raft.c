@@ -1347,7 +1347,11 @@ void RaftReqFree(RaftReq *req)
             }
             break;
         case RR_SHARDGROUP_ADD:
-            ShardGroupTerm(&req->r.shardgroup_add);
+            //ShardGroupTerm(&req->r.shardgroup_add);
+            if (req->r.shardgroup_add.nodes) {
+                RedisModule_Free(req->r.shardgroup_add.nodes);
+                req->r.shardgroup_add.nodes = NULL;
+            }
             break;
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
