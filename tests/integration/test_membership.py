@@ -131,6 +131,9 @@ def test_full_cluster_remove(cluster):
     # remove the leader node finally
     leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
 
+    # wait some time for the last node
+    time.sleep(3)
+
     # make sure other nodes are down
     for node_id in (1, 2, 3, 4, 5):
         assert cluster.node(node_id).verify_down()
