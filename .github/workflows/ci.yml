@@ -3,7 +3,7 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build-ubuntu:
+  test-ubuntu:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -36,7 +36,7 @@ jobs:
     - name: Upload to codecov
       uses: codecov/codecov-action@v2
 
-  build-sanitizer:
+  test-sanitizer:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -63,8 +63,3 @@ jobs:
       - name: Run tests
         run:
           PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests
-      - name: Generate coverage info
-        run:
-          geninfo -o coverage.info .
-      - name: Upload to codecov
-        uses: codecov/codecov-action@v2
