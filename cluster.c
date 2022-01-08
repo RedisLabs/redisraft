@@ -839,16 +839,20 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     si->shard_groups_num++;
 
     sg->slot_ranges_num = new_sg->slot_ranges_num;
-    sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
-    memcpy(sg->slot_ranges, new_sg->slot_ranges, sizeof(ShardGroupSlotRange) * new_sg->slot_ranges_num);
+    if (sg->slot_ranges_num) {
+        sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(*sg->slot_ranges));
+        memcpy(sg->slot_ranges, new_sg->slot_ranges, sizeof(*sg->slot_ranges) * new_sg->slot_ranges_num);
+    }
 
-    sg->nodes_num = new_sg->nodes_num;
     sg->next_redir = 0;
     sg->use_conn_addr = false;
     sg->node_conn_idx = 0;
     sg->conn = NULL;
-    sg->nodes = RedisModule_Calloc(new_sg->nodes_num, sizeof(ShardGroupNode));
-    memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * new_sg->nodes_num);
+    sg->nodes_num = new_sg->nodes_num;
+    if (sg->nodes_num) {
+        sg->nodes = RedisModule_Calloc(new_sg->nodes_num, sizeof(*sg->nodes));
+        memcpy(sg->nodes, new_sg->nodes, sizeof(*sg->nodes) * new_sg->nodes_num);
+    }
 
     /* Do slot mapping */
     for (int i = 0; i < new_sg->slot_ranges_num; i++) {
@@ -1072,7 +1076,7 @@ void ShardingInfoReset(RedisRaftCtx *rr)
         void *data;
 
         while (RedisModule_DictNextC(iter, &key_len, &data) != NULL) {
-            RedisModule_Free(data);
+            ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
         RedisModule_FreeDict(rr->ctx, si->shard_group_map);
