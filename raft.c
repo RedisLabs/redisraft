@@ -27,12 +27,13 @@ const char *RaftReqTypeStr[] = {
     "RR_REDISCOMMAND",
     "RR_INFO",
     "RR_SNAPSHOT",
-    "RR_COMPACT",
+    "RR_DEBUG",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUP_UPDATE",
+    "RR_SHARDGROUP_REPLACE",
     "RR_SHARDGROUP_GET",
     "RR_SHARDGROUP_LINK",
+    "RR_NODE_SHUTDOWN",
     "RR_TRANSFER_LEADER",
     "RR_TIMEOUT_NOW",
     "RR_CONFIG"",
@@ -1403,6 +1404,7 @@ void RaftReqFree(RaftReq *req)
 
         RedisModule_UnblockClient(req->client, NULL);
     }
+
     RedisModule_LatencyAddSample(RaftReqTypeStr[req->type],  (mstime_t) ((timeMonotonicNanos() - req->begin) / 1000000));
     RedisModule_Free(req);
 }
