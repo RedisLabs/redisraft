@@ -392,6 +392,7 @@ enum RaftReqType {
     RR_TRANSFER_LEADER,
     RR_TIMEOUT_NOW,
     RR_CONFIG,
+    /* if add entries, add string to RaftReqTypeStr in raft.c */
 };
 
 extern const char *RaftReqTypeStr[];
@@ -515,6 +516,7 @@ typedef struct RaftDebugReq {
 
 typedef struct RaftReq {
     int type;
+    uint64_t begin;
     STAILQ_ENTRY(RaftReq) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
@@ -714,6 +716,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
+uint64_t timeMonotonicNanos();
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
