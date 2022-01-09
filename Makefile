@@ -19,11 +19,30 @@ CC = gcc
 CPPFLAGS = -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
 OPTIMIZATION?=-O3
 
+ifdef SANITIZER
+ifeq ($(SANITIZER),address)
+    CFLAGS += -fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=address -static-libasan
+else
+ifeq ($(SANITIZER),undefined)
+    CFLAGS += -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+    CFLAGS += -fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+    LDFLAGS += -fsanitize=thread
+else
+    $(error "unknown sanitizer=${SANITIZER}")
+endif
+endif
+endif
+endif
+
 ifneq ($(TRACE),)
     CPPFLAGS += -DENABLE_TRACE
 endif
-CFLAGS = -g -Wall $(OPTIMIZATION) -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS)
-LDFLAGS = $(ARCH_LDFLAGS)
+CFLAGS += -g -Wall -Werror $(OPTIMIZATION) -std=c99 -I$(BUILDDIR)/include $(ARCH_CFLAGS) -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE
+LDFLAGS += $(ARCH_LDFLAGS)
 
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
@@ -61,7 +80,8 @@ buildinfo.h:
 	GIT_SHA1=`(git show-ref --head --hash=8 2>/dev/null || echo 00000000) | head -n1` && \
 	echo "#define REDISRAFT_GIT_SHA1 \"$$GIT_SHA1\"" > buildinfo.h
 
-$(OBJECTS): | $(BUILDDIR)/.deps_installed buildinfo.h
+$(OBJECTS): %.o : %.c | $(BUILDDIR)/.deps_installed buildinfo.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 redisraft.so: $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)

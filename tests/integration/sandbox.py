@@ -21,6 +21,8 @@ import redis
 
 LOG = logging.getLogger('sandbox')
 
+class RedisRaftSanitizer(Exception):
+    pass
 
 class RedisRaftError(Exception):
     pass
@@ -40,11 +42,14 @@ class PipeLogger(threading.Thread):
         self.prefix = prefix
         self.pipe = pipe
         self.daemon = True
+        self.loglines = ""
         self.start()
 
     def run(self):
         for line in iter(self.pipe.readline, b''):
-            LOG.debug('%s: %s', self.prefix, str(line, 'utf-8').rstrip())
+            linestr = str(line, 'utf-8').rstrip()
+            self.loglines += linestr
+            LOG.debug('%s: %s', self.prefix, linestr)
 
 
 class RedisRaft(object):
@@ -206,6 +211,11 @@ class RedisRaft(object):
                             'RedisRaft<%s> failed to start' % self.id)
                 time.sleep(0.1)
 
+    def check_sanitizer_error(self):
+        if (self.stdout and 'sanitizer' in self.stdout.loglines.lower() or
+                self.stderr and 'sanitizer' in self.stderr.loglines.lower()):
+            raise RedisRaftSanitizer('Sanitizer error.')
+
     def terminate(self):
         if self.process:
             if self.paused:
@@ -220,6 +230,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> terminated', self.id)
         self.process = None
+        self.check_sanitizer_error()
 
     def kill(self):
         if self.process:
@@ -233,6 +244,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> killed', self.id)
         self.process = None
+        self.check_sanitizer_error()
 
     def restart(self, retries=5):
         self.terminate()
@@ -409,8 +421,10 @@ class RedisRaft(object):
         self._wait_for_condition(check_param, raise_not_matched, timeout)
 
     def destroy(self):
-        self.terminate()
-        self.cleanup()
+        try:
+            self.terminate()
+        finally:
+            self.cleanup()
 
 
 class Cluster(object):
@@ -589,12 +603,24 @@ class Cluster(object):
         return self.raft_retry(_func)
 
     def destroy(self):
+        err = None
         for node in self.nodes.values():
-            node.destroy()
+            try:
+                node.destroy()
+            except RedisRaftSanitizer as e:
+                err = e
+        if err:
+            raise err
 
     def terminate(self):
+        err = None
         for node in self.nodes.values():
-            node.terminate()
+            try:
+                node.terminate()
+            except RedisRaftSanitizer as e:
+                err = e
+        if err:
+            raise err
 
     def start(self):
         for node in self.nodes.values():
