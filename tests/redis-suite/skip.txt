@@ -45,6 +45,7 @@ UNLINK can reclaim memory in background
 -- TODO: fix maxmemory config replication and set deny-oom flag for write
 --       "raft" commands
 Script - disallow write on OOM
+FUNCTION - verify OOM on function load and function restore
 
 -- Blocked clients not supported
 Test read commands are not blocked by client pause
