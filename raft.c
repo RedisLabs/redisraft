@@ -130,7 +130,7 @@ static void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *r
 static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
     RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx)
 {
-    uint64_t begin = timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     int i;
 
@@ -184,7 +184,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         }
     }
 
-    RedisModule_LatencyAddSample("executeRaftRedisCommandArray", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("executeRaftRedisCommandArray", RedisModule_Milliseconds() - begin);
 }
 
 /*
@@ -507,7 +507,7 @@ static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
 
 static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
 {
-    uint64_t begin = timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
@@ -519,14 +519,14 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
         return RAFT_ERR_SHUTDOWN;
     }
 
-    RedisModule_LatencyAddSample("persistVote", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("persistVote", (mstime_t) RedisModule_Milliseconds() - begin);
 
     return 0;
 }
 
 static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, raft_node_id_t vote)
 {
-    uint64_t begin = timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
     if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
@@ -538,14 +538,14 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
         return RAFT_ERR_SHUTDOWN;
     }
 
-    RedisModule_LatencyAddSample("persistTerm", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("persistTerm", RedisModule_Milliseconds() - begin);
 
     return 0;
 }
 
 static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
-    uint64_t begin = timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     RedisRaftCtx *rr = user_data;
     RaftCfgChange *req;
@@ -590,7 +590,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RedisModule_LatencyAddSample("applyLog", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("applyLog", RedisModule_Milliseconds() - begin);
 
     return 0;
 }
@@ -935,7 +935,7 @@ static void shutdownAfterRemoval(RedisRaftCtx *rr)
 
 static void callRaftPeriodic(uv_timer_t *handle)
 {
-    uint64_t begin = timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
     int ret;
@@ -959,7 +959,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
     /* If we're creating a persistent snapshot, check if we're done */
     if (rr->snapshot_in_progress) {
         SnapshotResult sr;
-        uint64_t begin_periodic_snapshot = timeMonotonicNanos();
+        mstime_t begin_periodic_snapshot = RedisModule_Milliseconds();
 
         ret = pollSnapshotStatus(rr, &sr);
         if (ret == -1) {
@@ -969,12 +969,12 @@ static void callRaftPeriodic(uv_timer_t *handle)
             LOG_DEBUG("Snapshot operation completed successfully.");
             finalizeSnapshot(rr, &sr);
         } /* else we're still in progress */
-        RedisModule_LatencyAddSample("raft_periodic_snapshot", (mstime_t) ((timeMonotonicNanos() - begin_periodic_snapshot) / 1000000));
+        RedisModule_LatencyAddSample("raft_periodic_snapshot", RedisModule_Milliseconds() - begin_periodic_snapshot);
     }
 
-    uint64_t begin_raft_periodic = timeMonotonicNanos();
+    mstime_t begin_raft_periodic = RedisModule_Milliseconds();
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
-    RedisModule_LatencyAddSample("raft_periodic", (mstime_t) ((timeMonotonicNanos() - begin_raft_periodic) / 1000000));
+    RedisModule_LatencyAddSample("raft_periodic", RedisModule_Milliseconds() - begin_raft_periodic);
     if (ret == 0) {
         ret = raft_apply_all(rr->raft);
     }
@@ -987,9 +987,9 @@ static void callRaftPeriodic(uv_timer_t *handle)
 
     /* Compact cache */
     if (rr->config->raft_log_max_cache_size) {
-        uint64_t begin_cache_compact = timeMonotonicNanos();
+        mstime_t begin_cache_compact = RedisModule_Milliseconds();
         EntryCacheCompact(rr->logcache, rr->config->raft_log_max_cache_size);
-        RedisModule_LatencyAddSample("raft_periodic_cache_compact", (mstime_t) ((timeMonotonicNanos() - begin_cache_compact) / 1000000));
+        RedisModule_LatencyAddSample("raft_periodic_cache_compact", RedisModule_Milliseconds() - begin_cache_compact);
     }
 
     /* Initiate snapshot if log size exceeds raft-log-file-max */
@@ -998,19 +998,19 @@ static void callRaftPeriodic(uv_timer_t *handle)
             rr->log->file_size > rr->config->raft_log_max_file_size) {
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
                 rr->log->file_size);
-        uint64_t begin_initiate_snapshot = timeMonotonicNanos();
+        mstime_t begin_initiate_snapshot = RedisModule_Milliseconds();
         initiateSnapshot(rr);
-        RedisModule_LatencyAddSample("raft_periodic_initiate_snapshot", (mstime_t) ((timeMonotonicNanos() - begin_initiate_snapshot)/ 1000000));
+        RedisModule_LatencyAddSample("raft_periodic_initiate_snapshot", RedisModule_Milliseconds() - begin_initiate_snapshot);
     }
 
     /* Call cluster */
     if (rr->config->sharding) {
-        uint64_t begin_sharding_periodic = timeMonotonicNanos();
+        mstime_t begin_sharding_periodic = RedisModule_Milliseconds();
         ShardingPeriodicCall(rr);
-        RedisModule_LatencyAddSample("raft_periodic_sharding", (mstime_t) ((timeMonotonicNanos() - begin_sharding_periodic)/ 1000000));
+        RedisModule_LatencyAddSample("raft_periodic_sharding", RedisModule_Milliseconds() - begin_sharding_periodic);
     }
 
-    RedisModule_LatencyAddSample("callRaftPeriodic", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("callRaftPeriodic", RedisModule_Milliseconds() - begin);
 }
 
 /* A libuv callback that invokes HandleNodeStates(), to handle node connection
@@ -1018,7 +1018,7 @@ static void callRaftPeriodic(uv_timer_t *handle)
  */
 static void callHandleNodeStates(uv_timer_t *handle)
 {
-    uint64_t begin= timeMonotonicNanos();
+    mstime_t begin = RedisModule_Milliseconds();
 
     RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
     if (processExiting) {
@@ -1028,7 +1028,7 @@ static void callHandleNodeStates(uv_timer_t *handle)
     HandleIdleConnections(rr);
     HandleNodeStates(rr);
 
-    RedisModule_LatencyAddSample("callHandleNodeStates", (mstime_t) ((timeMonotonicNanos() - begin) / 1000000));
+    RedisModule_LatencyAddSample("callHandleNodeStates", RedisModule_Milliseconds() - begin);
 }
 
 /* Main Raft thread, which handles:
@@ -1405,7 +1405,7 @@ void RaftReqFree(RaftReq *req)
         RedisModule_UnblockClient(req->client, NULL);
     }
 
-    RedisModule_LatencyAddSample(RaftReqTypeStr[req->type],  (mstime_t) ((timeMonotonicNanos() - req->begin) / 1000000));
+    RedisModule_LatencyAddSample(RaftReqTypeStr[req->type],  RedisModule_Milliseconds() - req->begin);
     RedisModule_Free(req);
 }
 
@@ -1417,7 +1417,7 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
-    req->begin = timeMonotonicNanos();
+    req->begin = RedisModule_Milliseconds();
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",b
             req, RaftReqTypeStr[req->type], req->client, req->ctx);

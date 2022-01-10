@@ -516,7 +516,7 @@ typedef struct RaftDebugReq {
 
 typedef struct RaftReq {
     int type;
-    uint64_t begin;
+    mstime_t begin;
     STAILQ_ENTRY(RaftReq) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
