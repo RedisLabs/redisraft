@@ -435,11 +435,21 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
     if (!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) {
-        handleConfigSet(rr, ctx, argv, argc);
-        return REDISMODULE_OK;
+        RaftReq *req = RaftReqInit(ctx, RR_CONFIG_SET);
+        req->r.config.argc = argc - 2;
+        req->r.config.argv = RedisModule_Alloc((argc-2)*sizeof(RedisModuleString*));
+        for(int i = 2; i < argc; i++) {
+            req->r.config.argv[i-2] = RedisModule_CreateStringFromString(ctx, argv[i]);
+        }
+        RaftReqSubmit(rr, req);
     } else if (!strncasecmp(cmd, "GET", cmd_len) && argc == 3) {
-        handleConfigGet(ctx, rr->config, argv, argc);
-        return REDISMODULE_OK;
+        RaftReq *req = RaftReqInit(ctx, RR_CONFIG_GET);
+        req->r.config.argc = argc - 2;
+        req->r.config.argv = RedisModule_Alloc((argc-2)*sizeof(RedisModuleString*));
+        for(int i = 2; i < argc; i++) {
+            req->r.config.argv[i-2] = RedisModule_CreateStringFromString(ctx, argv[i]);
+        }
+        RaftReqSubmit(rr, req);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
     }

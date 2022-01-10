@@ -1360,6 +1360,15 @@ void RaftReqFree(RaftReq *req)
                 RedisModule_Free(req->r.shardgroups_replace.shardgroups);
                 req->r.shardgroups_replace.shardgroups = NULL;
             }
+        case RR_CONFIG_GET:
+        case RR_CONFIG_SET:
+            if (req->r.config.argv != NULL) {
+                for(int i = 0; i < req->r.config.argc; i++) {
+                    RedisModule_FreeString(req->ctx, req->r.config.argv[i]);
+                }
+                RedisModule_Free(req->r.config.argv);
+                req->r.config.argv = NULL;
+            }
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -2565,6 +2574,18 @@ static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
     shutdownAfterRemoval(rr);
 }
 
+static void handleConfig(RedisRaftCtx *rr, RaftReq *req) {
+    if (req->type == RR_CONFIG_SET) {
+        handleConfigSet(rr, req->ctx, req->r.config.argv, req->r.config.argc);
+    } else if (req->type == RR_CONFIG_GET) {
+        handleConfigGet(req->ctx, rr->config, req->r.config.argv, req->r.config.argc);
+    } else {
+        RedisModule_ReplyWithError(req->ctx, "unexpected RedisRaftReq passed to handleConfig");
+    }
+
+    RaftReqFree(req);
+}
+
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
     handleClusterInit,         /* RR_CLUSTER_INIT */
@@ -2585,5 +2606,7 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleNodeShutdown,       /* RR_NODE_SHUTDOWN */
     handleTransferLeader,     /* RR_TRANSFER_LEADER */
     handleTimeoutNow,         /* RR_TIMEOUT_NOW */
+    handleConfig,             /* RR_CONFIG_SET */
+    handleConfig,             /* RR_CONFIG_GET */
     NULL
 };

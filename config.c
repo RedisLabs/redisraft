@@ -272,19 +272,19 @@ invalid_value:
 
 void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    if (argc != 4) {
+    if (argc != 2) {
         RedisModule_WrongArity(ctx);
         return;
     }
 
     size_t key_len;
-    const char *key = RedisModule_StringPtrLen(argv[2], &key_len);
+    const char *key = RedisModule_StringPtrLen(argv[0], &key_len);
     char keybuf[key_len + 1];
     memcpy(keybuf, key, key_len);
     keybuf[key_len] = '\0';
 
     size_t value_len;
-    const char *value = RedisModule_StringPtrLen(argv[3], &value_len);
+    const char *value = RedisModule_StringPtrLen(argv[1], &value_len);
     char valuebuf[value_len + 1];
     memcpy(valuebuf, value, value_len);
     valuebuf[value_len] = '\0';
@@ -330,14 +330,14 @@ static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
 
 void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
 {
-    if (argc != 3) {
+    if (argc != 1) {
         RedisModule_WrongArity(ctx);
         return;
     }
 
     int len = 0;
     size_t pattern_len;
-    const char *pattern = RedisModule_StringPtrLen(argv[2], &pattern_len);
+    const char *pattern = RedisModule_StringPtrLen(argv[0], &pattern_len);
 
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     if (stringmatch(pattern, CONF_ID, 1)) {
