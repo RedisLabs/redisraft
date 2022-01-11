@@ -108,7 +108,8 @@ exit:
 }
 
 static RRStatus processConfigParam(const char *keyword, const char *value,
-        RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
+        RedisRaftConfig *target, bool on_init, bool uninitialized,
+        char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
     if (!on_init && (!strcmp(keyword, CONF_ID) ||
@@ -118,7 +119,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
         return RR_ERROR;
     }
 
-    if (redis_raft.state != REDIS_RAFT_UNINITIALIZED && !strcmp(keyword, CONF_SLOT_CONFIG)) {
+    if (uninitialized && (!strcmp(keyword, CONF_SLOT_CONFIG))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported before cluster init/join", keyword);
         return RR_ERROR;
     }
@@ -244,7 +245,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value,
             RedisModule_Free((void *) target->slot_config);
         }
         target->slot_config = val;
-        if (redis_raft.sharding_info) {
+        if (!on_init && redis_raft.sharding_info) {
             ShardingInfoReset(&redis_raft);
         }
     } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
@@ -290,7 +291,8 @@ void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **
     valuebuf[value_len] = '\0';
 
     char errbuf[256] = "ERR ";
-    if (processConfigParam(keybuf, valuebuf, rr->config, false,
+    if (processConfigParam(keybuf, valuebuf, rr->config,
+                           false, rr->state == REDIS_RAFT_UNINITIALIZED,
                 errbuf + strlen(errbuf), (int)(sizeof(errbuf) - strlen(errbuf))) == RR_OK) {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
@@ -607,7 +609,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         i++;
 
         char errbuf[256];
-        if (processConfigParam(kw, val, target, true,
+        if (processConfigParam(kw, val, target, true, true,
                     errbuf, sizeof(errbuf)) != RR_OK) {
             RedisModule_Log(ctx, REDIS_WARNING, "%s", errbuf);
             return RR_ERROR;
