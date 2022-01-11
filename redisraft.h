@@ -645,6 +645,7 @@ typedef struct JoinLinkState {
     RaftReq *req;                       /* Original RaftReq, so we can return a reply */
     bool failed;                        /* unrecoverable failure */
     char *type;                         /* error message to print if exhaust time */
+    bool started;                       /* we have started connecting */
     ConnectionCallbackFunc connect_callback;
 } JoinLinkState;
 
