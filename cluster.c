@@ -622,7 +622,7 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
     }
 
     /* When saving, skip shardgroup #1 which is the local cluster */
-    RedisModule_SaveUnsigned(rdb, si->shard_groups_num - 1);
+    RedisModule_SaveUnsigned(rdb, si->shard_groups_num);
     if (si->shard_group_map != NULL) {
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
 
@@ -630,10 +630,6 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
         ShardGroup *sg;
 
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-            if (*sg->id == 0) { /* skipping local cluster */
-                continue;
-            }
-
             RedisModule_SaveStringBuffer(rdb, sg->id, strlen(sg->id));
             RedisModule_SaveUnsigned(rdb, sg->slot_ranges_num);
             for (int j = 0; j < sg->slot_ranges_num; j++) {
@@ -678,15 +674,6 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
      * be zero).
      */
     unsigned int rdb_shard_groups_num = RedisModule_LoadUnsigned(rdb);
-    if (!rdb_shard_groups_num) {
-        /* No shardgroups. This could mean no sharding, or simply no shardgroups
-         * to read. If we have ShardingInfo we'll reset it.
-         */
-        if (si)
-            ShardingInfoReset(rr);
-
-        return;
-    }
 
     /* If we have something to load, we need to reset ShardingInfo first.
      * We also need to be sure we're in cluster mode, i.e. that si was
@@ -770,7 +757,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
         }
 
         for (int i = new_sg->slot_ranges[h].start_slot; i <= new_sg->slot_ranges[h].end_slot; i++) {
-            if (si->hash_slots_map[i] != 0) {
+            if (si->stable_slots_map[i] != 0) {
                 LOG_ERROR("Invalid shardgroup: hash slot already mapped: %u", i);
                 return RR_ERROR;
             }
@@ -831,7 +818,7 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     memcpy(sg->id, new_sg->id, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
 
-    if (RedisModule_DictSetC(si->shard_group_map, new_sg->id, strlen(new_sg->id), sg) != REDISMODULE_OK) {
+    if (RedisModule_DictSetC(si->shard_group_map, sg->id, strlen(sg->id), sg) != REDISMODULE_OK) {
         ShardGroupFree(sg);
         return RR_ERROR;
     }
@@ -856,9 +843,20 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
     /* Do slot mapping */
     for (int i = 0; i < new_sg->slot_ranges_num; i++) {
-        for (int j = new_sg->slot_ranges[i].start_slot; j <= new_sg->slot_ranges[i].end_slot; j++) {
-            /* TODO: this assumes only stable, not migrating/importing */
-            si->hash_slots_map[j] = sg;
+        for (unsigned int j = new_sg->slot_ranges[i].start_slot; j <= new_sg->slot_ranges[i].end_slot; j++) {
+            switch (new_sg->slot_ranges[i].type) {
+                case SLOTRANGE_TYPE_STABLE:
+                    si->stable_slots_map[j] = sg;
+                    break;
+                case SLOTRANGE_TYPE_IMPORTING:
+                    si->importing_slots_map[j] = sg;
+                    break;
+                case SLOTRANGE_TYPE_MIGRATING:
+                    si->migrating_slots_map[j] = sg;
+                    break;
+                default:
+                    PANIC("ShardingInfoAddShardGroup: unknown slot range type");
+            }
         }
     }
 
@@ -965,6 +963,7 @@ error:
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req)
 {
     if (RedisModule_StringToLongLong(argv[0], &req->r.shardgroups_replace.len) != REDISMODULE_OK) {
+        printf("ERR invalid shard group message(1)");
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message(1)");
         return RR_ERROR;
     }
@@ -980,26 +979,86 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
         long long num_slots, num_nodes;
         if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ) {
+            printf("ERR invalid shard group message (num slots)");
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
             goto fail;
         }
         if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
+            printf("ERR invalid shard group message (num nodes)");
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
             goto fail;
         }
 
         int num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
         if (num_argv_entries > argc) {
+            printf("ERR invalid shard group message (num entries)");
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num entries)");
             goto fail;
         }
 
         if (ShardGroupParse(ctx, argv, num_argv_entries, sg) != RR_OK) {
+            printf("ShardGroupParse failed!\n");
             goto fail;
         }
 
         argv += num_argv_entries;
         argc -= num_argv_entries;
+    }
+
+    /* basic validation, no shard groups have slotranges that overlap another */
+    ShardGroup * stable[REDIS_RAFT_HASH_MAX_SLOT];
+    memset(stable, 0, sizeof(ShardGroup*)*REDIS_RAFT_HASH_MAX_SLOT);
+    ShardGroup * importing[REDIS_RAFT_HASH_MAX_SLOT];
+    memset(importing, 0, sizeof(ShardGroup *)*REDIS_RAFT_HASH_MAX_SLOT);
+    ShardGroup * migrating[REDIS_RAFT_HASH_MAX_SLOT];
+    memset(migrating, 0, sizeof(ShardGroup *)*REDIS_RAFT_HASH_MAX_SLOT);
+
+    for (int j = 0; j < req->r.shardgroups_replace.len; j++) {
+        ShardGroup * sg = req->r.shardgroups_replace.shardgroups[j];
+        for (int k = 0; k < sg->slot_ranges_num; k++) {
+            ShardGroupSlotRange * sr = &sg->slot_ranges[k];
+            switch (sr->type) {
+                case SLOTRANGE_TYPE_STABLE:
+                    for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
+                        if (stable[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
+                            goto fail;
+                        } else if (importing[l] || migrating[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: slot marked for resharding");
+                            goto fail;
+                        }
+                        stable[l] = sg;
+                    }
+                    break;
+                case SLOTRANGE_TYPE_IMPORTING:
+                    for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
+                        if (stable[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
+                            goto fail;
+                        } else if (importing[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already importing this slot");
+                            goto fail;
+                        }
+                        importing[l] = sg;
+                    }
+                    break;
+                case SLOTRANGE_TYPE_MIGRATING:
+                    for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
+                        if (stable[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
+                            goto fail;
+                        } else if (migrating[l]) {
+                            RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already migrating this slot");
+                            goto fail;
+                        }
+                        migrating[l] = sg;
+                    }
+                    break;
+                default:
+                    RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: unknown shard group type");
+                    goto fail;
+            }
+        }
     }
 
     return RR_OK;
@@ -1024,40 +1083,6 @@ void ShardingInfoInit(RedisRaftCtx *rr)
     rr->sharding_info = RedisModule_Calloc(1, sizeof(ShardingInfo));
 
     ShardingInfoReset(rr);
-}
-
-void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
-{
-     char *str = RedisModule_Strdup(rr->config->slot_config);
-
-    sg->slot_ranges_num = 1;
-    char *pos = str;
-    while ((pos = strchr(pos+1, ','))) {
-        sg->slot_ranges_num++;
-    }
-    sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
-
-    char *saveptr = NULL;
-    char *token = strtok_r(str, ",", &saveptr);
-    for (int i = 0; i < sg->slot_ranges_num; i++) {
-        unsigned long val;
-        if ((pos = strchr(token, ':'))) {
-            *pos = '\0';
-            val = strtoul(token, NULL, 10);
-            sg->slot_ranges[i].start_slot = val;
-            val = strtoul(pos+1, NULL, 10);
-            sg->slot_ranges[i].end_slot = val;
-        } else {
-            val = strtoul(token, NULL, 10);
-            sg->slot_ranges[i].start_slot = val;
-            sg->slot_ranges[i].end_slot = val;
-        }
-        sg->slot_ranges[i].type = SLOTRANGE_TYPE_STABLE;
-
-        token = strtok_r(NULL, ",", &saveptr);
-    }
-
-     RedisModule_Free(str);
 }
 
 /* Free and reset the ShardingInfo structure.
@@ -1088,22 +1113,11 @@ void ShardingInfoReset(RedisRaftCtx *rr)
     si->shard_groups_num = 0;
 
     /* Reset array */
-    for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++)
-        si->hash_slots_map[i] = NULL;
-
-    /* Add our local mapping */
-    ShardGroup sg = {
-        .slot_ranges_num = 0,
-        .slot_ranges = NULL,
-        .nodes_num = 0,
-        .nodes = NULL
-    };
-
-    FillShardSlots(rr, &sg);
-
-    RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
-    RedisModule_Assert(ret == RR_OK);
-    ShardGroupTerm(&sg);
+    for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        si->stable_slots_map[i] = NULL;
+        si->importing_slots_map[i] = NULL;
+        si->migrating_slots_map[i] = NULL;
+    }
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
@@ -1132,6 +1146,7 @@ RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
             } else {
                 if (slot != thisslot) {
                     RedisModule_Free(keyindex);
+                    RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
                     return RR_ERROR;
                 }
             }

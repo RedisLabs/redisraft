@@ -485,7 +485,9 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    ShardGroup *hash_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *stable_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *importing_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *migrating_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
@@ -714,6 +716,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
+void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);

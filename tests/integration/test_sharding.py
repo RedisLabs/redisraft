@@ -70,22 +70,31 @@ def test_shard_group_sanity(cluster):
 #    with raises(ResponseError, match='MOVED [0-9]+ 2.2.2.2:2222'):
 #        c.set('key', 'value')
 
-    # tests whole sale replacement, while ignoring shardgroup that corresponds to local sg
+
+def test_shard_group_replace(cluster):
+    # Create a cluster with just a single slot
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'slot-config': '0',
+        'external-sharding': 'yes'})
+
+    c = cluster.node(1).client
+
+    # tests wholesale replacement, while ignoring shardgroup that corresponds to local sg
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'REPLACE',
         '3',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '1', '1',
+        '6', '7', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         '12345678901234567890123456789013',
         '1', '1',
-        '2', '16383', '1',
+        '8', '16383', '1',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
-        # this should be ignored, testing below
         cluster.leader_node().raft_info()['dbid'],
         '1', '1',
-        '5', '7', '1',
+        '0', '5', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
@@ -96,10 +105,10 @@ def test_shard_group_sanity(cluster):
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
     assert len(cluster_slots) == 3
     assert cluster_slots[0][0] == 0
-    assert cluster_slots[0][1] == 0
-    assert cluster_slots[1][0] == 1
-    assert cluster_slots[1][1] == 1
-    assert cluster_slots[2][0] == 2
+    assert cluster_slots[0][1] == 5
+    assert cluster_slots[1][0] == 6
+    assert cluster_slots[1][1] == 7
+    assert cluster_slots[2][0] == 8
     assert cluster_slots[2][1] == 16383
 
 
