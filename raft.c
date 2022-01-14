@@ -2386,10 +2386,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         ShardGroup *data;
 
         while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
-            /* local shardgroup will not have a filled in id */
-            if (*data->id != 0) {
-                ShardGroupFree(data);
-            }
+            ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
         RedisModule_FreeDict(rr->ctx, si->shard_group_map);
