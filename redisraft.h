@@ -466,6 +466,7 @@ typedef struct ShardGroup {
     Connection *conn;                    /* Connection we use */
     long long last_updated;              /* Last time of successful update (mstime) */
     bool update_in_progress;             /* Are we currently updating? */
+    bool local;                          /* ShardGroup struct that corresponds to local cluster */
 } ShardGroup;
 
 #define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
@@ -801,6 +802,7 @@ const char *ConnGetStateStr(Connection *conn);
 /* cluster.c */
 char *ShardGroupSerialize(ShardGroup *sg);
 RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
+ShardGroup* ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);

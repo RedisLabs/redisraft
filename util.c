@@ -430,16 +430,14 @@ void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
 }
 
 void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
-    ShardGroup sg = {
-            .slot_ranges_num = 0,
-            .slot_ranges = NULL,
-            .nodes_num = 0,
-            .nodes = NULL
-    };
+    ShardGroup *sg = ShardGroupCreate();
+    sg->local = true;
 
-    FillShardSlots(rr, &sg);
+    memcpy(sg->id, rr->log->dbid, RAFT_DBID_LEN);
+    sg->id[RAFT_DBID_LEN] = 0;
 
-    RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
+    FillShardSlots(rr, sg);
+
+    RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
     RedisModule_Assert(ret == RR_OK);
-    ShardGroupTerm(&sg);
 }

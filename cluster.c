@@ -230,7 +230,7 @@ void ShardGroupTerm(ShardGroup *sg)
     }
 }
 
-ShardGroup *ShardGroupCreate() {
+ShardGroup* ShardGroupCreate() {
     ShardGroup *sg = RedisModule_Calloc(1, sizeof(*sg));
     ShardGroupInit(sg);
     return sg;
@@ -631,6 +631,7 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
 
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
             RedisModule_SaveStringBuffer(rdb, sg->id, strlen(sg->id));
+            RedisModule_SaveUnsigned(rdb, sg->local ? 1 : 0);
             RedisModule_SaveUnsigned(rdb, sg->slot_ranges_num);
             for (int j = 0; j < sg->slot_ranges_num; j++) {
                 ShardGroupSlotRange  *r = &sg->slot_ranges[j];
@@ -684,31 +685,33 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
 
     /* Load individual shard groups */
     for (int i = 0; i < rdb_shard_groups_num; i++) {
-        ShardGroup sg;
-        ShardGroupInit(&sg);
+        ShardGroup *sg = ShardGroupCreate();
 
         size_t len;
         char *buf = RedisModule_LoadStringBuffer(rdb, &len);
-        RedisModule_Assert(len < sizeof(sg.id));
-        memcpy(sg.id, buf, len);
-        sg.id[len] = '\0';
+        RedisModule_Assert(len < sizeof(sg->id));
+        memcpy(sg->id, buf, len);
+        sg->id[len] = '\0';
         RedisModule_Free(buf);
+        if (RedisModule_LoadUnsigned(rdb)) {
+            sg->local = true;
+        }
 
         /* Load Slot Range */
-        sg.slot_ranges_num = RedisModule_LoadUnsigned(rdb);
-        sg.slot_ranges = RedisModule_Calloc(sg.slot_ranges_num, sizeof(ShardGroupSlotRange));
-        for (int j = 0; j < sg.slot_ranges_num; j++) {
-            ShardGroupSlotRange  *r = &sg.slot_ranges[j];
+        sg->slot_ranges_num = RedisModule_LoadUnsigned(rdb);
+        sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
+        for (int j = 0; j < sg->slot_ranges_num; j++) {
+            ShardGroupSlotRange *r = &sg->slot_ranges[j];
             r->start_slot = RedisModule_LoadUnsigned(rdb);
             r->end_slot = RedisModule_LoadUnsigned(rdb);
             r->type = RedisModule_LoadUnsigned(rdb);
         }
 
         /* Load nodes */
-        sg.nodes_num = RedisModule_LoadUnsigned(rdb);
-        sg.nodes = RedisModule_Calloc(sg.nodes_num, sizeof(ShardGroupNode));
-        for (int j = 0; j < sg.nodes_num; j++) {
-            ShardGroupNode *n = &sg.nodes[j];
+        sg->nodes_num = RedisModule_LoadUnsigned(rdb);
+        sg->nodes = RedisModule_Calloc(sg->nodes_num, sizeof(ShardGroupNode));
+        for (int j = 0; j < sg->nodes_num; j++) {
+            ShardGroupNode *n = &sg->nodes[j];
             size_t len;
             char *buf = RedisModule_LoadStringBuffer(rdb, &len);
 
@@ -729,10 +732,8 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         /* This also handles all validation so serious violations, although
          * should never exist, will be caught.
          */
-        RRStatus ret = ShardingInfoAddShardGroup(rr, &sg);
+        RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
         RedisModule_Assert(ret == RR_OK);
-
-        ShardGroupTerm(&sg);
     }
 }
 
@@ -770,7 +771,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 /* Update an existing ShardGroup in the active ShardingInfo.
  *
  * FIXME: We currently only handle updating nodes but don't support remapping
- *        hash slots.
+ *        hash slots, via this mechanism
  */
 
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
@@ -802,21 +803,18 @@ ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id)
  * ShardingInfoValidateShardGroup() above.
  */
 
-RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
+RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
 {
     ShardingInfo *si = rr->sharding_info;
 
     /* Validate first */
-    if (ShardingInfoValidateShardGroup(rr, new_sg) != RR_OK) {
+    if (ShardingInfoValidateShardGroup(rr, sg) != RR_OK) {
         return RR_ERROR;
     }
 
-    if (strlen(new_sg->id) >= sizeof(new_sg->id)) {
+    if (strlen(sg->id) >= sizeof(sg->id)) {
         return RR_ERROR;
     }
-    ShardGroup *sg = ShardGroupCreate();
-    memcpy(sg->id, new_sg->id, RAFT_DBID_LEN);
-    sg->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_DictSetC(si->shard_group_map, sg->id, strlen(sg->id), sg) != REDISMODULE_OK) {
         ShardGroupFree(sg);
@@ -824,27 +822,15 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     }
 
     si->shard_groups_num++;
-
-    sg->slot_ranges_num = new_sg->slot_ranges_num;
-    if (sg->slot_ranges_num) {
-        sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(*sg->slot_ranges));
-        memcpy(sg->slot_ranges, new_sg->slot_ranges, sizeof(*sg->slot_ranges) * new_sg->slot_ranges_num);
-    }
-
     sg->next_redir = 0;
     sg->use_conn_addr = false;
     sg->node_conn_idx = 0;
     sg->conn = NULL;
-    sg->nodes_num = new_sg->nodes_num;
-    if (sg->nodes_num) {
-        sg->nodes = RedisModule_Calloc(new_sg->nodes_num, sizeof(*sg->nodes));
-        memcpy(sg->nodes, new_sg->nodes, sizeof(*sg->nodes) * new_sg->nodes_num);
-    }
 
     /* Do slot mapping */
-    for (int i = 0; i < new_sg->slot_ranges_num; i++) {
-        for (unsigned int j = new_sg->slot_ranges[i].start_slot; j <= new_sg->slot_ranges[i].end_slot; j++) {
-            switch (new_sg->slot_ranges[i].type) {
+    for (int i = 0; i < sg->slot_ranges_num; i++) {
+        for (unsigned int j = sg->slot_ranges[i].start_slot; j <= sg->slot_ranges[i].end_slot; j++) {
+            switch (sg->slot_ranges[i].type) {
                 case SLOTRANGE_TYPE_STABLE:
                     si->stable_slots_map[j] = sg;
                     break;
@@ -1350,7 +1336,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
             RedisModuleString *slots = generateSlots(req->ctx, sg);
 
-            if (*sg->id == 0) {
+            if (sg->local) {
                 for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
                     raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
                     if (!raft_node_is_active(raft_node)) {
@@ -1428,7 +1414,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
             slot_len += 2;
 
             /* Dump Raft nodes now. Leader (master) first, followed by others */
-            if (*sg->id == 0) {
+            if (sg->local) {
                 /* Local cluster's ShardGroup: we list the leader node first,
                  * followed by all cluster nodes we know. This information does not
                  * come from the ShardGroup.

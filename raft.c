@@ -1086,12 +1086,12 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
 
     addUsedNodeId(rr, config->id);
 
-    AddBasicLocalShardGroup(rr);
-
-        /* Initialize log */
+    /* Initialize log */
     if (initRaftLog(ctx, rr) == RR_ERROR) {
         return RR_ERROR;
     }
+
+    AddBasicLocalShardGroup(rr);
 
     initRaftLibrary(rr);
 
@@ -1934,7 +1934,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * of who the leader is and whether or not some configuration has changed since
      * last refresh (when refresh is implemented, in the future).
      */
-    if (*sg->id != 0) {
+    if (!sg->local) {
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
         replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
@@ -2209,7 +2209,6 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     /* Initialize Raft log.  We delay this operation as we want to create the log
      * with the proper dbid which is only received now.
      */
-    AddBasicLocalShardGroup(rr);
 
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
@@ -2218,6 +2217,8 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
+
+    AddBasicLocalShardGroup(rr);
 
     initRaftLibrary(rr);
 
@@ -2332,10 +2333,10 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
  */
 void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    ShardGroup sg;
+    ShardGroup * sg = ShardGroupCreate();
     RRStatus ret;
 
-    if (ShardGroupDeserialize(entry->data, entry->data_len, &sg) != RR_OK) {
+    if (ShardGroupDeserialize(entry->data, entry->data_len, sg) != RR_OK) {
         LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
                 entry->data_len, entry->data);
         return;
@@ -2343,19 +2344,18 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 
     switch (entry->type) {
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
-            if ((ret = ShardingInfoAddShardGroup(rr, &sg)) != RR_OK)
+            if ((ret = ShardingInfoAddShardGroup(rr, sg)) != RR_OK)
                 LOG_ERROR("Failed to add a shardgroup");
             break;
         case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
-            if ((ret = ShardingInfoUpdateShardGroup(rr, &sg)) != RR_OK)
+            if ((ret = ShardingInfoUpdateShardGroup(rr, sg)) != RR_OK)
                 LOG_ERROR("Failed to update shardgroup");
+            ShardGroupFree(sg);
             break;
         default:
             PANIC("Unknown entry type %d", entry->type);
             break;
     }
-
-    ShardGroupTerm(&sg);
 
     /* If we have an attached client, handle the reply */
     if (entry->user_data) {
@@ -2420,20 +2420,18 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_Assert(endptr == nl);
         payload = nl + 1;
 
-        ShardGroup sg;
-        if (ShardGroupDeserialize(payload, payload_len, &sg) != RR_OK) {
+        ShardGroup *sg = ShardGroupCreate();
+        if (ShardGroupDeserialize(payload, payload_len, sg) != RR_OK) {
             LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
             return;
         }
 
         /* local cluster has an empty string sg.id */
-        if (!strncmp(sg.id, rr->log->dbid, RAFT_DBID_LEN)) {
-            memset(sg.id, 0, RAFT_DBID_LEN);
+        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+            sg->local = true;
         }
 
-        RedisModule_Assert(ShardingInfoAddShardGroup(rr, &sg) == RR_OK);
-
-        ShardGroupTerm(&sg);
+        RedisModule_Assert(ShardingInfoAddShardGroup(rr, sg) == RR_OK);
         payload += payload_len + 1;
     }
 
@@ -2510,7 +2508,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    ShardGroup *sg = getShardGroupById(rr, "");
+    ShardGroup *sg = getShardGroupById(rr, rr->log->dbid);
     /* 2 arrays
      * 1. slot ranges -> each element is a 3 element array start/end/type
      * 2. nodes -> each element is a 2 element array id/address

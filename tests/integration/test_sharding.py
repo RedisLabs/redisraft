@@ -10,6 +10,7 @@ import time
 from redis import ResponseError
 from pytest import raises
 from .sandbox import assert_after
+import pprint
 
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
@@ -84,7 +85,7 @@ def test_shard_group_replace(cluster):
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'REPLACE',
         '3',
-        '12345678901234567890123456789012',
+        '3',
         '1', '1',
         '6', '7', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
@@ -102,14 +103,22 @@ def test_shard_group_replace(cluster):
     cluster.wait_for_unanimity()
     cluster.node(2).wait_for_log_applied()  # to get shardgroup
 
-    cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
-    assert len(cluster_slots) == 3
-    assert cluster_slots[0][0] == 0
-    assert cluster_slots[0][1] == 5
-    assert cluster_slots[1][0] == 6
-    assert cluster_slots[1][1] == 7
-    assert cluster_slots[2][0] == 8
-    assert cluster_slots[2][1] == 16383
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 3
+        for i in range(len(cluster_slots)):
+            if cluster_slots[i][2][2] == "{}00000001".format(cluster.leader_node().raft_info()['dbid']).encode():
+                assert cluster_slots[i][0] == 0, cluster_slots
+                assert cluster_slots[i][1] == 5, cluster_slots
+            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901234567890":
+                assert cluster_slots[i][0] == 6, cluster_slots
+                assert cluster_slots[i][1] == 7, cluster_slots
+            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901334567890":
+                assert cluster_slots[i][0] == 8, cluster_slots
+                assert cluster_slots[i][1] == 16383, cluster_slots
+            else:
+                assert False, "failed to match id {}".format(cluster_slots[i][2][2])
+
+    validate_slots(cluster.node(3).client.execute_command('CLUSTER', 'SLOTS'))
 
 
 def test_shard_group_validation(cluster):
@@ -198,19 +207,28 @@ def test_shard_group_persistence(cluster):
         '1001', '16383', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
-    cluster_slots = n1.client.execute_command('CLUSTER', 'SLOTS')
-
     # Make sure received cluster slots is sane
-    assert len(cluster_slots) == 2
-    assert cluster_slots[1][0] == 1001
-    assert cluster_slots[1][1] == 16383
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 2
+        local_id = "{}00000001".format(cluster.leader_node().raft_info()['dbid']).encode()
+        for i in range(len(cluster_slots)):
+            if cluster_slots[i][2][2] == local_id:
+                assert cluster_slots[i][0] == 0, cluster_slots
+                assert cluster_slots[i][1] == 1000, cluster_slots
+            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901234567890":
+                assert cluster_slots[i][0] == 1001, cluster_slots
+                assert cluster_slots[i][1] == 16383, cluster_slots
+            else:
+                assert False, "failed to match id {}".format(cluster_slots[i][2][2])
+
+    validate_slots(n1.client.execute_command('CLUSTER', 'SLOTS'))
 
     # Restart and make sure cluster slots persisted
     n1.terminate()
     n1.start()
     n1.wait_for_node_voting()
 
-    assert n1.client.execute_command('CLUSTER', 'SLOTS') == cluster_slots
+    validate_slots(n1.client.execute_command('CLUSTER', 'SLOTS'))
 
     # Compact log, restart and make sure cluster slots persisted
     n1.client.execute_command('RAFT.DEBUG', 'COMPACT')
@@ -219,7 +237,7 @@ def test_shard_group_persistence(cluster):
     n1.start()
     n1.wait_for_node_voting()
 
-    assert n1.client.execute_command('CLUSTER', 'SLOTS') == cluster_slots
+    validate_slots(n1.client.execute_command('CLUSTER', 'SLOTS'))
 
 
 def test_shard_group_linking(cluster_factory):
@@ -250,33 +268,47 @@ def test_shard_group_linking(cluster_factory):
         'localhost:%s' % cluster1.node(2).port) == b'OK'
 
     # Verify CLUSTER SLOTS look good
-    cs = cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS')
-    assert len(cs) == 2
-    assert cs[1][0] == 2
-    assert cs[1][1] == 16383
-    assert cs[1][2][1] == cluster2.leader_node().port  # first node is leader
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 2
+        for i in range(len(cluster_slots)):
+            if cluster_slots[i][2][1] == cluster1.leader_node().port:
+                assert cluster_slots[i][0] == 0, cluster_slots
+                assert cluster_slots[i][1] == 1, cluster_slots
+            elif cluster_slots[i][2][1] == cluster2.leader_node().port:
+                assert cluster_slots[i][0] == 2, cluster_slots
+                assert cluster_slots[i][1] == 16383, cluster_slots
+            else:
+                assert False, "failed to match id {}".format(cluster_slots[i][2][1])
+
+    validate_slots(cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS'))
 
     # Verify CLUSTER NODES looks good
-    cluster_nodes_raw = cluster1.node(1).client.execute_command('CLUSTER', 'NODES')
-    cluster_nodes = cluster_nodes_raw.split(b"\r\n")
-    assert len(cluster_nodes) == 7  # blank entry at the end
-    node0 = cluster_nodes[0].split(b' ')
-    assert node0[2] == b"myself"
-    assert node0[3] == b"master"
-    assert node0[8] == b"0-1"
-    node1 = cluster_nodes[1].split(b' ')
-    assert node1[2] == b"noflags"
-    assert node1[3] == b"slave"
-    assert node1[8] == b"0-1"
-    node3 = cluster_nodes[3].split(b' ')
-    assert node3[2] == b"noflags"
-    assert node3[3] == b"master"
-    assert node3[8] == b"2-16383"
-    node4 = cluster_nodes[4].split(b' ')
-    assert node4[2] == b"noflags"
-    assert node4[3] == b"slave"
-    assert node4[8] == b"2-16383"
-    assert cluster_nodes[6] == b"";  # empty entry after final "\r\n" from split
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 7  # blank entry at the end
+        for i in [0, 1, 3, 4]:
+            node = cluster_nodes[i].split(b' ')
+            if node[0] == "{}00000001".format(cluster1.leader_node().raft_info()['dbid']).encode():
+                assert node[2] == b"myself"
+                assert node[3] == b"master"
+                assert node[8] == b"0-1"
+            elif node[0] == "{}00000002".format(cluster1.leader_node().raft_info()['dbid']).encode():
+                assert node[2] == b"noflags"
+                assert node[3] == b"slave"
+                assert node[8] == b"0-1"
+            elif node[0] == "{}00000001".format(cluster2.leader_node().raft_info()['dbid']).encode():
+                assert node[2] == b"noflags"
+                assert node[3] == b"master"
+                assert node[8] == b"2-16383"
+            elif node[0] == "{}00000002".format(cluster2.leader_node().raft_info()['dbid']).encode():
+                assert node[2] == b"noflags"
+                assert node[3] == b"slave"
+                assert node[8] == b"2-16383"
+            else:
+                assert False, node
+
+        assert cluster_nodes[6] == b"";  # empty entry after final "\r\n" from split
+
+    validate_nodes(cluster1.node(1).client.execute_command('CLUSTER', 'NODES').split(b"\r\n"))
 
     # Terminate leader on cluster 2, wait for re-election and confirm
     # propagation.
@@ -286,11 +318,7 @@ def test_shard_group_linking(cluster_factory):
 
     # Wait for shardgroup update interval, 500ms
     time.sleep(1)
-    cs = cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS')
-    assert len(cs) == 2
-    assert cs[1][0] == 2
-    assert cs[1][1] == 16383
-    assert cs[1][2][1] == cluster2.leader_node().port  # first node is leader
+    validate_slots(cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS'))
 
 
 def test_shard_group_linking_checks(cluster_factory):
@@ -329,20 +357,29 @@ def test_shard_group_refresh(cluster_factory):
         'localhost:%s' % cluster1.node(1).port) == b'OK'
 
     # Sanity: confirm initial shardgroup was propagated
-    slots = cluster2.node(1).client.execute_command('CLUSTER', 'SLOTS')
-    assert slots[1][0:2] == [0, 8191]
-    assert slots[1][2][0] == b'localhost'
-    assert slots[1][2][1] == 5001
+    def validate_slots(slots):
+        assert len(slots) == 2
+        for i in range(2):
+            if slots[i][2][1] < 5100:
+                assert slots[i][0:2] == [0, 8191], slots
+                assert slots[i][2][0] == b'localhost', slots
+                assert slots[i][2][1] == 5001, slots
+
+    validate_slots(cluster2.node(1).client.execute_command('CLUSTER', 'SLOTS'))
 
     # Terminate cluster1/node1 and wait for election
     cluster1.node(1).terminate()
+    time.sleep(2)
     cluster1.node(2).wait_for_election()
 
     # Make sure the new leader is propagated to cluster 2
     def check_slots():
         slots = cluster2.node(1).client.execute_command('CLUSTER', 'SLOTS')
-        assert slots[1][0:2] == [0, 8191]
-        assert slots[1][2][0] == b'localhost'
-        assert slots[1][2][1] != 5001
+        assert len(slots) == 2
+        for i in range(2):
+            if slots[i][2][1] < 5100:
+                assert slots[i][0:2] == [0, 8191], slots
+                assert slots[i][2][0] == b'localhost', slots
+                assert slots[i][2][1] != 5001, slots
 
     assert_after(check_slots, 10)
