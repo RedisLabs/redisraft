@@ -106,16 +106,19 @@ exit:
     return ret;
 }
 
-static RRStatus processConfigParam(const char *keyword, const char *value,
-        RedisRaftConfig *target, bool on_init, char *errbuf, int errbuflen)
+static RRStatus processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target,
+                                   bool on_init, bool uninitialized, char *errbuf, int errbuflen)
 {
     /* Parameters we don't accept as config set */
-    if (!on_init && (!strcmp(keyword, CONF_ID) ||
-                !strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
+    if (!on_init && (!strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
                 !strcmp(keyword, CONF_SLOT_CONFIG) ||
                 !strcmp(keyword, CONF_EXTERNAL_SHARDING))) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
         return RR_ERROR;
+    }
+
+    if (!uninitialized && !strcmp(keyword, CONF_ID)) {
+        snprintf(errbuf, errbuflen-1, "'%s' only supported at before cluster init/join", keyword);
     }
 
     if (!value) {
@@ -277,7 +280,8 @@ void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **
     valuebuf[value_len] = '\0';
 
     char errbuf[256] = "ERR ";
-    if (processConfigParam(keybuf, valuebuf, rr->config, false,
+    if (processConfigParam(keybuf, valuebuf, rr->config,
+                           false, rr->state == REDIS_RAFT_UNINITIALIZED,
                 errbuf + strlen(errbuf), (int)(sizeof(errbuf) - strlen(errbuf))) == RR_OK) {
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
@@ -594,7 +598,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         i++;
 
         char errbuf[256];
-        if (processConfigParam(kw, val, target, true,
+        if (processConfigParam(kw, val, target, true, true,
                     errbuf, sizeof(errbuf)) != RR_OK) {
             RedisModule_Log(ctx, REDIS_WARNING, "%s", errbuf);
             return RR_ERROR;

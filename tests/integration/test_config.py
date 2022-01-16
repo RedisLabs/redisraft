@@ -47,7 +47,7 @@ def test_config_startup_only_params(cluster):
 
     r1 = cluster.add_node()
     with raises(ResponseError, match='.*only supported at load time'):
-        r1.raft_config_set('id', 2)
+        r1.raft_config_set('external-sharding', 'yes')
 
     with raises(ResponseError, match='.*only supported at load time'):
         r1.raft_config_set('raft-log-filename', 'filename')
