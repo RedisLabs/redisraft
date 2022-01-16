@@ -36,3 +36,4 @@ static inline struct RedisModuleString *mock_CreateString(const char *s, size_t 
 #define RedisModule_StringPtrLen(__s, __len)            mock_StringPtrLen(__s, __len)
 #define RedisModule_CreateString(__ctx, __s, __len)     mock_CreateString(__s, __len)
 #define RedisModule_FreeString(__ctx, __s)              test_free(__s)
+#define RedisModule_MonotonicMicroseconds()             0
