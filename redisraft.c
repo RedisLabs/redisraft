@@ -966,7 +966,8 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     if (RedisModule_SubscribeToServerEvent == NULL ||
             RedisModule_RegisterCommandFilter == NULL ||
             RedisModule_GetCommandKeys == NULL ||
-            RedisModule_GetDetachedThreadSafeContext == NULL) {
+            RedisModule_GetDetachedThreadSafeContext == NULL ||
+            RedisModule_MonotonicMicroseconds == NULL) {
         RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis build from unstable branch!");
         return REDISMODULE_ERR;
     }

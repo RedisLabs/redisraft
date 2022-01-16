@@ -769,7 +769,7 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 
 RRStatus RaftLogSync(RaftLog *log)
 {
-    uint64_t begin = timeMonotonicNanos();
+    uint64_t begin = RedisModule_MonotonicMicroseconds();
 
     if (fflush(log->file) < 0) {
         LOG_ERROR("fflush() : %s", strerror(errno));
@@ -783,7 +783,7 @@ RRStatus RaftLogSync(RaftLog *log)
         }
     }
 
-    uint64_t took = timeMonotonicNanos() - begin;
+    uint64_t took = RedisModule_MonotonicMicroseconds() - begin;
     log->fsync_count++;
     log->fsync_total += took;
     log->fsync_max = MAX(took, log->fsync_max);

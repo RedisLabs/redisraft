@@ -370,15 +370,3 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
 
     return RR_OK;
 }
-
-uint64_t timeMonotonicNanos()
-{
-    int rc;
-    struct timespec ts;
-
-    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-    assert(rc == 0);
-    (void) rc;
-
-    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
-}

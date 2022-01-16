@@ -2125,8 +2125,8 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
     if (rr->log) {
         fsync_count = rr->log->fsync_count;
-        fsync_max_ms = (double) rr->log->fsync_max / 1000000.0f;
-        fsync_avg_ms = (double) rr->log->fsync_total / 1000000.0f;
+        fsync_max_ms = (double) rr->log->fsync_max / 1000.0f;
+        fsync_avg_ms = (double) rr->log->fsync_total / 1000.0f;
         fsync_avg_ms /= (double) rr->log->fsync_count;
     }
 
