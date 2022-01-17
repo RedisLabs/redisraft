@@ -452,6 +452,7 @@ static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const cha
     RedisModuleCallReply *reply = NULL;
     RRStatus ret = RR_OK;
 
+    enterRedisModuleCall();
     if (!(reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value))) {
         ret = RR_ERROR;
         goto exit;
@@ -469,6 +470,7 @@ static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const cha
     }
 
 exit:
+    exitRedisModuleCall();
     if (reply) {
         RedisModule_FreeCallReply(reply);
     }
@@ -483,6 +485,7 @@ static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     char *buf = NULL;
     RedisModuleCallReply *reply = NULL, *reply_name = NULL;
 
+    enterRedisModuleCall();
     if (!(reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name))) {
         goto exit;
     }
@@ -503,6 +506,7 @@ static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     buf[len] = '\0';
 
 exit:
+    exitRedisModuleCall();
     if (reply_name) {
         RedisModule_FreeCallReply(reply_name);
     }

@@ -66,7 +66,8 @@ OBJECTS = \
 	  cluster.o \
 	  crc16.o \
 	  connection.o \
-	  commands.o
+	  commands.o \
+	  sort.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage

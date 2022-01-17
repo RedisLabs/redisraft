@@ -57,7 +57,9 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
             break;
         case RAFT_ERR_SHUTDOWN:
             LOG_ERROR("Raft requires immediate shutdown!");
+            enterRedisModuleCall();
             RedisModule_Call(ctx, "SHUTDOWN", "");
+            exitRedisModuleCall();
             break;
         case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
             RedisModule_ReplyWithError(ctx, "ERR a voting change is already in progress");

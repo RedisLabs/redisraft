@@ -150,34 +150,26 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         }
 
         enterRedisModuleCall();
+        int eval = 0;
+        int old_entered_eval = 0;
+        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            old_entered_eval = redis_raft.entered_eval;
+            eval = 1;
+            redis_raft.entered_eval = 1;
+        }
         RedisModuleCallReply *reply = RedisModule_Call(
                 ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
+        if (eval) {
+            redis_raft.entered_eval = old_entered_eval;
+        }
 
         if (reply_ctx) {
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                /* Try to produce an error message which is similar to Redis */
-                int trunc_cmdlen = cmdlen > 256 ? 256 : cmdlen;
-                size_t errmsg_len = 128 + trunc_cmdlen;   /* Big enough for msg + cmd */
-                char *errmsg = RedisModule_Alloc(errmsg_len);
-
-                switch (ret_errno) {
-                    case ENOENT:
-                        snprintf(errmsg, errmsg_len, "ERR unknown command `%.*s`", trunc_cmdlen, cmd);
-                        break;
-                    case EINVAL:
-                        snprintf(errmsg, errmsg_len, "ERR wrong number of arguments for '%.*s' command",
-                                trunc_cmdlen, cmd);
-                        break;
-                    default:
-                        snprintf(errmsg, errmsg_len, "ERR failed to execute command '%.*s'",
-                                trunc_cmdlen, cmd);
-                }
-                RedisModule_ReplyWithError(reply_ctx, errmsg);
-                RedisModule_Free(errmsg);
+                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 
@@ -1834,7 +1826,10 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
         section = RedisModule_StringPtrLen(cmd->argv[1], NULL);
     }
 
+    enterRedisModuleCall();
     RedisModuleCallReply *reply = RedisModule_Call(req->ctx, "INFO", "c", section);
+    exitRedisModuleCall();
+
     size_t info_len;
     const char *info = RedisModule_CallReplyProto(reply, &info_len);
 

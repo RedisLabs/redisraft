@@ -478,6 +478,10 @@ class Cluster(object):
 
         return self
 
+    def config_set(self, param, value):
+        for node in self.nodes.values():
+            node.client.config_set(param, value)
+
     def add_initialized_node(self, node):
         self.nodes[node.id] = node
 
@@ -546,6 +550,7 @@ class Cluster(object):
             if exclude is not None and int(_id) in exclude:
                 continue
             node.wait_for_commit_index(commit_idx, gt_ok=True)
+            node.wait_for_log_applied()
 
     def wait_for_replication(self, exclude=None):
         current_idx = self.node(self.leader).current_index()

@@ -278,6 +278,7 @@ typedef struct RedisRaftCtx {
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
+    int entered_eval;                            /* handling a lua script */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -609,6 +610,8 @@ typedef struct {
 #define CMD_SPEC_WRITE          (1<<2)      /* Command is a (potentially) write command */
 #define CMD_SPEC_UNSUPPORTED    (1<<3)      /* Command is not supported, should be rejected */
 #define CMD_SPEC_DONT_INTERCEPT (1<<4)      /* Command should not be intercepted to RAFT */
+#define CMD_SPEC_SORT_REPLY     (1<<5)      /* Command output should be sorted within a lua script */
+#define CMD_SPEC_RANDOM         (1<<6)      /* Commands that are always random */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -705,6 +708,7 @@ int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, 
 char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
+void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
@@ -818,5 +822,8 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
+
+/* sort.c */
+void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #endif  /* _REDISRAFT_H */
