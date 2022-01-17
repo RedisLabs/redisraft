@@ -89,10 +89,16 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         size_t key_len;
         const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
 
-        RedisModule_DictSetC(dict, (char *) key_str, key_len, value);
+        if (RedisModule_DictSetC(dict, (char *) key_str, key_len, value) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+            goto early_exit;
+        }
     }
 
-    RedisModule_ReplyWithMap(ctx, len);
+    if (RedisModule_ReplyWithMap(ctx, len) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+        goto early_exit;
+    }
 
     char *key;
     size_t key_len;
@@ -102,6 +108,10 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         RedisModule_ReplyWithCallReply(ctx, value);
     }
+    RedisModule_DictIteratorStop(iter);
+
+early_exit:
+    RedisModule_FreeDict(ctx, dict);
 }
 
 /* Calls Redis commands whose results can be sorted without semantically breaking them */
