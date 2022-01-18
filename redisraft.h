@@ -391,6 +391,7 @@ enum RaftReqType {
     RR_NODE_SHUTDOWN,
     RR_TRANSFER_LEADER,
     RR_TIMEOUT_NOW,
+    RR_CONFIG,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -562,6 +563,10 @@ typedef struct RaftReq {
         struct {
             char id[RAFT_DBID_LEN];
         } cluster_init;
+        struct {
+            RedisModuleString **argv;
+            int argc;
+        } config;
     } r;
 } RaftReq;
 
