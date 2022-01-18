@@ -119,6 +119,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
 
     if (!uninitialized && !strcmp(keyword, CONF_ID)) {
         snprintf(errbuf, errbuflen-1, "'%s' only supported at before cluster init/join", keyword);
+        return RR_ERROR;
     }
 
     if (!value) {
