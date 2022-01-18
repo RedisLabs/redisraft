@@ -750,12 +750,19 @@ static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_t
 
 static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
 {
+    RedisRaftCtx * rr = &redis_raft;
+
     switch (state) {
         case RAFT_STATE_FOLLOWER:
+            if (rr->is_leader) {
+                rr->leadership_drops++;
+            }
+            rr->is_leader = false;
             LOG_INFO("State change: Node is now a follower, term %ld",
                     raft_get_current_term(raft));
             break;
         case RAFT_STATE_PRECANDIDATE:
+            rr->elections_started++;
             LOG_INFO("State change: Election starting, node is now a pre-candidate, term %ld",
                      raft_get_current_term(raft));
             break;
@@ -764,6 +771,8 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
                     raft_get_current_term(raft));
             break;
         case RAFT_STATE_LEADER:
+            rr->is_leader = true;
+            rr->leadership_gains++;
             LOG_INFO("State change: Node is now a leader, term %ld",
                     raft_get_current_term(raft));
             break;

@@ -269,6 +269,7 @@ typedef struct RedisRaftCtx {
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
+    bool is_leader;                              /* do we think we are currently leader, used to count leadership drops */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -279,6 +280,9 @@ typedef struct RedisRaftCtx {
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
+    unsigned long long elections_started;        /* Number of times this node started an election */
+    unsigned long long leadership_drops;         /* Number of times this node started an election */
+    unsigned long long leadership_gains;         /* Number of times this node gained leadership */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
