@@ -36,7 +36,7 @@ const char *RaftReqTypeStr[] = {
     "RR_NODE_SHUTDOWN",
     "RR_TRANSFER_LEADER",
     "RR_TIMEOUT_NOW",
-    "RR_CONFIG"",
+    "RR_CONFIG",
 };
 
 /* Forward declarations */
@@ -153,8 +153,8 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
             continue;
         }
 
-        uint64_t begin_rm_call = timeMonotonicNanos();
-	enterRedisModuleCall();
+        uint64_t begin_rm_call = RedisModule_Milliseconds();
+	    enterRedisModuleCall();
         int eval = 0;
         int old_entered_eval = 0;
         if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
@@ -169,7 +169,7 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         if (eval) {
             redis_raft.entered_eval = old_entered_eval;
         }
-        RedisModule_LatencyAddSample("rm_call", (mstime_t) ((timeMonotonicNanos() - begin_rm__call) / 1000000));
+        RedisModule_LatencyAddSample("rm_call", (mstime_t) (RedisModule_Milliseconds() - begin_rm_call));
 
         if (reply_ctx) {
             if (reply) {

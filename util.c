@@ -394,15 +394,3 @@ void handleRMCallError(RedisModuleCtx *ctx, int ret_errno, const char *cmd, size
     RedisModule_ReplyWithError(ctx, errmsg);
     RedisModule_Free(errmsg);
 }
-
-uint64_t timeMonotonicNanos()
-{
-    int rc;
-    struct timespec ts;
-
-    rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-    assert(rc == 0);
-    (void) rc;
-
-    return ((uint64_t) ts.tv_sec * 1000000000 + (uint64_t) ts.tv_nsec);
-}
