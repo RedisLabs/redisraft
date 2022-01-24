@@ -49,6 +49,7 @@ jobs:
       with:
         repository: ${{ env.REDIS_REPOSITORY }}
         ref: ${{ env.REDIS_BRANCH }}
+        path: 'redis'
     - name: Build Redis
       run: cd redis && make
     - name: Install test dependencies
