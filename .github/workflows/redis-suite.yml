@@ -5,41 +5,31 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
-      redis_repo:
-        description: 'redis repo owner and name'
-        required: false
-        default: 'redis/redis'
-      redis_branch:
-        description: 'redis git branch or sha to use'
-        required: false
-        default: 'unstable'
-      redisraft_repo:
-        description: 'redisraft repo owner and name'
+      use_repo:
+        description: 'repo owner and name'
         required: false
         default: 'redislabs/redisraft'
-      redisraft_branch:
-        description: 'redisraft git branch or sha to use'
+      use_git_ref:
+        description: 'git branch or sha to use'
         required: false
         default: 'master'
 
 jobs:
   redis-suite:
-    runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
-    steps:
+   runs-on: ubuntu-latest
+   if: |
+     github.event_name == 'workflow_dispatch' ||
+     (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
+   steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
-        echo "REDIS_REPOSITORY=${{github.event.inputs.redis_repo}}" >> $GITHUB_ENV
-        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch}}" >> $GITHUB_ENV
-        echo "REDISRAFT_REPOSITORY=${{github.event.inputs.redisraft_repo}}" >> $GITHUB_ENV
-        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch}}" >> $GITHUB_ENV
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
-        repository: ${{ env.REDISRAFT_REPOSITORY }}
-        ref: ${{ env.REDISRAFT_BRANCH }}
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
@@ -47,8 +37,8 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: ${{ env.REDIS_REPOSITORY }}
-        ref: ${{ env.REDIS_BRANCH }}
+        repository: 'redis/redis'
+        ref: 'unstable'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make
