@@ -721,6 +721,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cmd[cmdlen] = '\0';
 
     if (!strncasecmp(cmd, "compact", cmdlen)) {
+        long long fail = 0;
         long long delay = 0;
         if (argc == 3) {
             if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
@@ -728,9 +729,16 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
             }
         }
+        if (argc == 4) {
+            if (RedisModule_StringToLongLong(argv[3], &fail) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
+                return REDISMODULE_OK;
+            }
+        }
 
         RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_COMPACT);
-        req->r.debug.d.compact.delay = delay;
+        req->r.debug.d.compact.delay = (int) delay;
+        req->r.debug.d.compact.fail = (int) fail;
         RaftReqSubmit(&redis_raft, req);
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {

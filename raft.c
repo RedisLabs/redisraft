@@ -2145,9 +2145,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
             "snapshot_in_progress:%s\r\n"
-            "snapshots_loaded:%lu\r\n",
+            "snapshots_loaded:%lu\r\n"
+            "snapshots_created:%lu\r\n",
             rr->snapshot_in_progress ? "yes" : "no",
-            rr->snapshots_loaded);
+            rr->snapshots_loaded,
+            rr->snapshots_created);
 
     s = catsnprintf(s, &slen,
             "\r\n# Clients\r\n"
