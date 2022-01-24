@@ -16,11 +16,11 @@ on:
 
 jobs:
   redis-suite:
-   runs-on: ubuntu-latest
-   if: |
-     github.event_name == 'workflow_dispatch' ||
-     (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
-   steps:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
+    steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
