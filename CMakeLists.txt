@@ -159,6 +159,7 @@ add_executable(main
         redisraft.c
         serialization.c
         snapshot.c
+        sort.c
         util.c
         tests/main.c
         tests/test_log.c
