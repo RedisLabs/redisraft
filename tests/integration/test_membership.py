@@ -127,6 +127,7 @@ def test_full_cluster_remove(cluster):
         leader.client.execute_command('RAFT.NODE', 'REMOVE', str(node_id))
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
+        leader.wait_for_log_applied()
 
     # remove the leader node finally
     leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
@@ -201,6 +202,7 @@ def test_node_history_with_same_address(cluster):
             cluster.leader_node().wait_for_num_nodes(2)
             cluster.leader_node().wait_for_log_committed()
             cluster.leader_node().wait_for_log_applied()
+            n.wait_for_node_voting()
             cluster.remove_node(n.id)
             cluster.leader_node().wait_for_num_nodes(1)
             cluster.leader_node().wait_for_log_applied()
@@ -278,13 +280,13 @@ def test_transfer_invalid(cluster):
 
 
 def test_transfer_succeed(cluster):
-    cluster.create(3)
+    cluster.create(3, raft_args={'election-timeout': '3000'})
 
     cluster.leader_node().transfer_leader(2)
 
 
 def test_transfer_timeout(cluster):
-    cluster.create(3)
+    cluster.create(3, raft_args={'election-timeout': '3000'})
     cluster.node(2).pause()
     with raises(ResponseError, match='transfer timed out'):
         cluster.leader_node().transfer_leader(2)

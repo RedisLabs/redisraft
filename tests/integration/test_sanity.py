@@ -61,6 +61,9 @@ def test_node_joins_and_gets_data(cluster):
     r2 = cluster.add_node()
     r2.wait_for_election()
     assert r2.raft_info().get('leader_id') == 1
+    commit_idx = cluster.leader_node().commit_index()
+    r2.wait_for_commit_index(commit_idx, gt_ok=True)
+    r2.wait_for_log_applied()
     assert r2.raft_debug_exec('get', 'key') == b'value'
 
     # Also validate -MOVED as expected
