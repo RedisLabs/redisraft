@@ -199,12 +199,11 @@ def test_node_history_with_same_address(cluster):
     for _ in range(5):
         for port in ports:
             n = cluster.add_node(port=port)
-            cluster.leader_node().wait_for_num_nodes(2)
+            cluster.leader_node().wait_for_num_voting_nodes(2)
             cluster.leader_node().wait_for_log_committed()
             cluster.leader_node().wait_for_log_applied()
-            n.wait_for_node_voting()
             cluster.remove_node(n.id)
-            cluster.leader_node().wait_for_num_nodes(1)
+            cluster.leader_node().wait_for_num_voting_nodes(1)
             cluster.leader_node().wait_for_log_applied()
 
     # Add enough data in the log to satisfy timing
