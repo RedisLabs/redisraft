@@ -821,6 +821,26 @@ static off_t seekEntry(RaftLog *log, raft_index_t idx)
     /* Successful fread(), advance the offset */
     log->idxoffset += sizeof(off_t);
 
+    /* According to C standard, once we open file with update mode, before
+     * switching between fread/fwrite, we must call one of the file positioning
+     * functions. We normally use idxfile in "write mode" but this is the only
+     * function we read from it. So, we are calling fseek() again just to
+     * confirm standard and switch back to "write mode".
+     *
+     * Related section from C99 §7.18.5.3/6
+     *
+     * When a file is opened with update mode ( '+' as the second or third
+     * character in the mode argument), both input and output may be performed
+     * on the associated stream. However, the application shall ensure that
+     * output is not directly followed by input without an intervening call
+     * to fflush() or to a file positioning function
+     * ( fseek(), fsetpos(), or rewind()), and input is not directly followed by
+     * output without an intervening call to a file positioning function, unless
+     * the input operation encounters end-of-file. */
+    if (fseek(log->idxfile, log->idxoffset, SEEK_SET) < 0) {
+        return 0;
+    }
+
     if (fseek(log->file, offset, SEEK_SET) < 0) {
         return 0;
     }
