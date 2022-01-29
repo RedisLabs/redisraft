@@ -5,12 +5,20 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
-      use_repo:
-        description: 'repo owner and name'
+      redis_repo:
+        description: 'redis repo owner and name'
+        required: false
+        default: 'redis/redis'
+      redis_branch:
+        description: 'redis git branch or sha to use'
+        required: false
+        default: 'unstable'
+      redisraft_repo:
+        description: 'redisraft repo owner and name'
         required: false
         default: 'redislabs/redisraft'
-      use_git_ref:
-        description: 'git branch or sha to use'
+      redisraft_branch:
+        description: 'redisraft git branch or sha to use'
         required: false
         default: 'master'
 
@@ -21,15 +29,21 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
     steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
+    - name: Set variables
+      env:
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+        DEFAULT_REDISRAFT_BRANCH: master
       run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+        echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
+        repository: ${{ env.REDISRAFT_REPO }}
+        ref: ${{ env.REDISRAFT_BRANCH }}
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
@@ -37,8 +51,8 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'redis/redis'
-        ref: 'unstable'
+        repository: ${{ env.REDIS_REPO }}
+        ref: ${{ env.REDIS_BRANCH }}
         path: 'redis'
     - name: Build Redis
       run: cd redis && make
