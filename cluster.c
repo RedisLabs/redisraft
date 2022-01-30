@@ -758,8 +758,19 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
         for (int i = new_sg->slot_ranges[h].start_slot; i <= new_sg->slot_ranges[h].end_slot; i++) {
             if (si->stable_slots_map[i] != 0) {
-                LOG_ERROR("Invalid shardgroup: hash slot already mapped: %u", i);
+                LOG_ERROR("Invalid shardgroup: hash slot already mapped as stable: %u", i);
                 return RR_ERROR;
+            }
+            if (new_sg->slot_ranges[h].type == SLOTRANGE_TYPE_MIGRATING) {
+                if (si->migrating_slots_map[i] != 0) {
+                    LOG_ERROR("Invalid shardgroup: hash slot already mapped as migrating: %u", i);
+                    return RR_ERROR;
+                }
+            } else if (new_sg->slot_ranges[h].type == SLOTRANGE_TYPE_IMPORTING) {
+                if (si->importing_slots_map[i] != 0) {
+                    LOG_ERROR("Invalid shardgroup: hash slot already mapped as importing: %u", i);
+                    return RR_ERROR;
+                }
             }
         }
     }
