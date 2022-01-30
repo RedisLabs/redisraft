@@ -621,7 +621,6 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
         return;
     }
 
-    /* When saving, skip shardgroup #1 which is the local cluster */
     RedisModule_SaveUnsigned(rdb, si->shard_groups_num);
     if (si->shard_group_map != NULL) {
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
