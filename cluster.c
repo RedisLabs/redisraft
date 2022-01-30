@@ -876,37 +876,45 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
  * and RR_ERROR is returned.
  */
 
-RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg)
+int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg, int base_argv_count)
 {
     const char *id;
     size_t len;
     long long num_slots, num_nodes;
-
-    ShardGroupInit(sg);
+    int argidx = 0;
 
     id = RedisModule_StringPtrLen(argv[0], &len);
     if (len > RAFT_DBID_LEN) {
+        LOG_ERROR("ShardGroupParse failed; argv[%d] shard_group id is too long", base_argv_count + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (shard group id length)");
         goto error;
     }
+    argidx++;
+
     memcpy(sg->id, id, len);
     sg->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK) {
+        LOG_ERROR("ShardGroupParse failed; argv[%d]: couldn't parse num_slots", base_argv_count + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
         goto error;
     }
+    argidx++;
+
     if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
+        LOG_ERROR("ShardGroupParse failed; argv[%d]: couldn't parse num_nodes", base_argv_count + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
         goto error;
     }
+    argidx++;
 
     /* Validate node arguments count is correct */
-    if ((argc - 3) != (num_slots * 3) + (num_nodes * 2)) {
+    int num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
+    if (num_argv_entries > argc) {
+        LOG_ERROR("ShardGroupParse failed; not enough args to parse: want %d have %d", num_argv_entries, argc);
         RedisModule_WrongArity(ctx);
         goto error;
     }
-    int argidx = 3; /* Next arg to consume */
 
     /* Parse slots */
     sg->slot_ranges_num = num_slots;
@@ -916,8 +924,9 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         if (RedisModule_StringToLongLong(argv[argidx++], &start_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[argidx++], &end_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[argidx++], &type) != REDISMODULE_OK ||
-            !HashSlotRangeValid(start_slot, end_slot) ||
+            !HashSlotRangeValid((int) start_slot, (int) end_slot) ||
             !SlotRangeTypeValid(type)) {
+            LOG_ERROR("ShardGroupParse failed; argv[%d]:argv[%d]: invalid parse slot_range", base_argv_count + argidx - 3,  base_argv_count + argidx - 1);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (slot range)");
             goto error;
         }
@@ -930,36 +939,38 @@ RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     sg->nodes_num = num_nodes;
     sg->nodes = RedisModule_Calloc(num_nodes, sizeof(ShardGroupNode));
     for (int i = 0; i < num_nodes; i++) {
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(argv[argidx++], &len);
+        const char *str = RedisModule_StringPtrLen(argv[argidx], &len);
 
         if (len != RAFT_SHARDGROUP_NODEID_LEN) {
+            LOG_ERROR("ShardGroupParse failed; argv[%d] node id is too long", base_argv_count + argidx);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node id length)");
             goto error;
         }
+        argidx++;
 
         memcpy(sg->nodes[i].node_id, str, len);
         sg->nodes[i].node_id[len] = '\0';
 
-        str = RedisModule_StringPtrLen(argv[argidx++], &len);
+        str = RedisModule_StringPtrLen(argv[argidx], &len);
         if (!NodeAddrParse(str, len, &sg->nodes[i].addr)) {
+            LOG_ERROR("ShardGroupParse failed; argv[%d] failed to parse node", base_argv_count + argidx);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node address/port)");
             goto error;
         }
+        argidx++;
     }
 
-    return RR_OK;
+    return num_argv_entries;
 
 error:
-    ShardGroupTerm(sg);
-    return RR_ERROR;
+    return -1;
 }
 
 /* parses all the shardgroups in a replace call and validates them */
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req)
 {
     if (RedisModule_StringToLongLong(argv[0], &req->r.shardgroups_replace.len) != REDISMODULE_OK) {
-        printf("ERR invalid shard group message(1)");
+        LOG_ERROR("Invalid shard group message: argv[0] (number of shard groups)");
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message(1)");
         return RR_ERROR;
     }
@@ -967,38 +978,27 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             RedisModule_Calloc(req->r.shardgroups_replace.len, sizeof(ShardGroup *));
     argv++;
     argc--;
+    int argv_count = 1;
 
     int i;
     for(i = 0; i < req->r.shardgroups_replace.len; i++) {
         ShardGroup *sg = ShardGroupCreate();
         req->r.shardgroups_replace.shardgroups[i] = sg;
 
-        long long num_slots, num_nodes;
-        if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK ) {
-            printf("ERR invalid shard group message (num slots)");
-            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
-            goto fail;
-        }
-        if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
-            printf("ERR invalid shard group message (num nodes)");
-            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
-            goto fail;
-        }
-
-        int num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
-        if (num_argv_entries > argc) {
-            printf("ERR invalid shard group message (num entries)");
-            RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num entries)");
-            goto fail;
-        }
-
-        if (ShardGroupParse(ctx, argv, num_argv_entries, sg) != RR_OK) {
-            printf("ShardGroupParse failed!\n");
+        int num_argv_entries = 0;
+        if ((num_argv_entries = ShardGroupParse(ctx, argv, argc, sg, argv_count)) < 0) {
             goto fail;
         }
 
         argv += num_argv_entries;
         argc -= num_argv_entries;
+        argv_count += num_argv_entries;
+    }
+
+    if (argc != 0) {
+        LOG_ERROR("Invalid shard group message: extra unexpected arguments");
+        RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (extra arguments)");
+        goto fail;
     }
 
     /* basic validation, no shard groups have slotranges that overlap another */

@@ -651,7 +651,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         }
 
         req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
-        if (ShardGroupParse(ctx, &argv[2], argc - 2, &req->r.shardgroup_add) != RR_OK) {
+        if (ShardGroupParse(ctx, &argv[2], argc - 2, &req->r.shardgroup_add, 2) < 0) {
             /* Error reply already produced by parseShardGroupFromArgs */
             RaftReqFree(req);
             return REDISMODULE_OK;

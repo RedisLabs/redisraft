@@ -85,7 +85,7 @@ def test_shard_group_replace(cluster):
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'REPLACE',
         '3',
-        '3',
+        '12345678901234567890123456789012',
         '1', '1',
         '6', '7', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
