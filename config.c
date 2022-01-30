@@ -6,10 +6,19 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+/* Required for net/if.h and IFF_LOOPBACK  */
+#define _DARWIN_C_SOURCE
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <assert.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <ifaddrs.h>
 
 #include "redisraft.h"
 
@@ -524,32 +533,33 @@ exit:
 
 static RRStatus getInterfaceAddr(NodeAddr *addr)
 {
-    struct sockaddr *sa = NULL;
-    uv_interface_address_t *ifaddr = NULL;
-    int ifaddr_count, i, ret;
+    struct ifaddrs *addrs, *ent = NULL;
 
-    if (uv_interface_addresses(&ifaddr, &ifaddr_count) < 0 || !ifaddr_count) {
-        if (ifaddr) {
-            uv_free_interface_addresses(ifaddr, ifaddr_count);
-        }
+    if (getifaddrs(&addrs) != 0) {
         return RR_ERROR;
     }
 
-    /* Try to find a non-internal one, otherwise return just the first one */
-    sa = (struct sockaddr *) &ifaddr[0].address;
-    for (i = 0; i < ifaddr_count; i++) {
-        if (!ifaddr[i].is_internal) {
-            sa = (struct sockaddr *) &ifaddr[i].address;
+    for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
+        /* Skip loopback and non-IP interfaces */
+        if (!(ent->ifa_flags & IFF_LOOPBACK) &&
+             (ent->ifa_addr->sa_family == AF_INET ||
+              ent->ifa_addr->sa_family == AF_INET6)) {
             break;
         }
     }
 
-    ret = getnameinfo(sa,
-            sa->sa_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
-            addr->host, sizeof(addr->host), NULL, 0, NI_NUMERICHOST);
-    uv_free_interface_addresses(ifaddr, ifaddr_count);
+    if (!ent) {
+        return RR_ERROR;
+    }
 
-    return ret < 0 ? RR_ERROR : RR_OK;
+    size_t size = ent->ifa_addr->sa_family == AF_INET ?
+                      sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+
+    int ret = getnameinfo(ent->ifa_addr, size, addr->host, sizeof(addr->host),
+                          NULL, 0, NI_NUMERICHOST);
+    freeifaddrs(addrs);
+
+    return ret != 0 ? RR_ERROR : RR_OK;
 }
 
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)

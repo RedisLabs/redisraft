@@ -30,8 +30,8 @@
  * $FreeBSD$
  */
 
-#ifndef LIBBSD_SYS_QUEUE_H
-#define LIBBSD_SYS_QUEUE_H
+#ifndef	_SYS_QUEUE_H_
+#define	_SYS_QUEUE_H_
 
 #ifndef __containerof
 #define __containerof(ptr, type, elem) \
