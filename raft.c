@@ -150,34 +150,26 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
         }
 
         enterRedisModuleCall();
+        int eval = 0;
+        int old_entered_eval = 0;
+        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            old_entered_eval = redis_raft.entered_eval;
+            eval = 1;
+            redis_raft.entered_eval = 1;
+        }
         RedisModuleCallReply *reply = RedisModule_Call(
                 ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
+        if (eval) {
+            redis_raft.entered_eval = old_entered_eval;
+        }
 
         if (reply_ctx) {
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                /* Try to produce an error message which is similar to Redis */
-                int trunc_cmdlen = cmdlen > 256 ? 256 : cmdlen;
-                size_t errmsg_len = 128 + trunc_cmdlen;   /* Big enough for msg + cmd */
-                char *errmsg = RedisModule_Alloc(errmsg_len);
-
-                switch (ret_errno) {
-                    case ENOENT:
-                        snprintf(errmsg, errmsg_len, "ERR unknown command `%.*s`", trunc_cmdlen, cmd);
-                        break;
-                    case EINVAL:
-                        snprintf(errmsg, errmsg_len, "ERR wrong number of arguments for '%.*s' command",
-                                trunc_cmdlen, cmd);
-                        break;
-                    default:
-                        snprintf(errmsg, errmsg_len, "ERR failed to execute command '%.*s'",
-                                trunc_cmdlen, cmd);
-                }
-                RedisModule_ReplyWithError(reply_ctx, errmsg);
-                RedisModule_Free(errmsg);
+                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 
@@ -383,10 +375,6 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
             &response)) != 0) {
         NODE_TRACE(node, "raft_recv_appendentries_response failed, error %d", ret);
     }
-
-    /* Maybe we have pending stuff to apply now */
-    raft_apply_all(rr->raft);
-    raft_process_read_queue(rr->raft);
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
@@ -957,10 +945,6 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 
     ret = raft_periodic(rr->raft, rr->config->raft_interval);
-    if (ret == 0) {
-        ret = raft_apply_all(rr->raft);
-    }
-
     if (ret == RAFT_ERR_SHUTDOWN) {
         shutdownAfterRemoval(rr);
     }
@@ -1347,10 +1331,7 @@ void RaftReqFree(RaftReq *req)
             }
             break;
         case RR_SHARDGROUP_ADD:
-            if (req->r.shardgroup_add.nodes) {
-                RedisModule_Free(req->r.shardgroup_add.nodes);
-                req->r.shardgroup_add.nodes = NULL;
-            }
+            ShardGroupTerm(&req->r.shardgroup_add);
             break;
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
@@ -1360,6 +1341,16 @@ void RaftReqFree(RaftReq *req)
                 RedisModule_Free(req->r.shardgroups_replace.shardgroups);
                 req->r.shardgroups_replace.shardgroups = NULL;
             }
+            break;
+        case RR_CONFIG:
+            if (req->r.config.argv != NULL) {
+                for (int i = 0; i < req->r.config.argc; i++) {
+                    RedisModule_FreeString(req->ctx, req->r.config.argv[i]);
+                }
+                RedisModule_Free(req->r.config.argv);
+                req->r.config.argv = NULL;
+            }
+            break;
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -1837,7 +1828,10 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
         section = RedisModule_StringPtrLen(cmd->argv[1], NULL);
     }
 
+    enterRedisModuleCall();
     RedisModuleCallReply *reply = RedisModule_Call(req->ctx, "INFO", "c", section);
+    exitRedisModuleCall();
+
     size_t info_len;
     const char *info = RedisModule_CallReplyProto(reply, &info_len);
 
@@ -1848,6 +1842,7 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req) {
     }
 
     RedisModule_ReplyWithStringBuffer(req->ctx, info, info_len);
+    RedisModule_FreeCallReply(reply);
 
 exit:
     RaftReqFree(req);
@@ -2029,13 +2024,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 
     raft_entry_release(entry);
 
-    /* If we're a single node we can try to apply now, as we have no need
-     * or way to wait for AE responses to do that.
-     */
-    if (raft_get_current_idx(rr->raft) == raft_get_commit_idx(rr->raft)) {
-        raft_apply_all(rr->raft);
-    }
-
     /* Unless applied by raft_apply_all() (and freed by it), the request
      * is pending so we don't free it or unblock the client.
      */
@@ -2148,9 +2136,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
             "snapshot_in_progress:%s\r\n"
-            "snapshots_loaded:%lu\r\n",
+            "snapshots_loaded:%lu\r\n"
+            "snapshots_created:%lu\r\n",
             rr->snapshot_in_progress ? "yes" : "no",
-            rr->snapshots_loaded);
+            rr->snapshots_loaded,
+            rr->snapshots_created);
 
     s = catsnprintf(s, &slen,
             "\r\n# Clients\r\n"
@@ -2571,6 +2561,20 @@ static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
     shutdownAfterRemoval(rr);
 }
 
+static void handleConfig(RedisRaftCtx *rr, RaftReq *req)
+{
+    size_t cmd_len;
+    const char *cmd = RedisModule_StringPtrLen(req->r.config.argv[1], &cmd_len);
+
+    if (!strncasecmp(cmd, "SET", cmd_len)) {
+        handleConfigSet(rr, req->ctx, req->r.config.argv, req->r.config.argc);
+    } else if (!strncasecmp(cmd, "GET", cmd_len)) {
+        handleConfigGet(req->ctx, rr->config, req->r.config.argv, req->r.config.argc);
+    }
+
+    RaftReqFree(req);
+}
+
 static RaftReqHandler RaftReqHandlers[] = {
     NULL,
     handleClusterInit,         /* RR_CLUSTER_INIT */
@@ -2591,5 +2595,6 @@ static RaftReqHandler RaftReqHandlers[] = {
     handleNodeShutdown,       /* RR_NODE_SHUTDOWN */
     handleTransferLeader,     /* RR_TRANSFER_LEADER */
     handleTimeoutNow,         /* RR_TIMEOUT_NOW */
+    handleConfig,             /* RR_CONFIG */
     NULL
 };

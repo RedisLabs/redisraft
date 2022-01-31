@@ -127,9 +127,13 @@ def test_full_cluster_remove(cluster):
         leader.client.execute_command('RAFT.NODE', 'REMOVE', str(node_id))
         expected_nodes -= 1
         leader.wait_for_num_nodes(expected_nodes)
+        leader.wait_for_log_applied()
 
     # remove the leader node finally
     leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
+
+    # wait some time for the last node
+    time.sleep(3)
 
     # make sure other nodes are down
     for node_id in (1, 2, 3, 4, 5):
@@ -195,11 +199,11 @@ def test_node_history_with_same_address(cluster):
     for _ in range(5):
         for port in ports:
             n = cluster.add_node(port=port)
-            cluster.leader_node().wait_for_num_nodes(2)
+            cluster.leader_node().wait_for_num_voting_nodes(2)
             cluster.leader_node().wait_for_log_committed()
             cluster.leader_node().wait_for_log_applied()
             cluster.remove_node(n.id)
-            cluster.leader_node().wait_for_num_nodes(1)
+            cluster.leader_node().wait_for_num_voting_nodes(1)
             cluster.leader_node().wait_for_log_applied()
 
     # Add enough data in the log to satisfy timing
@@ -246,18 +250,18 @@ def test_join_while_cluster_is_down(cluster):
         cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
                          join_addr_list=[cluster.node(3).address])
 
-    # Initiate process again with a longer timeout, and release the
-    # cluster while in progress.
-    def resume_nodes():
-        time.sleep(1)
-        cluster.node(1).resume()
-        cluster.node(2).resume()
 
-    # Join again, while failing resume nodes and recover cluster. This
-    # should succeed and not raise an exception as above.
-    Thread(target=resume_nodes, daemon=True).start()
-    cluster.add_node(raft_args={'join-timeout': 10}, single_run=True,
-                            join_addr_list=[cluster.node(3).address])
+def test_join_wrong_cluster(cluster):
+    cluster.create(3)
+
+    # Confirm nodes fails fast with bad server address
+    with raises(ResponseError, match='failed to join'):
+        cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
+                         join_addr_list=["bad-server:1234"])
+
+    # Config node can be added after failure
+    cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
+                     join_addr_list=[cluster.node(3).address])
 
 
 def test_transfer_not_leader(cluster):
@@ -275,25 +279,26 @@ def test_transfer_invalid(cluster):
 
 
 def test_transfer_succeed(cluster):
-    cluster.create(3);
+    cluster.create(3, raft_args={'election-timeout': '3000'})
 
     cluster.leader_node().transfer_leader(2)
 
 
 def test_transfer_timeout(cluster):
-    cluster.create(3);
+    cluster.create(3, raft_args={'election-timeout': '3000'})
     cluster.node(2).pause()
     with raises(ResponseError, match='transfer timed out'):
         cluster.leader_node().transfer_leader(2)
 
 
 def test_transfer_unexpected(cluster):
-    cluster.create(3)
+    cluster.create(3, raft_args={'election-timeout': '10000'})
     cluster.node(2).pause()
 
     def timeout():
-        time.sleep(0.1)
+        time.sleep(3)
         cluster.node(3).timeout_now()
+
     Thread(target=timeout, daemon=True).start()
     with raises(ResponseError, match="different node elected leader"):
         cluster.leader_node().transfer_leader(2)

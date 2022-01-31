@@ -8,6 +8,8 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 
 import shutil
 import os
+from redis import ResponseError
+from pytest import raises
 from .raftlog import RaftLog, LogEntry
 
 
@@ -393,3 +395,33 @@ def test_log_reset_on_snapshot_load(cluster):
 
     assert cluster.execute('INCR', 'last-key')
     cluster.wait_for_unanimity()
+
+def test_snapshot_fork_failure(cluster):
+    """
+    Ability to properly handle snapshot fork failure
+    """
+
+    r1 = cluster.add_node()
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    assert r1.client.get('testkey') == b'4'
+
+    assert r1.raft_info()['snapshots_created'] == 0
+
+    with raises(ResponseError):
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+    assert r1.raft_info()['snapshots_created'] == 0
+    r1.wait_for_info_param('snapshot_in_progress', 'no')
+
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    assert r1.client.get('testkey') == b'6'
+
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    assert r1.raft_info()['snapshots_created'] == 1
+
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    assert r1.client.get('testkey') == b'8'

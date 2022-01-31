@@ -7,6 +7,10 @@
 # Tests :
 #         mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug
 #         make && make tests
+#
+# Sanitizer:
+#        mkdir build && cd build && cmake .. -DSANITIZER=address -DCMAKE_BUILD_TYPE=Debug
+#        make && make tests
 
 cmake_policy(SET CMP0048 NEW)
 project(redisraft C)
@@ -33,6 +37,26 @@ add_compile_definitions(_GNU_SOURCE)
 if (DEFINED ENV{TRACE})
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_TRACE")
 endif()
+
+if (SANITIZER)
+    if ("${SANITIZER}" STREQUAL "address")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+        add_link_options(-fsanitize=address)
+        link_libraries(-static-libasan)
+    elseif("${SANITIZER}" STREQUAL "undefined")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
+        add_link_options(-fsanitize=undefined)
+    elseif("${SANITIZER}" STREQUAL "thread")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
+        add_link_options(-fsanitize=thread)
+    else()
+        message(FATAL_ERROR "Unknown sanitizer : ${SANITIZER}")
+    endif()
+
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-sanitize-recover=all -fno-omit-frame-pointer")
+    message(STATUS "Using sanitizer : ${SANITIZER}")
+endif()
+
 # ------------------------ Build Settings End -------------------------------- #
 
 
@@ -102,6 +126,7 @@ add_library(redisraft SHARED
         redisraft.c
         serialization.c
         snapshot.c
+        sort.c
         util.c)
 
 add_dependencies(redisraft info)
@@ -134,6 +159,7 @@ add_executable(main
         redisraft.c
         serialization.c
         snapshot.c
+        sort.c
         util.c
         tests/main.c
         tests/test_log.c

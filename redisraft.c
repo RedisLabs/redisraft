@@ -434,12 +434,15 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-    if (!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) {
-        handleConfigSet(rr, ctx, argv, argc);
-        return REDISMODULE_OK;
-    } else if (!strncasecmp(cmd, "GET", cmd_len) && argc == 3) {
-        handleConfigGet(ctx, rr->config, argv, argc);
-        return REDISMODULE_OK;
+
+    if ((!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) || (!strncasecmp(cmd, "GET", cmd_len) && argc == 3)) {
+        RaftReq * req = RaftReqInit(ctx, RR_CONFIG);
+        req->r.config.argc = argc;
+        req->r.config.argv = RedisModule_Alloc(argc*sizeof(RedisModuleString *));
+        for (int i = 0; i < argc; i++) {
+            req->r.config.argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
+        }
+        RaftReqSubmit(rr, req);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
     }
@@ -718,6 +721,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cmd[cmdlen] = '\0';
 
     if (!strncasecmp(cmd, "compact", cmdlen)) {
+        long long fail = 0;
         long long delay = 0;
         if (argc == 3) {
             if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
@@ -725,9 +729,16 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
             }
         }
+        if (argc == 4) {
+            if (RedisModule_StringToLongLong(argv[3], &fail) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
+                return REDISMODULE_OK;
+            }
+        }
 
         RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_COMPACT);
-        req->r.debug.d.compact.delay = delay;
+        req->r.debug.d.compact.delay = (int) delay;
+        req->r.debug.d.compact.fail = (int) fail;
         RaftReqSubmit(&redis_raft, req);
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
@@ -779,7 +790,9 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         size_t exec_cmd_len;
         const char *exec_cmd = RedisModule_StringPtrLen(argv[2], &exec_cmd_len);
 
+        enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(ctx, exec_cmd, "v", &argv[3], argc - 3);
+        exitRedisModuleCall();
         if (!reply) {
             RedisModule_ReplyWithError(ctx, "Bad command or failed to execute");
         } else {
@@ -818,6 +831,32 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+static int cmdRaftSort(RedisModuleCtx *ctx,
+                       RedisModuleString **argv, int argc)
+{
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+
+    argv++;
+    argc--;
+
+    handleSort(ctx, argv, argc);
+
+    return REDISMODULE_OK;
+
+}
+
+static int cmdRaftRandom(RedisModuleCtx *ctx,
+                         RedisModuleString **argv, int argc)
+{
+    RedisModule_ReplyWithError(ctx, "Cannot run a command with random results in this context");
+
+    return REDISMODULE_OK;
+}
+
 static void handleClientDisconnect(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -835,10 +874,22 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
-    /* If we're intercepting an RM_Call() processing a Raft entry,
-     * skip.
-     */
     if (checkInRedisModuleCall()) {
+        /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
+        if (redis_raft.entered_eval) {
+            RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
+            const CommandSpec *cs;
+            if ((cs = CommandSpecGet(cmd)) != NULL) {
+                if (cs->flags & CMD_SPEC_SORT_REPLY) {
+                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
+                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                } else if (cs->flags & CMD_SPEC_RANDOM) {
+                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
+                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                }
+            }
+        }
+
         return;
     }
 
@@ -929,6 +980,17 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
                 cmdRaftNodeShutdown, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+
+    if (RedisModule_CreateCommand(ctx, "raft._sort_reply",
+                cmdRaftSort, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft._reject_random_command",
+                                  cmdRaftRandom, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
 
     if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
             &RedisRaftTypeMethods)) == NULL) {
@@ -1033,7 +1095,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     }
 
     redis_raft.registered_filter = RedisModule_RegisterCommandFilter(ctx,
-        interceptRedisCommands, REDISMODULE_CMDFILTER_NOSELF);
+        interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientDisconnect) != REDISMODULE_OK) {

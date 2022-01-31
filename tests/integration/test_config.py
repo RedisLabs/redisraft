@@ -47,7 +47,7 @@ def test_config_startup_only_params(cluster):
 
     r1 = cluster.add_node()
     with raises(ResponseError, match='.*only supported at load time'):
-        r1.raft_config_set('id', 2)
+        r1.raft_config_set('external-sharding', 'yes')
 
     with raises(ResponseError, match='.*only supported at load time'):
         r1.raft_config_set('raft-log-filename', 'filename')
@@ -70,6 +70,19 @@ def test_invalid_configs(cluster):
 
     with raises(ResponseError, match='.*invalid .*value'):
         r1.raft_config_set('request-timeout', 'nonint')
+
+
+def test_prevent_config_id_after_init(cluster):
+    node = RedisRaft(1, cluster.base_port + 1, cluster.config)
+    cluster.nodes[1] = node
+    node.cleanup()
+    node.start()
+    assert node.raft_config_get("id")['id'] == '1'
+    node.raft_config_set("id", 123)
+    assert node.raft_config_get("id")['id'] == '123'
+    node.cluster('init')
+    with raises(ResponseError, match='only supported at before cluster init/join'):
+        node.raft_config_set("id", "456")
 
 
 def test_ignored_commands(cluster):

@@ -10,13 +10,6 @@ client unblock tests
 .*BZM?POP_?MAX.*
 LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
 
--- Script kill not supported
-.*SCRIPT KILL.*
-test function kill
-test function kill not working on eval
-test script kill not working on function
-test wrong subcommand
-
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
 .*XREAD.*
@@ -29,33 +22,14 @@ lazy free a stream with deleted cgroup
 
 -- Timeouts and termination of Lua scripts is not possible when scripts are
 -- replicated and executed by individual nodes.
-EXEC and script timeout
-MULTI-EXEC body and script timeout
-just EXEC and script timeout
+.*SCRIPT KILL.*
 Blocking commands ignores the timeout
-Timedout read-only scripts can be killed by SCRIPT KILL even when use pcall
 Timedout script does not cause a false dead client
 Timedout script link is still usable after Lua returns
-Timedout scripts that modified data can't be killed by SCRIPT KILL
-Timedout read-only scripts can be killed by SCRIPT KILL
-
--- MULTI/EXEC handling incompatibilities, mainly becuase RedisRaft implements
--- its own logic while passing some non-data commands to Redis. Consider our
--- options with Module API extensions to better control this.
-MUTLI / EXEC basics
-WATCH inside MULTI is not allowed
-EXEC fails if there are errors while queueing commands #1
-If EXEC aborts, the client MULTI state is cleared
-EXEC works on WATCHed key not modified
-After successful EXEC key is no longer watched
-After failed EXEC key is no longer watched
-It is possible to UNWATCH
-FLUSHALL does not touch non affected keys
-FLUSHDB does not touch non affected keys
-DISCARD should clear the WATCH dirty flag on the client
-DISCARD should UNWATCH all the keys
-MULTI and script timeout
-command stats for MULTI
+test function kill
+test function kill not working on eval
+test script kill not working on function
+test wrong subcommand
 
 -- RAFT command prefix shows up in SLOWLOG.
 SLOWLOG - Rewritten commands are logged as their original command
@@ -68,36 +42,29 @@ MONITOR correctly handles multi-exec cases
 -- TODO: check what's wrong
 UNLINK can reclaim memory in background
 
+-- TODO: fix maxmemory config replication and set deny-oom flag for write
+--       "raft" commands
+Script - disallow write on OOM
+FUNCTION - verify OOM on function load and function restore
+FUNCTION - deny oom
+FUNCTION - deny oom on no-writes function
+allow-oom shebang flag
+
 -- Blocked clients not supported
 Test read commands are not blocked by client pause
 Test write commands are paused by RO
 
 -- WATCH (multi/exec) not supported
+.*MULTI.*
+.*EXEC.*
+.*WATCH.*
 SMOVE only notify dstset when the addition is successful
-EXEC fail on WATCHed key modified
-UNWATCH when there is nothing watched works as expected
 FLUSHALL is able to touch the watched keys
 FLUSHDB is able to touch the watched keys
-PUSH resulting from BRPOPLPUSH affect WATCH
-BRPOPLPUSH does not affect WATCH while still blocked
 client evicted due to watched key list
-WATCH inside MULTI is not allowed
-EXEC works on WATCHed key not modified
-EXEC fail on WATCHed key modified (1 key of 1 watched)
-EXEC fail on WATCHed key modified (1 key of 5 watched)
-EXEC fail on WATCHed key modified by SORT with STORE even if the result is empty
-EXEC fail on lazy expired WATCHed key
-After successful EXEC key is no longer watched
-After failed EXEC key is no longer watched
-It is possible to UNWATCH
-UNWATCH when there is nothing watched works as expected}
 FLUSHALL does not touch non affected keys
 FLUSHDB does not touch non affected keys
 SWAPDB is able to touch the watched keys that exist
 SWAPDB is able to touch the watched keys that do not exist
-WATCH is able to remember the DB a key belongs to
-WATCH will consider touched keys target of EXPIRE
-WATCH will consider touched expired keys
-DISCARD should clear the WATCH dirty flag on the client
-DISCARD should UNWATCH all the keys
+
 

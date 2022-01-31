@@ -57,7 +57,9 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
             break;
         case RAFT_ERR_SHUTDOWN:
             LOG_ERROR("Raft requires immediate shutdown!");
+            enterRedisModuleCall();
             RedisModule_Call(ctx, "SHUTDOWN", "");
+            exitRedisModuleCall();
             break;
         case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
             RedisModule_ReplyWithError(ctx, "ERR a voting change is already in progress");
@@ -233,7 +235,13 @@ void joinLinkIdleCallback(Connection *conn)
         state->addr_iter = state->addr_iter->next;
     }
     if (!state->addr_iter) {
-        state->addr_iter = state->addr;
+        if (!state->started) {
+            state->started = true;
+            state->addr_iter = state->addr;
+        } else {
+            LOG_ERROR("exhausted all possible hosts to connect to");
+            goto exit_fail;
+        }
     }
 
     LOG_VERBOSE("%s cluster, connecting to %s:%u", state->type, state->addr_iter->addr.host, state->addr_iter->addr.port);
@@ -246,6 +254,7 @@ void joinLinkIdleCallback(Connection *conn)
 
 exit_fail:
     ConnAsyncTerminate(conn);
+    rr->state = REDIS_RAFT_UNINITIALIZED;
 
     snprintf(err_msg, sizeof(err_msg), "ERR failed to %s cluster, please check logs", state->type);
     RedisModule_ReplyWithError(state->req->ctx, err_msg);
