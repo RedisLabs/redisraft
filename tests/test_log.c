@@ -528,15 +528,15 @@ static void test_meta_persistence(void **state)
 {
     RaftMeta meta;
 
-    assert_int_equal(RaftMetaOpen(&meta, LOGNAME), RR_ERROR);
-    assert_int_equal(RaftMetaSet(&meta, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
-    assert_int_equal(RaftMetaOpen(&meta, LOGNAME), RR_OK);
+    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_ERROR);
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
+    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_OK);
     assert_int_equal(meta.term, 0xffffffff);
     assert_int_equal(meta.vote, INT32_MAX);
 
     /* Test overwrite */
-    assert_int_equal(RaftMetaSet(&meta, LOGNAME, 5, 5), RR_OK);
-    assert_int_equal(RaftMetaSet(&meta, LOGNAME, 6, 6), RR_OK);
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 5, 5), RR_OK);
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 6, 6), RR_OK);
     assert_int_equal(meta.term, 6);
     assert_int_equal(meta.vote, 6);
 }

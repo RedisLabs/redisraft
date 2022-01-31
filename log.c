@@ -986,7 +986,7 @@ char* raftMetaFilename(char* buf, size_t size, const char *filename)
     return buf;
 }
 
-int RaftMetaOpen(RaftMeta *meta, const char* filename)
+int RaftMetaRead(RaftMeta *meta, const char* filename)
 {
     int rc = RR_ERROR;
     char buf[1024];
@@ -1047,7 +1047,7 @@ out:
     return rc;
 }
 
-int RaftMetaSet(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote)
+int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote)
 {
     int rc = RR_ERROR;
     char tmp[1024], orig[1024];
@@ -1056,7 +1056,7 @@ int RaftMetaSet(RaftMeta *meta, const char* filename, raft_term_t term, raft_nod
     snprintf(tmp, sizeof(tmp), "%s.tmp", metafile);
     FILE *fp = fopen(tmp, "w+");
     if (!fp) {
-        LOG_ERROR("RaftMetaSet() fopen(): %s ", strerror(errno));
+        LOG_ERROR("RaftMetaWrite() fopen(): %s ", strerror(errno));
         goto out;
     }
 
@@ -1072,7 +1072,7 @@ int RaftMetaSet(RaftMeta *meta, const char* filename, raft_term_t term, raft_nod
     fp = NULL;
 
     if (rename(tmp, metafile) != 0) {
-        LOG_ERROR("RaftMetaSet() rename() : %s ", strerror(errno));
+        LOG_ERROR("RaftMetaWrite() rename() : %s ", strerror(errno));
         goto out;
     }
 

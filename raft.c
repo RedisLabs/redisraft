@@ -500,9 +500,9 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
         return 0;
     }
 
-    if (RaftMetaSet(&rr->meta, rr->config->raft_log_filename,
-                    raft_get_current_term(raft), vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftMetaSet()");
+    if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
+                      raft_get_current_term(raft), vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -516,9 +516,9 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
         return 0;
     }
 
-    if (RaftMetaSet(&rr->meta,  rr->config->raft_log_filename,
-                    term, vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftMetaSet()");
+    if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
+                      term, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -1257,7 +1257,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
-    if (RaftMetaOpen(&rr->meta, rr->config->raft_log_filename) == RR_OK &&
+    if (RaftMetaRead(&rr->meta, rr->config->raft_log_filename) == RR_OK &&
         (rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
         rr->state = REDIS_RAFT_LOADING;
     } else {
