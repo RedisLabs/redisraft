@@ -298,12 +298,12 @@ typedef struct RawLogEntry {
     RawElement elements[];
 } RawLogEntry;
 
-static int readEncodedLength(RaftLog *log, char type, unsigned long *length)
+static int readEncodedLength(FILE *fp, char type, unsigned long *length)
 {
     char buf[128];
     char *eptr;
 
-    if (!fgets(buf, sizeof(buf), log->file)) {
+    if (!fgets(buf, sizeof(buf), fp)) {
         return -1;
     }
 
@@ -337,12 +337,12 @@ static void freeRawLogEntry(RawLogEntry *entry)
     RedisModule_Free(entry);
 }
 
-static int readRawLogEntry(RaftLog *log, RawLogEntry **entry)
+static int readRawLogEntry(FILE *fp, RawLogEntry **entry)
 {
     unsigned long num_elements;
     int i;
 
-    if (readEncodedLength(log, '*', &num_elements) < 0) {
+    if (readEncodedLength(fp, '*', &num_elements) < 0) {
         return -1;
     }
 
@@ -352,14 +352,14 @@ static int readRawLogEntry(RaftLog *log, RawLogEntry **entry)
         unsigned long len;
         char *ptr;
 
-        if (readEncodedLength(log, '$', &len) < 0) {
+        if (readEncodedLength(fp, '$', &len) < 0) {
             goto error;
         }
         (*entry)->elements[i].len = len;
         (*entry)->elements[i].ptr = ptr = RedisModule_Alloc(len + 2);
 
         /* Read extra CRLF */
-        if (fread(ptr, 1, len + 2, log->file) != len + 2) {
+        if (fread(ptr, 1, len + 2, fp) != len + 2) {
             goto error;
         }
         ptr[len] = '\0';
@@ -442,15 +442,13 @@ static RaftLog *prepareLog(const char *filename, RedisRaftConfig *config, int fl
 
 int writeLogHeader(FILE *logfile, RaftLog *log)
 {
-    if (writeBegin(logfile, 8) < 0 ||
+    if (writeBegin(logfile, 6) < 0 ||
         writeBuffer(logfile, "RAFTLOG", 7) < 0 ||
         writeUnsignedInteger(logfile, RAFTLOG_VERSION, 4) < 0 ||
         writeBuffer(logfile, log->dbid, strlen(log->dbid)) < 0 ||
         writeUnsignedInteger(logfile, log->node_id, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_term, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0 ||
-        writeUnsignedInteger(logfile, log->term, 20) < 0 ||
-        writeInteger(logfile, log->vote, 11) < 0 ||
         writeEnd(logfile, log->fsync) < 0) {
             return -1;
     }
@@ -458,35 +456,8 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
     return 0;
 }
 
-int updateLogHeader(RaftLog *log)
-{
-    int ret;
-
-    /* Avoid same file open twice */
-    fclose(log->file);
-    log->file = NULL;
-
-    FILE *file = fopen(log->filename, "r+");
-    if (!file) {
-        PANIC("Failed to update log header: %s: %s",
-                log->filename, strerror(errno));
-    }
-
-    ret = writeLogHeader(file, log);
-    fclose(file);
-
-    /* Reopen */
-    log->file = fopen(log->filename, "a+");
-    if (!log->file) {
-        PANIC("Failed to reopen log file: %s: %s",
-                log->filename, strerror(errno));
-    }
-
-    return ret;
-}
-
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term,
-        raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config)
+        raft_index_t snapshot_index, RedisRaftConfig *config)
 {
     RaftLog *log = prepareLog(filename, config, 0);
     if (!log) {
@@ -495,8 +466,6 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
 
     log->index = log->snapshot_last_idx = snapshot_index;
     log->snapshot_last_term = snapshot_term;
-    log->term = current_term;
-    log->vote = last_vote;
 
     memcpy(log->dbid, dbid, RAFT_DBID_LEN);
     log->dbid[RAFT_DBID_LEN] = '\0';
@@ -557,7 +526,7 @@ error:
 
 static int handleHeader(RaftLog *log, RawLogEntry *re)
 {
-    if (re->num_elements != 8 ||
+    if (re->num_elements != 6 ||
         strcmp(re->elements[0].ptr, "RAFTLOG")) {
         LOG_ERROR("Invalid Raft log header.");
         return -1;
@@ -594,18 +563,6 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
         return -1;
     }
 
-    log->term = strtoul(re->elements[6].ptr, &eptr, 10);
-    if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log voted term: %s", (char *) re->elements[6].ptr);
-        return -1;
-    }
-
-    log->vote = strtol(re->elements[7].ptr, &eptr, 10);
-    if (*eptr != '\0') {
-        LOG_ERROR("Invalid Raft log vote: %s", (char *) re->elements[7].ptr);
-        return -1;
-    }
-
     return 0;
 }
 
@@ -627,7 +584,7 @@ RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags)
     /* Read start */
     fseek(log->file, 0L, SEEK_SET);
 
-    if (readRawLogEntry(log, &e) < 0) {
+    if (readRawLogEntry(log->file, &e) < 0) {
         LOG_ERROR("Failed to read Raft log: %s", errno ? strerror(errno) : "invalid data");
         goto error;
     }
@@ -651,10 +608,6 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
 {
     log->index = log->snapshot_last_idx = index;
     log->snapshot_last_term = term;
-    if (log->term > term) {
-        log->term = term;
-        log->vote = -1;
-    }
 
     if (ftruncate(fileno(log->idxfile), 0) < 0) {
         return RR_ERROR;
@@ -677,12 +630,11 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
         return -1;
     }
 
-    log->term = 1;
     log->index = 0;
 
     /* Read Header */
     RawLogEntry *re = NULL;
-    if (readRawLogEntry(log, &re) < 0 || handleHeader(log, re) < 0)  {
+    if (readRawLogEntry(log->file, &re) < 0 || handleHeader(log, re) < 0)  {
         freeRawLogEntry(re);
         LOG_INFO("Failed to read Raft log header");
         return -1;
@@ -694,7 +646,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
         raft_entry_t *e = NULL;
 
         long offset = ftell(log->file);
-        if (readRawLogEntry(log, &re) < 0 || !re->num_elements) {
+        if (readRawLogEntry(log->file, &re) < 0 || !re->num_elements) {
             break;
         }
 
@@ -855,7 +807,7 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
     }
 
     RawLogEntry *re;
-    if (readRawLogEntry(log, &re) != RR_OK) {
+    if (readRawLogEntry(log->file, &re) != RR_OK) {
         return NULL;
     }
 
@@ -887,7 +839,7 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
         RawLogEntry *re;
         raft_entry_t *e;
 
-        if (readRawLogEntry(log, &re) < 0) {
+        if (readRawLogEntry(log->file, &re) < 0) {
             ret = RR_ERROR;
             break;
         }
@@ -919,27 +871,6 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f 
     return ret;
 }
 
-RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote)
-{
-    TRACE_LOG_OP("RaftLogSetVote(vote=%ld)", vote);
-    log->vote = vote;
-    if (updateLogHeader(log) < 0) {
-        return RR_ERROR;
-    }
-    return RR_OK;
-}
-
-RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote)
-{
-    TRACE_LOG_OP("RaftLogSetTerm(term=%lu,vote=%ld)", term, vote);
-    log->term = term;
-    log->vote = vote;
-    if (updateLogHeader(log) < 0) {
-        return RR_ERROR;
-    }
-    return RR_OK;
-}
-
 raft_index_t RaftLogFirstIdx(RaftLog *log)
 {
     return log->snapshot_last_idx;
@@ -967,13 +898,10 @@ raft_index_t RaftLogCount(RaftLog *log)
  */
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term)
 {
-    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid,
-            last_term, last_idx,
-            raft_get_current_term(rr->raft),
-            raft_get_voted_for(rr->raft),
-            rr->config);
     long long int num_entries = 0;
 
+    RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid, last_term,
+                                 last_idx, rr->config);
     raft_index_t i;
     for (i = last_idx + 1; i <= RaftLogCurrentIdx(rr->log); i++) {
         num_entries++;
@@ -1050,6 +978,113 @@ RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long 
     rr->log = new_log;
 
     return RR_OK;
+}
+
+char* raftMetaFilename(char* buf, size_t size, const char *filename)
+{
+    snprintf(buf, size, "%s.meta", filename);
+    return buf;
+}
+
+int RaftMetaOpen(RaftMeta *meta, const char* filename)
+{
+    int rc = RR_ERROR;
+    char buf[1024];
+    RawLogEntry *e = NULL;
+
+    meta->term = 0;
+    meta->vote = -1;
+
+    char *metafile = raftMetaFilename(buf, sizeof(buf), filename);
+
+    FILE *fp = fopen(metafile, "r");
+    if (!fp) {
+        goto out;
+    }
+
+    if (readRawLogEntry(fp, &e) < 0) {
+        LOG_ERROR("Failed to read Raft meta: %s",
+                  errno ? strerror(errno) : "invalid data");
+        goto out;
+    }
+
+    if (e->num_elements != 4 ||
+        strcmp(e->elements[0].ptr, "RAFTMETA") != 0) {
+        LOG_ERROR("Invalid Raft meta string.");
+        goto out;
+    }
+
+    char *end;
+    unsigned long ver = strtoul(e->elements[1].ptr, &end, 10);
+    if (*end != '\0' || ver != RAFTLOG_VERSION) {
+        LOG_ERROR("Invalid Raft meta version: %lu", ver);
+        goto out;
+    }
+
+    raft_term_t term = strtol(e->elements[2].ptr, &end, 10);
+    if (*end != '\0') {
+        LOG_ERROR("Invalid Raft meta term: %s", (char *) e->elements[2].ptr);
+        goto out;
+    }
+
+    raft_node_id_t vote = (raft_node_id_t) strtol(e->elements[3].ptr, &end, 10);
+    if (*end != '\0') {
+        LOG_ERROR("Invalid Raft meta vote: %s", (char *) e->elements[3].ptr);
+        goto out;
+    }
+
+    meta->vote = vote;
+    meta->term = term;
+    rc = RR_OK;
+
+out:
+    if (fp != NULL) {
+        fclose(fp);
+    }
+    if (e != NULL) {
+        freeRawLogEntry(e);
+    }
+    return rc;
+}
+
+int RaftMetaSet(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote)
+{
+    int rc = RR_ERROR;
+    char tmp[1024], orig[1024];
+    char *metafile = raftMetaFilename(orig, sizeof(orig), filename);
+
+    snprintf(tmp, sizeof(tmp), "%s.tmp", metafile);
+    FILE *fp = fopen(tmp, "w+");
+    if (!fp) {
+        LOG_ERROR("RaftMetaSet() fopen(): %s ", strerror(errno));
+        goto out;
+    }
+
+    if (writeBegin(fp, 4) < 0 ||
+        writeBuffer(fp, "RAFTMETA", strlen("RAFTMETA")) < 0 ||
+        writeUnsignedInteger(fp, RAFTLOG_VERSION, 4) < 0 ||
+        writeUnsignedInteger(fp, term, 20) < 0 ||
+        writeInteger(fp, vote, 11) < 0) {
+            goto out;
+    }
+
+    fclose(fp);
+    fp = NULL;
+
+    if (rename(tmp, metafile) != 0) {
+        LOG_ERROR("RaftMetaSet() rename() : %s ", strerror(errno));
+        goto out;
+    }
+
+    meta->term = term;
+    meta->vote = vote;
+    rc = RR_OK;
+
+out:
+    if (fp) {
+        fclose(fp);
+    }
+    return rc;
 }
 
 /*

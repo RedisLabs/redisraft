@@ -495,13 +495,14 @@ static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
 
 static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
+    RedisRaftCtx *rr = user_data;
+    if (rr->state == REDIS_RAFT_LOADING) {
         return 0;
     }
 
-    if (RaftLogSetVote(rr->log, vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftLogSetVote");
+    if (RaftMetaSet(&rr->meta, rr->config->raft_log_filename,
+                    raft_get_current_term(raft), vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftMetaSet()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -510,13 +511,14 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
 
 static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, raft_node_id_t vote)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (!rr->log || rr->state == REDIS_RAFT_LOADING) {
+    RedisRaftCtx *rr = user_data;
+    if (rr->state == REDIS_RAFT_LOADING) {
         return 0;
     }
 
-    if (RaftLogSetTerm(rr->log, term, vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftLogSetTerm");
+    if (RaftMetaSet(&rr->meta,  rr->config->raft_log_filename,
+                    term, vote) != RR_OK) {
+        LOG_ERROR("ERROR: RaftMetaSet()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -819,10 +821,10 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 
     raft_apply_all(rr->raft);
 
-    raft_set_current_term(rr->raft, rr->log->term);
-    raft_vote_for_nodeid(rr->raft, rr->log->vote);
+    raft_set_current_term(rr->raft, rr->meta.term);
+    raft_vote_for_nodeid(rr->raft, rr->meta.vote);
 
-    LOG_INFO("Raft Log: loaded current term=%lu, vote=%d", rr->log->term, rr->log->vote);
+    LOG_INFO("Raft Meta: loaded current term=%lu, vote=%d", rr->meta.term, rr->meta.vote);
     LOG_INFO("Raft state after applying log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
             raft_get_log_count(rr->raft),
             raft_get_current_idx(rr->raft),
@@ -1048,8 +1050,8 @@ static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
 
 RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
-    rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
-            1, 0, 1, -1, rr->config);
+    rr->log = RaftLogCreate(rr->config->raft_log_filename,
+                            rr->snapshot_info.dbid, 1, 0, rr->config);
     if (!rr->log) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
         return RR_ERROR;
@@ -1255,8 +1257,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
-
-    if ((rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
+    if (RaftMetaOpen(&rr->meta, rr->config->raft_log_filename) == RR_OK &&
+        (rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
         rr->state = REDIS_RAFT_LOADING;
     } else {
         rr->state = REDIS_RAFT_UNINITIALIZED;
@@ -2189,7 +2191,6 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
      */
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
-            1, -1,
             rr->config);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
