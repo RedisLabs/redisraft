@@ -76,27 +76,18 @@ class LogHeader(RawEntry):
     def snapshot_index(self):
         return int(self.args[5])
 
-    def last_term(self):
-        return int(self.args[6])
-
-    def last_vote(self):
-        return int(self.args[7])
-
     def __repr__(self):
         return '<LogHeader:version=%s,dbid=%s,node_id=%s,' \
-               'snapshot=<term:%s,index:%s>,last_term=%s,last_vote=%s' % (
+               'snapshot=<term:%s,index:%s>' % (
                    self.version(), self.dbid(), self.node_id(),
-                   self.snapshot_term(), self.snapshot_index(),
-                   self.last_term(), self.last_vote())
+                   self.snapshot_term(), self.snapshot_index())
 
     def __str__(self):
         return '#### node_id={} dbid={} version={}\n' \
-        '        #### last_term={} last_vote={}\n' \
         '        #### snapshot-term={} snapshot-index={}'.format(
             self.node_id().decode(encoding='ascii'),
             self.dbid().decode(encoding='ascii'),
             self.version(),
-            self.last_term(), self.last_vote(),
             self.snapshot_term(), self.snapshot_index())
 
 

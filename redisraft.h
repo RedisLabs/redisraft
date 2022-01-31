@@ -239,6 +239,11 @@ typedef struct SnapshotFile {
     size_t len;
 } SnapshotFile;
 
+typedef struct RaftMeta {
+    raft_term_t term;                           /* Last term we're aware of */
+    raft_node_id_t vote;                        /* Our vote in the last term, or -1 */
+} RaftMeta;
+
 /* Global Raft context */
 typedef struct RedisRaftCtx {
     void *raft;                                  /* Raft library context */
@@ -253,6 +258,7 @@ typedef struct RedisRaftCtx {
     uv_mutex_t rqueue_mutex;                     /* Mutex protecting rqueue access */
     STAILQ_HEAD(rqueue, RaftReq) rqueue;         /* Requests queue (Redis thread -> Raft thread) */
     struct RaftLog *log;                         /* Raft persistent log; May be NULL if not used */
+    struct RaftMeta meta;                        /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;                 /* Log entry cache to keep entries in memory for faster access */
     struct RedisRaftConfig *config;              /* User provided configuration */
     bool snapshot_in_progress;                   /* Indicates we're creating a snapshot in the background */
@@ -586,8 +592,6 @@ typedef struct RaftLog {
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
     raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
     raft_index_t        index;                  /* Index of last entry */
-    raft_term_t         term;                   /* Last term we're aware of */
-    raft_node_id_t      vote;                   /* Our vote in the last term, or -1 */
     size_t              file_size;              /* File size at the time of last write */
     const char          *filename;
     FILE                *file;
@@ -718,12 +722,10 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 
 /* log.c */
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, raft_term_t current_term, raft_node_id_t last_vote, RedisRaftConfig *config);
+RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-RRStatus RaftLogSetVote(RaftLog *log, raft_node_id_t vote);
-RRStatus RaftLogSetTerm(RaftLog *log, raft_term_t term, raft_node_id_t vote);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log);
@@ -737,6 +739,8 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
 void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
+int RaftMetaRead(RaftMeta *meta, const char* filename);
+int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote);
 
 typedef struct EntryCache {
     unsigned long int size;             /* Size of ptrs */

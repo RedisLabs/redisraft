@@ -574,8 +574,6 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
                 rr->snapshot_info.dbid,
                 rr->snapshot_info.last_applied_term,
                 rr->snapshot_info.last_applied_idx,
-                raft_get_current_term(rr->raft),
-                raft_get_voted_for(rr->raft),
                 rr->config);
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
