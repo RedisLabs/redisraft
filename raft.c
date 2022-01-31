@@ -2129,9 +2129,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->logcache ? rr->logcache->entries_memsize : 0,
             rr->logcache ? rr->logcache->len : 0,
             rr->client_attached_entries,
-            rr->log->fsync_count,
-            rr->log->fsync_max,
-            rr->log->fsync_total / (rr->log->fsync_count ? rr->log->fsync_count : 1));
+            rr->log ? rr->log->fsync_count : 0,
+            rr->log ? rr->log->fsync_max : 0,
+            rr->log ? rr->log->fsync_count ?
+                        (rr->log->fsync_total / rr->log->fsync_count) : 0 : 0);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"
