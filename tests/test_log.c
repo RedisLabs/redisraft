@@ -27,7 +27,7 @@ static int setup_create_log(void **state)
         .id = 1
     };
 
-    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, 1, -1, &cfg);
+    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, &cfg);
     assert_non_null(*state);
     return 0;
 }
@@ -194,7 +194,6 @@ static void test_log_fuzzer(void **state)
 {
     RaftLog *log = (RaftLog *) *state;
     int idx = 0, i;
-    raft_term_t t = 1;
 
     log->fsync = false;
 
@@ -218,32 +217,7 @@ static void test_log_fuzzer(void **state)
             assert_int_equal(e->id, get_idx);
             raft_entry_release(e);
         }
-
-        RaftLogSetTerm(log, ++t, 1);
-        RaftLogSetVote(log, -1);
     }
-}
-
-
-static void test_log_voting_persistence(void **state)
-{
-    RaftLog *log = (RaftLog *) *state;
-
-    __append_entry(log, 3);
-    __append_entry(log, 30);
-
-    /* Change voting */
-    RaftLogSetTerm(log, 0xffffffff, INT32_MAX);
-
-    /* Re-read first entry to verify no corruption */
-    raft_entry_t *ety = RaftLogGet(log, 1);
-    assert_int_equal(ety->id, 3);
-    raft_entry_release(ety);
-
-    RaftLog *templog = RaftLogOpen(LOGNAME, NULL, 0);
-    assert_int_equal(templog->term, 0xffffffff);
-    assert_int_equal(templog->vote, INT32_MAX);
-    RaftLogClose(templog);
 }
 
 static void mock_notify_func(void *arg, raft_entry_t *ety, raft_index_t idx)
@@ -544,6 +518,29 @@ static void test_entry_cache_fuzzer(void **state)
     EntryCacheFree(cache);
 }
 
+static int cleanup_meta(void **state)
+{
+    unlink(LOGNAME".meta");
+    return 0;
+}
+
+static void test_meta_persistence(void **state)
+{
+    RaftMeta meta;
+
+    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_ERROR);
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
+    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_OK);
+    assert_int_equal(meta.term, 0xffffffff);
+    assert_int_equal(meta.vote, INT32_MAX);
+
+    /* Test overwrite */
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 5, 5), RR_OK);
+    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 6, 6), RR_OK);
+    assert_int_equal(meta.term, 6);
+    assert_int_equal(meta.vote, 6);
+}
+
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_load_entries, setup_create_log, teardown_log),
@@ -558,8 +555,6 @@ const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
             test_log_delete, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_voting_persistence, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
             test_log_fuzzer, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_sanity, NULL, NULL),
@@ -571,5 +566,7 @@ const struct CMUnitTest log_tests[] = {
             test_entry_cache_delete_tail, NULL, NULL),
     cmocka_unit_test_setup_teardown(
             test_entry_cache_fuzzer, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+            test_meta_persistence, cleanup_meta, cleanup_meta),
     { .test_func = NULL }
 };
