@@ -198,7 +198,6 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     return RR_OK;
 
 error:
-    ShardGroupFree(sg);
     return RR_ERROR;
 }
 
