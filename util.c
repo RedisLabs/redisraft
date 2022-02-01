@@ -395,6 +395,7 @@ void handleRMCallError(RedisModuleCtx *ctx, int ret_errno, const char *cmd, size
     RedisModule_Free(errmsg);
 }
 
+/* This function assumes that the rr->config->slot_config has already been validated as valid */
 void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
 {
     char *str = RedisModule_Strdup(rr->config->slot_config);

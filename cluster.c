@@ -230,7 +230,7 @@ void ShardGroupTerm(ShardGroup *sg)
     }
 }
 
-ShardGroup* ShardGroupCreate() {
+ShardGroup *ShardGroupCreate() {
     ShardGroup *sg = RedisModule_Calloc(1, sizeof(*sg));
     ShardGroupInit(sg);
     return sg;
@@ -872,8 +872,8 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
  *
  *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
  *
- * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx,
- * and RR_ERROR is returned.
+ * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and -1 is returned
+ * If it was processed successfully, the number of argv elements consumed is returned
  */
 
 int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg, int base_argv_idx)
@@ -1002,12 +1002,9 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     }
 
     /* basic validation, no shard groups have slotranges that overlap another */
-    ShardGroup * stable[REDIS_RAFT_HASH_MAX_SLOT+1];
-    memset(stable, 0, sizeof(ShardGroup*)*(REDIS_RAFT_HASH_MAX_SLOT+1));
-    ShardGroup * importing[REDIS_RAFT_HASH_MAX_SLOT+1];
-    memset(importing, 0, sizeof(ShardGroup *)*(REDIS_RAFT_HASH_MAX_SLOT+1));
-    ShardGroup * migrating[REDIS_RAFT_HASH_MAX_SLOT+1];
-    memset(migrating, 0, sizeof(ShardGroup *)*(REDIS_RAFT_HASH_MAX_SLOT+1));
+    ShardGroup *stable[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
+    ShardGroup *importing[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
+    ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
 
     for (int j = 0; j < req->r.shardgroups_replace.len; j++) {
         ShardGroup * sg = req->r.shardgroups_replace.shardgroups[j];
@@ -1124,10 +1121,10 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
- * the entry.
+ * the entry or reply with an error or if it can't be done
  */
 
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req)
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
 {
     int slot = -1;
 

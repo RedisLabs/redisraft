@@ -810,7 +810,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
 
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);

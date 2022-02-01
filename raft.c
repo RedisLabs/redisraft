@@ -1911,7 +1911,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 
 static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (computeHashSlot(rr, req) != RR_OK) {
+    if (computeHashSlotOrReplyError(rr, req) != RR_OK) {
         return RR_ERROR;
     }
 
