@@ -801,8 +801,8 @@ const char *ConnGetStateStr(Connection *conn);
 
 /* cluster.c */
 char *ShardGroupSerialize(ShardGroup *sg);
-RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
-ShardGroup* ShardGroupCreate();
+ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len);
+ShardGroup *ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg, int base_argv_idx);

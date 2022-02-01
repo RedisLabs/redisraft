@@ -2329,11 +2329,11 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
  */
 void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    ShardGroup * sg = ShardGroupCreate();
     RRStatus ret;
 
-    if (ShardGroupDeserialize(entry->data, entry->data_len, sg) != RR_OK) {
-        ShardGroupFree(sg);
+    ShardGroup * sg;
+
+    if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
         LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
                 entry->data_len, entry->data);
         return;
@@ -2416,9 +2416,8 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_Assert(endptr == nl);
         payload = nl + 1;
 
-        ShardGroup *sg = ShardGroupCreate();
-        if (ShardGroupDeserialize(payload, payload_len, sg) != RR_OK) {
-            ShardGroupFree(sg);
+        ShardGroup *sg;
+        if ((sg = ShardGroupDeserialize(payload, payload_len)) == NULL) {
             LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
             return;
         }

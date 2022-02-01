@@ -92,8 +92,10 @@ char *ShardGroupSerialize(ShardGroup *sg)
 /* Deserialize a ShardGroup from the specified buffer. The target ShardGroup is assumed
  * to be uninitialized, and the nodes array will be allocated on demand.
  */
-RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
+ShardGroup * ShardGroupDeserialize(const char *buf, size_t buf_len)
 {
+    ShardGroup * sg = ShardGroupCreate();
+
     /* Make a mutable, null terminated copy */
     const char *s = buf;
     const char *end = buf + buf_len;
@@ -195,10 +197,11 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
         s = nl + 1;
     }
 
-    return RR_OK;
+    return sg;
 
 error:
-    return RR_ERROR;
+    ShardGroupFree(sg);
+    return NULL;
 }
 
 /* Initialize a (previously allocated) shardgroup structure.
