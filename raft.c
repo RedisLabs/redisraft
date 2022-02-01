@@ -2119,7 +2119,10 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             "file_size:%lu\r\n"
             "cache_memory_size:%lu\r\n"
             "cache_entries:%lu\r\n"
-            "client_attached_entries:%lu\r\n",
+            "client_attached_entries:%lu\r\n"
+            "fsync_count:%"PRIu64"\r\n"
+            "fsync_max_microseconds:%"PRIu64"\r\n"
+            "fsync_avg_microseconds:%"PRIu64"\r\n",
             rr->raft ? raft_get_log_count(rr->raft) : 0,
             rr->raft ? raft_get_current_idx(rr->raft) : 0,
             rr->raft ? raft_get_commit_idx(rr->raft) : 0,
@@ -2127,7 +2130,11 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->log ? rr->log->file_size : 0,
             rr->logcache ? rr->logcache->entries_memsize : 0,
             rr->logcache ? rr->logcache->len : 0,
-            rr->client_attached_entries);
+            rr->client_attached_entries,
+            rr->log ? rr->log->fsync_count : 0,
+            rr->log ? rr->log->fsync_max : 0,
+            rr->log ? rr->log->fsync_count ?
+                        (rr->log->fsync_total / rr->log->fsync_count) : 0 : 0);
 
     s = catsnprintf(s, &slen,
             "\r\n# Snapshot\r\n"

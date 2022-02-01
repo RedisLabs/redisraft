@@ -480,7 +480,8 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     }
 
     /* Write log start */
-    if (writeLogHeader(log->file, log) < 0) {
+    if (writeLogHeader(log->file, log) < 0 ||
+        RaftLogSync(log) != RR_OK) {
         LOG_ERROR("Failed to create Raft log: %s: %s", filename, strerror(errno));
         RaftLogClose(log);
         log = NULL;
@@ -615,7 +616,8 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
     log->idxoffset = 0;
 
     if (ftruncate(fileno(log->file), 0) < 0 ||
-        writeLogHeader(log->file, log) < 0) {
+        writeLogHeader(log->file, log) < 0 ||
+        RaftLogSync(log) != RR_OK) {
         return RR_ERROR;
     }
 
@@ -732,16 +734,32 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
 
 RRStatus RaftLogSync(RaftLog *log)
 {
-    if (writeEnd(log->file, log->fsync) < 0) {
+    uint64_t begin = RedisModule_MonotonicMicroseconds();
+
+    if (fflush(log->file) < 0) {
+        LOG_ERROR("fflush() : %s", strerror(errno));
         return RR_ERROR;
     }
+
+    if (log->fsync) {
+        if (fsync(fileno(log->file)) < 0) {
+            LOG_ERROR("fsync() : %s", strerror(errno));
+            return RR_ERROR;
+        }
+    }
+
+    uint64_t took = RedisModule_MonotonicMicroseconds() - begin;
+    log->fsync_count++;
+    log->fsync_total += took;
+    log->fsync_max = MAX(took, log->fsync_max);
+
     return RR_OK;
 }
 
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
     if (RaftLogWriteEntry(log, entry) != RR_OK ||
-            writeEnd(log->file, log->fsync) < 0) {
+        RaftLogSync(log) != RR_OK) {
         return RR_ERROR;
     }
 

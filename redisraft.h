@@ -597,6 +597,9 @@ typedef struct RaftLog {
     FILE                *file;
     FILE                *idxfile;
     off_t               idxoffset;              /* Index file position */
+    uint64_t            fsync_count;            /* Count of fsync() calls */
+    uint64_t            fsync_max;              /* Slowest fsync() call in microseconds */
+    uint64_t            fsync_total;            /* Total time fsync() calls consumed in microseconds */
 } RaftLog;
 
 
