@@ -198,7 +198,7 @@ RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg)
     return RR_OK;
 
 error:
-    ShardGroupTerm(sg);
+    ShardGroupFree(sg);
     return RR_ERROR;
 }
 
@@ -786,12 +786,13 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
+    RRStatus ret = RR_ERROR;
     if (!memcmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
         /* TODO: when we can update slots, that is the only thing that will be updated here */
     } else {
         ShardGroup *sg = getShardGroupById(rr, new_sg->id);
         if (sg == NULL) {
-            return RR_ERROR;
+            goto out;
         }
 
         sg->nodes_num = new_sg->nodes_num;
@@ -799,7 +800,11 @@ RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
         memcpy(sg->nodes, new_sg->nodes, sizeof(ShardGroupNode) * sg->nodes_num);
     }
 
-    return RR_OK;
+    ret = RR_OK;
+
+out:
+    ShardGroupFree(new_sg);
+    return ret;
 }
 
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id)
@@ -819,16 +824,15 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
 
     /* Validate first */
     if (ShardingInfoValidateShardGroup(rr, sg) != RR_OK) {
-        return RR_ERROR;
+        goto fail;
     }
 
     if (strlen(sg->id) >= sizeof(sg->id)) {
-        return RR_ERROR;
+        goto fail;
     }
 
     if (RedisModule_DictSetC(si->shard_group_map, sg->id, strlen(sg->id), sg) != REDISMODULE_OK) {
-        ShardGroupFree(sg);
-        return RR_ERROR;
+        goto fail;
     }
 
     si->shard_groups_num++;
@@ -865,6 +869,10 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
     }
 
     return RR_OK;
+
+fail:
+    ShardGroupFree(sg);
+    return RR_ERROR;
 }
 
 /* Parse a ShardGroup specification as passed directly to RAFT.SHARDGROUP ADD.
