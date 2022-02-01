@@ -1921,12 +1921,8 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     /* Make sure hash slot is mapped and handled locally. */
     ShardGroup *sg = rr->sharding_info->stable_slots_map[req->r.redis.hash_slot];
     if (!sg) {
-        /* TODO: will have to be smarter with actual migration happening */
-        sg = rr->sharding_info->migrating_slots_map[req->r.redis.hash_slot];
-        if (!sg) {
-            RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
-            return RR_ERROR;
-        }
+        RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
+        return RR_ERROR;
     }
 
     /* If accessing a foreign shardgroup, issue a redirect. We use round-robin
