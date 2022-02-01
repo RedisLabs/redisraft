@@ -1024,11 +1024,9 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                 case SLOTRANGE_TYPE_STABLE:
                     for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
                         if (stable[l]) {
-                            printf("ERR Unable to validate shard groups: shard group already owns this slot\n");
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
                             goto fail;
                         } else if (importing[l] || migrating[l]) {
-                            printf("ERR Unable to validate shard groups: slot(%d) marked for resharding\n", l);
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: slot marked for resharding");
                             goto fail;
                         }
@@ -1038,11 +1036,9 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                 case SLOTRANGE_TYPE_IMPORTING:
                     for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
                         if (stable[l]) {
-                            printf("Unable to validate shard groups: shard group already owns this slot\n");
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
                             goto fail;
                         } else if (importing[l]) {
-                            printf("ERR Unable to validate shard groups: shard group already importing this slot\n");
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already importing this slot");
                             goto fail;
                         }
@@ -1052,11 +1048,9 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                 case SLOTRANGE_TYPE_MIGRATING:
                     for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
                         if (stable[l]) {
-                            printf("Unable to validate shard groups: shard group already owns this slot\n");
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
                             goto fail;
                         } else if (migrating[l]) {
-                            printf("Unable to validate shard groups: shard group already migrating this slot\n");
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already migrating this slot");
                             goto fail;
                         }
@@ -1064,7 +1058,6 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                     }
                     break;
                 default:
-                    printf("Unable to validate shard groups: unknown shard group type\n");
                     RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: unknown shard group type");
                     goto fail;
             }
