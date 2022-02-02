@@ -902,8 +902,7 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
     }
     argidx++;
 
-    memcpy((*sg)
-    ->id, id, len);
+    memcpy((*sg)->id, id, len);
     (*sg)->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK) {
