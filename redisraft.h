@@ -560,7 +560,7 @@ typedef struct RaftReq {
         } node_shutdown;
         struct {
             ShardGroup **shardgroups;
-            long long len;
+            unsigned int len;
         } shardgroups_replace;
         raft_node_id_t node_to_transfer_leader;
         struct {

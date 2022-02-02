@@ -1352,7 +1352,7 @@ void RaftReqFree(RaftReq *req)
             break;
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
-                for(int i = 0; i < req->r.shardgroups_replace.len; i++) {
+                for (unsigned int i = 0; i < req->r.shardgroups_replace.len; i++) {
                     ShardGroupFree(req->r.shardgroups_replace.shardgroups[i]);
                 }
                 RedisModule_Free(req->r.shardgroups_replace.shardgroups);
@@ -2393,7 +2393,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     si->shard_groups_num = 0;
 
     si->shard_group_map = RedisModule_CreateDict(rr->ctx);
-    for(int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
+    for (int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;
         si->migrating_slots_map[i] = NULL;

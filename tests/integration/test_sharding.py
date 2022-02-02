@@ -10,7 +10,6 @@ import time
 from redis import ResponseError
 from pytest import raises
 from .sandbox import assert_after
-import pprint
 
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})

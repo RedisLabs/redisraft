@@ -92,9 +92,9 @@ char *ShardGroupSerialize(ShardGroup *sg)
 /* Deserialize a ShardGroup from the specified buffer. The target ShardGroup is assumed
  * to be uninitialized, and the nodes array will be allocated on demand.
  */
-ShardGroup * ShardGroupDeserialize(const char *buf, size_t buf_len)
+ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len)
 {
-    ShardGroup * sg = ShardGroupCreate();
+    ShardGroup *sg = ShardGroupCreate();
 
     /* Make a mutable, null terminated copy */
     const char *s = buf;
@@ -781,7 +781,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 /* Update an existing ShardGroup in the active ShardingInfo.
  *
  * FIXME: We currently only handle updating nodes but don't support remapping
- *        hash slots, via this mechanism
+ *        hash slots, via this mechanism.
  */
 
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
@@ -881,11 +881,11 @@ fail:
  *
  *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
  *
- * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and -1 is returned
- * If it was processed successfully, the number of argv elements consumed is returned
+ * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and -1 is returned.
+ * If it was processed successfully, the number of argv elements consumed is returned.
  */
 
-ShardGroup * ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_argv_entries)
+ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_argv_entries)
 {
     const char *id;
     size_t len;
@@ -981,19 +981,21 @@ error:
 /* parses all the shardgroups in a replace call and validates them */
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req)
 {
-    if (RedisModule_StringToLongLong(argv[0], &req->r.shardgroups_replace.len) != REDISMODULE_OK) {
+    long long val;
+    if (RedisModule_StringToLongLong(argv[0], &val) != REDISMODULE_OK || val < 0 || val >= REDIS_RAFT_HASH_SLOTS) {
         LOG_ERROR("Invalid shard group message: argv[0] (number of shard groups)");
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message(1)");
         return RR_ERROR;
     }
+    req->r.shardgroups_replace.len = val;
     req->r.shardgroups_replace.shardgroups =
             RedisModule_Calloc(req->r.shardgroups_replace.len, sizeof(ShardGroup *));
     argv++;
     argc--;
     int argv_idx = 1;
 
-    int i;
-    for(i = 0; i < req->r.shardgroups_replace.len; i++) {
+    unsigned int i;
+    for (i = 0; i < req->r.shardgroups_replace.len; i++) {
         ShardGroup *sg;
 
         int num_argv_entries;
@@ -1019,13 +1021,13 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     ShardGroup *importing[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
     ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
 
-    for (int j = 0; j < req->r.shardgroups_replace.len; j++) {
+    for (unsigned int j = 0; j < req->r.shardgroups_replace.len; j++) {
         ShardGroup *sg = req->r.shardgroups_replace.shardgroups[j];
-        for (int k = 0; k < sg->slot_ranges_num; k++) {
+        for (unsigned int k = 0; k < sg->slot_ranges_num; k++) {
             ShardGroupSlotRange * sr = &sg->slot_ranges[k];
             switch (sr->type) {
                 case SLOTRANGE_TYPE_STABLE:
-                    for(unsigned int l=sr->start_slot; l <= sr->end_slot; l++) {
+                    for (unsigned int l = sr->start_slot; l <= sr->end_slot; l++) {
                         if (stable[l]) {
                             RedisModule_ReplyWithError(ctx, "ERR Unable to validate shard groups: shard group already owns this slot");
                             goto fail;
