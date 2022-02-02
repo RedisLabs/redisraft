@@ -396,10 +396,11 @@ void handleRMCallError(RedisModuleCtx *ctx, int ret_errno, const char *cmd, size
 }
 
 /* This function assumes that the rr->config->slot_config has already been validated as valid */
-void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
+ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 {
-    char *str = RedisModule_Strdup(rr->config->slot_config);
+    ShardGroup *sg = ShardGroupCreate();
 
+    char *str = RedisModule_Strdup(rr->config->slot_config);
     sg->slot_ranges_num = 1;
     char *pos = str;
     while ((pos = strchr(pos+1, ','))) {
@@ -428,16 +429,17 @@ void FillShardSlots(RedisRaftCtx *rr, ShardGroup *sg)
     }
 
     RedisModule_Free(str);
+
+    return sg;
 }
 
 void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
-    ShardGroup *sg = ShardGroupCreate();
-    sg->local = true;
+    ShardGroup *sg = CreateAndFillShard(rr);
+    RedisModule_Assert(sg != NULL);
 
+    sg->local = true;
     memcpy(sg->id, rr->log->dbid, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = 0;
-
-    FillShardSlots(rr, sg);
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
     RedisModule_Assert(ret == RR_OK);
