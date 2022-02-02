@@ -879,7 +879,7 @@ fail:
 /* Parse a ShardGroup specification as passed directly to RAFT.SHARDGROUP ADD.
  * Shard group argv syntax is as follows:
  *
- *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
+ *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid] [node-addr:node-port])*
  *
  * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and NULL is returned
  * If it was processed successfully, a pointer to an allocated ShardGroup is returned and the number of consumed
@@ -980,6 +980,11 @@ error:
 }
 
 /* parses all the shardgroups in a replace call and validates them */
+/*
+ * It is able to validate them at this point, because the replace call has a view of the entire world
+ * and replaces the entire world.  Therefore, its not dependent on the state of the ShardGroups at any
+ * point in time.
+ */
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req)
 {
     long long val;
