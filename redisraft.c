@@ -651,11 +651,14 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         }
 
         req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
-        if (ShardGroupParse(ctx, &argv[2], argc - 2, &req->r.shardgroup_add, 2) < 0) {
+        int num_elems;
+        ShardGroup *sg;
+        if ((sg = ShardGroupParse(ctx, &argv[2], argc - 2, 2, &num_elems)) == NULL) {
             /* Error reply already produced by parseShardGroupFromArgs */
             RaftReqFree(req);
             return REDISMODULE_OK;
         }
+        req->r.shardgroup_add = sg;
 
         RaftReqSubmit(&redis_raft, req);
         return REDISMODULE_OK;
