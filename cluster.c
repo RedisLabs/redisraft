@@ -694,9 +694,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         memcpy(sg->id, buf, len);
         sg->id[len] = '\0';
         RedisModule_Free(buf);
-        if (RedisModule_LoadUnsigned(rdb)) {
-            sg->local = true;
-        }
+        sg->local = RedisModule_LoadUnsigned(rdb);
 
         /* Load Slot Range */
         sg->slot_ranges_num = RedisModule_LoadUnsigned(rdb);
@@ -758,7 +756,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
             return RR_ERROR;
         }
 
-        for (int i = new_sg->slot_ranges[h].start_slot; i <= new_sg->slot_ranges[h].end_slot; i++) {
+        for (unsigned int i = new_sg->slot_ranges[h].start_slot; i <= new_sg->slot_ranges[h].end_slot; i++) {
             if (si->stable_slots_map[i] != NULL) {
                 LOG_ERROR("Invalid shardgroup: hash slot already mapped as stable: %u", i);
                 return RR_ERROR;
@@ -886,12 +884,14 @@ fail:
  * If it was processed successfully, the number of argv elements consumed is returned
  */
 
-int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg, int base_argv_idx)
+int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup **sg, int base_argv_idx)
 {
     const char *id;
     size_t len;
     long long num_slots, num_nodes;
     int argidx = 0;
+
+    *sg = ShardGroupCreate();
 
     id = RedisModule_StringPtrLen(argv[0], &len);
     if (len > RAFT_DBID_LEN) {
@@ -901,8 +901,9 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
     }
     argidx++;
 
-    memcpy(sg->id, id, len);
-    sg->id[RAFT_DBID_LEN] = '\0';
+    memcpy((*sg)
+    ->id, id, len);
+    (*sg)->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK) {
         LOG_ERROR("ShardGroupParse failed; argv[%d]: couldn't parse num_slots", base_argv_idx + argidx);
@@ -927,8 +928,8 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
     }
 
     /* Parse slots */
-    sg->slot_ranges_num = num_slots;
-    sg->slot_ranges = RedisModule_Calloc(num_slots, sizeof(ShardGroupSlotRange));
+    (*sg)->slot_ranges_num = num_slots;
+    (*sg)->slot_ranges = RedisModule_Calloc(num_slots, sizeof(ShardGroupSlotRange));
     for (int i = 0; i < num_slots; i++) {
         long long start_slot, end_slot, type;
         if (RedisModule_StringToLongLong(argv[argidx++], &start_slot) != REDISMODULE_OK ||
@@ -940,14 +941,14 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (slot range)");
             goto error;
         }
-        sg->slot_ranges[i].start_slot = start_slot;
-        sg->slot_ranges[i].end_slot = end_slot;
-        sg->slot_ranges[i].type = type;
+        (*sg)->slot_ranges[i].start_slot = start_slot;
+        (*sg)->slot_ranges[i].end_slot = end_slot;
+        (*sg)->slot_ranges[i].type = type;
     }
 
     /* Parse nodes */
-    sg->nodes_num = num_nodes;
-    sg->nodes = RedisModule_Calloc(num_nodes, sizeof(ShardGroupNode));
+    (*sg)->nodes_num = num_nodes;
+    (*sg)->nodes = RedisModule_Calloc(num_nodes, sizeof(ShardGroupNode));
     for (int i = 0; i < num_nodes; i++) {
         const char *str = RedisModule_StringPtrLen(argv[argidx], &len);
 
@@ -958,11 +959,11 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
         }
         argidx++;
 
-        memcpy(sg->nodes[i].node_id, str, len);
-        sg->nodes[i].node_id[len] = '\0';
+        memcpy((*sg)->nodes[i].node_id, str, len);
+        (*sg)->nodes[i].node_id[len] = '\0';
 
         str = RedisModule_StringPtrLen(argv[argidx], &len);
-        if (!NodeAddrParse(str, len, &sg->nodes[i].addr)) {
+        if (!NodeAddrParse(str, len, &(*sg)->nodes[i].addr)) {
             LOG_ERROR("ShardGroupParse failed; argv[%d] failed to parse node", base_argv_idx + argidx);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node address/port)");
             goto error;
@@ -973,6 +974,8 @@ int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, Sha
     return num_argv_entries;
 
 error:
+    ShardGroupFree(*sg);
+    *sg = NULL;
     return -1;
 }
 
@@ -992,13 +995,14 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     int i;
     for(i = 0; i < req->r.shardgroups_replace.len; i++) {
-        ShardGroup *sg = ShardGroupCreate();
-        req->r.shardgroups_replace.shardgroups[i] = sg;
+        ShardGroup *sg;
 
         int num_argv_entries = 0;
-        if ((num_argv_entries = ShardGroupParse(ctx, argv, argc, sg, argv_idx)) < 0) {
+        if ((num_argv_entries = ShardGroupParse(ctx, argv, argc, &sg, argv_idx)) < 0) {
             goto fail;
         }
+
+        req->r.shardgroups_replace.shardgroups[i] = sg;
 
         argv += num_argv_entries;
         argc -= num_argv_entries;
@@ -1017,7 +1021,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
 
     for (int j = 0; j < req->r.shardgroups_replace.len; j++) {
-        ShardGroup * sg = req->r.shardgroups_replace.shardgroups[j];
+        ShardGroup *sg = req->r.shardgroups_replace.shardgroups[j];
         for (int k = 0; k < sg->slot_ranges_num; k++) {
             ShardGroupSlotRange * sr = &sg->slot_ranges[k];
             switch (sr->type) {

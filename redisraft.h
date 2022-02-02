@@ -550,7 +550,7 @@ typedef struct RaftReq {
         struct {
             unsigned long long client_id;
         } client_disconnect;
-        struct ShardGroup shardgroup_add;
+        struct ShardGroup *shardgroup_add;
         struct {
             NodeAddr addr;
         } shardgroup_link;
@@ -805,7 +805,7 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len);
 ShardGroup *ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
-int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg, int base_argv_idx);
+int ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup **sg, int base_argv_idx);
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);

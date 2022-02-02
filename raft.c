@@ -1345,7 +1345,10 @@ void RaftReqFree(RaftReq *req)
             }
             break;
         case RR_SHARDGROUP_ADD:
-            ShardGroupTerm(&req->r.shardgroup_add);
+            if (req->r.shardgroup_add) {
+                ShardGroupFree(req->r.shardgroup_add);
+                req->r.shardgroup_add = NULL;
+            }
             break;
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
@@ -2331,7 +2334,7 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RRStatus ret;
 
-    ShardGroup * sg;
+    ShardGroup *sg;
 
     if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
         LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
@@ -2455,12 +2458,12 @@ void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
     }
 
     /* Validate now before pushing this as a log entry. */
-    if (ShardingInfoValidateShardGroup(rr, &req->r.shardgroup_add) != RR_OK) {
+    if (ShardingInfoValidateShardGroup(rr, req->r.shardgroup_add) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration. Consult the logs for more info.");
         goto exit;
     }
 
-    if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+    if (ShardGroupAppendLogEntry(rr, req->r.shardgroup_add,
                                  RAFT_LOGTYPE_ADD_SHARDGROUP, req) == RR_ERROR) goto exit;
 
     return;
