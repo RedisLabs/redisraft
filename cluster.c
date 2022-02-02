@@ -787,6 +787,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
 {
     RRStatus ret = RR_ERROR;
+
     if (!memcmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
         /* TODO: when we can update slots, that is the only thing that will be updated here */
     } else {

@@ -2359,12 +2359,10 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
     /* If we have an attached client, handle the reply */
     if (entry->user_data) {
         RaftReq *req = entry->user_data;
-
         if (ret == RR_OK) {
             RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         } else {
-            /* Should never happen! */
-            RedisModule_ReplyWithError(req->ctx, "ERR failed to locally apply change, should never happen.");
+            RedisModule_ReplyWithError(req->ctx, "ERR Invalid ShardGroup Update");
         }
         RaftReqFree(req);
 

@@ -48,7 +48,7 @@ def test_shard_group_sanity(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16383', '1',
+        '1', '16382', '1',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
@@ -62,14 +62,14 @@ def test_shard_group_sanity(cluster):
 
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
-#    assert c.execute_command(
-#        'RAFT.SHARDGROUP', 'UPDATE',
-#        '12345678901234567890123456789012',
-#        '1', '1',
-#        '1', '16383', '1',
-#        '1234567890123456789012345678901234567890', '2.2.2.2:2222') == b'OK'
-#    with raises(ResponseError, match='MOVED [0-9]+ 2.2.2.2:2222'):
-#        c.set('key', 'value')
+    # Test by adding another fake shardgroup with same shardgroup id, should fail
+    with raises(ResponseError, match='Invalid ShardGroup Update'):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'ADD',
+            '12345678901234567890123456789012',
+            '1', '1',
+            '16383', '16383', '1',
+            '1234567890123456789012345678901234567890', '   1.1.1.1:1111')
 
 
 def test_shard_group_replace(cluster):
