@@ -877,12 +877,13 @@ fail:
 }
 
 /* Parse a ShardGroup specification as passed directly to RAFT.SHARDGROUP ADD.
- * Shard group syntax is as follows:
+ * Shard group argv syntax is as follows:
  *
  *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*
  *
- * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and -1 is returned.
- * If it was processed successfully, the number of argv elements consumed is returned.
+ * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and NULL is returned
+ * If it was processed successfully, a pointer to an allocated ShardGroup is returned and the number of consumed
+ * argv elements is set to the integer pointed to by num_argv_entries
  */
 
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_argv_entries)
