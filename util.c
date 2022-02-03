@@ -394,3 +394,53 @@ void handleRMCallError(RedisModuleCtx *ctx, int ret_errno, const char *cmd, size
     RedisModule_ReplyWithError(ctx, errmsg);
     RedisModule_Free(errmsg);
 }
+
+/* This function assumes that the rr->config->slot_config has already been validated as valid */
+ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
+{
+    ShardGroup *sg = ShardGroupCreate();
+
+    char *str = RedisModule_Strdup(rr->config->slot_config);
+    sg->slot_ranges_num = 1;
+    char *pos = str;
+    while ((pos = strchr(pos+1, ','))) {
+        sg->slot_ranges_num++;
+    }
+    sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
+
+    char *saveptr = NULL;
+    char *token = strtok_r(str, ",", &saveptr);
+    for (int i = 0; i < sg->slot_ranges_num; i++) {
+        unsigned long val;
+        if ((pos = strchr(token, ':'))) {
+            *pos = '\0';
+            val = strtoul(token, NULL, 10);
+            sg->slot_ranges[i].start_slot = val;
+            val = strtoul(pos+1, NULL, 10);
+            sg->slot_ranges[i].end_slot = val;
+        } else {
+            val = strtoul(token, NULL, 10);
+            sg->slot_ranges[i].start_slot = val;
+            sg->slot_ranges[i].end_slot = val;
+        }
+        sg->slot_ranges[i].type = SLOTRANGE_TYPE_STABLE;
+
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+
+    RedisModule_Free(str);
+
+    return sg;
+}
+
+void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
+    ShardGroup *sg = CreateAndFillShard(rr);
+    RedisModule_Assert(sg != NULL);
+
+    sg->local = true;
+    memcpy(sg->id, rr->log->dbid, RAFT_DBID_LEN);
+    sg->id[RAFT_DBID_LEN] = 0;
+
+    RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
+    RedisModule_Assert(ret == RR_OK);
+}

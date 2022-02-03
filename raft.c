@@ -867,6 +867,10 @@ static void handleLoadingState(RedisRaftCtx *rr)
             }
         }
 
+        if (!rr->sharding_info->shard_groups_num) {
+            AddBasicLocalShardGroup(rr);
+        }
+
         initRaftLibrary(rr);
 
         raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
@@ -1080,6 +1084,8 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     if (initRaftLog(ctx, rr) == RR_ERROR) {
         return RR_ERROR;
     }
+
+    AddBasicLocalShardGroup(rr);
 
     initRaftLibrary(rr);
 
@@ -1333,11 +1339,14 @@ void RaftReqFree(RaftReq *req)
             }
             break;
         case RR_SHARDGROUP_ADD:
-            ShardGroupTerm(&req->r.shardgroup_add);
+            if (req->r.shardgroup_add) {
+                ShardGroupFree(req->r.shardgroup_add);
+                req->r.shardgroup_add = NULL;
+            }
             break;
         case RR_SHARDGROUPS_REPLACE:
             if (req->r.shardgroups_replace.shardgroups != NULL) {
-                for(int i = 0; i < req->r.shardgroups_replace.len; i++) {
+                for (unsigned int i = 0; i < req->r.shardgroups_replace.len; i++) {
                     ShardGroupFree(req->r.shardgroups_replace.shardgroups[i]);
                 }
                 RedisModule_Free(req->r.shardgroups_replace.shardgroups);
@@ -1892,15 +1901,14 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
  *
  * 1. Compute hash slot of all associated keys and validate there's no cross-slot
  *    violation.
- * 2. Update the request's hash_slot for future refrence.
+ * 2. Update the request's hash_slot for future reference.
  * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
  * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
  */
 
 static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (computeHashSlot(rr, req) != RR_OK) {
-        RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+    if (computeHashSlotOrReplyError(rr, req) != RR_OK) {
         return RR_ERROR;
     }
 
@@ -1908,7 +1916,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     if (req->r.redis.hash_slot == -1) return RR_OK;
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->hash_slots_map[req->r.redis.hash_slot];
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[req->r.redis.hash_slot];
     if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
@@ -1919,7 +1927,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * of who the leader is and whether or not some configuration has changed since
      * last refresh (when refresh is implemented, in the future).
      */
-    if (*sg->id != 0) {
+    if (!sg->local) {
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
         replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
@@ -2196,12 +2204,15 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     /* Initialize Raft log.  We delay this operation as we want to create the log
      * with the proper dbid which is only received now.
      */
+
     rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
             rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
             rr->config);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
+
+    AddBasicLocalShardGroup(rr);
 
     initRaftLibrary(rr);
 
@@ -2316,10 +2327,11 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req)
  */
 void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    ShardGroup sg;
     RRStatus ret;
 
-    if (ShardGroupDeserialize(entry->data, entry->data_len, &sg) != RR_OK) {
+    ShardGroup *sg;
+
+    if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
         LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
                 entry->data_len, entry->data);
         return;
@@ -2327,11 +2339,11 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
 
     switch (entry->type) {
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
-            if ((ret = ShardingInfoAddShardGroup(rr, &sg)) != RR_OK)
+            if ((ret = ShardingInfoAddShardGroup(rr, sg)) != RR_OK)
                 LOG_ERROR("Failed to add a shardgroup");
             break;
         case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
-            if ((ret = ShardingInfoUpdateShardGroup(rr, &sg)) != RR_OK)
+            if ((ret = ShardingInfoUpdateShardGroup(rr, sg)) != RR_OK)
                 LOG_ERROR("Failed to update shardgroup");
             break;
         default:
@@ -2339,17 +2351,13 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
             break;
     }
 
-    ShardGroupTerm(&sg);
-
     /* If we have an attached client, handle the reply */
     if (entry->user_data) {
         RaftReq *req = entry->user_data;
-
         if (ret == RR_OK) {
             RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         } else {
-            /* Should never happen! */
-            RedisModule_ReplyWithError(req->ctx, "ERR failed to locally apply change, should never happen.");
+            RedisModule_ReplyWithError(req->ctx, "ERR Invalid ShardGroup Update");
         }
         RaftReqFree(req);
 
@@ -2362,7 +2370,6 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     // 1. reset sharding info
     ShardingInfo *si = rr->sharding_info;
 
-    ShardGroup *local = NULL;
     if (si->shard_group_map != NULL) {
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
 
@@ -2371,28 +2378,20 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         ShardGroup *data;
 
         while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
-            /* local shardgroup will not have a filled in id */
-            if (*data->id != 0) {
-                ShardGroupFree(data);
-            } else {
-                local = data;
-            }
+            ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
         RedisModule_FreeDict(rr->ctx, si->shard_group_map);
         si->shard_group_map = NULL;
     }
 
-    /* if we didn't identify the local shard group, we have a problem */
-    RedisModule_Assert(local != NULL);
+    si->shard_groups_num = 0;
 
     si->shard_group_map = RedisModule_CreateDict(rr->ctx);
-    RedisModule_DictSetC(si->shard_group_map, "", 0, local);
-    si->shard_groups_num = 1;
-    for(int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
-        if (si->hash_slots_map[i] != local) {
-            si->hash_slots_map[i] = NULL;
-        }
+    for (int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
+        si->stable_slots_map[i] = NULL;
+        si->importing_slots_map[i] = NULL;
+        si->migrating_slots_map[i] = NULL;
     }
 
     /* 2. iterate over payloads
@@ -2413,19 +2412,18 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_Assert(endptr == nl);
         payload = nl + 1;
 
-        ShardGroup sg;
-        if (ShardGroupDeserialize(payload, payload_len, &sg) != RR_OK) {
+        ShardGroup *sg;
+        if ((sg = ShardGroupDeserialize(payload, payload_len)) == NULL) {
             LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
             return;
         }
 
-        if (!memcmp(rr->snapshot_info.dbid, sg.id, sizeof(sg.id))) {
-            /* 2a. if payload is for local shardgroup, skip */
-        } else {
-            /* 2b. if payload is for remote shardgroup, deserialize and add with ShardingInfoAddShardGroup() */
-            RedisModule_Assert(ShardingInfoAddShardGroup(rr, &sg) == RR_OK);
+        /* local cluster has an empty string sg.id */
+        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+            sg->local = true;
         }
-        ShardGroupTerm(&sg);
+
+        RedisModule_Assert(ShardingInfoAddShardGroup(rr, sg) == RR_OK);
         payload += payload_len + 1;
     }
 
@@ -2453,12 +2451,12 @@ void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
     }
 
     /* Validate now before pushing this as a log entry. */
-    if (ShardingInfoValidateShardGroup(rr, &req->r.shardgroup_add) != RR_OK) {
+    if (ShardingInfoValidateShardGroup(rr, req->r.shardgroup_add) != RR_OK) {
         RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration. Consult the logs for more info.");
         goto exit;
     }
 
-    if (ShardGroupAppendLogEntry(rr, &req->r.shardgroup_add,
+    if (ShardGroupAppendLogEntry(rr, req->r.shardgroup_add,
                                  RAFT_LOGTYPE_ADD_SHARDGROUP, req) == RR_ERROR) goto exit;
 
     return;
@@ -2502,7 +2500,7 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-    ShardGroup *sg = getShardGroupById(rr, "");
+    ShardGroup *sg = getShardGroupById(rr, rr->log->dbid);
     /* 2 arrays
      * 1. slot ranges -> each element is a 3 element array start/end/type
      * 2. nodes -> each element is a 2 element array id/address

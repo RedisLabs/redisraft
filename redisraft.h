@@ -473,6 +473,7 @@ typedef struct ShardGroup {
     Connection *conn;                    /* Connection we use */
     long long last_updated;              /* Last time of successful update (mstime) */
     bool update_in_progress;             /* Are we currently updating? */
+    bool local;                          /* ShardGroup struct that corresponds to local cluster */
 } ShardGroup;
 
 #define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
@@ -492,7 +493,9 @@ typedef struct ShardingInfo {
      * since a zero value indicates the slot is unassigned. The index
      * should therefore be adjusted before refering the array.
      */
-    ShardGroup *hash_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *stable_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *importing_slots_map[REDIS_RAFT_HASH_SLOTS];
+    ShardGroup *migrating_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
 /* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
@@ -555,7 +558,7 @@ typedef struct RaftReq {
         struct {
             unsigned long long client_id;
         } client_disconnect;
-        struct ShardGroup shardgroup_add;
+        struct ShardGroup *shardgroup_add;
         struct {
             NodeAddr addr;
         } shardgroup_link;
@@ -565,7 +568,7 @@ typedef struct RaftReq {
         } node_shutdown;
         struct {
             ShardGroup **shardgroups;
-            long long len;
+            unsigned int len;
         } shardgroups_replace;
         raft_node_id_t node_to_transfer_leader;
         struct {
@@ -723,6 +726,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
+void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -806,15 +810,16 @@ const char *ConnGetStateStr(Connection *conn);
 
 /* cluster.c */
 char *ShardGroupSerialize(ShardGroup *sg);
-RRStatus ShardGroupDeserialize(const char *buf, size_t buf_len, ShardGroup *sg);
+ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len);
+ShardGroup *ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
-RRStatus ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, ShardGroup *sg);
+ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
 
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftReq *req);
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
