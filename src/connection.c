@@ -133,7 +133,6 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
     JoinLinkState *state = ConnGetPrivateData(conn);
 
     redisReply *reply = r;
-
     if (!reply) {
         LOG_ERROR("Redis connection authentication failed: connection died");
         ConnMarkDisconnected(conn);
@@ -146,6 +145,10 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
         state->failed = true;
         ConnMarkDisconnected(conn);
     }
+
+    conn->state = CONN_CONNECTED;
+    conn->connect_oks++;
+    conn->last_connected_time = RedisModule_Milliseconds();
 
     if (conn->connect_callback) {
         conn->connect_callback(conn);
@@ -189,11 +192,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
 
     CONN_TRACE(conn, "handleConnected: status=%d", status);
 
-    if (status == REDIS_OK) {
-        conn->state = CONN_CONNECTED;
-        conn->connect_oks++;
-        conn->last_connected_time = RedisModule_Milliseconds();
-    } else {
+    if (status != REDIS_OK) {
         conn->state = CONN_CONNECT_ERROR;
         conn->rc = NULL;
         conn->connect_errors++;
