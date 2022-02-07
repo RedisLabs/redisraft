@@ -603,6 +603,38 @@ typedef int (
         raft_node_t* node
     );
 
+/** Callback to skip sending msg_appendentries to the node
+ *
+ * Implementing this callback is optional
+ *
+ * If there are already pending appendentries messages in flight, you may want
+ * to skip sending more until you receive response for the previous ones.
+ * If the node is a slow consumer and you create msg_appendentries for each
+ * batch of new entries received, it may cause out of memory.
+ *
+ * Also, this way you can do batching. If new entries are received with an
+ * interval, creating a new appendentries message for each one might be
+ * inefficient. For each appendentries message, follower has to write entries
+ * to the disk before sending the response. e.g If there are 1000 appendentries
+ * message in flight, to commit a new entry, previous 1000 disk write operations
+ * must be completed. Considering disk write operations are quite slow, 1000
+ * write operations will take quite a time. A better approach would be limiting
+ * in flight appendentries messages depending on network conditions and disk
+ * performance.
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] node The node that we are about to send msg_appendentries to
+ * @return 0 to send message
+ *         Any other value to skip sending message
+ */
+typedef int (
+*func_backpressure_f
+)   (
+    raft_server_t* raft,
+    void *user_data,
+    raft_node_t* node
+    );
+
 typedef struct
 {
     /** Callback for sending request vote messages */
@@ -665,6 +697,9 @@ typedef struct
 
     /** Callback for sending TimeoutNow RPC messages to nodes */
     func_send_timeoutnow_f send_timeoutnow;
+
+    /** Callback for deciding whether to send msg_appendentries to a node. */
+    func_backpressure_f backpressure;
 } raft_cbs_t;
 
 /** A generic notification callback used to allow Raft to notify caller
@@ -843,6 +878,13 @@ typedef struct raft_log_impl
      *  Number of entries.
      */
     raft_index_t (*count) (void *log);
+
+    /** Persist log file to the disk. Usually, implemented as calling fsync()
+     * for the log file.
+     * @return 0 on success
+     *        -1 on error
+     */
+    int (*sync) (void *log);
 } raft_log_impl_t;
 
 /** Initialise a new Raft server, using the in-memory log implementation.
@@ -1289,10 +1331,6 @@ int raft_end_snapshot(raft_server_t *me_);
  */
 int raft_cancel_snapshot(raft_server_t *me_);
 
-/** Get the entry index of the entry that was snapshotted
- **/
-raft_index_t raft_get_snapshot_entry_idx(raft_server_t *me_);
-
 /** Check is a snapshot is in progress
  **/
 int raft_snapshot_is_in_progress(raft_server_t *me_);
@@ -1478,7 +1516,7 @@ extern const raft_log_impl_t raft_log_internal_impl;
 
 void raft_handle_append_cfg_change(raft_server_t* me_, raft_entry_t* ety, raft_index_t idx);
 
-void raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg);
+int raft_queue_read_request(raft_server_t* me_, func_read_request_callback_f cb, void *cb_arg);
 
 /** Attempt to process read queue.
  */
@@ -1498,5 +1536,72 @@ raft_node_id_t raft_get_transfer_leader(raft_server_t* me_);
 void raft_set_timeout_now(raft_server_t* me_);
 
 raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me_);
+
+/** Disable auto flush mode. Default is enabled.
+ *
+ * In auto flush mode, after each raft_recv_entry() call, raft_log_impl_t's
+ * sync() is called to verify entry is persisted. Also, appendentries messages
+ * are sent for the entry immediately. It's easy to use library in this mode but
+ * to achieve better performance, we need batching. We can write entries to disk
+ * in another thread and send a single appendentries message for multiple
+ * entries. To do that, we disable auto flush mode. Once we do that, library
+ * user must check the newest log index by calling raft_get_index_to_sync() and
+ * verify new entries upto that index is written to the disk, probably in
+ * another thread. Also, users should call raft_flush() often to update
+ * persisted log index and to send new appendentries messages.
+ *
+ * Example :
+ *
+ * void server_loop() {
+ *    while (1) {
+ *        HandleNetworkOperations();
+ *
+ *         for (int i = 0; i < new_readreq_count; i++)
+ *             raft_queue_read_request(raft, read_requests[i]);
+ *
+ *         for (int i = 0; i < new_requests_count; i++)
+ *             raft_recv_entry(raft, new_requests[i]);
+ *
+ *         raft_index_t current_idx = raft_get_index_to_sync(raft);
+ *         if (current_idx != 0) {
+ *              TriggerAsyncWriteForIndex(current_idx);
+ *         }
+ *
+ *        raft_index_t sync_index = GetLastCompletedSyncIndex();
+ *
+ *        // This call will send new appendentries messages if necessary
+ *        raft_flush(sync_index);
+ *    }
+ * }
+ *
+ * raft_flush() is no-op if node is follower.
+ *
+ * @param[in] raft The Raft server
+ * @param[in] flush 1 to enable, 0 to disable
+ * @return          0 on success
+ */
+int raft_set_auto_flush(raft_server_t* me, int flush);
+
+/** Returns the latest entry index that needs to be written to the disk.
+ *
+ * This function is only useful when auto flush is disabled. Same index will be
+ * reported once.
+ *
+ * @param[in] raft The Raft server
+ * @return entry index need to be written to the disk.
+ *         '0' if there is no new entry to write to the disk
+ */
+raft_index_t raft_get_index_to_sync(raft_server_t *me);
+
+/** Update persisted index, send messages(e.g appendentries) to the followers.
+ *
+ * raft_flush() is no-op if node is follower.
+ *
+ * @param[in] raft The Raft server
+ * @param[in] sync_index Entry index of the last persisted entry. '0' to skip
+ *                       updating persisted index.
+ * @return    0 on success
+ */
+int raft_flush(raft_server_t* me, raft_index_t sync_index);
 
 #endif /* RAFT_H_ */

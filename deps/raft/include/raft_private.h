@@ -120,9 +120,24 @@ typedef struct {
     raft_read_request_t *read_queue_head;
     raft_read_request_t *read_queue_tail;
 
+    /* Do we need quorum ? e.g Leader received a read request, need quorum round
+     * before processing it */
+    int need_quorum_round;
+
     raft_node_id_t node_transferring_leader_to; // the node we are targeting for leadership
     long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
     int sent_timeout_now; // if we've already sent a leadership transfer signal
+
+    /* If this config is off (equals zero), user must call raft_flush()
+     * manually. It will trigger sending appendreqs, applying entries etc.
+     * Useful for batching, e.g after many raft_recv_entry() calls,
+     * one raft_flush() call will trigger sending appendreq for the latest
+     * entries. */
+    int auto_flush;
+
+    /* Index of the log entry that need to be written to the disk. Only useful
+     * when auto flush is disabled. */
+    raft_index_t next_sync_index;
 
     int timeout_now;
 } raft_server_private_t;

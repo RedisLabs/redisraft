@@ -7,8 +7,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: make
-      run: make
     - name: Set up Python for testing
       uses: actions/setup-python@v1
       with:
@@ -17,8 +15,13 @@ jobs:
     - name: Install Python dependencies
       run:
         python -m pip install -r tests/requirements.txt
+    - name: Build
+      run: make COVERAGE=1
     - name: Run tests
-      run:
-        make tests_full
+      run: |
+        make tests
+        make test_fuzzer
+        make test_virtraft
+        make gcov
     - name: Upload to codecov
       uses: codecov/codecov-action@v2
