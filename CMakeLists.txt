@@ -61,7 +61,6 @@ endif()
 
 
 # -------------------------- Dependencies Start ------------------------------ #
-add_subdirectory(deps/libuv)
 add_subdirectory(deps/raft)
 
 option(UNIT_TESTING "Disable cmocka tests" OFF)
@@ -133,8 +132,6 @@ add_dependencies(redisraft info)
 target_link_libraries(redisraft PUBLIC raft uv hiredis)
 
 target_include_directories(redisraft PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include>)
-target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/>)
@@ -169,7 +166,7 @@ add_executable(main
 target_compile_options(main PUBLIC -include dut_premble.h)
 target_link_libraries(main PRIVATE cmocka uv raft hiredis)
 target_include_directories(main PUBLIC
-        tests deps/raft/include deps/libuv/include deps/)
+        tests deps/raft/include deps/)
 
 add_dependencies(main info)
 add_test(NAME main COMMAND $<TARGET_FILE:main>)

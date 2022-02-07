@@ -2,11 +2,10 @@ ifeq ($(PREFIX),)
     $(error PREFIX was not specified)
 endif
 
-all:	libuv hiredis raft cmocka
+all:	hiredis raft cmocka
 
 clean:
 	-$(MAKE) -C hiredis clean
-	-$(MAKE) -C libuv distclean
 	-$(MAKE) -C raft clean
 	-rm -rf cmocka/build
 
@@ -15,18 +14,6 @@ clean:
 .PHONY: hiredis
 hiredis: hiredis/Makefile
 	$(MAKE) -C hiredis && $(MAKE) -C hiredis install PREFIX=$(PREFIX)
-
-##
-
-.PHONY: libuv
-libuv: libuv/Makefile
-	$(MAKE) -C libuv && $(MAKE) -C libuv install
-
-libuv/Makefile: libuv/configure
-	cd libuv && ./configure --with-pic --prefix=$(PREFIX)
-
-libuv/configure: libuv/autogen.sh
-	cd libuv && ./autogen.sh
 
 ##
 

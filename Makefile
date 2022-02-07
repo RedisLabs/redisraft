@@ -47,7 +47,6 @@ LDFLAGS += $(ARCH_LDFLAGS)
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
        $(BUILDDIR)/lib/libhiredis.a \
-       $(BUILDDIR)/lib/libuv.a \
        -lpthread
 
 OBJECTS = \
