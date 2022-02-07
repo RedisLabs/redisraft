@@ -1,41 +1,10 @@
-from cffi import FFI
-
 import subprocess
 import unittest
 
+import raft_cffi
+
 from hypothesis import given
 from hypothesis.strategies import lists, just, integers, one_of
-
-
-class Libraft(object):
-    def __init__(self):
-        ffi = FFI()
-        ffi.set_source(
-            "ffi_tests",
-            """
-            """,
-            sources="""
-                src/raft_log.c
-                src/raft_server.c
-                src/raft_server_properties.c
-                src/raft_node.c
-                """.split(),
-            include_dirs=["include"],
-            extra_compile_args=["-UNDEBUG"]
-            )
-        library = ffi.compile()
-
-        self.ffi = ffi = FFI()
-        self.lib = ffi.dlopen(library)
-
-        def load(fname):
-            return '\n'.join(
-                [line for line in subprocess.check_output(
-                    ["gcc", "-E", fname]).decode('utf-8').split('\n')
-                 if not line.startswith('#')])
-
-        ffi.cdef(load('include/raft.h'))
-        ffi.cdef(load('include/raft_log.h'))
 
 
 commands = one_of(
@@ -71,7 +40,7 @@ class Log(object):
 class CoreTestCase(unittest.TestCase):
     def setUp(self):
         super(CoreTestCase, self).setUp()
-        self.r = Libraft()
+        self.r = raft_cffi
 
     @given(lists(commands))
     def test_sanity_check(self, commands):

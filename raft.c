@@ -42,12 +42,6 @@ static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
 static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry);
-static RaftReqHandler RaftReqHandlers[];
-
-static bool processExiting = false;
-static void __setProcessExiting(void) {
-    processExiting = true;
-}
 
 /* A dict that maps client ID to MultiClientState structs */
 static RedisModuleDict *multiClientState = NULL;
@@ -207,7 +201,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
      * safe context.
      */
 
-    RedisModule_ThreadSafeContextLock(ctx);
     executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
@@ -217,7 +210,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
     RaftRedisCommandArrayFree(&entry_cmds);
 
     if (req) {
@@ -754,6 +746,23 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
     RedisModule_Free(s);
 }
 
+/* Apply some backpressure for the node. Helps in two cases, first we don't
+ * want to create many appaendentries messages for the node if we don't get
+ * replies. Otherwise, it might cause out of memory. Second, we want to send
+ * entries in batches for performance reasons. We are effectively batching
+ * entries until we get replies from the previous ones. */
+static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    Node *node = raft_node_get_udata(raft_node);
+    if (node->pending_raft_response_num >= rr->config->max_appendentries_inflight) {
+        /* Don't send append req to this node */
+        return 1;
+    }
+
+    return 0;
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -772,6 +781,7 @@ raft_cbs_t redis_raft_callbacks = {
     .notify_state_event = raftNotifyStateEvent,
     .send_timeoutnow = raftSendTimeoutNow,
     .notify_transfer_event = raftNotifyTransferEvent,
+    .backpressure = raftBackpressure
 };
 
 /* ------------------------------------ Raft Thread ------------------------------------ */
@@ -901,7 +911,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
     }
 }
 
-static void shutdownAfterRemoval(RedisRaftCtx *rr)
+void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
@@ -915,14 +925,13 @@ static void shutdownAfterRemoval(RedisRaftCtx *rr)
     exit(0);
 }
 
-static void callRaftPeriodic(uv_timer_t *handle)
+void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
+    RedisRaftCtx *rr = arg;
     int ret;
 
-    if (processExiting) {
-        return;
-    }
+    RedisModule_CreateTimer(rr->ctx, redis_raft.config->raft_interval,
+                            callRaftPeriodic, rr);
 
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
      * we can apply the log.
@@ -977,40 +986,17 @@ static void callRaftPeriodic(uv_timer_t *handle)
     }
 }
 
-/* A libuv callback that invokes HandleNodeStates(), to handle node connection
+/* A callback that invokes HandleNodeStates(), to handle node connection
  * management (reconnects, etc.).
  */
-static void callHandleNodeStates(uv_timer_t *handle)
+void callHandleNodeStates(RedisModuleCtx *ctx, void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
-    if (processExiting) {
-        return;
-    }
+    RedisRaftCtx *rr = arg;
+    RedisModule_CreateTimer(rr->ctx, redis_raft.config->reconnect_interval,
+                            callHandleNodeStates, rr);
 
     HandleIdleConnections(rr);
     HandleNodeStates(rr);
-}
-
-/* Main Raft thread, which handles:
- * 1. The libuv loop for managing all connections with other Raft nodes.
- * 2. All Raft periodic tasks.
- * 3. Processing of Raft request queue, for serving RAFT* commands issued
- *    locally on the main Redis thread.
- */
-static void RedisRaftThread(void *arg)
-{
-    RedisRaftCtx *rr = (RedisRaftCtx *) arg;
-
-    /* TODO: Properly handle the race condition here.  We need to be sure Redis
-     * initialization has got to the point where RDB loading started.
-     */
-    usleep(500000);
-
-    uv_timer_start(&rr->raft_periodic_timer, callRaftPeriodic,
-            rr->config->raft_interval, rr->config->raft_interval);
-    uv_timer_start(&rr->node_reconnect_timer, callHandleNodeStates, 0,
-            rr->config->reconnect_interval);
-    uv_run(rr->loop, UV_RUN_DEFAULT);
 }
 
 static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
@@ -1179,6 +1165,7 @@ static void initRaftLibrary(RedisRaftCtx *rr)
     }
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
+    raft_set_auto_flush(rr->raft, 0);
 }
 
 static void configureFromSnapshot(RedisRaftCtx *rr)
@@ -1205,31 +1192,6 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
 {
     memset(rr, 0, sizeof(RedisRaftCtx));
-    STAILQ_INIT(&rr->rqueue);
-
-
-    /* Register an atexit handler to tell us we're exiting.  Redis offers no
-     * other way and we need to be aware of this to avoid getting into execution
-     * flows that involve libuv workers that self destructor using .dtors.
-     */
-    atexit(__setProcessExiting);
-
-    /* Initialize uv loop */
-    rr->loop = RedisModule_Alloc(sizeof(uv_loop_t));
-    uv_loop_init(rr->loop);
-
-    /* Requests queue */
-    uv_mutex_init(&rr->rqueue_mutex);
-    uv_async_init(rr->loop, &rr->rqueue_sig, RaftReqHandleQueue);
-    uv_handle_set_data((uv_handle_t *) &rr->rqueue_sig, rr);
-
-    /* Periodic timer */
-    uv_timer_init(rr->loop, &rr->raft_periodic_timer);
-    uv_handle_set_data((uv_handle_t *) &rr->raft_periodic_timer, rr);
-
-    /* Connection timer */
-    uv_timer_init(rr->loop, &rr->node_reconnect_timer);
-    uv_handle_set_data((uv_handle_t *) &rr->node_reconnect_timer, rr);
 
     rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     rr->config = config;
@@ -1270,19 +1232,11 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
         rr->state = REDIS_RAFT_UNINITIALIZED;
     }
 
-    return RR_OK;
-}
-
-RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr)
-{
-    /* Start Raft thread */
-    if (uv_thread_create(&rr->thread, RedisRaftThread, rr) < 0) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize redis_raft thread");
-        return RR_ERROR;
-    }
+    threadPoolInit(&rr->thread_pool, 5);
 
     return RR_OK;
 }
+
 
 /* ------------------------------------ RaftReq ------------------------------------ */
 
@@ -1395,47 +1349,13 @@ RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type)
     return req;
 }
 
-void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req)
-{
-    uv_mutex_lock(&rr->rqueue_mutex);
-    STAILQ_INSERT_TAIL(&rr->rqueue, req, entries);
-    uv_mutex_unlock(&rr->rqueue_mutex);
-    uv_async_send(&rr->rqueue_sig);
-}
-
-static RaftReq *raft_req_fetch(RedisRaftCtx *rr)
-{
-    RaftReq *r = NULL;
-
-    uv_mutex_lock(&rr->rqueue_mutex);
-    if (!STAILQ_EMPTY(&rr->rqueue)) {
-        r = STAILQ_FIRST(&rr->rqueue);
-        STAILQ_REMOVE_HEAD(&rr->rqueue, entries);
-    }
-    uv_mutex_unlock(&rr->rqueue_mutex);
-
-    return r;
-}
-
-void RaftReqHandleQueue(uv_async_t *handle)
-{
-    RedisRaftCtx *rr = (RedisRaftCtx *) uv_handle_get_data((uv_handle_t *) handle);
-    RaftReq *req;
-
-    while ((req = raft_req_fetch(rr))) {
-        TRACE("RaftReqHandleQueue: req=%p, type=%s",
-                req, RaftReqTypeStr[req->type]);
-        RaftReqHandlers[req->type](rr, req);
-    }
-}
-
 /* ------------------------------------ RaftReq Implementation ------------------------------------ */
 
 /*
  * Implementation of specific request types.
  */
 
-static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
+void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
 {
     if (!redis_raft.transfer_req) {
         LOG_ERROR("leader transfer update: but no req to correlate it to!");
@@ -1463,7 +1383,7 @@ static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_stat
     redis_raft.transfer_req = NULL;
 }
 
-static void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
+void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
 {
     int err;
 
@@ -1498,7 +1418,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
+void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftState(rr, req) == RR_ERROR) {
         goto exit;
@@ -1511,7 +1431,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
+void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
 
@@ -1538,7 +1458,7 @@ exit:
 }
 
 
-static void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
+void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_appendentries_response_t response;
     int err;
@@ -1567,7 +1487,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
+void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_t *entry;
     msg_entry_response_t response;
@@ -1650,16 +1570,14 @@ exit:
 
 static void handleReadOnlyCommand(void *arg, int can_read)
 {
-    RaftReq *req = (RaftReq *) arg;
+    RaftReq *req = arg;
 
     if (!can_read) {
         RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
         goto exit;
     }
 
-    RedisModule_ThreadSafeContextLock(req->ctx);
     executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
-    RedisModule_ThreadSafeContextUnlock(req->ctx);
 
 exit:
     RaftReqFree(req);
@@ -1937,7 +1855,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     return RR_OK;
 }
 
-static void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
+void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
 
@@ -2043,7 +1961,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
+void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 {
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
@@ -2172,7 +2090,7 @@ static void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-static void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
+void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
 {
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit;
@@ -2230,7 +2148,7 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-static void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
+void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
 {
     freeMultiExecState(req->r.client_disconnect.client_id);
     RaftReqFree(req);
@@ -2549,7 +2467,7 @@ exit:
     RaftReqFree(req);
 }
 
-static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
+void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
 {
     if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
         LOG_ERROR("Received invalid nodeshutdown message with id : %d.",
@@ -2561,7 +2479,7 @@ static void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
     shutdownAfterRemoval(rr);
 }
 
-static void handleConfig(RedisRaftCtx *rr, RaftReq *req)
+void handleConfig(RedisRaftCtx *rr, RaftReq *req)
 {
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(req->r.config.argv[1], &cmd_len);
@@ -2575,26 +2493,57 @@ static void handleConfig(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-static RaftReqHandler RaftReqHandlers[] = {
-    NULL,
-    handleClusterInit,         /* RR_CLUSTER_INIT */
-    handleClusterJoin,         /* RR_CLUSTER_JOIN */
-    handleCfgChange,           /* RR_CFGCHANGE_ADDNODE */
-    handleCfgChange,           /* RR_CFGCHANGE_REMOVENODE */
-    handleAppendEntries,       /* RR_APPENDENTRIES */
-    handleRequestVote,         /* RR_REQUESTVOTE */
-    handleRedisCommand,        /* RR_REDISCOMMAND */
-    handleInfo,                /* RR_INFO */
-    handleSnapshot,            /* RR_SNAPSHOT */
-    handleDebug,              /* RR_DEBUG */
-    handleClientDisconnect,   /* RR_CLIENT_DISCONNECT */
-    handleShardGroupAdd,      /* RR_SHARDGROUP_ADD */
-    handleShardGroupsReplace, /* RR_SHARDGROUP_REPLACE */
-    handleShardGroupGet,      /* RR_SHARDGROUP_GET */
-    handleShardGroupLink,     /* RR_SHARDGROUP_LINK */
-    handleNodeShutdown,       /* RR_NODE_SHUTDOWN */
-    handleTransferLeader,     /* RR_TRANSFER_LEADER */
-    handleTimeoutNow,         /* RR_TIMEOUT_NOW */
-    handleConfig,             /* RR_CONFIG */
-    NULL
-};
+/* Callback for fsync thread. This will be triggerred by fsync thread but will
+ * be called by Redis thread. */
+void handleFsyncCompleted(void *result)
+{
+    FsyncThreadResult *rs = result;
+    RedisRaftCtx *rr = &redis_raft;
+
+    rr->log->fsync_count++;
+    rr->log->fsync_total += rs->time;
+
+    int e = raft_flush(rr->raft, rs->fsync_index);
+    if (e == RAFT_ERR_SHUTDOWN) {
+        shutdownAfterRemoval(rr);
+    }
+    RedisModule_Assert(e == 0);
+
+    RedisModule_Free(rs);
+}
+
+/* Redis thread callback, called just before Redis main thread goes to sleep,
+ * e.g epoll_wait(). At this point, we've read all new network messages for this
+ * event loop iteration. We can trigger new appendentries messages for the new
+ * entries and check for committing/applying new entries. */
+void handleBeforeSleep(RedisRaftCtx *rr)
+{
+    raft_index_t flushed = 0;
+
+    if (rr->state != REDIS_RAFT_UP) {
+        return;
+    }
+
+    if (!raft_is_leader(rr->raft)) {
+        return;
+    }
+
+    raft_index_t next = raft_get_index_to_sync(rr->raft);
+    if (next > 0) {
+        fflush(rr->log->file);
+
+        if (rr->log->fsync) {
+            /* Trigger async fsync() for the current index */
+            fsyncThreadAddTask(&rr->fsyncThread, fileno(rr->log->file), next);
+        } else {
+            /* Skipping fsync(), we can just update the sync'd index. */
+            flushed = next;
+        }
+    }
+
+    int e = raft_flush(rr->raft, flushed);
+    if (e == RAFT_ERR_SHUTDOWN) {
+        shutdownAfterRemoval(rr);
+    }
+    RedisModule_Assert(e == 0);
+}

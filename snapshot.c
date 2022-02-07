@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "redisraft.h"
 
 /* These are ugly hacks to work around missing Redis Module API calls!
@@ -285,6 +287,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
         return -1;
     }
 
+    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
+
     if (RaftLogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {
         RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
@@ -405,6 +409,8 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     /* Flush stdio files to avoid leaks from child */
     if (rr->log) {
+        fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
+
         if (RaftLogSync(rr->log) != RR_OK) {
             PANIC("RaftLogSync() failed.");
         }
@@ -557,7 +563,6 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
         return -1;
     }
 
-    RedisModule_ThreadSafeContextLock(rr->ctx);
     RedisModule_ResetDataset(0, 0);
     rr->snapshot_info.loaded = false;
 
@@ -571,6 +576,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
     /* Restart the log where the snapshot ends */
     if (rr->log) {
+        fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
         RaftLogClose(rr->log);
         rr->log = RaftLogCreate(rr->config->raft_log_filename,
                 rr->snapshot_info.dbid,
@@ -579,8 +585,6 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
                 rr->config);
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
-
-    RedisModule_ThreadSafeContextUnlock(rr->ctx);
 
     createOutgoingSnapshotMmap(rr);
     rr->snapshots_loaded++;

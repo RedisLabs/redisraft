@@ -758,8 +758,7 @@ RRStatus RaftLogSync(RaftLog *log)
 
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry)
 {
-    if (RaftLogWriteEntry(log, entry) != RR_OK ||
-        RaftLogSync(log) != RR_OK) {
+    if (RaftLogWriteEntry(log, entry) != RR_OK) {
         return RR_ERROR;
     }
 
@@ -1234,6 +1233,12 @@ static raft_index_t logImplCount(void *rr_)
     return RaftLogCount(rr->log);
 }
 
+static int logImplSync(void *rr_)
+{
+    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    return RaftLogSync(rr->log);
+}
+
 raft_log_impl_t RaftLogImpl = {
     .init = logImplInit,
     .free = logImplFree,
@@ -1245,5 +1250,6 @@ raft_log_impl_t RaftLogImpl = {
     .get_batch = logImplGetBatch,
     .first_idx = logImplFirstIdx,
     .current_idx = logImplCurrentIdx,
-    .count = logImplCount
+    .count = logImplCount,
+    .sync = logImplSync
 };

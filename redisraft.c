@@ -125,7 +125,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    RaftReqSubmit(rr, req);
+    handleCfgChange(rr, req);
     return REDISMODULE_OK;
 }
 
@@ -159,7 +159,7 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
     RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
     req->r.node_to_transfer_leader = target_node_id;
 
-    RaftReqSubmit(rr, req);
+    handleTransferLeader(rr, req);
     return REDISMODULE_OK;
 }
 
@@ -178,7 +178,7 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_TIMEOUT_NOW);
-    RaftReqSubmit(rr, req);
+    handleTimeoutNow(rr, req);
 
     return REDISMODULE_OK;
 }
@@ -228,7 +228,7 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
         goto error_cleanup;
     }
 
-    RaftReqSubmit(rr, req);
+    handleRequestVote(rr, req);
     return REDISMODULE_OK;
 
 error_cleanup:
@@ -263,17 +263,10 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     int i;
     for (i = 0; i < argc - 1; i++) {
-        /* TODO: We currently duplicate the string instead of using RetainString
-         * due to a problem introduced by https://github.com/redis/redis/pull/5834
-         * where a retained string may still be mutated upon returning to Redis,
-         * so we end up with a race that can result with corruption before we
-         * serialize the request into a log entry entry.
-         *
-         * Revisit this if/when the Module API addresses this issue in a better way.
-         */
-        cmd->argv[i] = RedisModule_CreateStringFromString(NULL, argv[i + 1]);
+        cmd->argv[i] =  argv[i + 1];
+        RedisModule_RetainString(req->ctx, cmd->argv[i]);
     }
-    RaftReqSubmit(&redis_raft, req);
+    handleRedisCommand(&redis_raft, req);
 
     return REDISMODULE_OK;
 }
@@ -302,7 +295,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_ReplyWithError(ctx, "ERR invalid argument");
         RaftReqFree(req);
     } else {
-        RaftReqSubmit(&redis_raft, req);
+        handleRedisCommand(&redis_raft, req);
     }
 
     return REDISMODULE_OK;
@@ -316,7 +309,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RaftReq *req = RaftReqInit(ctx, RR_INFO);
-    RaftReqSubmit(&redis_raft, req);
+    handleInfo(&redis_raft, req);
 
     return REDISMODULE_OK;
 }
@@ -405,7 +398,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         req->r.appendentries.msg.entries[i] = e;
     }
 
-    RaftReqSubmit(rr, req);
+    handleAppendEntries(rr, req);
     return REDISMODULE_OK;
 
 error_cleanup:
@@ -442,7 +435,7 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         for (int i = 0; i < argc; i++) {
             req->r.config.argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
         }
-        RaftReqSubmit(rr, req);
+        handleConfig(rr, req);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
     }
@@ -503,23 +496,16 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         goto error;
     }
 
-    /* TODO: We currently duplicate the string instead of using RetainString
-     * due to a problem introduced by https://github.com/redis/redis/pull/5834
-     * where a retained string may still be mutated upon returning to Redis,
-     * so we end up with a race that can result with corruption before we
-     * serialize the request into a log entry entry.
-     *
-     * Revisit this if/when the Module API addresses this issue in a better way.
-     */
-    req->r.snapshot.data = RedisModule_CreateStringFromString(NULL, argv[4]);
+    RedisModule_RetainString(req->ctx, argv[4]);
+    req->r.snapshot.data = argv[4];
 
     size_t len;
-    void *data = (void*) RedisModule_StringPtrLen(req->r.snapshot.data, &len);
+    void *data = (void*) RedisModule_StringPtrLen(argv[4], &len);
 
     req->r.snapshot.msg.chunk.data = data;
     req->r.snapshot.msg.chunk.len = len;
 
-    RaftReqSubmit(rr, req);
+    handleSnapshot(rr, req);
     return REDISMODULE_OK;
 
 error:
@@ -573,6 +559,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
         req = RaftReqInit(ctx, RR_CLUSTER_INIT);
         memcpy(req->r.cluster_init.id, cluster_id, RAFT_DBID_LEN);
+        handleClusterInit(rr, req);
     } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
         if (argc < 3) {
             RedisModule_WrongArity(ctx);
@@ -590,12 +577,12 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             }
             NodeAddrListAddElement(&req->r.cluster_join.addr, &addr);
         }
+        handleClusterJoin(rr, req);
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
         return REDISMODULE_OK;
     }
 
-    RaftReqSubmit(rr, req);
     return REDISMODULE_OK;
 }
 
@@ -641,7 +628,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     if (!strncasecmp(cmd, "GET", cmd_len)) {
         req = RaftReqInit(ctx, RR_SHARDGROUP_GET);
-        RaftReqSubmit(&redis_raft, req);
+        handleShardGroupGet(&redis_raft, req);
 
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "ADD", cmd_len)) {
@@ -660,7 +647,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         }
         req->r.shardgroup_add = sg;
 
-        RaftReqSubmit(&redis_raft, req);
+        handleShardGroupAdd(&redis_raft, req);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "REPLACE", cmd_len)) {
         if (argc < 4) {
@@ -675,7 +662,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        RaftReqSubmit(&redis_raft, req);
+        handleShardGroupsReplace(&redis_raft, req);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "LINK", cmd_len)) {
         if (argc != 3) {
@@ -693,7 +680,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        RaftReqSubmit(&redis_raft, req);
+        handleShardGroupLink(&redis_raft, req);
         return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD / LINK only");
@@ -742,7 +729,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_COMPACT);
         req->r.debug.d.compact.delay = (int) delay;
         req->r.debug.d.compact.fail = (int) fail;
-        RaftReqSubmit(&redis_raft, req);
+        handleDebug(&redis_raft, req);
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -763,7 +750,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         req->r.debug.d.nodecfg.str = RedisModule_Alloc(slen + 1);
         memcpy(req->r.debug.d.nodecfg.str, str, slen);
         req->r.debug.d.nodecfg.str[slen] = '\0';
-        RaftReqSubmit(&redis_raft, req);
+        handleDebug(&redis_raft, req);
     } else if (!strncasecmp(cmd, "sendsnapshot", cmdlen)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);
@@ -778,7 +765,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_SENDSNAPSHOT);
         req->r.debug.d.sendsnapshot.id = node_id;
-        RaftReqSubmit(&redis_raft, req);
+        handleDebug(&redis_raft, req);
     } else if (!strncasecmp(cmd, "used_node_ids", cmdlen)) {
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -829,7 +816,7 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
     RaftReq *req = RaftReqInit(ctx, RR_NODE_SHUTDOWN);
     req->r.node_shutdown.id = (raft_node_id_t) node_id;
 
-    RaftReqSubmit(rr, req);
+    handleNodeShutdown(rr, req);
 
     return REDISMODULE_OK;
 }
@@ -860,7 +847,7 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
-static void handleClientDisconnect(RedisModuleCtx *ctx,
+void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
@@ -868,7 +855,7 @@ static void handleClientDisconnect(RedisModuleCtx *ctx,
         RedisModuleClientInfo *ci = (RedisModuleClientInfo *) data;
         RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
         req->r.client_disconnect.client_id = ci->id;
-        RaftReqSubmit(&redis_raft, req);
+        handleClientDisconnect(&redis_raft, req);
     }
 }
 
@@ -903,6 +890,15 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
     /* Prepend RAFT to the original command */
     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT", 4);
     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+}
+
+/* Callback from Redis event loop */
+static void beforeSleep(RedisModuleCtx *ctx,
+                        RedisModuleEvent eid, uint64_t subevent, void *data)
+{
+    if (subevent == REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP) {
+        handleBeforeSleep(&redis_raft);
+    }
 }
 
 
@@ -1088,10 +1084,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                             RedisModule_Calloc,
                             RedisModule_Realloc,
                             RedisModule_Free);
-    uv_replace_allocator(RedisModule_Alloc,
-                         RedisModule_Realloc,
-                         RedisModule_Calloc,
-                         RedisModule_Free);
 
     if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
@@ -1101,17 +1093,26 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
-                handleClientDisconnect) != REDISMODULE_OK) {
+                handleClientDisconnectEvent) != REDISMODULE_OK) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
-    /* Start Raft thread */
-    if (RedisRaftStart(ctx, &redis_raft) == RR_ERROR) {
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
+                                           beforeSleep) != REDISMODULE_OK) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
+    RedisRaftCtx *rr = &redis_raft;
+
+    RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);
+    RedisModule_CreateTimer(ctx, rr->config->reconnect_interval, callHandleNodeStates, rr);
+
     RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
-            getStateStr(&redis_raft));
+            getStateStr(rr));
+
+    fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
+
     return REDISMODULE_OK;
 }

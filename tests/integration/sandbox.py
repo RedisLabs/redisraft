@@ -520,7 +520,15 @@ class Cluster(object):
         def _func():
             self.node(self.leader).client.execute_command(
                 'RAFT.NODE', 'REMOVE', _id)
-        self.raft_retry(_func)
+        try:
+            self.raft_retry(_func)
+        except redis.ResponseError as err:
+            # If we are removing the leader, leader will shutdown before sending
+            # the reply. On retry, we should get "node id does not exist" reply.
+            if str(err).startswith("node id does not exist"):
+                if _id not in self.nodes:
+                    raise err
+
         self.nodes[_id].destroy()
         del self.nodes[_id]
         if self.leader == _id:
@@ -543,6 +551,12 @@ class Cluster(object):
 
     def leader_node(self):
         return self.nodes[self.leader]
+
+    def update_leader(self):
+        def _func():
+            # This command will be redirected to the leader in raft_retry
+            self.node(self.leader).client.execute_command('get x')
+        self.raft_retry(_func)
 
     def wait_for_unanimity(self, exclude=None):
         commit_idx = self.node(self.leader).commit_index()
@@ -587,7 +601,8 @@ class Cluster(object):
                     # in this case we need to do nothing
                     if new_leader in self.nodes:
                         self.leader = new_leader
-                elif str(err).startswith('CLUSTERDOWN'):
+                elif str(err).startswith('CLUSTERDOWN') or \
+                        str(err).startswith('NOCLUSTER'):
                     if no_leader_first:
                         LOG.info("-CLUSTERDOWN response received, will retry"
                                  " for %s seconds", self.noleader_timeout)

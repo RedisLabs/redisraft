@@ -126,6 +126,7 @@ void TestRaft_server_get_my_node(CuTest * tc)
 void TestRaft_server_idx_starts_at_1(CuTest * tc)
 {
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
     CuAssertTrue(tc, 0 == raft_get_current_idx(r));
     raft_set_current_term(r, 1);
 
@@ -285,6 +286,7 @@ void TestRaft_server_append_entry_means_entry_gets_current_term(CuTest* tc)
 void TestRaft_server_append_entry_is_retrievable(CuTest * tc)
 {
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
     raft_set_callbacks(r, &generic_funcs, NULL);
     raft_set_state(r, RAFT_STATE_CANDIDATE);
 
@@ -343,7 +345,7 @@ void TestRaft_server_entry_is_retrieveable_using_idx(CuTest* tc)
     char *str2 = "bbb";
 
     void *r = raft_new();
-
+    raft_add_node(r, NULL, 1, 1);
     raft_set_current_term(r, 1);
 
     __RAFT_APPEND_ENTRY(r, 1, 1, str);
@@ -397,6 +399,8 @@ void TestRaft_server_increment_lastApplied_when_lastApplied_lt_commitidx(
     };
 
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
+    raft_node_set_voting(raft_get_my_node(r), 0);
     raft_set_callbacks(r, &funcs, NULL);
 
     /* must be follower */
@@ -423,6 +427,7 @@ void TestRaft_user_applylog_error_propogates_to_periodic(
     };
 
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
     raft_set_callbacks(r, &funcs, NULL);
 
     /* must be follower */
@@ -447,6 +452,7 @@ void TestRaft_server_apply_entry_increments_last_applied_idx(CuTest* tc)
     };
 
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
     raft_set_callbacks(r, &funcs, NULL);
     raft_set_last_applied_idx(r, 0);
     raft_set_current_term(r, 1);
@@ -572,6 +578,7 @@ void TestRaft_server_recv_entry_auto_commits_if_we_are_the_only_node(CuTest * tc
 void TestRaft_server_recv_entry_fails_if_there_is_already_a_voting_change(CuTest * tc)
 {
     void *r = raft_new();
+    raft_set_auto_flush(r, 0);
     raft_add_node(r, NULL, 1, 1);
     raft_set_election_timeout(r, 1000);
     raft_become_leader(r);
@@ -589,7 +596,7 @@ void TestRaft_server_recv_entry_fails_if_there_is_already_a_voting_change(CuTest
     raft_entry_t *ety2 = __MAKE_ENTRY(2, 1, "entry");
     ety2->type = RAFT_LOGTYPE_ADD_NODE;
     CuAssertTrue(tc, RAFT_ERR_ONE_VOTING_CHANGE_ONLY == raft_recv_entry(r, ety2, &cr));
-    CuAssertTrue(tc, 1 == raft_get_commit_idx(r));
+    CuAssertTrue(tc, 0 == raft_get_commit_idx(r));
 }
 
 void TestRaft_server_cfg_sets_num_nodes(CuTest * tc)
@@ -3227,6 +3234,7 @@ void TestRaft_leader_recv_entry_resets_election_timeout(
     CuTest * tc)
 {
     void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
     raft_set_election_timeout(r, 1000);
     raft_set_state(r, RAFT_STATE_LEADER);
 
@@ -3361,6 +3369,11 @@ void TestRaft_leader_recv_entry_fails_if_prevlogidx_less_than_commit(CuTest * tc
     CuAssertIntEquals(tc, 0, aer.success);
 }
 
+int backpressure(raft_server_t* raft, void* udata, raft_node_t* node)
+{
+    return 1;
+}
+
 void TestRaft_leader_recv_entry_does_not_send_new_appendentries_to_slow_nodes(CuTest * tc)
 {
     void *r = raft_new();
@@ -3370,6 +3383,7 @@ void TestRaft_leader_recv_entry_does_not_send_new_appendentries_to_slow_nodes(Cu
     raft_cbs_t funcs = {
         .persist_term = __raft_persist_term,
         .send_appendentries          = sender_appendentries,
+        .backpressure = backpressure
     };
 
     void *sender = sender_new(NULL);

@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <net/if.h>
 #include <ifaddrs.h>
+#include <netdb.h>
 
 #include "redisraft.h"
 
@@ -44,6 +45,7 @@ static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
+static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -258,6 +260,12 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             RedisModule_Free(target->ignored_commands);
         }
         target->ignored_commands = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, CONF_MAX_APPEND_REQ_IN_FLIGHT)) {
+        char *errptr;
+        unsigned long val = strtoul(value, &errptr, 10);
+        if (*errptr != '\0' || val < 0)
+            goto invalid_value;
+        target->max_appendentries_inflight = (int) val;
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -431,6 +439,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands);
     }
+    if (stringmatch(pattern, CONF_MAX_APPEND_REQ_IN_FLIGHT, 1)) {
+        len++;
+        replyConfigInt(ctx, CONF_MAX_APPEND_REQ_IN_FLIGHT, config->max_appendentries_inflight);
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -457,6 +469,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->external_sharding = false;
     config->slot_config = "0:16383",
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
 }
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)

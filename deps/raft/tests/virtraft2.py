@@ -22,6 +22,7 @@ Usage:
   virtraft --servers SERVERS [-d RATE] [-D RATE] [-c RATE] [-C RATE] [-m RATE]
                              [-P RATE] [-s SEED] [-i ITERS] [-p] [--tsv] [--rqm MULTI]
                              [-q] [-v] [-l LEVEL] [-j] [-L LOGFILE] [--duplex_partition]
+                             [--auto_flush]
   virtraft --version
   virtraft --help
 
@@ -49,6 +50,7 @@ Options:
   -V --version               Display version.
   -h --help                  Prints a short usage summary.
   --duplex_partition         On partition, prevent traffic from flowing in both directions
+  --auto_flush               Use libraft with auto_flush option
 
 Examples:
 
@@ -311,6 +313,9 @@ def verify_read(arg):
             continue
 
         node = lib.raft_get_node(net.servers[i-1].raft, leader.id)
+        if node == ffi.NULL:
+            continue
+
         msg_id = lib.raft_node_get_max_seen_msg_id(node)
         if msg_id >= arg:
             count += 1
@@ -363,6 +368,7 @@ class Network(object):
         self.partitions = set()
         self.no_random_period = False
         self.duplex_partition = False
+        self.auto_flush = False
         self.last_seen_read_queue_msg_id = -1
         self.rqm = 10000000000
 
@@ -457,6 +463,12 @@ class Network(object):
                 server.periodic(100)
             else:
                 server.periodic(self.random.randint(1, 100))
+
+            if not self.auto_flush:
+                # Pretend like async disk write operation is completed. Also,
+                # call raft_flush() often to trigger sending appendentries.
+                idx = lib.raft_get_index_to_sync(server.raft)
+                assert lib.raft_flush(server.raft, idx) == 0
 
         # Deadlock detection
         if self.client_rate != 0 and self.latest_applied_log_idx != 0 and self.latest_applied_log_iteration + 5000 < self.iteration:
@@ -767,7 +779,6 @@ class Network(object):
         logger.info(f"trying to remove follower: node {lib.raft_get_nodeid(server.raft)}")
 
         # Wake up new node
-        assert NODE_CONNECTED == server.connection_status
         server.set_connection_status(NODE_DISCONNECTING)
 
     def diagnostic_info(self):
@@ -838,6 +849,7 @@ class RaftServer(object):
         lib.raft_set_callbacks(self.raft, cbs, self.udata)
         lib.log_set_callbacks(lib.raft_get_log(self.raft), log_cbs, self.raft)
         lib.raft_set_election_timeout(self.raft, 500)
+        lib.raft_set_auto_flush(self.raft, network.auto_flush)
 
         self.fsm_dict = {}
         self.fsm_log = []
@@ -1353,6 +1365,7 @@ if __name__ == '__main__':
     net.no_random_period = 1 == int(args['--no_random_period'])
     net.duplex_partition = 1 == int(args['--duplex_partition'])
     net.rqm = int(args['--rqm'])
+    net.auto_flush = 1 == int(args['--auto_flush'])
 
     net.num_of_servers = int(args['--servers'])
 

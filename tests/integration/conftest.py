@@ -62,7 +62,6 @@ def create_config(pytest_config):
             '--show-possibly-lost=yes',
             '--show-reachable=no',
             '--suppressions=../redis/src/valgrind.sup',
-            '--suppressions=libuv.supp',
             '--log-file={}/valgrind-redis.%p'.format(config.workdir),
             config.executable] + config.args
         config.executable = 'valgrind'

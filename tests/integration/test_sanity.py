@@ -198,6 +198,7 @@ def test_auto_ids(cluster):
     # -- Test recovery of id from log after restart --
     _id = node2.raft_info()['node_id']
     node2.restart()
+    node2.wait_for_election()
     assert _id == node2.raft_info()['node_id']
 
 

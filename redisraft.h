@@ -12,10 +12,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <errno.h>
 #include <unistd.h>
+#include <time.h>
+#include <netinet/in.h>
 
-#define REDISMODULE_EXPERIMENTAL_API
-#include "uv.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "redismodule.h"
@@ -29,6 +30,14 @@
 /* Disable GNU attributes for non-GNU compilers */
 #ifndef __GNUC__
     #define __attribute__(a)
+#endif
+
+#ifndef MIN
+    #define MIN(a,b) (((a)<(b))?(a):(b))
+#endif
+
+#ifndef MAX
+    #define MAX(a,b) (((a)<(b))?(b):(a))
 #endif
 
 /* --------------- Forward declarations -------------- */
@@ -158,13 +167,17 @@ typedef struct Connection {
     NodeAddr addr;                      /* Address of last ConnConnect() */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Resolved IP address */
     redisAsyncContext *rc;              /* hiredis async context */
-    uv_getaddrinfo_t uv_resolver;       /* libuv resolver context */
     struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */
     unsigned long int connect_errors;   /* Connection errors since last connection */
     struct timeval timeout;             /* Timeout to use if not null */
     void *privdata;                     /* User provided pointer */
+
+    struct AddrinfoResult {
+        int rc;
+        struct addrinfo *addr;
+    } addrinfo_result;
 
     /* Connect callback is guaranteed after ConnConnect(); Callback should check
      * connection state as it will also be called on error.
@@ -244,19 +257,63 @@ typedef struct RaftMeta {
     raft_node_id_t vote;                        /* Our vote in the last term, or -1 */
 } RaftMeta;
 
+/* threadpool.c */
+struct Task {
+    STAILQ_ENTRY(Task) entry;
+    void *arg;
+    void (*run)(void *arg);
+};
+
+typedef struct ThreadPool {
+    int thread_count;
+    pthread_t *threads;
+
+    STAILQ_HEAD(tasks, Task) tasks;
+
+    pthread_mutex_t mtx;
+    pthread_cond_t cond;
+    int shutdown;
+} ThreadPool;
+
+void threadPoolInit(ThreadPool *pool, int thread_count);
+void threadPoolAdd(ThreadPool *pool, void *arg, void (*run)(void *arg));
+void threadPoolShutdown(ThreadPool *pool);
+
+typedef struct FsyncThreadResult {
+    raft_index_t fsync_index;
+    uint64_t time;
+} FsyncThreadResult;
+
+/* fsync.c */
+typedef struct FsyncThread
+{
+    pthread_t id;
+    pthread_cond_t cond;
+    pthread_mutex_t mtx;
+
+    bool need_fsync;
+    bool running;
+
+    int fd;
+    raft_index_t requested_index;
+
+    void (*on_complete)(void *result);
+
+} FsyncThread;
+
+void fsyncThreadStart(FsyncThread *th, void (*on_complete)(void *result));
+void fsyncThreadAddTask(FsyncThread *th, int fd, raft_index_t requested_index);
+void fsyncThreadWaitUntilCompleted(FsyncThread *th);
+
+
 /* Global Raft context */
 typedef struct RedisRaftCtx {
     void *raft;                                  /* Raft library context */
     RedisModuleCtx *ctx;                         /* Redis module thread-safe context; only used to push
                                                     commands we get from the leader. */
     RedisRaftState state;                        /* Raft module state */
-    uv_thread_t thread;                          /* Raft I/O thread */
-    uv_loop_t *loop;                             /* Raft I/O loop */
-    uv_async_t rqueue_sig;                       /* A signal we have something on rqueue */
-    uv_timer_t raft_periodic_timer;              /* Invoke Raft periodic func */
-    uv_timer_t node_reconnect_timer;             /* Handle connection issues */
-    uv_mutex_t rqueue_mutex;                     /* Mutex protecting rqueue access */
-    STAILQ_HEAD(rqueue, RaftReq) rqueue;         /* Requests queue (Redis thread -> Raft thread) */
+    ThreadPool thread_pool;                      /* Thread pool for slow operations */
+    FsyncThread fsyncThread;                     /* Thread to call fsync on raft log file */
     struct RaftLog *log;                         /* Raft persistent log; May be NULL if not used */
     struct RaftMeta meta;                        /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;                 /* Log entry cache to keep entries in memory for faster access */
@@ -292,22 +349,22 @@ extern RedisRaftCtx redis_raft;
 
 extern raft_log_impl_t RaftLogImpl;
 
-#define REDIS_RAFT_DEFAULT_LOG_FILENAME             "redisraft.db"
-#define REDIS_RAFT_DEFAULT_INTERVAL                 100 /* usec */
-#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT          200 /* usec */
-#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT         1000 /* usec */
-#define REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT       3000 /* usec */
-#define REDIS_RAFT_DEFAULT_JOIN_TIMEOUT             120 /* seconds */
-#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL       100
-#define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT   10000
-#define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT    1000
-#define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE       8*1000*1000
-#define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE        64*1000*1000
-
-#define REDIS_RAFT_HASH_SLOTS                       16384
-#define REDIS_RAFT_HASH_MIN_SLOT                    0
-#define REDIS_RAFT_HASH_MAX_SLOT                    16383
+#define REDIS_RAFT_DEFAULT_LOG_FILENAME               "redisraft.db"
+#define REDIS_RAFT_DEFAULT_INTERVAL                   100  /* milliseconds */
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT            200  /* milliseconds */
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT           1000 /* usec */
+#define REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT         3000 /* usec */
+#define REDIS_RAFT_DEFAULT_JOIN_TIMEOUT               120  /* seconds */
+#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL         100
+#define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT     10000
+#define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT      1000
+#define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE         (8*1000*1000)
+#define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE          (64*1000*1000)
+#define REDIS_RAFT_HASH_SLOTS                         16384
+#define REDIS_RAFT_HASH_MIN_SLOT                      0
+#define REDIS_RAFT_HASH_MAX_SLOT                      16383
 #define REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL 5000
+#define REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES          4
 
 static inline bool HashSlotValid(int slot)
 {
@@ -336,6 +393,7 @@ typedef struct RedisRaftConfig {
     int reconnect_interval;
     int proxy_response_timeout;
     int raft_response_timeout;
+    int max_appendentries_inflight;
     /* Cache and file compaction */
     unsigned long raft_log_max_cache_size;
     unsigned long raft_log_max_file_size;
@@ -707,14 +765,31 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
-RRStatus RedisRaftStart(RedisModuleCtx *ctx, RedisRaftCtx *rr);
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
 void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
-void RaftReqHandleQueue(uv_async_t *handle);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
+void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
+void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
+void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
+void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req);
+void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
+void handleDebug(RedisRaftCtx *rr, RaftReq *req);
+void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
+void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
+void handleCfgChange(RedisRaftCtx *rr, RaftReq *req);
+void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req);
+void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req);
+void handleRequestVote(RedisRaftCtx *rr, RaftReq *req);
+void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
+void handleConfig(RedisRaftCtx *rr, RaftReq *req);
+void handleInfo(RedisRaftCtx *rr, RaftReq *req);
+void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
+void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
+void handleBeforeSleep(RedisRaftCtx *rr);
+void handleFsyncCompleted(void *arg);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);

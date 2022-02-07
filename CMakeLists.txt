@@ -23,6 +23,9 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 enable_testing()
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -61,7 +64,6 @@ endif()
 
 
 # -------------------------- Dependencies Start ------------------------------ #
-add_subdirectory(deps/libuv)
 add_subdirectory(deps/raft)
 
 option(UNIT_TESTING "Disable cmocka tests" OFF)
@@ -116,7 +118,7 @@ add_library(redisraft SHARED
         config.c
         connection.c
         crc16.c
-        crc16.h
+        fsync.c
         join.c
         log.c
         node.c
@@ -127,13 +129,13 @@ add_library(redisraft SHARED
         serialization.c
         snapshot.c
         sort.c
+        threadpool.c
         util.c)
 
 add_dependencies(redisraft info)
-target_link_libraries(redisraft PUBLIC raft uv hiredis)
+set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(redisraft PUBLIC raft hiredis)
 
-target_include_directories(redisraft PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include>)
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
 target_include_directories(redisraft PUBLIC
@@ -149,7 +151,7 @@ add_executable(main
         config.c
         connection.c
         crc16.c
-        crc16.h
+        fsync.c
         join.c
         log.c
         node.c
@@ -160,6 +162,7 @@ add_executable(main
         serialization.c
         snapshot.c
         sort.c
+        threadpool.c
         util.c
         tests/main.c
         tests/test_log.c
@@ -167,9 +170,10 @@ add_executable(main
         tests/test_util.c)
 
 target_compile_options(main PUBLIC -include dut_premble.h)
-target_link_libraries(main PRIVATE cmocka uv raft hiredis)
+target_link_libraries(main PRIVATE cmocka raft hiredis)
+target_link_libraries(main PRIVATE Threads::Threads dl)
 target_include_directories(main PUBLIC
-        tests deps/raft/include deps/libuv/include deps/)
+        tests deps/raft/include deps/)
 
 add_dependencies(main info)
 add_test(NAME main COMMAND $<TARGET_FILE:main>)

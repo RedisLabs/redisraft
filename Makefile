@@ -47,27 +47,28 @@ LDFLAGS += $(ARCH_LDFLAGS)
 LIBS = \
        $(BUILDDIR)/lib/libraft.a \
        $(BUILDDIR)/lib/libhiredis.a \
-       $(BUILDDIR)/lib/libuv.a \
        -lpthread
 
 OBJECTS = \
-	  redisraft.o \
+	  cluster.o \
+	  commands.o \
 	  common.o \
+	  config.o \
+	  connection.o \
+	  crc16.o \
+	  fsync.o \
+	  join.o \
+	  log.o \
 	  node.o \
 	  node_addr.o \
-	  join.o \
-	  util.o \
-	  config.o \
-	  raft.o \
-	  snapshot.o \
-	  log.o \
 	  proxy.o \
+	  raft.o \
+	  redisraft.o \
 	  serialization.o \
-	  cluster.o \
-	  crc16.o \
-	  connection.o \
-	  commands.o \
-	  sort.o
+	  snapshot.o \
+	  sort.o \
+	  threadpool.o \
+	  util.o
 
 ifeq ($(COVERAGE),1)
 CFLAGS += -fprofile-arcs -ftest-coverage

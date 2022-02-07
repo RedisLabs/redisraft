@@ -36,6 +36,7 @@ static void __RAFT_APPEND_ENTRY(void *r, int id, raft_term_t term, const char *d
 {
     raft_entry_t *e = __MAKE_ENTRY(id, term, data);
     raft_append_entry(r, e);
+    raft_node_set_match_idx(raft_get_my_node(r), raft_get_current_idx(r));
 }
 
 static void __RAFT_APPEND_ENTRIES_SEQ_ID(void *r, int count, int id, raft_term_t term, const char *data)
