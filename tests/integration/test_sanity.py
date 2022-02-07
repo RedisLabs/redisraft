@@ -25,6 +25,13 @@ def test_set_cluster_id(cluster):
     assert str(cluster.leader_node().raft_info()["dbid"]) == id
 
 
+def test_set_cluster_password(cluster):
+    password = "foobar"
+    id = "12345678901234567890123456789012"
+    cluster.create(3, password=password, cluster_id=id)
+    assert str(cluster.leader_node().raft_info()["dbid"]) == id
+
+
 def test_set_cluster_id_too_short(cluster):
     id = "123456789012345678901234567890"
     with raises(ResponseError, match='cluster id must be 32 characters'):

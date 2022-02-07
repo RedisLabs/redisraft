@@ -54,11 +54,13 @@ class PipeLogger(threading.Thread):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
-                 use_id_arg=True, cluster_id=0, cert_dir=None):
+                 use_id_arg=True, cluster_id=0, cert_dir=None, password=None):
         if raft_args is None:
             raft_args = {}
         else:
             raft_args = raft_args.copy()
+        if password:
+            raft_args['cluster-password'] = password
         self.id = _id
         self.cluster_id = cluster_id
         self.guid = str(uuid.uuid4())
@@ -86,6 +88,8 @@ class RedisRaft(object):
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename]
         self.args += redis_args if redis_args else []
+        if password:
+            self.args += ['--requirepass', password]
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
         if use_id_arg:
             raft_args['id'] = str(_id)
@@ -103,9 +107,10 @@ class RedisRaft(object):
         self.raft_args = [str(x) for x in
             itertools.chain.from_iterable(raft_args.items())]
         if not cert_dir:
-            self.client = redis.Redis(host='localhost', port=self.port)
+            self.client = redis.Redis(host='localhost', port=self.port, password=password)
         else:
-            self.client = redis.Redis(host='localhost', port=self.port, ssl=True,
+            self.client = redis.Redis(host='localhost', port=self.port, password=password,
+                                      ssl=True,
                                       ssl_ca_certs=cert_dir+'/ca.crt',
                                       ssl_certfile=cert_dir+'/redis.crt',
                                       ssl_keyfile=cert_dir+'/redis.key')
@@ -467,7 +472,7 @@ class Cluster(object):
     def node_addresses(self):
         return [n.address for n in self.nodes.values()]
 
-    def create(self, node_count, raft_args=None, cluster_id=None, prepopulate_log=0, cert_dir=None):
+    def create(self, node_count, raft_args=None, cluster_id=None, password=None, prepopulate_log=0, cert_dir=None):
         if raft_args is None:
             raft_args = {}
         self.raft_args = raft_args.copy()
@@ -476,7 +481,8 @@ class Cluster(object):
                                    config=self.config,
                                    raft_args=raft_args,
                                    cluster_id=self.cluster_id,
-                                   cert_dir=cert_dir)
+                                   cert_dir=cert_dir,
+                                   password=password)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():

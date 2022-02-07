@@ -415,6 +415,8 @@ typedef struct RedisRaftConfig {
     char *tls_ca_cert;
     char *tls_cert;
     char *tls_key;
+    char *cluster_user;                 /* acl user to use for internode communication */
+    char *cluster_password;             /* password used for internode communication */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {

@@ -14,6 +14,7 @@
 #include <assert.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 #define CONN_LOG(level, conn, fmt, ...) \
     LOG(level, "{conn:%lu} " fmt, conn ? conn->id : 0, ##__VA_ARGS__)
@@ -126,13 +127,60 @@ void ConnAsyncTerminate(Connection *conn)
     conn->flags |= CONN_TERMINATING;
 }
 
+static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
+{
+    Connection *conn = privdata;
+    JoinLinkState *state = ConnGetPrivateData(conn);
+
+    redisReply *reply = r;
+
+    if (!reply) {
+        LOG_ERROR("Redis connection authentication failed: connection died");
+        ConnMarkDisconnected(conn);
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        LOG_ERROR("Redis connection authentication failed: %s", reply->str);
+        state->failed = true;
+        ConnMarkDisconnected(conn);
+    } else if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str) != 0) {
+        LOG_ERROR("Redis connection authentication failed: unexpected response");
+        state->failed = true;
+        ConnMarkDisconnected(conn);
+    }
+
+    if (conn->connect_callback) {
+        conn->connect_callback(conn);
+    }
+}
+
+static void doAuthentication(Connection *conn, int status)
+{
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+
+    if (status == REDIS_OK) {
+        if (redisAsyncCommand(ConnGetRedisCtx(conn), handleAuth, conn,
+                              "AUTH %s %s",
+                              rr->config->cluster_user ? rr->config->cluster_user : "default",
+                              rr->config->cluster_password ? rr->config->cluster_password : "") != REDIS_OK) {
+            redisAsyncDisconnect(ConnGetRedisCtx(conn));
+            ConnMarkDisconnected(conn);
+        }
+    } else {
+        /* Call callback even when failed */
+        if (conn->connect_callback) {
+            conn->connect_callback(conn);
+        }
+
+    }
+}
+
 /* Connect callback (hiredis).
  *
  * This callback will always be called as a result of a prior redisAsyncConnect()
  * from handleResolved(), with state CONN_CONNECTING.
  *
  * Depending on status, state transitions to CONN_CONNECTED or CONN_CONNECT_ERROR.
- * User callback is called in both cases.
+ * If authentication is required, that will be attempted.
+ * User callback is called in all cases except when the connection has already been terminated externally
  */
 
 static void handleConnected(const redisAsyncContext *c, int status)
@@ -159,10 +207,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
         return;
     }
 
-    /* Call explicit connect callback (even if failed) */
-    if (conn->connect_callback) {
-        conn->connect_callback(conn);
-    }
+    doAuthentication(conn, status);
 }
 
 /* Disconnect callback (hiredis).
