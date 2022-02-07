@@ -9,6 +9,7 @@
 #include "linked_list_queue.h"
 
 #include "raft.h"
+#include "raft_private.h"
 #include "helpers.h"
 
 static raft_node_id_t __get_node_id(

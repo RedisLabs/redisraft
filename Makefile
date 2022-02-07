@@ -10,7 +10,12 @@ SHELL  = /bin/bash
 CFLAGS += -Iinclude -Werror -Werror=return-type -Werror=uninitialized -Wcast-align \
 	  -Wno-pointer-sign -fno-omit-frame-pointer -fno-common -fsigned-char \
 	  -Wunused-variable -g -O2 -fPIC
+ifeq ($(COVERAGE), 1)
+CFLAGS += $(GCOV_CFLAGS)
+TEST_CFLAGS = $(CFLAGS)
+else
 TEST_CFLAGS = $(CFLAGS) $(GCOV_CFLAGS)
+endif
 
 UNAME := $(shell uname)
 
@@ -28,6 +33,9 @@ SHAREDFLAGS = -shared
 SHAREDEXT = so
 endif
 
+# Export LD_LIBRARY_PATH to allow the CFFI shared object to find libraft.so.
+export LD_LIBRARY_PATH=$(PWD)
+
 OBJECTS = \
 	$(BUILD_DIR)/raft_server.o \
 	$(BUILD_DIR)/raft_server_properties.o \
@@ -44,19 +52,28 @@ TEST_HELPERS = \
 TESTS = $(wildcard $(TEST_DIR)/test_*.c)
 TEST_TARGETS = $(patsubst $(TEST_DIR)/%.c,$(BIN_DIR)/%,$(TESTS))
 
+LIBRAFT_STATIC = libraft.a
+LIBRAFT_SHARED = libraft.$(SHAREDEXT)
+
 all: static shared
 
-.PHONY: shared
-shared: $(OBJECTS)
-	$(CC) $(OBJECTS) $(LDFLAGS) $(CFLAGS) -fPIC $(SHAREDFLAGS) -o libraft.$(SHAREDEXT)
+shared: $(LIBRAFT_SHARED)
 
-.PHONY: static
-static: $(OBJECTS)
-	ar -r libraft.a $(OBJECTS)
+static: $(LIBRAFT_STATIC)
+
+$(LIBRAFT_SHARED): $(OBJECTS)
+	$(CC) $^ $(LDFLAGS) $(CFLAGS) -fPIC $(SHAREDFLAGS) -o $@
+
+$(LIBRAFT_STATIC): $(OBJECTS)
+	ar -r $@ $^
 
 .PHONY: tests
 tests: $(TEST_TARGETS)
 	gcov $(TEST_OBJECTS)
+
+.PHONY: gcov
+gcov: $(OBJECTS)
+	gcov $(OBJECTS) $(TEST_OBJECTS)
 
 $(TEST_TARGETS): $(BIN_DIR)/%: $(TEST_OBJECTS) $(TEST_HELPERS)
 	$(CC) $(TEST_CFLAGS) $(TEST_DIR)/$*.c $(LIB) $(INC) $^ -o $@
@@ -75,8 +92,14 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 test_helper: $(TEST_HELPERS)
 	$(CC) $(TEST_CFLAGS)  -o $@
 
+# A file to signal we've built the CFFI module, because its name is not fixed.
+RAFT_CFFI_TARGET = tests/.raft_cffi_built
+$(RAFT_CFFI_TARGET): $(LIBRAFT_SHARED)
+	python3 tests/raft_cffi_builder.py
+	touch $(RAFT_CFFI_TARGET)
+
 .PHONY: test_fuzzer
-test_fuzzer:
+test_fuzzer: $(RAFT_CFFI_TARGET)
 	python tests/log_fuzzer.py
 
 .PHONY: tests_full
@@ -87,7 +110,7 @@ tests_full:
 	make test_virtraft
 
 .PHONY: test_virtraft
-test_virtraft:
+test_virtraft: $(RAFT_CFFI_TARGET)
 	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 1 -m 3 $(VIRTRAFT_OPTS)
 	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 1 -m 3 --client_rate 0 $(VIRTRAFT_OPTS)
 	python3 tests/virtraft2.py --servers 7 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 1 -m 3 $(VIRTRAFT_OPTS)
@@ -102,6 +125,8 @@ test_virtraft:
 	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 5 -m 3 --client_rate 0 $(VIRTRAFT_OPTS)
 	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 6 -m 3 $(VIRTRAFT_OPTS)
 	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 6 -m 3 --client_rate 0 $(VIRTRAFT_OPTS)
+	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 1 -m 3 --auto_flush $(VIRTRAFT_OPTS)
+	python3 tests/virtraft2.py --servers 5 -i 20000 --compaction_rate 50 --drop_rate 5 -P 10 --seed 6 -m 3 --auto_flush $(VIRTRAFT_OPTS)
 
 .PHONY: amalgamation
 amalgamation:
@@ -116,6 +141,4 @@ do_infer:
 	infer -- make
 
 clean:
-	@rm -f ffi_tests.* src/*.o bin/* src/*.gcda src/*.gcno *.gcno *.gcda *.gcov tests/*.o tests/*.gcda tests/*.gcno; \
-	if [ -f "libraft.$(SHAREDEXT)" ]; then rm libraft.$(SHAREDEXT); fi;\
-	if [ -f libraft.a ]; then rm libraft.a; fi;
+	-@rm -f src/*.o bin/* src/*.gcda src/*.gcno *.gcno *.gcda *.gcov tests/*.o tests/*.gcda tests/*.gcno tests/raft_cffi.* $(RAFT_CFFI_TARGET) $(LIBRAFT_SHARED) $(LIBRAFT_STATIC)

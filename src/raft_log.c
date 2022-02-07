@@ -424,6 +424,11 @@ static raft_index_t __log_count(void *log)
     return log_count(log);
 }
 
+static int __log_sync(void *log)
+{
+    return 0;
+}
+
 const raft_log_impl_t raft_log_internal_impl = {
     .init = __log_init,
     .free = __log_free,
@@ -435,5 +440,6 @@ const raft_log_impl_t raft_log_internal_impl = {
     .get_batch = __log_get_batch,
     .first_idx = __log_first_idx,
     .current_idx = __log_current_idx,
-    .count = __log_count
+    .count = __log_count,
+    .sync = __log_sync
 };
