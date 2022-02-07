@@ -10,9 +10,11 @@
 #include <time.h>
 
 #include "redisraft.h"
-#include "hiredis/adapters/libuv.h"
+#include "hiredis_redismodule.h"
 
 #include <assert.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #define CONN_LOG(level, conn, fmt, ...) \
     LOG(level, "{conn:%lu} " fmt, conn ? conn->id : 0, ##__VA_ARGS__)
@@ -181,35 +183,39 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
     }
 }
 
-/* Callback for uv_getaddrinfo.
- */
-static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrinfo *res)
+/* Callback for ConnGetAddrinfo(). This will be called from Redis thread. */
+static void handleResolved(void *arg)
 {
-    Connection *conn = uv_req_get_data((uv_req_t *)resolver);
+    Connection *conn = arg;
 
     CONN_TRACE(conn, "handleResolved: flags=%d, state=%s, rc=%p",
         conn->flags,
         ConnStateStr[conn->state],
         conn->rc);
 
+    struct AddrinfoResult *res = &conn->addrinfo_result;
+
     /* If flagged for terminated in the meanwhile, drop now.
      */
     if (conn->flags & CONN_TERMINATING) {
         conn->state = CONN_DISCONNECTED;
-        uv_freeaddrinfo(res);
+        if (res->addr) {
+            freeaddrinfo(res->addr);
+        }
         return;
     }
 
-    if (status < 0) {
-        CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host, uv_strerror(status));
+    if (res->rc != 0) {
+        CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host,
+                       gai_strerror(res->rc));
         conn->state = CONN_CONNECT_ERROR;
         conn->connect_errors++;
-        uv_freeaddrinfo(res);
         return;
     }
 
-    uv_ip4_name((struct sockaddr_in *) res->ai_addr, conn->ipaddr, sizeof(conn->ipaddr)-1);
-    uv_freeaddrinfo(res);
+    void* addr = &((struct sockaddr_in *)res->addr->ai_addr)->sin_addr;
+    inet_ntop(AF_INET, addr, conn->ipaddr, INET_ADDRSTRLEN);
+    freeaddrinfo(res->addr);
 
     /* Initiate connection */
     if (conn->rc != NULL) {
@@ -237,13 +243,18 @@ static void handleResolved(uv_getaddrinfo_t *resolver, int status, struct addrin
     conn->state = CONN_CONNECTING;
     conn->flags &= ~CONN_TERMINATING;
 
-    redisLibuvAttach(conn->rc, conn->rr->loop);
+    redisModuleAttach(conn->rc);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
 }
 
-RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackFunc connect_callback)
+/* getaddrinfo() is quite slow, especially when it fails to resolve the address.
+ * This function will be called in the threadpool not to stop Redis main thread.
+ */
+void ConnGetAddrinfo(void *arg)
 {
+    Connection *conn = arg;
+
     struct addrinfo hints = {
         .ai_family = PF_INET,
         .ai_socktype = SOCK_STREAM,
@@ -251,21 +262,27 @@ RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackF
         .ai_flags = 0
     };
 
+    struct addrinfo *addr = NULL;
+    int rc = getaddrinfo(conn->addr.host, NULL, &hints, &addr);
+
+    conn->addrinfo_result.rc = rc;
+    conn->addrinfo_result.addr = addr;
+
+    RedisModule_EventLoopAddOneShot(handleResolved, conn);
+}
+
+RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackFunc connect_callback)
+{
     CONN_TRACE(conn, "ConnConnect: connecting %s:%u.", addr->host, addr->port);
 
     assert(ConnIsIdle(conn));
 
     conn->addr = *addr;
-
     conn->state = CONN_RESOLVING;
     conn->connect_callback = connect_callback;
-    uv_req_set_data((uv_req_t *)&conn->uv_resolver, conn);
-    int r = uv_getaddrinfo(conn->rr->loop, &conn->uv_resolver, handleResolved,
-            conn->addr.host, NULL, &hints);
-    if (r) {
-        conn->state = CONN_CONNECT_ERROR;
-        return RR_ERROR;
-    }
+
+    /* Call slow getaddrinfo() in another thread asynchronously */
+    threadPoolAdd(&redis_raft.thread_pool, conn, ConnGetAddrinfo);
 
     return RR_OK;
 }

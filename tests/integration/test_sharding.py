@@ -313,10 +313,10 @@ def test_shard_group_linking(cluster_factory):
     # propagation.
     assert cluster2.leader == 1
     cluster2.leader_node().terminate()
-    cluster2.node(2).wait_for_election()
+    cluster2.update_leader()
 
     # Wait for shardgroup update interval, 500ms
-    time.sleep(1)
+    time.sleep(2)
     validate_slots(cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS'))
 
 

@@ -50,7 +50,8 @@ def test_leader_removal_allowed(cluster):
 
     cluster.create(3)
     assert cluster.leader == 1
-    cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '1')
+    cluster.remove_node(1)
+    cluster.node(2).wait_for_num_nodes(2)
 
 
 def test_single_voting_change_enforced(cluster):
@@ -130,7 +131,10 @@ def test_full_cluster_remove(cluster):
         leader.wait_for_log_applied()
 
     # remove the leader node finally
-    leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
+    try:
+        leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
+    except:
+        pass
 
     # wait some time for the last node
     time.sleep(3)
