@@ -298,7 +298,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         }
         target->cluster_password = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, CONF_CLUSTER_USER)) {
-        if (target->cluster_password) {
+        if (target->cluster_user) {
             RedisModule_Free(target->cluster_user);
         }
         target->cluster_user = RedisModule_Strdup(value);
@@ -499,7 +499,7 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user);
     }
-    if (stringmatch(pattern, CONF_CLUSTER_USER, 1)) {
+    if (stringmatch(pattern, CONF_CLUSTER_PASSWORD, 1)) {
         len++;
         replyConfigStr(ctx, CONF_CLUSTER_PASSWORD, "***");
     }
@@ -605,6 +605,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
     config->tls_key = getRedisConfig(ctx, "tls-key-file");
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
+    config->cluster_user = RedisModule_Strdup("default");
+    config->cluster_password = RedisModule_Strdup("");
 }
 
 

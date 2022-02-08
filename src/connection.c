@@ -130,7 +130,6 @@ void ConnAsyncTerminate(Connection *conn)
 static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
 {
     Connection *conn = privdata;
-    JoinLinkState *state = ConnGetPrivateData(conn);
 
     redisReply *reply = r;
     if (!reply) {
@@ -138,17 +137,15 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
         ConnMarkDisconnected(conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         LOG_ERROR("Redis connection authentication failed: %s", reply->str);
-        state->failed = true;
         ConnMarkDisconnected(conn);
     } else if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str) != 0) {
         LOG_ERROR("Redis connection authentication failed: unexpected response");
-        state->failed = true;
         ConnMarkDisconnected(conn);
+    } else {
+        conn->state = CONN_CONNECTED;
+        conn->connect_oks++;
+        conn->last_connected_time = RedisModule_Milliseconds();
     }
-
-    conn->state = CONN_CONNECTED;
-    conn->connect_oks++;
-    conn->last_connected_time = RedisModule_Milliseconds();
 
     if (conn->connect_callback) {
         conn->connect_callback(conn);
@@ -162,8 +159,8 @@ static void doAuthentication(Connection *conn, int status)
     if (status == REDIS_OK) {
         if (redisAsyncCommand(ConnGetRedisCtx(conn), handleAuth, conn,
                               "AUTH %s %s",
-                              rr->config->cluster_user ? rr->config->cluster_user : "default",
-                              rr->config->cluster_password ? rr->config->cluster_password : "") != REDIS_OK) {
+                              rr->config->cluster_user,
+                              rr->config->cluster_password) != REDIS_OK) {
             redisAsyncDisconnect(ConnGetRedisCtx(conn));
             ConnMarkDisconnected(conn);
         }
