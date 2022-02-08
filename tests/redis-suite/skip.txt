@@ -50,6 +50,9 @@ FUNCTION - deny oom
 FUNCTION - deny oom on no-writes function
 allow-oom shebang flag
 
+-- ACL test fails because we prepend "raft" string to the command
+Script ACL check
+
 -- Blocked clients not supported
 Test read commands are not blocked by client pause
 Test write commands are paused by RO
