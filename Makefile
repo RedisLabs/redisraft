@@ -78,22 +78,26 @@ endif
 .PHONY: all
 all: redisraft.so
 
-buildinfo.h:
+src/buildinfo.h:
 	GIT_SHA1=`(git show-ref --head --hash=8 2>/dev/null || echo 00000000) | head -n1` && \
-	echo "#define REDISRAFT_GIT_SHA1 \"$$GIT_SHA1\"" > buildinfo.h
+	echo "#define REDISRAFT_GIT_SHA1 \"$$GIT_SHA1\"" > src/buildinfo.h
 
-$(OBJECTS): %.o : %.c | $(BUILDDIR)/.deps_installed buildinfo.h
+OBJECTS := $(addprefix $(BUILDDIR)/src/, $(OBJECTS))
+
+$(OBJECTS): $(BUILDDIR)/%.o : %.c | $(BUILDDIR)/.deps_installed src/buildinfo.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 redisraft.so: $(OBJECTS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
 
 clean: clean-tests
-	rm -f redisraft.so buildinfo.h $(OBJECTS)
+	rm -f redisraft.so buildinfo.h $(OBJECTS) $(TEST_OBJECTS)
 
 cleanall: clean
 	rm -rf $(BUILDDIR)
 	$(MAKE) -C deps clean PREFIX=$(BUILDDIR)
+
+distclean: cleanall
 
 # ----------------------------- Unit Tests -----------------------------
 
@@ -106,23 +110,24 @@ else
     DUT_LIBS =
 endif
 TEST_OBJECTS = \
-	tests/main.o \
-	tests/test_log.o \
-	tests/test_util.o \
-	tests/test_serialization.o
+	main.o \
+	test_log.o \
+	test_util.o \
+	test_serialization.o
 DUT_OBJECTS = \
-	$(patsubst %.o,tests/test-%.o,$(OBJECTS))
+	$(patsubst $(BUILDDIR)/src/%.o,$(BUILDDIR)/tests/test-%.o,$(OBJECTS))
 TEST_LIBS = $(BUILDDIR)/lib/libcmocka-static.a $(DUT_LIBS) -lpthread -ldl
+TEST_OBJECTS := $(addprefix $(BUILDDIR)/tests/, $(TEST_OBJECTS))
 
 .PHONY: clean-tests
 clean-tests:
 	-rm -rf tests/tests_main $(DUT_OBJECTS) $(TEST_OBJECTS) *.gcno *.gcda tests/*.gcno tests/*.gcda tests/*.gcov tests/*lcov.info tests/.*lcov_html
 
-tests/test-%.o: %.c
+tests/test-%.o: src/%.c
 	$(CC) -c $(DUT_CFLAGS) $(DUT_CPPFLAGS) -o $@ $<
 
 .PHONY: tests
-tests: unit-tests integration-tests
+tests: all unit-tests integration-tests
 
 .PHONY: unit-tests
 ifeq ($(OS),Linux)
@@ -136,6 +141,12 @@ unit-tests: tests/tests_main
 endif
 
 .PHONY: tests/tests_main
+$(TEST_OBJECTS): $(BUILDDIR)/%.o : %.c
+	$(CC) $(DUT_CFLAGS) $(DUT_CPPFLAGS) -c -o $@ $<
+
+$(DUT_OBJECTS): $(BUILDDIR)/tests/test-%.o : src/%.c
+	$(CC) $(DUT_CFLAGS) $(DUT_CPPFLAGS) -c -o $@ $<
+
 tests/tests_main: $(TEST_OBJECTS) $(DUT_OBJECTS)
 	$(CC) -o tests/tests_main $(TEST_OBJECTS) $(DUT_OBJECTS) $(LIBS) $(TEST_LIBS)
 
@@ -171,5 +182,7 @@ $(BUILDDIR)/.deps_installed:
 	mkdir -p $(BUILDDIR)
 	mkdir -p $(BUILDDIR)/lib
 	mkdir -p $(BUILDDIR)/include
+	mkdir -p $(BUILDDIR)/src
+	mkdir -p $(BUILDDIR)/tests
 	$(MAKE) -C deps PREFIX=$(BUILDDIR)
 	touch $(BUILDDIR)/.deps_installed

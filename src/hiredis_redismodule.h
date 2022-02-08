@@ -4,8 +4,8 @@
 #include "redisraft.h"
 
 #include <sys/types.h>
-#include "deps/hiredis/hiredis.h"
-#include "deps/hiredis/async.h"
+#include "hiredis/hiredis.h"
+#include "hiredis/async.h"
 
 typedef struct redisAeEvents {
     redisAsyncContext *context;

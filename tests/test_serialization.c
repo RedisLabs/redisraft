@@ -14,7 +14,7 @@
 
 #include "cmocka.h"
 
-#include "../redisraft.h"
+#include "../src/redisraft.h"
 
 static void setupRedisCommand(RaftRedisCommand *target, const char **argv, int argc)
 {

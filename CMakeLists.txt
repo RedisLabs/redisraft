@@ -77,7 +77,7 @@ add_subdirectory(deps/hiredis)
 
 # --------------------------- Build Helpers Start ---------------------------- #
 add_custom_command(OUTPUT buildinfo
-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/src
         COMMAND export GIT_SHA1=` (git show-ref --head --hash=8 2>/dev/null || echo 00000000) | head -n1`
         && echo "\"\#define\$ REDISRAFT_GIT_SHA1\$ \\\"$$GIT_SHA1\\\"\"" > buildinfo.h)
 
@@ -112,27 +112,30 @@ add_dependencies(coverage check)
 
 # ------------------------ Library build start  ------------------------------ #
 add_library(redisraft SHARED
-        cluster.c
-        commands.c
-        common.c
-        config.c
-        connection.c
-        crc16.c
-        fsync.c
-        join.c
-        log.c
-        node.c
-        node_addr.c
-        proxy.c
-        raft.c
-        redisraft.c
-        serialization.c
-        snapshot.c
-        sort.c
-        threadpool.c
-        util.c)
+        src/cluster.c
+        src/commands.c
+        src/common.c
+        src/config.c
+        src/connection.c
+        src/crc16.c
+        src/fsync.c
+        src/join.c
+        src/log.c
+        src/node.c
+        src/node_addr.c
+        src/proxy.c
+        src/raft.c
+        src/redisraft.c
+        src/serialization.c
+        src/snapshot.c
+        src/sort.c
+        src/threadpool.c
+        src/util.c)
 
 add_dependencies(redisraft info)
+set_target_properties(redisraft PROPERTIES PREFIX "")
+set_target_properties(redisraft PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(redisraft PUBLIC raft hiredis)
 
@@ -145,25 +148,25 @@ target_include_directories(redisraft PUBLIC
 
 # ---------------------------- Test Start ------------------------------------ #
 add_executable(main
-        cluster.c
-        commands.c
-        common.c
-        config.c
-        connection.c
-        crc16.c
-        fsync.c
-        join.c
-        log.c
-        node.c
-        node_addr.c
-        proxy.c
-        raft.c
-        redisraft.c
-        serialization.c
-        snapshot.c
-        sort.c
-        threadpool.c
-        util.c
+        src/cluster.c
+        src/commands.c
+        src/common.c
+        src/config.c
+        src/connection.c
+        src/crc16.c
+        src/fsync.c
+        src/join.c
+        src/log.c
+        src/node.c
+        src/node_addr.c
+        src/proxy.c
+        src/raft.c
+        src/redisraft.c
+        src/serialization.c
+        src/snapshot.c
+        src/sort.c
+        src/threadpool.c
+        src/util.c
         tests/main.c
         tests/test_log.c
         tests/test_serialization.c
