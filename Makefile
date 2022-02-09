@@ -76,6 +76,7 @@ LIBS += -lgcov
 endif
 
 ifeq ($(BUILD_TLS),yes)
+	CFLAGS += -DHAVE_TLS
 	LIBSSL_PKGCONFIG := $(shell $(PKG_CONFIG) --exists libssl && echo $$?)
 ifeq ($(LIBSSL_PKGCONFIG),0)
 	LIBSSL_LIBS=$(shell $(PKG_CONFIG) --libs libssl)

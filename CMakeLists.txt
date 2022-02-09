@@ -77,6 +77,7 @@ if (BUILD_TLS)
     option(ENABLE_SSL "Building with TLS" ON)
     set(OPENSSL_USE_STATIC_LIBS TRUE)
     find_package(OpenSSL REQUIRED)
+    add_compile_definitions(HAVE_TLS)
 endif()
 
 option(DISABLE_TESTS "Disable hiredis tests" ON)
