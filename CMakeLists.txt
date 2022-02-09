@@ -11,6 +11,9 @@
 # Sanitizer:
 #        mkdir build && cd build && cmake .. -DSANITIZER=address -DCMAKE_BUILD_TYPE=Debug
 #        make && make tests
+# TLS:
+#        mkdir build && cd build && cmake .. -DBUILD_TLS=yes -DCMAKE_BUILD_TYPE=Debug
+#        make && make tests
 
 cmake_policy(SET CMP0048 NEW)
 project(redisraft C)
@@ -69,6 +72,12 @@ add_subdirectory(deps/raft)
 option(UNIT_TESTING "Disable cmocka tests" OFF)
 option(WITH_EXAMPLES "Disable cmocka examples" OFF)
 add_subdirectory(deps/cmocka)
+
+if (BUILD_TLS)
+    option(ENABLE_SSL "Building with TLS" ON)
+    set(OPENSSL_USE_STATIC_LIBS TRUE)
+    find_package(OpenSSL REQUIRED)
+endif()
 
 option(DISABLE_TESTS "Disable hiredis tests" ON)
 add_subdirectory(deps/hiredis)
@@ -138,6 +147,9 @@ set_target_properties(redisraft PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(redisraft PUBLIC raft hiredis)
+if (BUILD_TLS)
+    target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
+endif()
 
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
@@ -173,8 +185,11 @@ add_executable(main
         tests/test_util.c)
 
 target_compile_options(main PUBLIC -include dut_premble.h)
-target_link_libraries(main PRIVATE cmocka raft hiredis)
-target_link_libraries(main PRIVATE Threads::Threads dl)
+target_link_libraries(main PRIVATE cmocka raft hiredis Threads::Threads dl)
+if (BUILD_TLS)
+    target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
+endif()
+
 target_include_directories(main PUBLIC
         tests deps/raft/include deps/)
 
