@@ -105,6 +105,10 @@ static void connDataCleanupCallback(void *privdata)
      * we drop the reference to it.
      */
     conn->rc = NULL;
+    if (conn->ssl) {
+        redisFreeSSLContext(conn->ssl);
+        conn->ssl = NULL;
+    }
 
     /* If connection was not flagged for async termination, don't clean it up. It
      * may get reused or cleaned up at a later stage.
@@ -149,6 +153,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
     } else {
         conn->state = CONN_CONNECT_ERROR;
         conn->rc = NULL;
+        conn->ssl = NULL;
         conn->connect_errors++;
     }
 
@@ -180,6 +185,7 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
     if (conn) {
         conn->state = CONN_DISCONNECTED;
         conn->rc = NULL;    /* FIXME: Need this? */
+        conn->ssl = NULL;   /* same as above comment */
     }
 }
 
@@ -208,9 +214,7 @@ static void handleResolved(void *arg)
     if (res->rc != 0) {
         CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host,
                        gai_strerror(res->rc));
-        conn->state = CONN_CONNECT_ERROR;
-        conn->connect_errors++;
-        return;
+        goto fail;
     }
 
     void* addr = &((struct sockaddr_in *)res->addr->ai_addr)->sin_addr;
@@ -230,12 +234,26 @@ static void handleResolved(void *arg)
 
     conn->rc = redisAsyncConnectWithOptions(&options);
     if (conn->rc->err) {
-        conn->state = CONN_CONNECT_ERROR;
-        conn->connect_errors++;
+        goto fail;
+    }
 
-        redisAsyncFree(conn->rc);
-        conn->rc = NULL;
-        return;
+    if (conn->rr->config->tls_enabled) {
+        redisSSLContextError ssl_error;
+        conn->ssl = redisCreateSSLContext(conn->rr->config->tls_ca_cert,
+                                          NULL,
+                                          conn->rr->config->tls_cert,
+                                          conn->rr->config->tls_key,
+                                          NULL,
+                                          &ssl_error);
+        if (!conn->ssl) {
+            CONN_LOG_ERROR(conn, "Error: %s", redisSSLContextGetError(ssl_error));
+            goto fail;
+        }
+
+        if (redisInitiateSSLWithContext(&conn->rc->c, conn->ssl) != REDIS_OK) {
+            CONN_LOG_ERROR(conn, "SSL Error!");
+            goto fail;
+        }
     }
 
     conn->rc->data = conn;
@@ -246,6 +264,16 @@ static void handleResolved(void *arg)
     redisModuleAttach(conn->rc);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
+
+    return;
+
+fail:
+    conn->state = CONN_CONNECT_ERROR;
+    conn->connect_errors++;
+    if (conn->rc) {
+        redisAsyncFree(conn->rc);
+        conn->rc = NULL;
+    }
 }
 
 /* getaddrinfo() is quite slow, especially when it fails to resolve the address.
@@ -295,6 +323,10 @@ void ConnMarkDisconnected(Connection *conn)
     if (conn->rc) {
         redisAsyncFree(conn->rc);
         conn->rc = NULL;
+    }
+    if (conn->ssl) {
+        redisFreeSSLContext(conn->ssl);
+        conn->ssl = NULL;
     }
 }
 

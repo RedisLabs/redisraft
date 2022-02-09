@@ -46,6 +46,10 @@ static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval
 static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
+static const char *CONF_TLS_ENABLED = "tls-enabled";
+static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
+static const char *CONF_TLS_CERT = "tls-cert";
+static const char *CONF_TLS_KEY = "tls-key";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -266,6 +270,26 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         if (*errptr != '\0' || val < 0)
             goto invalid_value;
         target->max_appendentries_inflight = (int) val;
+    } else if (!strcmp(keyword, CONF_TLS_ENABLED)) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
+        target->tls_enabled = val;
+    } else if (!strcmp(keyword, CONF_TLS_CA_CERT)) {
+        if (target->tls_ca_cert) {
+            RedisModule_Free(target->tls_ca_cert);
+        }
+        target->tls_ca_cert = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, CONF_TLS_CERT)) {
+        if (target->tls_cert) {
+            RedisModule_Free(target->tls_ca_cert);
+        }
+        target->tls_cert = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, CONF_TLS_KEY)) {
+        if (target->tls_key) {
+            RedisModule_Free(target->tls_key);
+        }
+        target->tls_key = RedisModule_Strdup(value);
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -443,6 +467,23 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigInt(ctx, CONF_MAX_APPEND_REQ_IN_FLIGHT, config->max_appendentries_inflight);
     }
+    if (stringmatch(pattern, CONF_TLS_ENABLED, 1)) {
+        len++;
+        replyConfigBool(ctx, CONF_TLS_ENABLED, config->tls_enabled);
+    }
+    if (stringmatch(pattern, CONF_TLS_CA_CERT, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_TLS_CA_CERT, config->tls_ca_cert);
+    }
+    if (stringmatch(pattern, CONF_TLS_CERT, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_TLS_CERT, config->tls_cert);
+    }
+    if (stringmatch(pattern, CONF_TLS_KEY, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_TLS_KEY, config->tls_key);
+    }
+
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 

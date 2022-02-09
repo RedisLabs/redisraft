@@ -18,6 +18,7 @@
 #include <netinet/in.h>
 
 #include "hiredis/hiredis.h"
+#include "hiredis/hiredis_ssl.h"
 #include "hiredis/async.h"
 #include "redismodule.h"
 #include "raft.h"
@@ -167,6 +168,7 @@ typedef struct Connection {
     NodeAddr addr;                      /* Address of last ConnConnect() */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Resolved IP address */
     redisAsyncContext *rc;              /* hiredis async context */
+    redisSSLContext *ssl;               /* hiredis context for ssl */
     struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */
@@ -404,6 +406,10 @@ typedef struct RedisRaftConfig {
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
     int external_sharding;              /* use external sharding orchestrator only */
+    bool tls_enabled;                   /* use TLS for all inter cluster communication */
+    char *tls_ca_cert;
+    char *tls_cert;
+    char *tls_key;
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
