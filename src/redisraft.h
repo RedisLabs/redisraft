@@ -18,7 +18,9 @@
 #include <netinet/in.h>
 
 #include "hiredis/hiredis.h"
+#ifdef HAVE_TLS
 #include "hiredis/hiredis_ssl.h"
+#endif
 #include "hiredis/async.h"
 #include "redismodule.h"
 #include "raft.h"

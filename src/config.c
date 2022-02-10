@@ -487,32 +487,6 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
-void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
-{
-    UNUSED(ctx);
-
-    memset(config, 0, sizeof(RedisRaftConfig));
-
-    config->raft_log_filename = RedisModule_Strdup(REDIS_RAFT_DEFAULT_LOG_FILENAME);
-    config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
-    config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
-    config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
-    config->connection_timeout = REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT;
-    config->join_timeout = REDIS_RAFT_DEFAULT_JOIN_TIMEOUT;
-    config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
-    config->raft_response_timeout = REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT;
-    config->proxy_response_timeout = REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT;
-    config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
-    config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
-    config->raft_log_fsync = true;
-    config->quorum_reads = true;
-    config->sharding = false;
-    config->external_sharding = false;
-    config->slot_config = "0:16383",
-    config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
-    config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
-}
-
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
 {
     size_t len;
@@ -584,6 +558,36 @@ exit:
 
     return buf;
 }
+
+void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
+{
+    UNUSED(ctx);
+
+    memset(config, 0, sizeof(RedisRaftConfig));
+
+    config->raft_log_filename = RedisModule_Strdup(REDIS_RAFT_DEFAULT_LOG_FILENAME);
+    config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
+    config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
+    config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
+    config->connection_timeout = REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT;
+    config->join_timeout = REDIS_RAFT_DEFAULT_JOIN_TIMEOUT;
+    config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
+    config->raft_response_timeout = REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT;
+    config->proxy_response_timeout = REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT;
+    config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
+    config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
+    config->raft_log_fsync = true;
+    config->quorum_reads = true;
+    config->sharding = false;
+    config->external_sharding = false;
+    config->slot_config = "0:16383",
+            config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
+    config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
+    config->tls_key = getRedisConfig(ctx, "tls-key-file");
+    config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
+}
+
 
 static RRStatus getInterfaceAddr(NodeAddr *addr)
 {
