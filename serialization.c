@@ -209,7 +209,7 @@ static int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t 
 
 size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, size_t buf_size)
 {
-    const void *p = buf;
+    const char *p = buf;
     int i, n;
     size_t len;
 
@@ -236,7 +236,7 @@ size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, si
         buf_size -= (len + 1);
     }
 
-    return p - buf;
+    return p - (char*) buf;
 
 error:
     RaftRedisCommandFree(target);
@@ -245,7 +245,7 @@ error:
 
 RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size)
 {
-    const void *p = buf;
+    const char *p = buf;
     size_t commands_num;
     int n, i;
 
