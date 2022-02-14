@@ -499,10 +499,6 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user);
     }
-    if (stringmatch(pattern, CONF_CLUSTER_PASSWORD, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_CLUSTER_PASSWORD, "***");
-    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
