@@ -495,7 +495,7 @@ static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
         rn = raft_add_non_voting_node(rr->raft, n, cfg->id, 0);
     }
 
-    assert(rn != NULL);
+    RedisModule_Assert(rn != NULL);
 
     LOG_DEBUG("Snapshot Load: adding node %d: %s:%d: voting=%s",
         cfg->id,

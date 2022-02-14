@@ -41,6 +41,7 @@ IF(WIN32)
 ENDIF()
 
 ADD_LIBRARY(hiredis SHARED ${hiredis_sources})
+ADD_LIBRARY(hiredis_static STATIC ${hiredis_sources})
 
 SET_TARGET_PROPERTIES(hiredis
     PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE
@@ -49,11 +50,12 @@ IF(WIN32 OR MINGW)
     TARGET_LINK_LIBRARIES(hiredis PRIVATE ws2_32)
 ENDIF()
 
-TARGET_INCLUDE_DIRECTORIES(hiredis PUBLIC $<INSTALL_INTERFACE:.> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+TARGET_INCLUDE_DIRECTORIES(hiredis PUBLIC $<INSTALL_INTERFACE:include> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+TARGET_INCLUDE_DIRECTORIES(hiredis_static PUBLIC $<INSTALL_INTERFACE:include> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 
 CONFIGURE_FILE(hiredis.pc.in hiredis.pc @ONLY)
 
-INSTALL(TARGETS hiredis
+INSTALL(TARGETS hiredis hiredis_static
     EXPORT hiredis-targets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -61,10 +63,10 @@ INSTALL(TARGETS hiredis
 
 INSTALL(FILES hiredis.h read.h sds.h async.h alloc.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hiredis)
-    
+
 INSTALL(DIRECTORY adapters
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hiredis)
-    
+
 INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
@@ -95,9 +97,11 @@ IF(ENABLE_SSL)
         ENDIF()
     ENDIF()
     FIND_PACKAGE(OpenSSL REQUIRED)
-    SET(hiredis_ssl_sources 
+    SET(hiredis_ssl_sources
         ssl.c)
     ADD_LIBRARY(hiredis_ssl SHARED
+            ${hiredis_ssl_sources})
+    ADD_LIBRARY(hiredis_ssl_static STATIC
             ${hiredis_ssl_sources})
 
     IF (APPLE)
@@ -110,13 +114,16 @@ IF(ENABLE_SSL)
         VERSION "${HIREDIS_SONAME}")
 
     TARGET_INCLUDE_DIRECTORIES(hiredis_ssl PRIVATE "${OPENSSL_INCLUDE_DIR}")
+    TARGET_INCLUDE_DIRECTORIES(hiredis_ssl_static PRIVATE "${OPENSSL_INCLUDE_DIR}")
+
     TARGET_LINK_LIBRARIES(hiredis_ssl PRIVATE ${OPENSSL_LIBRARIES})
+    TARGET_LINK_LIBRARIES(hiredis_ssl_static PRIVATE ${OPENSSL_LIBRARIES})
     IF (WIN32 OR MINGW)
         TARGET_LINK_LIBRARIES(hiredis_ssl PRIVATE hiredis)
     ENDIF()
     CONFIGURE_FILE(hiredis_ssl.pc.in hiredis_ssl.pc @ONLY)
 
-    INSTALL(TARGETS hiredis_ssl
+    INSTALL(TARGETS hiredis_ssl hiredis_ssl_static
         EXPORT hiredis_ssl-targets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -124,7 +131,7 @@ IF(ENABLE_SSL)
 
     INSTALL(FILES hiredis_ssl.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hiredis)
-    
+
     INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/hiredis_ssl.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 

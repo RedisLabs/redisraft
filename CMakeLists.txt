@@ -5,14 +5,14 @@
 #         mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Coverage
 #         make && make coverage
 # Tests :
-#         mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug
+#         mkdir build && cd build && cmake ..
 #         make && make tests
 #
 # Sanitizer:
-#        mkdir build && cd build && cmake .. -DSANITIZER=address -DCMAKE_BUILD_TYPE=Debug
+#        mkdir build && cd build && cmake .. -DSANITIZER=address
 #        make && make tests
 # TLS:
-#        mkdir build && cd build && cmake .. -DBUILD_TLS=yes -DCMAKE_BUILD_TYPE=Debug
+#        mkdir build && cd build && cmake .. -DBUILD_TLS=1
 #        make && make tests
 
 cmake_policy(SET CMP0048 NEW)
@@ -33,16 +33,30 @@ enable_testing()
 
 if (NOT CMAKE_BUILD_TYPE)
     message(STATUS "No build type selected, defaulting to Release")
-    set(CMAKE_BUILD_TYPE "Release")
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 endif ()
 
 message(STATUS "Main build type: ${CMAKE_BUILD_TYPE}")
 
-add_compile_definitions(_GNU_SOURCE)
+add_compile_definitions(_POSIX_C_SOURCE=200112L _GNU_SOURCE)
 
-if (DEFINED ENV{TRACE})
+if (BUILD_TLS)
+    find_package(OpenSSL REQUIRED)
+    add_compile_definitions(HAVE_TLS)
+endif()
+
+if (TRACE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_TRACE")
 endif()
+
+if (NOT PYTEST_OPTS)
+    set(PYTEST_OPTS "-v")
+endif()
+# Create a PYTEST_OPTS list by replacing space with semicolon. Otherwise,
+# Cmake thinks it has to escape space and inserts backslash.
+string(REPLACE " " ";" PYTEST_LIST ${PYTEST_OPTS})
+
+set(CMAKE_SHARED_MODULE_SUFFIX ".so")
 
 if (SANITIZER)
     if ("${SANITIZER}" STREQUAL "address")
@@ -67,20 +81,37 @@ endif()
 
 
 # -------------------------- Dependencies Start ------------------------------ #
-add_subdirectory(deps/raft)
 
+# --------------------------------- raft ------------------------------------- #
+add_subdirectory(deps/raft)
+set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
+# ------------------------------- raft-end------------------------------------ #
+
+# ------------------------------- cmocka ------------------------------------- #
 option(UNIT_TESTING "Disable cmocka tests" OFF)
 option(WITH_EXAMPLES "Disable cmocka examples" OFF)
 add_subdirectory(deps/cmocka)
+# Disable warnings
+set_target_properties(cmocka PROPERTIES COMPILE_FLAGS "-w")
+# ----------------------------- cmocka-end ----------------------------------- #
 
+# ------------------------------ hiredis ------------------------------------- #
 if (BUILD_TLS)
     option(ENABLE_SSL "Building with TLS" ON)
-    find_package(OpenSSL REQUIRED)
-    add_compile_definitions(HAVE_TLS)
+endif()
+option(DISABLE_TESTS "Disable hiredis tests" ON)
+
+add_subdirectory(deps/hiredis)
+set_property(TARGET hiredis_static PROPERTY POSITION_INDEPENDENT_CODE ON)
+if (BUILD_TLS)
+    set_property(TARGET hiredis_ssl_static PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-option(DISABLE_TESTS "Disable hiredis tests" ON)
-add_subdirectory(deps/hiredis)
+# Disable warnings for dependencies
+set_target_properties(hiredis PROPERTIES COMPILE_FLAGS "-w")
+set_target_properties(hiredis_static PROPERTIES COMPILE_FLAGS "-w")
+# ---------------------------- hiredis-end ----------------------------------- #
+
 # ---------------------------- Dependencies End ------------------------------ #
 
 
@@ -92,10 +123,8 @@ add_custom_command(OUTPUT buildinfo
 
 add_custom_target(info ALL DEPENDS buildinfo)
 
-add_custom_target(check ${CMAKE_COMMAND}
-        -E env CTEST_OUTPUT_ON_FAILURE=1
-        ${CMAKE_CTEST_COMMAND} -C $<CONFIG> --verbose
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_property(TARGET info APPEND PROPERTY
+        ADDITIONAL_CLEAN_FILES ${PROJECT_SOURCE_DIR}/src/buildinfo.h)
 # ---------------------------- Build Helpers End ----------------------------- #
 
 
@@ -114,13 +143,21 @@ add_custom_command(
         --output-file coverage.info --rc lcov_branch_coverage=1 --rc lcov_excl_br_line='assert'
         COMMAND lcov --list coverage.info --rc lcov_branch_coverage=1 --rc lcov_excl_br_line='assert'
 )
+add_dependencies(coverage tests)
 
-add_dependencies(coverage check)
+add_custom_target(coverage-report)
+add_custom_command(
+        TARGET coverage-report
+        COMMAND mkdir -p tests/.lcov_html
+        COMMAND genhtml --branch-coverage -o tests/.lcov_html coverage.info
+        COMMAND xdg-open tests/.lcov_html/index.html >/dev/null 2>&1
+)
+add_dependencies(coverage-report coverage)
 # ------------------------- Code Coverage End -------------------------------- #
 
 
 # ------------------------ Library build start  ------------------------------ #
-add_library(redisraft SHARED
+add_library(redisraft MODULE
         src/cluster.c
         src/commands.c
         src/common.c
@@ -145,10 +182,21 @@ add_dependencies(redisraft info)
 set_target_properties(redisraft PROPERTIES PREFIX "")
 set_target_properties(redisraft PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")
-set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(redisraft PUBLIC raft hiredis)
+set_property(TARGET redisraft APPEND PROPERTY
+        ADDITIONAL_CLEAN_FILES ${LIBRARY_OUTPUT_DIRECTORY}/$<TARGET_FILE_NAME:redisraft>)
+
+target_compile_options(redisraft PRIVATE -Wall -Werror)
+
+if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set(LINKER_FLAGS -Wl,-Bsymbolic-functions)
+else()
+    set(LINKER_FLAGS -undefined dynamic_lookup)
+endif()
+
+target_link_options(redisraft PRIVATE ${LINKER_FLAGS})
+target_link_libraries(redisraft PUBLIC raft hiredis_static)
 if (BUILD_TLS)
-    target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
+    target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
 endif()
 
 target_include_directories(redisraft PUBLIC
@@ -185,31 +233,32 @@ add_executable(main
         tests/test_util.c)
 
 target_compile_options(main PUBLIC -include dut_premble.h)
-target_link_libraries(main PRIVATE cmocka raft hiredis Threads::Threads dl)
+target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl)
 if (BUILD_TLS)
-    target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
+    target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
 endif()
 
-target_include_directories(main PUBLIC
-        tests deps/raft/include deps/)
+target_include_directories(main PUBLIC tests deps/raft/include deps/)
 
 add_dependencies(main info)
 add_test(NAME main COMMAND $<TARGET_FILE:main>)
-
-if (NOT DEFINED ENV{PYTEST_OPTS})
-    set(ENV{PYTEST_OPTS} "-v")
-endif()
+set_property(TEST main PROPERTY LABELS redisraft-test)
+add_custom_target(unit-tests ${CMAKE_COMMAND}
+        -E env CTEST_OUTPUT_ON_FAILURE=1
+        ${CMAKE_CTEST_COMMAND} -L redisraft -C $<CONFIG> --verbose
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 add_custom_target(integration-tests)
 add_custom_command(TARGET integration-tests
-        COMMAND pytest tests/integration $(PYTEST_OPTS)
+        COMMAND pytest tests/integration ${PYTEST_LIST}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_custom_target(valgrind-tests)
 add_custom_command(TARGET valgrind-tests
-        COMMAND pytest tests/integration $(PYTEST_OPTS) --valgrind
+        COMMAND pytest tests/integration ${PYTEST_LIST} --valgrind
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_custom_target(tests)
-add_dependencies(tests check integration-tests)
+add_dependencies(tests integration-tests unit-tests)
+
 # ----------------------------- Test End ------------------------------------- #
