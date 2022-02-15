@@ -9,12 +9,13 @@
 #   tests/tls/redis.dh              DH Params file.
 
 generate_cert() {
-    local name=$1
-    local cn="$2"
-    local opts="$3"
+    local dir="$1"
+    local name="$2"
+    local cn="$3"
+    local opts="$4"
 
-    local keyfile=tests/tls/${name}.key
-    local certfile=tests/tls/${name}.crt
+    local keyfile="${dir}/${name}.key"
+    local certfile="${dir}/${name}.crt"
 
     [ -f $keyfile ] || openssl genrsa -out $keyfile 2048
     openssl req \
@@ -23,25 +24,28 @@ generate_cert() {
         -key $keyfile | \
         openssl x509 \
             -req -sha256 \
-            -CA tests/tls/ca.crt \
-            -CAkey tests/tls/ca.key \
-            -CAserial tests/tls/ca.txt \
+            -CA "${dir}/ca.crt" \
+            -CAkey "${dir}/ca.key" \
+            -CAserial "${dir}/ca.txt" \
             -CAcreateserial \
             -days 365 \
             $opts \
             -out $certfile
 }
 
-mkdir -p tests/tls
-[ -f tests/tls/ca.key ] || openssl genrsa -out tests/tls/ca.key 4096
+DIR="${1:-tests/tls}"
+
+mkdir -p "$DIR"
+
+[ -f "$DIR/ca.key" ] || openssl genrsa -out "${DIR}/ca.key" 4096
 openssl req \
     -x509 -new -nodes -sha256 \
-    -key tests/tls/ca.key \
+    -key "${DIR}/ca.key" \
     -days 3650 \
     -subj '/O=Redis Test/CN=Certificate Authority' \
-    -out tests/tls/ca.crt
+    -out "${DIR}/ca.crt"
 
-cat > tests/tls/openssl.cnf <<_END_
+cat > "${DIR}/openssl.cnf" <<_END_
 [ server_cert ]
 keyUsage = digitalSignature, keyEncipherment
 nsCertType = server
@@ -51,8 +55,8 @@ keyUsage = digitalSignature, keyEncipherment
 nsCertType = client
 _END_
 
-generate_cert server "Server-only" "-extfile tests/tls/openssl.cnf -extensions server_cert"
-generate_cert client "Client-only" "-extfile tests/tls/openssl.cnf -extensions client_cert"
-generate_cert redis "Generic-cert"
+generate_cert "$DIR" server "Server-only" "-extfile ${DIR}/openssl.cnf -extensions server_cert"
+generate_cert "$DIR" client "Client-only" "-extfile ${DIR}/openssl.cnf -extensions client_cert"
+generate_cert "$DIR" redis "Generic-cert"
 
-[ -f tests/tls/redis.dh ] || openssl dhparam -out tests/tls/redis.dh 2048
+[ -f $DIR/redis.dh ] || openssl dhparam -out $DIR/redis.dh 2048

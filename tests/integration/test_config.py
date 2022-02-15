@@ -5,6 +5,7 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
+import logging
 
 from redis import ResponseError
 from pytest import raises

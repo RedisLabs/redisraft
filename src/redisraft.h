@@ -170,7 +170,9 @@ typedef struct Connection {
     NodeAddr addr;                      /* Address of last ConnConnect() */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Resolved IP address */
     redisAsyncContext *rc;              /* hiredis async context */
+#ifdef HAVE_TLS
     redisSSLContext *ssl;               /* hiredis context for ssl */
+#endif
     struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */

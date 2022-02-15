@@ -12,7 +12,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Coverage -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        cmake .. -DCMAKE_BUILD_TYPE=Coverage -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" -DBUILD_TLS=yes
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -21,7 +21,7 @@ jobs:
         ref: 'unstable'
         path: 'redis'
     - name: Build Redis
-      run: cd redis && make -j 4 gcov
+      run: cd redis && make -j 4 gcov BUILD_TLS=yes
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -33,7 +33,7 @@ jobs:
     - name: Run tests
       run: |
         cd build
-        make coverage
+        PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make coverage BUILD_TLS=yes
     - name: Generate coverage info
       run:
         geninfo -o coverage.info .
@@ -49,7 +49,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" -DBUILD_TLS=yes
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -58,7 +58,7 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4 SANITIZER=address
+        run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
@@ -70,4 +70,4 @@ jobs:
       - name: Run tests
         run: |
           cd build
-          make tests
+          PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests BUILD_TLS=yes

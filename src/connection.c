@@ -105,10 +105,12 @@ static void connDataCleanupCallback(void *privdata)
      * we drop the reference to it.
      */
     conn->rc = NULL;
+#ifdef HAVE_TLS
     if (conn->ssl) {
         redisFreeSSLContext(conn->ssl);
         conn->ssl = NULL;
     }
+#endif
 
     /* If connection was not flagged for async termination, don't clean it up. It
      * may get reused or cleaned up at a later stage.
@@ -153,7 +155,9 @@ static void handleConnected(const redisAsyncContext *c, int status)
     } else {
         conn->state = CONN_CONNECT_ERROR;
         conn->rc = NULL;
+#ifdef HAVE_TLS
         conn->ssl = NULL;
+#endif
         conn->connect_errors++;
     }
 
@@ -185,7 +189,9 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
     if (conn) {
         conn->state = CONN_DISCONNECTED;
         conn->rc = NULL;    /* FIXME: Need this? */
+#ifdef HAVE_TLS
         conn->ssl = NULL;   /* same as above comment */
+#endif
     }
 }
 
@@ -237,6 +243,7 @@ static void handleResolved(void *arg)
         goto fail;
     }
 
+#ifdef HAVE_TLS
     if (conn->rr->config->tls_enabled) {
         redisSSLContextError ssl_error;
         conn->ssl = redisCreateSSLContext(conn->rr->config->tls_ca_cert,
@@ -255,6 +262,7 @@ static void handleResolved(void *arg)
             goto fail;
         }
     }
+#endif
 
     conn->rc->data = conn;
     conn->rc->dataCleanup = connDataCleanupCallback;
@@ -324,10 +332,12 @@ void ConnMarkDisconnected(Connection *conn)
         redisAsyncFree(conn->rc);
         conn->rc = NULL;
     }
+#ifdef HAVE_TLS
     if (conn->ssl) {
         redisFreeSSLContext(conn->ssl);
         conn->ssl = NULL;
     }
+#endif
 }
 
 /* An idle state is one that will not transition automatically to another
