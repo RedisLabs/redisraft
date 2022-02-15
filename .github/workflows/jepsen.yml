@@ -7,10 +7,16 @@ on:
     inputs:
       repository:
         description: 'Repository, e.g redislabs/redisraft'
-        required: true
+        default: 'redisLabs/redisraft'
+        required: false
       version:
-        description: 'Commit hash, e.g 98d8f29'
-        required: true
+        description: 'Commit hash or branch name for Redisraft repo'
+        default: 'master'
+        required: false
+      jepsen-repo:
+        description: 'Jepsen repository, e.g jepsen-io/redis'
+        default:  'jepsen-io/redis'
+        required: false
 
 jobs:
   jepsen:
@@ -24,15 +30,17 @@ jobs:
       env:
         REDISRAFT_REPO: 'redislabs/redisraft'
         REDISRAFT_VERSION: ${{ github.sha }}
+        JEPSEN_REPO: 'jepsen-io/redis'
       run: |
         echo "REDISRAFT_REPO=${{ github.event.inputs.repository || env.REDISRAFT_REPO }}" >> $GITHUB_ENV
         echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV
+        echo "JEPSEN_REPO=${{ github.event.inputs.jepsen-repo || env.JEPSEN_REPO }}" >> $GITHUB_ENV
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
     - name: Configure core_pattern
       run: echo "core.%p" | sudo tee /proc/sys/kernel/core_pattern
     - name: Build containers
-      run: cd jepsen/docker && ./genkeys.sh && docker-compose build
+      run: cd jepsen/docker && ./genkeys.sh && docker-compose build --build-arg JEPSEN_REPO=${{ env.JEPSEN_REPO }}
     - name: Start containers
       run: cd jepsen/docker && docker-compose up -d
     - name: Run test
