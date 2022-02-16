@@ -1106,6 +1106,22 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     RedisRaftCtx *rr = &redis_raft;
 
+#ifdef HAVE_TLS
+    {
+         redisSSLContextError ssl_error;
+         rr->ssl = redisCreateSSLContext(rr->config->tls_ca_cert,
+                                         NULL,
+                                         rr->config->tls_cert,
+                                         rr->config->tls_key,
+                                         NULL,
+                                         &ssl_error);
+         if (!rr->ssl) {
+             RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+             return REDISMODULE_ERR;
+         }
+    }
+#endif
+
     RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);
     RedisModule_CreateTimer(ctx, rr->config->reconnect_interval, callHandleNodeStates, rr);
 

@@ -170,9 +170,6 @@ typedef struct Connection {
     NodeAddr addr;                      /* Address of last ConnConnect() */
     char ipaddr[INET6_ADDRSTRLEN+1];    /* Resolved IP address */
     redisAsyncContext *rc;              /* hiredis async context */
-#ifdef HAVE_TLS
-    redisSSLContext *ssl;               /* hiredis context for ssl */
-#endif
     struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
     long long last_connected_time;      /* Last connection time */
     unsigned long int connect_oks;      /* Successful connects */
@@ -349,6 +346,10 @@ typedef struct RedisRaftCtx {
     unsigned long snapshots_created;             /* Number of snapshots created */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
+#ifdef HAVE_TLS
+    redisSSLContext *ssl;                        /* hiredis context for ssl */
+#endif
+
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
