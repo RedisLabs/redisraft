@@ -445,7 +445,7 @@ class RedisRaft(object):
 class Cluster(object):
     noleader_timeout = 10
 
-    def __init__(self, config, cert_dir, base_port=5000, base_id=0, cluster_id=0):
+    def __init__(self, config, cert_dir=None, base_port=5000, base_id=0, cluster_id=0):
         self.next_id = base_id + 1
         self.cluster_id = cluster_id
         self.base_port = base_port

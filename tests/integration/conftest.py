@@ -92,7 +92,7 @@ def cluster(request, cert_dir):
     A fixture for a sandbox Cluster()
     """
 
-    _cluster = Cluster(create_config(request.config), cert_dir)
+    _cluster = Cluster(create_config(request.config), cert_dir=cert_dir)
     yield _cluster
     _cluster.destroy()
 
