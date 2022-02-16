@@ -11,9 +11,14 @@ clean:
 
 ##
 
+USE_SSL ?= 0
+ifeq ($(BUILD_TLS),yes)
+	USE_SSL=1
+endif
+
 .PHONY: hiredis
 hiredis: hiredis/Makefile
-	$(MAKE) -C hiredis && $(MAKE) -C hiredis install PREFIX=$(PREFIX)
+	$(MAKE) -C hiredis && $(MAKE) USE_SSL=$(USE_SSL) -C hiredis install PREFIX=$(PREFIX)
 
 ##
 

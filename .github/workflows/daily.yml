@@ -38,7 +38,10 @@ jobs:
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
-      run: make SANITIZER=address
+      run: |
+        mkdir build && cd build
+        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        make
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
@@ -46,7 +49,7 @@ jobs:
         ref: 'unstable'
         path: 'redis'
     - name: Build Redis
-      run: cd redis && make SANITIZER=address
+      run: cd redis && make -j 4 SANITIZER=address
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -56,8 +59,9 @@ jobs:
       run:
         python -m pip install -r tests/integration/requirements.txt
     - name: Run tests
-      run:
-        PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests
+      run: |
+        cd build
+        make tests
 
   test-undefined-sanitizer:
     runs-on: ubuntu-latest
@@ -78,7 +82,10 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
-        run: make SANITIZER=undefined
+        run: |
+          mkdir build && cd build
+          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
@@ -86,7 +93,7 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make SANITIZER=undefined
+        run: cd redis && make -j 4 SANITIZER=undefined
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
@@ -96,8 +103,9 @@ jobs:
         run:
           python -m pip install -r tests/integration/requirements.txt
       - name: Run tests
-        run:
-          PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests
+        run: |
+          cd build
+          make tests
 
   test-macos:
     runs-on: macos-latest
@@ -118,7 +126,10 @@ jobs:
       - name: Install build dependencies
         run: brew install autoconf automake
       - name: Build
-        run: make -j 4
+        run: |
+          mkdir build && cd build
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
@@ -136,5 +147,6 @@ jobs:
         run:
           python -m pip install -r tests/integration/requirements.txt
       - name: Run tests
-        run:
-          PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests
+        run: |
+          cd build
+          make tests

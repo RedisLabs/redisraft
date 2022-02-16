@@ -16,7 +16,7 @@
 
 #include "cmocka.h"
 
-#include "../redisraft.h"
+#include "../src/redisraft.h"
 
 #define LOGNAME "test.log.db"
 #define DBID "01234567890123456789012345678901"

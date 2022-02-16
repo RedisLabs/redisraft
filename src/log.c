@@ -1067,7 +1067,8 @@ out:
 int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote)
 {
     int rc = RR_ERROR;
-    char tmp[1024], orig[1024];
+    char orig[1024];
+    char tmp[sizeof(orig) + 32];
     char *metafile = raftMetaFilename(orig, sizeof(orig), filename);
 
     snprintf(tmp, sizeof(tmp), "%s.tmp", metafile);

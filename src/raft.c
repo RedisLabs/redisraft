@@ -1523,7 +1523,7 @@ void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
             type = RAFT_LOGTYPE_REMOVE_NODE;
             break;
         default:
-            assert(0);
+            RedisModule_Assert(0);
     }
 
     entry = raft_entry_new(sizeof(req->r.cfgchange));

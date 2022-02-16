@@ -27,9 +27,15 @@ To compile the module, you will need:
 * CMake
 * GNU autotools (autoconf, automake, libtool).
 
-To build, simply run:
+To build:
 
+    git clone https://github.com/RedisLabs/redisraft.git
+    cd redisraft
+    mkdir build && cd build
+    cmake ..
     make
+
+`redisraft.so` will be created under the project directory.
 
 ### Creating a RedisRaft Cluster
 
