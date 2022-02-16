@@ -1,4 +1,3 @@
-
 /*
  * This file is part of RedisRaft.
  *
@@ -288,6 +287,12 @@ fail:
         redisAsyncFree(conn->rc);
         conn->rc = NULL;
     }
+#ifdef HAVE_TLS
+    if (conn->ssl) {
+        redisFreeSSLContext(conn->ssl);
+        conn->ssl = NULL;
+    }
+#endif
 }
 
 /* getaddrinfo() is quite slow, especially when it fails to resolve the address.
