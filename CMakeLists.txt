@@ -17,7 +17,7 @@
 
 cmake_policy(SET CMP0048 NEW)
 project(redisraft C)
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.7.2)
 
 
 # ----------------------- Build Settings Start ------------------------------- #
@@ -38,11 +38,11 @@ endif ()
 
 message(STATUS "Main build type: ${CMAKE_BUILD_TYPE}")
 
-add_compile_definitions(_POSIX_C_SOURCE=200112L _GNU_SOURCE)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE")
 
 if (BUILD_TLS)
     find_package(OpenSSL REQUIRED)
-    add_compile_definitions(HAVE_TLS)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_TLS")
 endif()
 
 if (TRACE)
@@ -188,12 +188,13 @@ set_property(TARGET redisraft APPEND PROPERTY
 target_compile_options(redisraft PRIVATE -Wall -Werror)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(LINKER_FLAGS -Wl,-Bsymbolic-functions)
+    set(LINKER_FLAGS "-Wl,-Bsymbolic-functions")
 else()
-    set(LINKER_FLAGS -undefined dynamic_lookup)
+    set(LINKER_FLAGS "-Wl,-undefined -Wl,dynamic_lookup")
 endif()
 
-target_link_options(redisraft PRIVATE ${LINKER_FLAGS})
+set_property(TARGET redisraft PROPERTY LINK_FLAGS ${LINKER_FLAGS})
+
 target_link_libraries(redisraft PUBLIC raft hiredis_static)
 if (BUILD_TLS)
     target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
