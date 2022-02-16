@@ -1064,10 +1064,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    if (config.tls_enabled) {
-        redisInitOpenSSL();
-    }
-
     /* Configure Redis */
     if (ConfigureRedis(ctx) == RR_ERROR) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to set Redis configuration!");

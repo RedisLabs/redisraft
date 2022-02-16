@@ -156,7 +156,10 @@ static void handleConnected(const redisAsyncContext *c, int status)
         conn->state = CONN_CONNECT_ERROR;
         conn->rc = NULL;
 #ifdef HAVE_TLS
-        conn->ssl = NULL;
+        if (conn->ssl) {
+            redisFreeSSLContext(conn->ssl);
+            conn->ssl = NULL;
+        };
 #endif
         conn->connect_errors++;
     }
@@ -190,7 +193,10 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
         conn->state = CONN_DISCONNECTED;
         conn->rc = NULL;    /* FIXME: Need this? */
 #ifdef HAVE_TLS
-        conn->ssl = NULL;   /* same as above comment */
+        if (conn->ssl) {
+            redisFreeSSLContext(conn->ssl);
+            conn->ssl = NULL;   /* same as above comment */
+        }
 #endif
     }
 }
