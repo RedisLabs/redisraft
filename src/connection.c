@@ -185,22 +185,10 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     } else {
-        conn->state = CONN_CONNECTED;
-        conn->connect_oks++;
-        conn->last_connected_time = RedisModule_Milliseconds();
+        return connectionSuccess(conn);
     }
 
-    /* If connection was flagged for termination between connection attempt
-     * and now, we don't call the connect callback.
-     */
-    /* If we're terminating, abort now */
-    if (conn->flags & CONN_TERMINATING) {
-        return;
-    }
-
-    if (conn->connect_callback) {
-        conn->connect_callback(conn);
-    }
+    return connectionFailure(conn);
 }
 
 /* Connection with authentication
@@ -213,6 +201,11 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
 static void handleConnectedWithAuth(Connection *conn, int status)
 {
     if (status == REDIS_OK) {
+        /* don't try to authenticate if terminating */
+        if (conn->flags & CONN_TERMINATING) {
+            return connectionSuccess(conn);
+        }
+
         if (redisAsyncCommand(ConnGetRedisCtx(conn), handleAuth, conn,
                               "AUTH %s %s",
                               conn->rr->config->cluster_user,
