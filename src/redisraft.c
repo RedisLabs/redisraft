@@ -1107,7 +1107,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     RedisRaftCtx *rr = &redis_raft;
 
 #ifdef HAVE_TLS
-    {
+    if (rr->config->tls_enabled) {
          redisSSLContextError ssl_error;
          rr->ssl = redisCreateSSLContext(rr->config->tls_ca_cert,
                                          NULL,
@@ -1116,7 +1116,8 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                                          NULL,
                                          &ssl_error);
          if (!rr->ssl) {
-             RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+             RedisModule_Log(ctx, REDIS_WARNING, "Failed to create ssl context.");
+             LOG_ERROR("Error: %s", redisSSLContextGetError(ssl_error));
              return REDISMODULE_ERR;
          }
     }
