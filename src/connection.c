@@ -185,10 +185,11 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     } else {
-        return connectionSuccess(conn);
+        connectionSuccess(conn);
+        return;
     }
 
-    return connectionFailure(conn);
+    connectionFailure(conn);
 }
 
 /* Connection with authentication
@@ -197,7 +198,6 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
  * If connection status is not ok, will immediately transition connection to CONN_CONNECT_ERROR
  * User callback is called in all cases except when the connection has already been terminated externally
  */
-
 static void handleConnectedWithAuth(Connection *conn, int status)
 {
     if (status == REDIS_OK) {
@@ -227,12 +227,12 @@ fail:
  * Depending on status, state transitions to CONN_CONNECTED or CONN_CONNECT_ERROR.
  * User callback is called in all cases except when the connection has already been terminated externally
  */
-
-static void handleConnectedWithoutAuth(Connection *conn, int status) {
+static void handleConnectedWithoutAuth(Connection *conn, int status) 
+{
     if (status == REDIS_OK) {
-        return connectionSuccess(conn);
+        connectionSuccess(conn);
     } else {
-        return connectionFailure(conn);
+        connectionFailure(conn);
     }
 }
 
@@ -242,10 +242,9 @@ static void handleConnectedWithoutAuth(Connection *conn, int status) {
  * from handleResolved(), with state CONN_CONNECTING.
  *
  */
-
 static void handleConnected(const redisAsyncContext *c, int status)
 {
-    Connection *conn = (Connection *) c->data;
+    Connection *conn = c->data;
     CONN_TRACE(conn, "handleConnected: status=%d", status);
 
     if (conn->rr->config->cluster_user) {
