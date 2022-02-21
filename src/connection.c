@@ -403,7 +403,7 @@ void ConnMarkDisconnected(Connection *conn)
 
 bool ConnIsIdle(Connection *conn)
 {
-    return (conn->state == CONN_DISCONNECTED || conn->state == CONN_CONNECT_ERROR || (conn->flags | CONN_TERMINATING));
+    return (conn->state == CONN_DISCONNECTED || conn->state == CONN_CONNECT_ERROR || (conn->flags & CONN_TERMINATING));
 }
 
 bool ConnIsConnected(Connection *conn)
