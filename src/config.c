@@ -282,7 +282,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         target->tls_ca_cert = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, CONF_TLS_CERT)) {
         if (target->tls_cert) {
-            RedisModule_Free(target->tls_ca_cert);
+            RedisModule_Free(target->tls_cert);
         }
         target->tls_cert = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, CONF_TLS_KEY)) {
@@ -580,8 +580,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->quorum_reads = true;
     config->sharding = false;
     config->external_sharding = false;
-    config->slot_config = "0:16383",
-            config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    config->slot_config = "0:16383";
+    config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
     config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
     config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
     config->tls_key = getRedisConfig(ctx, "tls-key-file");

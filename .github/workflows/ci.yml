@@ -33,7 +33,7 @@ jobs:
     - name: Run tests
       run: |
         cd build
-        PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make coverage BUILD_TLS=yes
+        make coverage
     - name: Generate coverage info
       run:
         geninfo -o coverage.info .
@@ -70,4 +70,4 @@ jobs:
       - name: Run tests
         run: |
           cd build
-          PYTEST_OPTS="--redis-executable=redis/src/redis-server -v" make tests BUILD_TLS=yes
+          make tests
