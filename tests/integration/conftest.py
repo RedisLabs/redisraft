@@ -5,8 +5,10 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-
+import logging
 import os.path
+import subprocess
+import tempfile
 from types import SimpleNamespace
 import pytest
 from .sandbox import Cluster
@@ -18,6 +20,9 @@ def pytest_addoption(parser):
     parser.addoption(
         '--redis-executable', default='../redis/src/redis-server',
         help='Name of redis-server executable to use.')
+    parser.addoption(
+        '--gen-test-certs', default='./utils/gen-test-certs.sh',
+        help='gen-test-certs.sh location for tls testing.')
     parser.addoption(
         '--raft-loglevel', default='debug',
         help='RedisRaft Module log level.')
@@ -69,13 +74,25 @@ def create_config(pytest_config):
     return config
 
 
+@pytest.fixture(scope="session")
+def cert_dir(request):
+    tempdir = tempfile.TemporaryDirectory()
+    args = [request.config.getoption('--gen-test-certs'), tempdir.name]
+    logging.info("creating tls certs: {}".format(args))
+    subprocess.run(args)
+
+    yield tempdir.name
+
+    tempdir.cleanup()
+
+
 @pytest.fixture
-def cluster(request):
+def cluster(request, cert_dir):
     """
     A fixture for a sandbox Cluster()
     """
 
-    _cluster = Cluster(create_config(request.config))
+    _cluster = Cluster(create_config(request.config), cert_dir=cert_dir)
     yield _cluster
     _cluster.destroy()
 

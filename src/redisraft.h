@@ -18,6 +18,9 @@
 #include <netinet/in.h>
 
 #include "hiredis/hiredis.h"
+#ifdef HAVE_TLS
+#include "hiredis/hiredis_ssl.h"
+#endif
 #include "hiredis/async.h"
 #include "redismodule.h"
 #include "raft.h"
@@ -343,6 +346,10 @@ typedef struct RedisRaftCtx {
     unsigned long snapshots_created;             /* Number of snapshots created */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
+#ifdef HAVE_TLS
+    redisSSLContext *ssl;                        /* hiredis context for ssl */
+#endif
+
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -404,6 +411,10 @@ typedef struct RedisRaftConfig {
     int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
     int external_sharding;              /* use external sharding orchestrator only */
+    bool tls_enabled;                   /* use TLS for all inter cluster communication */
+    char *tls_ca_cert;
+    char *tls_cert;
+    char *tls_key;
 } RedisRaftConfig;
 
 typedef struct PendingResponse {

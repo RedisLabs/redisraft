@@ -1,4 +1,3 @@
-
 /*
  * This file is part of RedisRaft.
  *
@@ -208,9 +207,7 @@ static void handleResolved(void *arg)
     if (res->rc != 0) {
         CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host,
                        gai_strerror(res->rc));
-        conn->state = CONN_CONNECT_ERROR;
-        conn->connect_errors++;
-        return;
+        goto fail;
     }
 
     void* addr = &((struct sockaddr_in *)res->addr->ai_addr)->sin_addr;
@@ -230,13 +227,17 @@ static void handleResolved(void *arg)
 
     conn->rc = redisAsyncConnectWithOptions(&options);
     if (conn->rc->err) {
-        conn->state = CONN_CONNECT_ERROR;
-        conn->connect_errors++;
-
-        redisAsyncFree(conn->rc);
-        conn->rc = NULL;
-        return;
+        goto fail;
     }
+
+#ifdef HAVE_TLS
+    if (conn->rr->config->tls_enabled) {
+        if (redisInitiateSSLWithContext(&conn->rc->c, conn->rr->ssl) != REDIS_OK) {
+            CONN_LOG_ERROR(conn, "SSL Error!");
+            goto fail;
+        }
+    }
+#endif
 
     conn->rc->data = conn;
     conn->rc->dataCleanup = connDataCleanupCallback;
@@ -246,6 +247,16 @@ static void handleResolved(void *arg)
     redisModuleAttach(conn->rc);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
+
+    return;
+
+fail:
+    conn->state = CONN_CONNECT_ERROR;
+    conn->connect_errors++;
+    if (conn->rc) {
+        redisAsyncFree(conn->rc);
+        conn->rc = NULL;
+    }
 }
 
 /* getaddrinfo() is quite slow, especially when it fails to resolve the address.
