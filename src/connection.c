@@ -203,7 +203,7 @@ static void handleConnectedWithAuth(Connection *conn, int status)
     if (status == REDIS_OK) {
         /* don't try to authenticate if terminating */
         if (conn->flags & CONN_TERMINATING) {
-            return connectionSuccess(conn);
+            return;
         }
 
         if (redisAsyncCommand(ConnGetRedisCtx(conn), handleAuth, conn,
@@ -403,7 +403,7 @@ void ConnMarkDisconnected(Connection *conn)
 
 bool ConnIsIdle(Connection *conn)
 {
-    return (conn->state == CONN_DISCONNECTED || conn->state == CONN_CONNECT_ERROR);
+    return (conn->state == CONN_DISCONNECTED || conn->state == CONN_CONNECT_ERROR || (conn->flags | CONN_TERMINATING));
 }
 
 bool ConnIsConnected(Connection *conn)
