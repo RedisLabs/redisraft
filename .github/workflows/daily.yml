@@ -40,7 +40,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" -DBUILD_TLS=yes
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -49,7 +49,7 @@ jobs:
         ref: 'unstable'
         path: 'redis'
     - name: Build Redis
-      run: cd redis && make -j 4 SANITIZER=address
+      run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -84,7 +84,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" -DBUILD_TLS=yes
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -93,7 +93,7 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4 SANITIZER=undefined
+        run: cd redis && make -j 4 SANITIZER=undefined BUILD_TLS=yes
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
@@ -124,11 +124,11 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: Install build dependencies
-        run: brew install autoconf automake
+        run: brew install autoconf automake openssl
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl -DOPENSSL_LIBRARIES=/usr/local/opt/openssl/lib -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" -DBUILD_TLS=yes
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -137,7 +137,7 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4
+        run: cd redis && make -j 4 BUILD_TLS=yes
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
