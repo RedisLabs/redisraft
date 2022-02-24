@@ -338,8 +338,6 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
 exit:
     /* If this is a result of a RAFT.DEBUG COMPACT request, we need to reply. */
     if (rr->debug_req) {
-        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
-
         if (ret == 1) {
             LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.");
             RedisModule_ReplyWithSimpleString(rr->debug_req->ctx, "OK");
@@ -364,7 +362,6 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     }
 
     if (rr->debug_req) {
-        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
         LOG_DEBUG("Initiating RAFT.DEBUG COMPACT initiated snapshot.");
     } else {
         LOG_DEBUG("Initiating snapshot.");
@@ -430,12 +427,12 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
-            int delay = rr->debug_req->r.debug.d.compact.delay;
+            int delay = rr->debug_req->r.debug.delay;
             if (delay) {
                 sleep(delay);
             }
 
-            if (rr->debug_req->r.debug.d.compact.fail) {
+            if (rr->debug_req->r.debug.fail) {
                 strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
                 sr.err[sizeof(sr.err) - 1] = '\0';
                 goto exit;
@@ -592,31 +589,27 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
     return 0;
 }
 
-void handleSnapshot(RedisRaftCtx *rr, RaftReq *req)
+void handleSnapshot(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                    raft_node_id_t node_id, msg_snapshot_t *req)
 {
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
-    msg_snapshot_response_t response;
+    msg_snapshot_response_t resp;
+    raft_node_t *node = raft_get_node(rr->raft, node_id);
 
-    if (raft_recv_snapshot(rr->raft,
-                           raft_get_node(rr->raft, req->r.snapshot.src_node_id),
-                           &req->r.snapshot.msg,
-                           &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR operation failed");
-        goto exit;
+    if (raft_recv_snapshot(rr->raft, node, req, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        return;
     }
 
-    RedisModule_ReplyWithArray(req->ctx, 5);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
-    RedisModule_ReplyWithLongLong(req->ctx, response.offset);
-    RedisModule_ReplyWithLongLong(req->ctx, response.success);
-    RedisModule_ReplyWithLongLong(req->ctx, response.last_chunk);
-
-exit:
-    RaftReqFree(req);
+    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
+    RedisModule_ReplyWithLongLong(ctx, resp.offset);
+    RedisModule_ReplyWithLongLong(ctx, resp.success);
+    RedisModule_ReplyWithLongLong(ctx, resp.last_chunk);
 }
 
 /* ------------------------------------ Snapshot metadata type ------------------------------------ */

@@ -25,11 +25,6 @@
 #include <assert.h>
 #include "redisraft.h"
 
-void HandleClusterJoinFailed(RedisRaftCtx *rr, RaftReq *req) {
-    RedisModule_ReplyWithError(req->ctx, "ERR Failed to join cluster, check logs");
-    RaftReqFree(req);
-}
-
 /* Callback for the RAFT.NODE ADD command.
  */
 static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
@@ -97,32 +92,29 @@ static void sendNodeAddRequest(Connection *conn)
         "ADD",
         rr->config->id,
         rr->config->addr.host, rr->config->addr.port) != REDIS_OK) {
-
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     }
 }
 
-void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
+void handleClusterJoin(RedisRaftCtx *rr,
+                       RedisModuleCtx *ctx, NodeAddrListElement *addrs)
 {
-    const char * type = "join";
-
-    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
-        goto exit_fail;
+    if (checkRaftNotLoading(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
-        goto exit_fail;
+        RedisModule_ReplyWithError(ctx, "ERR Already cluster member");
+        return;
     }
 
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = RedisModule_Calloc(1, strlen(type)+1);
-    strcpy(state->type, type);
+    state->type = "join";
     state->connect_callback = sendNodeAddRequest;
     time(&(state->start));
-    NodeAddrListConcat(&state->addr, req->r.cluster_join.addr);
-    state->req = req;
+    NodeAddrListConcat(&state->addr, addrs);
+    state->req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
 
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
@@ -130,9 +122,4 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     state->conn = ConnCreate(rr, state, joinLinkIdleCallback, joinLinkFreeCallback);
 
     rr->state = REDIS_RAFT_JOINING;
-
-    return;
-
-exit_fail:
-    RaftReqFree(req);
 }

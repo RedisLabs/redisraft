@@ -18,23 +18,17 @@
 
 const char *RaftReqTypeStr[] = {
     "<undef>",
-    "RR_CLUSTER_INIT",
+    "RR_GENERIC",
     "RR_CLUSTER_JOIN",
-    "RR_CFGCHANGE_ADDNODE",
     "RR_CFGCHANGE_REMOVENODE",
-    "RR_APPENDENTRIES",
-    "RR_REQUESTVOTE",
     "RR_REDISCOMMAND",
     "RR_INFO",
-    "RR_SNAPSHOT",
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUP_UPDATE",
-    "RR_SHARDGROUP_GET",
+    "RR_SHARDGROUPS_REPLACE",
     "RR_SHARDGROUP_LINK",
     "RR_TRANSFER_LEADER",
-    "RR_TIMEOUT_NOW",
 };
 
 /* Forward declarations */
@@ -66,7 +60,6 @@ static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
 /* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
  * in a RaftReq should keep the client blocked until the log entry is committed and applied.
  */
-
 static void entryFreeAttachedRaftReq(raft_entry_t *ety)
 {
     RaftReq *req = entryDetachRaftReq(&redis_raft, ety);
@@ -180,28 +173,29 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
-
 static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
-    /* TODO: optimize and avoid deserialization here, we can use the
-     * original argv in RaftReq
-     */
-
-    RaftRedisCommandArray entry_cmds = { 0 };
-    if (RaftRedisCommandArrayDeserialize(&entry_cmds, entry->data, entry->data_len) != RR_OK) {
-        PANIC("Invalid Raft entry");
-    }
+    RaftRedisCommandArray *arr;
+    RaftRedisCommandArray tmp = {0};
 
     RaftReq *req = entry->user_data;
-    RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
-    /* Redis Module API requires commands executing on a locked thread
-     * safe context.
-     */
+    /* If request exists, use command array from it without deserializing */
+    if (req) {
+        arr = &req->r.redis.cmds;
+    } else {
+        if (RaftRedisCommandArrayDeserialize(&tmp, entry->data,
+                                             entry->data_len) != RR_OK) {
+            PANIC("Invalid Raft entry");
+        }
+        arr = &tmp;
+    }
 
-    executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
+    executeRaftRedisCommandArray(arr,
+                                 req ? req->ctx : rr->ctx,
+                                 req ? req->ctx : NULL);
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
      * always consistent with what we applied and we never end up applying
@@ -210,7 +204,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RaftRedisCommandArrayFree(&entry_cmds);
+    RaftRedisCommandArrayFree(arr);
 
     if (req) {
         /* Free request now, we don't need it anymore */
@@ -248,15 +242,16 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
 {
     Node *node = privdata;
     RedisRaftCtx *rr = node->rr;
-
     redisReply *reply = r;
 
     NodeDismissPendingResponse(node);
+
     if (!reply) {
         NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE failed: connection dropped.");
         ConnMarkDisconnected(node->conn);
         return;
     }
+
     if (reply->type == REDIS_REPLY_ERROR) {
         NODE_LOG_DEBUG(node, "RAFT.REQUESTVOTE error: %s", reply->str);
         return;
@@ -271,7 +266,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
         return;
     }
 
-    msg_requestvote_response_t response = {
+    msg_requestvote_response_t resp = {
         .prevote = reply->element[0]->integer,
         .request_term = reply->element[1]->integer,
         .term = reply->element[2]->integer,
@@ -284,11 +279,8 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
         return;
     }
 
-    int ret;
-    if ((ret = raft_recv_requestvote_response(
-            rr->raft,
-            raft_node,
-            &response)) != 0) {
+    int ret = raft_recv_requestvote_response(rr->raft, raft_node, &resp);
+    if (ret != 0) {
         TRACE("raft_recv_requestvote_response failed, error %d", ret);
     }
 }
@@ -297,7 +289,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
 static int raftSendRequestVote(raft_server_t *raft, void *user_data,
         raft_node_t *raft_node, msg_requestvote_t *msg)
 {
-    Node *node = (Node *) raft_node_get_udata(raft_node);
+    Node *node = raft_node_get_udata(raft_node);
 
     if (!ConnIsConnected(node->conn)) {
         NODE_TRACE(node, "not connected, state=%s", ConnGetStateStr(node->conn));
@@ -360,19 +352,16 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
 
-    int ret;
-    if ((ret = raft_recv_appendentries_response(
-            rr->raft,
-            raft_node,
-            &response)) != 0) {
-        NODE_TRACE(node, "raft_recv_appendentries_response failed, error %d", ret);
+    int ret = raft_recv_appendentries_response(rr->raft, raft_node, &response);
+    if (ret != 0) {
+        NODE_TRACE(node, "raft_recv_appendentries_response: error %d", ret);
     }
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
         raft_node_t *raft_node, msg_appendentries_t *msg)
 {
-    Node *node = (Node *) raft_node_get_udata(raft_node);
+    Node *node = raft_node_get_udata(raft_node);
 
     int argc = 5 + msg->n_entries * 2;
     char **argv = NULL;
@@ -386,22 +375,24 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     argv = RedisModule_Alloc(sizeof(argv[0]) * argc);
     argvlen = RedisModule_Alloc(sizeof(argvlen[0]) * argc);
 
-    char target_node_str[12];
-    char source_node_str[12];
+    char target_node[12];
+    char source_node[12];
     char msg_str[100];
-    char nentries_str[12];
+    char n_entries[12];
 
     argv[0] = "RAFT.AE";
     argvlen[0] = strlen(argv[0]);
 
-    argv[1] = target_node_str;
-    argvlen[1] = snprintf(target_node_str, sizeof(target_node_str)-1, "%d", raft_node_get_id(raft_node));
+    raft_node_id_t dst_id = raft_node_get_id(raft_node);
+    argv[1] = target_node;
+    argvlen[1] = snprintf(target_node, sizeof(target_node), "%d", dst_id);
 
-    argv[2] = source_node_str;
-    argvlen[2] = snprintf(source_node_str, sizeof(source_node_str)-1, "%d", raft_get_nodeid(raft));
+    raft_node_id_t src_id = raft_get_nodeid(raft);
+    argv[2] = source_node;
+    argvlen[2] = snprintf(source_node, sizeof(source_node), "%d", src_id);
 
     argv[3] = msg_str;
-    argvlen[3] = snprintf(msg_str, sizeof(msg_str)-1, "%d:%ld:%ld:%ld:%ld:%lu",
+    argvlen[3] = snprintf(msg_str, sizeof(msg_str), "%d:%ld:%ld:%ld:%ld:%lu",
             msg->leader_id,
             msg->term,
             msg->prev_log_idx,
@@ -409,27 +400,33 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
             msg->leader_commit,
             msg->msg_id);
 
-    argv[4] = nentries_str;
-    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%d", msg->n_entries);
+    argv[4] = n_entries;
+    argvlen[4] = snprintf(n_entries, sizeof(n_entries)-1, "%d", msg->n_entries);
 
     int i;
     for (i = 0; i < msg->n_entries; i++) {
+        int pos = 5 + (i * 2);
+
         raft_entry_t *e = msg->entries[i];
-        argv[5 + i*2] = RedisModule_Alloc(64);
-        argvlen[5 + i*2] = snprintf(argv[5 + i*2], 63, "%ld:%d:%d", e->term, e->id, e->type);
-        argvlen[6 + i*2] = e->data_len;
-        argv[6 + i*2] = e->data;
+        argv[pos] = RedisModule_Alloc(64);
+        argvlen[pos] = snprintf(argv[pos], 64, "%ld:%d:%d", e->term, e->id, e->type);
+
+        pos = 6 + (i * 2);
+        argv[pos] = e->data;
+        argvlen[pos] = e->data_len;
     }
 
-    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn), handleAppendEntriesResponse,
-                node, argc, (const char **)argv, argvlen) != REDIS_OK) {
+    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn),
+                              handleAppendEntriesResponse,
+                              node, argc,
+                              (const char **)argv, argvlen) != REDIS_OK) {
         NODE_TRACE(node, "failed appendentries");
-    } else{
+    } else {
         NodeAddPendingResponse(node, false);
     }
 
     for (i = 0; i < msg->n_entries; i++) {
-        RedisModule_Free(argv[5 + i*2]);
+        RedisModule_Free(argv[5 + (i * 2)]);
     }
 
     RedisModule_Free(argv);
@@ -443,16 +440,16 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privdata)
 {
     Node *node = privdata;
-    //RedisRaftCtx *rr = node->rr;
+    redisReply *reply = r;
 
     NodeDismissPendingResponse(node);
 
-    redisReply *reply = r;
     if (!reply) {
         NODE_TRACE(node, "RAFT.TIMEOUT_NOW failed: connection dropped.");
         ConnMarkDisconnected(node->conn);
         return;
     }
+
     if (reply->type == REDIS_REPLY_ERROR) {
         NODE_TRACE(node, "RAFT.TIMEOUT_NOW error: %s", reply->str);
         return;
@@ -488,6 +485,7 @@ static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
 static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
 {
     RedisRaftCtx *rr = user_data;
+
     if (rr->state == REDIS_RAFT_LOADING) {
         return 0;
     }
@@ -589,9 +587,11 @@ static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raf
 
 static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (rr->state == REDIS_RAFT_LOADING)
+    RedisRaftCtx *rr = user_data;
+
+    if (rr->state == REDIS_RAFT_LOADING) {
         return 0;
+    }
 
     /* Node may have sufficient logs to be promoted but be scheduled for
      * removal at the same time (i.e. RAFT_LOGTYPE_REMOVE_NODE already created
@@ -631,7 +631,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data, raft_node_t *raft_node,
         raft_entry_t *entry, raft_membership_e type)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
+    RedisRaftCtx *rr = user_data;
     RaftCfgChange *cfgchange;
     raft_node_id_t my_id = raft_get_nodeid(raft);
     Node *node;
@@ -755,6 +755,7 @@ static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *r
 {
     RedisRaftCtx *rr = &redis_raft;
     Node *node = raft_node_get_udata(raft_node);
+
     if (node->pending_raft_response_num >= rr->config->max_appendentries_inflight) {
         /* Don't send append req to this node */
         return 1;
@@ -784,12 +785,6 @@ raft_cbs_t redis_raft_callbacks = {
     .backpressure = raftBackpressure
 };
 
-/* ------------------------------------ Raft Thread ------------------------------------ */
-
-/*
- * Handling of the Redis Raft context, including its own thread and
- * async I/O loop.
- */
 
 RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 {
@@ -1096,7 +1091,6 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
      * In the future it could be nicer to have callbacks already set and this
      * be done automatically (but some other raft lib fixes would be required).
      */
-
     if (appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) != 0) {
         RedisModule_Log(ctx, REDIS_WARNING, "Failed to append initial configuration entry");
         return RR_ERROR;
@@ -1105,7 +1099,8 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     return RR_OK;
 }
 
-bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id) {
+bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id)
+{
     for (NodeIdEntry *e = rr->snapshot_info.used_node_ids; e != NULL; e = e->next) {
         if (e->id == node_id) {
             return true;
@@ -1114,8 +1109,11 @@ bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id) {
     return false;
 }
 
-void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id) {
-    if (hasNodeIdBeenUsed(rr, node_id)) return;
+void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id)
+{
+    if (hasNodeIdBeenUsed(rr, node_id)) {
+        return;
+    }
 
     NodeIdEntry *entry = RedisModule_Alloc(sizeof(NodeIdEntry));
     entry->id = node_id;
@@ -1245,106 +1243,31 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
  * If it is associated with a blocked client, it will be unblocked and
  * the thread safe context released as well.
  */
-
 void RaftReqFree(RaftReq *req)
 {
     TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p", req, req->ctx, req->client);
 
-    switch (req->type) {
-        case RR_APPENDENTRIES:
-            /* Note: we only free the array of entries but not actual entries, as they
-             * are owned by the log and should be freed when the log entry is freed.
-             */
-            if (req->r.appendentries.msg.entries) {
-                int i;
-                for (i = 0; i < req->r.appendentries.msg.n_entries; i++) {
-                    raft_entry_t *e = req->r.appendentries.msg.entries[i];
-                    if (e) {
-                        raft_entry_release(e);
-                    }
-                }
-                RedisModule_Free(req->r.appendentries.msg.entries);
-                req->r.appendentries.msg.entries = NULL;
-            }
-            break;
-        case RR_REDISCOMMAND:
-            if (req->ctx && req->r.redis.cmds.size) {
-                RaftRedisCommandArrayFree(&req->r.redis.cmds);
-            }
-            // TODO: hold a reference from entry so we can disconnect our req
-            break;
-        case RR_SNAPSHOT:
-            RedisModule_FreeString(req->ctx, req->r.snapshot.data);
-            break;
-        case RR_CLUSTER_JOIN:
-            NodeAddrListFree(req->r.cluster_join.addr);
-            break;
-        case RR_DEBUG:
-            switch (req->r.debug.type) {
-                case RR_DEBUG_COMPACT:
-                    break;
-                case RR_DEBUG_NODECFG:
-                    if (req->r.debug.d.nodecfg.str) {
-                        RedisModule_Free(req->r.debug.d.nodecfg.str);
-                    }
-                    break;
-                case RR_DEBUG_SENDSNAPSHOT:
-                    break;
-            }
-            break;
-        case RR_SHARDGROUP_ADD:
-            if (req->r.shardgroup_add) {
-                ShardGroupFree(req->r.shardgroup_add);
-                req->r.shardgroup_add = NULL;
-            }
-            break;
-        case RR_SHARDGROUPS_REPLACE:
-            if (req->r.shardgroups_replace.shardgroups != NULL) {
-                for (unsigned int i = 0; i < req->r.shardgroups_replace.len; i++) {
-                    ShardGroupFree(req->r.shardgroups_replace.shardgroups[i]);
-                }
-                RedisModule_Free(req->r.shardgroups_replace.shardgroups);
-                req->r.shardgroups_replace.shardgroups = NULL;
-            }
-            break;
-        case RR_CONFIG:
-            if (req->r.config.argv != NULL) {
-                for (int i = 0; i < req->r.config.argc; i++) {
-                    RedisModule_FreeString(req->ctx, req->r.config.argv[i]);
-                }
-                RedisModule_Free(req->r.config.argv);
-                req->r.config.argv = NULL;
-            }
-            break;
+    if (req->type == RR_REDISCOMMAND) {
+        if (req->r.redis.cmds.size) {
+            RaftRedisCommandArrayFree(&req->r.redis.cmds);
+        }
     }
-    if (req->ctx) {
-        RedisModule_FreeThreadSafeContext(req->ctx);
-        req->ctx = NULL;
 
-        RedisModule_UnblockClient(req->client, NULL);
-    }
+    RedisModule_FreeThreadSafeContext(req->ctx);
+    RedisModule_UnblockClient(req->client, NULL);
     RedisModule_Free(req);
 }
 
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 {
-    RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
-    if (ctx != NULL) {
-        req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-        req->ctx = RedisModule_GetThreadSafeContext(req->client);
-    }
+    RaftReq *req = RedisModule_Calloc(1, sizeof(*req));
+
     req->type = type;
+    req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    req->ctx = RedisModule_GetThreadSafeContext(req->client);
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
             req, RaftReqTypeStr[req->type], req->client, req->ctx);
-
-    return req;
-}
-
-RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type)
-{
-    RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
-    req->r.debug.type = type;
 
     return req;
 }
@@ -1354,218 +1277,218 @@ RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type)
 /*
  * Implementation of specific request types.
  */
-
 void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
 {
-    if (!redis_raft.transfer_req) {
+    char err[64];
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (!rr->transfer_req) {
         LOG_ERROR("leader transfer update: but no req to correlate it to!");
         return;
     }
 
-    char e[40];
+    RedisModuleCtx *ctx = rr->transfer_req->ctx;
+
     switch (state) {
         case RAFT_STATE_LEADERSHIP_TRANSFER_EXPECTED_LEADER:
-            RedisModule_ReplyWithSimpleString(redis_raft.transfer_req->ctx, "OK");
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
             break;
         case RAFT_STATE_LEADERSHIP_TRANSFER_UNEXPECTED_LEADER:
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR different node elected leader");
+            RedisModule_ReplyWithError(ctx, "ERR different node elected leader");
             break;
         case RAFT_STATE_LEADERSHIP_TRANSFER_TIMEOUT:
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR transfer timed out");
+            RedisModule_ReplyWithError(ctx, "ERR transfer timed out");
             break;
         default:
-            snprintf(e, 40,"ERR unknown case: %d", state);
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, e);
+            snprintf(err, sizeof(err), "ERR unknown case: %d", state);
+            RedisModule_ReplyWithError(ctx, err);
             break;
     }
 
-    RaftReqFree(redis_raft.transfer_req);
-    redis_raft.transfer_req = NULL;
+    RaftReqFree(rr->transfer_req);
+    rr->transfer_req = NULL;
 }
 
-void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
+void handleTransferLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_id_t node_id)
 {
     int err;
+    char buf[128];
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
-    if ((err = raft_transfer_leader(rr->raft, req->r.node_to_transfer_leader, 0)) != 0) {
-        char e[128];
+    if ((err = raft_transfer_leader(rr->raft, node_id, 0)) != 0) {
         switch (err) {
             case RAFT_ERR_NOT_LEADER:
-                RedisModule_ReplyWithError(req->ctx, "ERR not leader");
+                RedisModule_ReplyWithError(ctx, "ERR not leader");
                 break;
             case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
-                RedisModule_ReplyWithError(req->ctx, "ERR transfer already in progress");
+                RedisModule_ReplyWithError(ctx, "ERR transfer already in progress");
                 break;
             case RAFT_ERR_INVALID_NODEID:
-                snprintf(e, 128, "ERR invalid node id: %d", req->r.node_to_transfer_leader);
-                RedisModule_ReplyWithError(req->ctx, e);
+                snprintf(buf, sizeof(buf), "ERR invalid node id: %d", node_id);
+                RedisModule_ReplyWithError(ctx, buf);
                 break;
             default:
-                snprintf(e, 128, "ERR unknown error transferring leader: %d", err);
-                RedisModule_ReplyWithError(req->ctx, e);
+                snprintf(buf, sizeof(buf), "ERR unknown error transferring leader: %d", err);
+                RedisModule_ReplyWithError(ctx, buf);
                 break;
         }
-        goto exit;
+        return;
     }
-    redis_raft.transfer_req = req;
-    return;
 
-exit:
-    RaftReqFree(req);
+    rr->transfer_req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
 }
 
-void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
+void handleTimeoutNow(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     raft_set_timeout_now(rr->raft);
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
-exit:
-    RaftReqFree(req);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
+void handleRequestVote(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_id_t node_id, msg_requestvote_t *req)
 {
-    msg_requestvote_response_t response;
+    msg_requestvote_response_t resp;
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
-    if (raft_recv_requestvote(rr->raft,
-                raft_get_node(rr->raft, req->r.requestvote.src_node_id),
-                &req->r.requestvote.msg,
-                &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR operation failed"); // TODO: Identify cases
-        goto exit;
+    raft_node_t *node = raft_get_node(rr->raft, node_id);
+    if (raft_recv_requestvote(rr->raft, node, req, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        return;
     }
 
-    RedisModule_ReplyWithArray(req->ctx, 4);
-    RedisModule_ReplyWithLongLong(req->ctx, response.prevote);
-    RedisModule_ReplyWithLongLong(req->ctx, response.request_term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.vote_granted);
-
-exit:
-    RaftReqFree(req);
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithLongLong(ctx, resp.prevote);
+    RedisModule_ReplyWithLongLong(ctx, resp.request_term);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.vote_granted);
 }
 
-
-void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
+void handleAppendEntries(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                         raft_node_id_t node_id, msg_appendentries_t *msg)
 {
-    msg_appendentries_response_t response;
     int err;
+    char buf[128];
+    msg_appendentries_response_t resp;
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
-    if ((err = raft_recv_appendentries(rr->raft,
-                raft_get_node(rr->raft, req->r.appendentries.src_node_id),
-                &req->r.appendentries.msg,
-                &response)) != 0) {
-        char msg[128];
-        snprintf(msg, sizeof(msg)-1, "operation failed, error %d", err);
-        RedisModule_ReplyWithError(req->ctx, msg);
-        goto exit;
+    raft_node_t *node = raft_get_node(rr->raft, node_id);
+    if ((err = raft_recv_appendentries(rr->raft, node, msg, &resp)) != 0) {
+        snprintf(buf, sizeof(buf), "operation failed, error %d", err);
+        RedisModule_ReplyWithError(ctx, buf);
+        return;
     }
 
-    RedisModule_ReplyWithArray(req->ctx, 4);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.success);
-    RedisModule_ReplyWithLongLong(req->ctx, response.current_idx);
-    RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
-
-exit:
-    RaftReqFree(req);
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.success);
+    RedisModule_ReplyWithLongLong(ctx, resp.current_idx);
+    RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
 }
 
-void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
+void handleCfgAdd(RedisRaftCtx *rr,
+                  RedisModuleCtx *ctx, raft_node_id_t id, NodeAddr *addr)
 {
     raft_entry_t *entry;
     msg_entry_response_t response;
     int e;
 
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
     }
 
-    short type;
-
-    switch (req->type) {
-        case RR_CFGCHANGE_ADDNODE:
-            if (hasNodeIdBeenUsed(rr, req->r.cfgchange.id)) {
-                RedisModule_ReplyWithError(req->ctx,
-                               "node id has already been used in this cluster");
-                goto exit;
-            }
-
-            type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
-            if (!req->r.cfgchange.id) {
-                req->r.cfgchange.id = makeRandomNodeId(rr);
-            }
-            break;
-        case RR_CFGCHANGE_REMOVENODE:
-            /* Validate it exists */
-            if (!raft_get_node(rr->raft, req->r.cfgchange.id)) {
-                RedisModule_ReplyWithError(req->ctx, "node id does not exist");
-                goto exit;
-            }
-
-            type = RAFT_LOGTYPE_REMOVE_NODE;
-            break;
-        default:
-            RedisModule_Assert(0);
+    if (hasNodeIdBeenUsed(rr, id)) {
+        RedisModule_ReplyWithError(ctx, "node id has already been used in this cluster");
+        return;
     }
 
-    entry = raft_entry_new(sizeof(req->r.cfgchange));
+    if (!id) {
+        id = makeRandomNodeId(rr);
+    }
+
+    RaftCfgChange cfg = {
+        .id = id,
+        .addr = *addr
+    };
+
+    entry = raft_entry_new(sizeof(cfg));
     entry->id = rand();
-    entry->type = type;
-    memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
+    entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+    memcpy(entry->data, &cfg, sizeof(cfg));
+
+    e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        raft_entry_release(entry);
+        replyRaftError(ctx, e);
+        return;
+    }
+
+    raft_entry_release(entry);
+
+    /* We don't have to block on add node, it's all through join which blocks itself */
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, cfg.id);
+    RedisModule_ReplyWithSimpleString(ctx, rr->snapshot_info.dbid);
+}
+
+void handleCfgRemove(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_id_t id)
+{
+    raft_entry_t *entry;
+    msg_entry_response_t response;
+    int e;
+
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
+    }
+
+    if (!raft_get_node(rr->raft, id)) {
+        RedisModule_ReplyWithError(ctx, "node id does not exist");
+        return;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
+
+    RaftCfgChange cfg = {
+        .id = id
+    };
+
+    entry = raft_entry_new(sizeof(cfg));
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+    memcpy(entry->data, &cfg, sizeof(cfg));
     entryAttachRaftReq(rr, entry, req);
 
     e = raft_recv_entry(rr->raft, entry, &response);
     if (e != 0) {
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
-        replyRaftError(req->ctx, e);
-        goto exit;
+        replyRaftError(ctx, e);
+        RaftReqFree(req);
+        return;
     }
 
     raft_entry_release(entry);
-    switch (req->type) {
-        case RR_CFGCHANGE_ADDNODE:
-            // we don't have to block on add node, its all through join which blocks itself
-            entryDetachRaftReq(rr, entry);
-            RedisModule_ReplyWithArray(req->ctx, 2);
-            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
-            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
-            break;
-        case RR_CFGCHANGE_REMOVENODE:
-            /* Block until removed, so don't reply here. */
 
-            /* Special case, we are the only node and our node has been removed */
-            if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
-                raft_get_num_voting_nodes(rr->raft) == 0) {
-                RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-                RaftReqFree(req);
-                shutdownAfterRemoval(rr);
-            }
-            return;
-        default:
-	    assert(0);
+    /* Block until removed, so don't reply here. */
+
+    /* Special case, we are the only node and our node has been removed */
+    if (id == raft_get_nodeid(rr->raft) &&
+        raft_get_num_voting_nodes(rr->raft) == 0) {
+        shutdownAfterRemoval(rr);
     }
-
-exit:
-    RaftReqFree(req);
 }
 
 static void handleReadOnlyCommand(void *arg, int can_read)
@@ -1615,7 +1538,6 @@ exit:
  * 3) RAFT related state checks can be postponed and evaluated only at the
  *    time of EXEC.
  */
-
 typedef struct MultiState {
     RaftRedisCommandArray cmds;
     bool error;
@@ -1629,7 +1551,6 @@ static void freeMultiState(MultiState *multiState)
 
 static void freeMultiExecState(unsigned long long client_id)
 {
-
     MultiState *multiState = NULL;
 
     if (RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id),
@@ -1640,20 +1561,20 @@ static void freeMultiExecState(unsigned long long client_id)
     }
 }
 
-static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
+static bool handleMultiExec(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    unsigned long long client_id = RedisModule_GetClientId(req->ctx);
+    unsigned long long client_id = RedisModule_GetClientId(ctx);
 
     /* Get Multi state */
     MultiState *multiState = RedisModule_DictGetC(multiClientState, &client_id, sizeof(client_id), NULL);
 
     /* Is this a MULTI command? */
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    RaftRedisCommand *cmd = cmds->commands[0];
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-    if (req->r.redis.cmds.len == 1 && cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
+    if (cmds->len == 1 && cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
         if (multiState) {
-            RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
+            RedisModule_ReplyWithError(ctx, "ERR MULTI calls can not be nested");
         } else {
             multiState = RedisModule_Calloc(sizeof(MultiState), 1);
             RedisModule_DictSetC(multiClientState, &client_id, sizeof(client_id), multiState);
@@ -1661,58 +1582,52 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             /* We put the MULTI as the first command in the array, as we still need to
              * distinguish single-MULTI array from a single command.
              */
-            RaftRedisCommandArrayMove(&multiState->cmds, &req->r.redis.cmds);
-
-            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+            RaftRedisCommandArrayMove(&multiState->cmds, cmds);
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
         }
 
-        RaftReqFree(req);
         return true;
     }
 
     if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
         if (!multiState) {
-            RedisModule_ReplyWithError(req->ctx, "ERR EXEC without MULTI");
-            RaftReqFree(req);
+            RedisModule_ReplyWithError(ctx, "ERR EXEC without MULTI");
             return true;
         }
 
-        int ctx_flags = RedisModule_GetContextFlags(req->ctx);
+        int ctx_flags = RedisModule_GetContextFlags(ctx);
 
         /* Check if we can execute:
          * 1) No errors in the transaction so far;
          * 2) No dirty watch.
          */
         if (multiState->error) {
-            RedisModule_ReplyWithError(req->ctx, "EXECABORT Transaction discarded because of previous errors.");
-            RaftReqFree(req);
-            req = NULL;
+            RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
+            return true;
         } else if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI_DIRTY) {
-            RedisModule_ReplyWithNull(req->ctx);
-            RaftReqFree(req);
-            req = NULL;
+            RedisModule_ReplyWithNull(ctx);
+            return true;
         } else {
             /* Just swap our commands with the EXEC command and proceed. */
-            RaftRedisCommandArrayFree(&req->r.redis.cmds);
-            RaftRedisCommandArrayMove(&req->r.redis.cmds, &multiState->cmds);
+            RaftRedisCommandArrayFree(cmds);
+            RaftRedisCommandArrayMove(cmds, &multiState->cmds);
         }
 
         RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
         freeMultiState(multiState);
-        return req == NULL;
+        return false;
     }
 
     if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
         if (!multiState) {
-            RedisModule_ReplyWithError(req->ctx, "ERR DISCARD without MULTI");
+            RedisModule_ReplyWithError(ctx, "ERR DISCARD without MULTI");
         } else {
             RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
             freeMultiState(multiState);
 
-            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
         }
 
-        RaftReqFree(req);
         return true;
     }
 
@@ -1721,37 +1636,35 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
         /* We have to detct commands that are unsupported or must not be intercepted,
          * and reject the transaction.
          */
-        unsigned int cmd_flags = CommandSpecGetAggregateFlags(&req->r.redis.cmds, 0);
+        unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, 0);
 
         if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
-            RedisModule_ReplyWithError(req->ctx, "ERR not supported by RedisRaft");
+            RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
             multiState->error = 1;
         } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
-            RedisModule_ReplyWithError(req->ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
+            RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
             multiState->error = 1;
         } else {
-            RaftRedisCommandArrayMove(&multiState->cmds, &req->r.redis.cmds);
-            RedisModule_ReplyWithSimpleString(req->ctx, "QUEUED");
+            RaftRedisCommandArrayMove(&multiState->cmds, cmds);
+            RedisModule_ReplyWithSimpleString(ctx, "QUEUED");
         }
 
-        RaftReqFree(req);
         return true;
     }
 
     return false;
 }
 
-void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
+void handleInfoCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
     RedisModuleCallReply *reply;
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
 
     /* Skip "INFO" string */
     int argc = cmd->argc - 1;
     RedisModuleString **argv = cmd->argc == 1 ? NULL : &cmd->argv[1];
 
     enterRedisModuleCall();
-    reply = RedisModule_Call(req->ctx, "INFO", "v", argv, argc);
+    reply = RedisModule_Call(ctx, "INFO", "v", argv, argc);
     exitRedisModuleCall();
 
     size_t info_len;
@@ -1763,9 +1676,8 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
         *(pos + strlen("cluster_enabled:")) = '1';
     }
 
-    RedisModule_ReplyWithStringBuffer(req->ctx, info, info_len);
+    RedisModule_ReplyWithStringBuffer(ctx, info, info_len);
     RedisModule_FreeCallReply(reply);
-    RaftReqFree(req);
 }
 
 /* Handle interception of Redis commands that have a different
@@ -1781,25 +1693,20 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
  */
-
-static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
+static bool handleInterceptedCommands(RedisRaftCtx *rr,
+                                      RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    const char _cmd_cluster[] = "CLUSTER";
-    const char _cmd_info[] = "INFO";
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+    size_t len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
 
-    if (cmd_len == sizeof(_cmd_cluster) - 1 &&
-        !strncasecmp(cmd_str, _cmd_cluster, sizeof(_cmd_cluster) - 1)) {
-            handleClusterCommand(rr, req);
-            return true;
+    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
+        handleClusterCommand(rr, ctx, cmd);
+        return true;
     }
 
-    if (cmd_len == sizeof(_cmd_info) - 1 &&
-        !strncasecmp(cmd_str, _cmd_info, sizeof(_cmd_info) - 1)) {
-            handleInfoCommand(rr, req);
-            return true;
+    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
+        handleInfoCommand(rr, ctx, cmd);
+        return true;
     }
 
     return false;
@@ -1808,26 +1715,30 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 /* When sharding is enabled, handle sharding aspects before processing
  * the request:
  *
- * 1. Compute hash slot of all associated keys and validate there's no cross-slot
- *    violation.
+ * 1. Compute hash slot of all associated keys and validate there's no
+ *    cross-slot violation.
  * 2. Update the request's hash_slot for future reference.
  * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
  * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
  */
-
-static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
+static RRStatus handleSharding(RedisRaftCtx *rr,
+                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    if (computeHashSlotOrReplyError(rr, req) != RR_OK) {
+    int slot = 0;
+
+    if (computeHashSlotOrReplyError(rr, ctx, cmds, &slot) != RR_OK) {
         return RR_ERROR;
     }
 
     /* If command has no keys, continue */
-    if (req->r.redis.hash_slot == -1) return RR_OK;
+    if (slot == -1) {
+        return RR_OK;
+    }
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[req->r.redis.hash_slot];
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (!sg) {
-        RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
+        RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
     }
 
@@ -1839,36 +1750,23 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     if (!sg->local) {
         if (sg->next_redir >= sg->nodes_num)
             sg->next_redir = 0;
-        replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
+        replyRedirect(ctx, slot, &sg->nodes[sg->next_redir++].addr);
         return RR_ERROR;
     }
 
     return RR_OK;
 }
 
-void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
+void handleRedisCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     Node *leader_proxy = NULL;
 
-    /* If this is a request from a local client which is no longer connected,
-     * dont process it.
-     *
-     * NOTE: This is required for consistency reasons. MULTI/EXEC needs to do CAS checks at
-     * EXEC time, however the state of the client will be unavailable if it is connected.
-     * In that case, we need not only to discard the EXEC but also any command that followed
-     * in order to maintain consistency.
+    /* MULTI/EXEC bundling takes place only if we have a single command. If we
+     * have multiple commands we've received this as a RAFT.ENTRY input and
+     * bundling, probably through a proxy, and bundling was done before.
      */
-
-    if (req->ctx && RedisModule_BlockedClientDisconnected(req->ctx)) {
-        goto exit;
-    }
-
-    /* MULTI/EXEC bundling takes place only if we have a single command. If we have multiple
-     * commands we've received this as a RAFT.ENTRY input and bundling, probably through a
-     * proxy, and bundling was done before.
-     */
-    if (req->r.redis.cmds.len == 1) {
-        if (handleMultiExec(rr, req)) {
+    if (cmds->len == 1) {
+        if (handleMultiExec(rr, ctx, cmds)) {
             return;
         }
     }
@@ -1876,14 +1774,14 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     /* Check that we're part of a boostrapped cluster and not in the middle of joining
      * or loading data.
      */
-    if (checkRaftState(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     /* Handle intercepted commands. We do this also on non-leader nodes or if we don't
      * have a leader, so it's up to the commands to check these conditions if they have to.
      */
-    if (handleInterceptedCommands(rr, req)) {
+    if (handleInterceptedCommands(rr, ctx, cmds->commands[0])) {
         return;
     }
 
@@ -1891,20 +1789,19 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
      * hash slot validation and return an error / redirection if necessary. We do this
      * before checkLeader() to avoid multiple redirect hops.
      */
-    if (rr->config->sharding && handleSharding(rr, req) != RR_OK) {
-        goto exit;
+    if (rr->config->sharding && handleSharding(rr, ctx, cmds) != RR_OK) {
+        return;
     }
 
     /* Confirm that we're the leader and handle redirect or proxying if not. */
-    if (checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
-        goto exit;
+    if (checkLeader(rr, ctx, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
+        return;
     }
 
     /* Proxy */
     if (leader_proxy) {
-        if (ProxyCommand(rr, req, leader_proxy) != RR_OK) {
-            RedisModule_ReplyWithError(req->ctx, "NOTLEADER Failed to proxy command");
-            goto exit;
+        if (ProxyCommand(rr, ctx, cmds, leader_proxy) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
         }
         return;
     }
@@ -1916,43 +1813,43 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
      * Normally we can expect a single command in the request, unless it is a
      * MULTI/EXEC transaction in which case all queued commands are handled at once.
      */
-    unsigned int cmd_flags = CommandSpecGetAggregateFlags(&req->r.redis.cmds, CMD_SPEC_WRITE);
+    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR not supported by RedisRaft");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
+        return;
     } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (rr->config->quorum_reads) {
+            RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+            RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         } else {
-            handleReadOnlyCommand(req, 1);
+            executeRaftRedisCommandArray(cmds, ctx, ctx);
         }
         return;
     }
 
+    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+
+    msg_entry_response_t resp;
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
-    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+
+    int e = raft_recv_entry(rr->raft, entry, &resp);
     if (e != 0) {
         replyRaftError(req->ctx, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
-        goto exit;
+        RaftReqFree(req);
+        return;
     }
 
     raft_entry_release(entry);
-
-    /* Unless applied by raft_apply_all() (and freed by it), the request
-     * is pending so we don't free it or unblock the client.
-     */
-    return;
-
-exit:
-    RaftReqFree(req);
 }
 
-void handleInfo(RedisRaftCtx *rr, RaftReq *req)
+void handleInfo(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     size_t slen = 1024;
     char *s = RedisModule_Calloc(1, slen);
@@ -2075,37 +1972,34 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
             rr->proxy_failed_responses,
             rr->proxy_outstanding_reqs);
 
-    RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
+    RedisModule_ReplyWithStringBuffer(ctx, s, strlen(s));
     RedisModule_Free(s);
-
-    RaftReqFree(req);
 }
 
-void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
+void handleClusterInit(RedisRaftCtx *rr, RedisModuleCtx *ctx, char *cluster_id)
 {
-    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
-        goto exit;
+    if (checkRaftNotLoading(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR Already cluster member");
+        return;
     }
 
-    if (initCluster(req->ctx, rr, rr->config, req->r.cluster_init.id) == RR_ERROR) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
-        goto exit;
+    if (initCluster(ctx, rr, rr->config, cluster_id) == RR_ERROR) {
+        RedisModule_ReplyWithError(ctx, "ERR Failed to initialize, check logs");
+        return;
     }
 
-    char reply[RAFT_DBID_LEN+5];
+    char reply[RAFT_DBID_LEN + 5];
     snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
 
     rr->state = REDIS_RAFT_UP;
-    RedisModule_ReplyWithSimpleString(req->ctx, reply);
+    RedisModule_ReplyWithSimpleString(ctx, reply);
 
-    LOG_INFO("Raft Cluster initialized, node id: %d, dbid: %s", rr->config->id, rr->snapshot_info.dbid);
-exit:
-    RaftReqFree(req);
+    LOG_INFO("Raft Cluster initialized, node id: %d, dbid: %s",
+             rr->config->id, rr->snapshot_info.dbid);
 }
 
 void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
@@ -2139,24 +2033,41 @@ void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
-void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
+void handleClientDisconnect(RedisRaftCtx *rr, unsigned long long id)
 {
-    freeMultiExecState(req->r.client_disconnect.client_id);
-    RaftReqFree(req);
+    freeMultiExecState(id);
 }
 
-static void handleDebugNodeCfg(RedisRaftCtx *rr, RaftReq *req)
+void handleDebugCompact(RedisRaftCtx *rr, RedisModuleCtx *ctx, int delay, int fail)
+{
+    RaftReq *req;
+
+    req = RaftReqInit(ctx, RR_DEBUG);
+    req->r.debug.delay = delay;
+    req->r.debug.fail = fail;
+
+    rr->debug_req = req;
+
+    if (initiateSnapshot(rr) != RR_OK) {
+        LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.");
+        RedisModule_ReplyWithError(ctx, "ERR operation failed, nothing to compact?");
+        rr->debug_req = NULL;
+        RaftReqFree(req);
+    }
+}
+
+void handleDebugNodeCfg(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_id_t id, char *str)
 {
     char *saveptr = NULL;
     char *tok;
 
-    raft_node_t *node = raft_get_node(rr->raft, req->r.debug.d.nodecfg.id);
+    raft_node_t *node = raft_get_node(rr->raft, id);
     if (!node) {
-        RedisModule_ReplyWithError(req->ctx, "ERR node does not exist");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR node does not exist");
+        return;
     }
 
-    tok = strtok_r(req->r.debug.d.nodecfg.str, " ", &saveptr);
+    tok = strtok_r(str, " ", &saveptr);
     while (tok != NULL) {
         if (!strcasecmp(tok, "+voting")) {
             raft_node_set_voting(node, 1);
@@ -2169,61 +2080,30 @@ static void handleDebugNodeCfg(RedisRaftCtx *rr, RaftReq *req)
         } else if (!strcasecmp(tok, "-active")) {
             raft_node_set_active(node, 0);
         } else {
-            RedisModule_ReplyWithError(req->ctx, "ERR invalid nodecfg option specified");
-            goto exit;
+            RedisModule_ReplyWithError(ctx, "ERR invalid nodecfg option specified");
+            return;
         }
         tok = strtok_r(NULL, " ", &saveptr);
     }
 
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
-exit:
-    RaftReqFree(req);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-static void handleDebugSendSnapshot(RedisRaftCtx *rr, RaftReq *req)
+void handleDebugSendSnapshot(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_id_t id)
 {
-    raft_node_t *node = raft_get_node(rr->raft, req->r.debug.d.nodecfg.id);
+    raft_node_t *node = raft_get_node(rr->raft, id);
     if (!node) {
-        RedisModule_ReplyWithError(req->ctx, "ERR node does not exist");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR node does not exist");
+        return;
     }
 
-    if (req->r.debug.d.nodecfg.id == raft_get_nodeid(rr->raft)) {
-        RedisModule_ReplyWithError(req->ctx, "ERR leader cannot send snapshot to itself");
-        goto exit;
+    if (id == raft_get_nodeid(rr->raft)) {
+        RedisModule_ReplyWithError(ctx, "ERR leader cannot send snapshot to itself");
+        return;
     }
 
     raft_node_set_next_idx(node, raft_get_snapshot_last_idx(rr->raft));
-
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
-exit:
-    RaftReqFree(req);
-}
-
-void handleDebug(RedisRaftCtx *rr, RaftReq *req)
-{
-    switch (req->r.debug.type) {
-        case RR_DEBUG_COMPACT:
-            rr->debug_req = req;
-
-            if (initiateSnapshot(rr) != RR_OK) {
-                LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.");
-                RedisModule_ReplyWithError(req->ctx, "ERR operation failed, nothing to compact?");
-                rr->debug_req = NULL;
-                RaftReqFree(req);
-            }
-            break;
-        case RR_DEBUG_NODECFG:
-            handleDebugNodeCfg(rr, req);
-            break;
-        case RR_DEBUG_SENDSNAPSHOT:
-            handleDebugSendSnapshot(rr, req);
-            break;
-        default:
-            assert(0);
-    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /* Apply a SHARDGROUP Add and Update log entries by deserializing the payload and
@@ -2347,66 +2227,59 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
-/* Handle adding of ShardGroup.
- * FIXME: Currently this is done locally, should instead create a
- * custom Raft log entry which calls addShardGroup when applied only.
- */
-void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
+void handleShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, ShardGroup *sg)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
     }
 
     /* Validate now before pushing this as a log entry. */
-    if (ShardingInfoValidateShardGroup(rr, req->r.shardgroup_add) != RR_OK) {
-        RedisModule_ReplyWithError(req->ctx, "ERR invalid shardgroup configuration. Consult the logs for more info.");
-        goto exit;
+    if (ShardingInfoValidateShardGroup(rr, sg) != RR_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR invalid shardgroup configuration. Consult the logs for more info.");
+        return;
     }
 
-    if (ShardGroupAppendLogEntry(rr, req->r.shardgroup_add,
-                                 RAFT_LOGTYPE_ADD_SHARDGROUP, req) == RR_ERROR) goto exit;
+    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
 
-    return;
-
-exit:
-    RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
-    RaftReqFree(req);
+    int rc = ShardGroupAppendLogEntry(rr, sg, RAFT_LOGTYPE_ADD_SHARDGROUP, req);
+    if (rc == RR_ERROR) {
+        RedisModule_ReplyWithError(ctx, "failed, please check logs.");
+        RaftReqFree(req);
+    }
 }
 
-void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req)
+void handleShardGroupsReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                              ShardGroup **sg, unsigned int len)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
     }
 
-    if (ShardGroupsAppendLogEntry(rr, req->r.shardgroups_replace.len, req->r.shardgroups_replace.shardgroups,
-                                 RAFT_LOGTYPE_REPLACE_SHARDGROUPS, req) == RR_ERROR) {
+    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUPS_REPLACE);
+
+    int rc = ShardGroupsAppendLogEntry(rr, len, sg,
+                                       RAFT_LOGTYPE_REPLACE_SHARDGROUPS, req);
+
+    if (rc == RR_ERROR) {
         RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
-        goto exit;
+        RaftReqFree(req);
     }
-
-    /* wait till return till after update is applied */
-    return;
-
-exit:
-    RaftReqFree(req);
 }
 
 /* Handles RAFT.SHARDGROUP GET which includes:
  * - Description of the local cluster as a shardgroup, including all nodes
  * - Description of remote shardgroups as last tracked.
  */
-
-void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
+void handleShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
     }
 
     ShardGroup *sg = getShardGroupById(rr, rr->log->dbid);
@@ -2414,74 +2287,60 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
      * 1. slot ranges -> each element is a 3 element array start/end/type
      * 2. nodes -> each element is a 2 element array id/address
      */
-    RedisModule_ReplyWithArray(req->ctx, 3);
-    RedisModule_ReplyWithCString(req->ctx, redis_raft.snapshot_info.dbid);
-    RedisModule_ReplyWithArray(req->ctx, sg->slot_ranges_num);
+    RedisModule_ReplyWithArray(ctx, 3);
+    RedisModule_ReplyWithCString(ctx, redis_raft.snapshot_info.dbid);
+    RedisModule_ReplyWithArray(ctx, sg->slot_ranges_num);
     for(int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        RedisModule_ReplyWithArray(req->ctx, 3);
-        RedisModule_ReplyWithLongLong(req->ctx, sr->start_slot);
-        RedisModule_ReplyWithLongLong(req->ctx, sr->end_slot);
-        RedisModule_ReplyWithLongLong(req->ctx, sr->type);
+        RedisModule_ReplyWithArray(ctx, 3);
+        RedisModule_ReplyWithLongLong(ctx, sr->start_slot);
+        RedisModule_ReplyWithLongLong(ctx, sr->end_slot);
+        RedisModule_ReplyWithLongLong(ctx, sr->type);
     }
 
-    RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     int node_count = 0;
     for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
         raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, i);
-        if (!raft_node_is_active(raft_node))
+        if (!raft_node_is_active(raft_node)) {
             continue;
+        }
 
         NodeAddr *addr = NULL;
         if (raft_node == raft_get_my_node(rr->raft)) {
             addr = &rr->config->addr;
         } else {
             Node *node = raft_node_get_udata(raft_node);
-            if (!node) continue;
+            if (!node) {
+                continue;
+            }
 
             addr = &node->addr;
         }
 
         node_count++;
-        RedisModule_ReplyWithArray(req->ctx, 2);
+        RedisModule_ReplyWithArray(ctx, 2);
         char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
         snprintf(node_id, sizeof(node_id), "%s%08x", rr->log->dbid, raft_node_get_id(raft_node));
-        RedisModule_ReplyWithStringBuffer(req->ctx, node_id, strlen(node_id));
+        RedisModule_ReplyWithStringBuffer(ctx, node_id, strlen(node_id));
 
         char addrstr[512];
         snprintf(addrstr, sizeof(addrstr), "%s:%u", addr->host, addr->port);
-        RedisModule_ReplyWithStringBuffer(req->ctx, addrstr, strlen(addrstr));
+        RedisModule_ReplyWithStringBuffer(ctx, addrstr, strlen(addrstr));
 
     }
-    RedisModule_ReplySetArrayLength(req->ctx, node_count);
-exit:
-    RaftReqFree(req);
+
+    RedisModule_ReplySetArrayLength(ctx, node_count);
 }
 
-void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
+void handleNodeShutdown(RedisRaftCtx *rr, raft_node_id_t id)
 {
-    if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
-        LOG_ERROR("Received invalid nodeshutdown message with id : %d.",
-                  req->r.node_shutdown.id);
+    if (id != raft_get_nodeid(rr->raft)) {
+        LOG_ERROR("Received invalid nodeshutdown message with id : %d.", id);
         return;
     }
 
-    RaftReqFree(req);
     shutdownAfterRemoval(rr);
-}
-
-void handleConfig(RedisRaftCtx *rr, RaftReq *req)
-{
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(req->r.config.argv[1], &cmd_len);
-
-    if (!strncasecmp(cmd, "SET", cmd_len)) {
-        handleConfigSet(rr, req->ctx, req->r.config.argv, req->r.config.argc);
-    } else if (!strncasecmp(cmd, "GET", cmd_len)) {
-        handleConfigGet(req->ctx, rr->config, req->r.config.argv, req->r.config.argc);
-    }
-
-    RaftReqFree(req);
 }
 
 /* Callback for fsync thread. This will be triggerred by fsync thread but will

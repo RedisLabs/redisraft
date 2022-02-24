@@ -38,7 +38,7 @@ static void clearPendingResponses(Node *node)
 /* Connect callback */
 static void handleNodeConnect(Connection *conn)
 {
-    Node *node = (Node *) ConnGetPrivateData(conn);
+    Node *node = ConnGetPrivateData(conn);
 
     if (ConnIsConnected(conn)) {
         clearPendingResponses(node);
@@ -76,8 +76,7 @@ static void NodeFree(Node *node)
 /* hiredis free callback */
 static void nodeFreeCallback(void *privdata)
 {
-    Node *node = (Node *) privdata;
-    NodeFree(node);
+    NodeFree(privdata);
 }
 
 /* Create a new node object, put it in the nodes list and create a connection
@@ -155,8 +154,9 @@ void NodeDismissPendingResponse(Node *node)
  */
 void HandleNodeStates(RedisRaftCtx *rr)
 {
-    if (rr->state == REDIS_RAFT_LOADING)
+    if (rr->state == REDIS_RAFT_LOADING) {
         return;
+    }
 
     /* Iterate nodes and find nodes that require reconnection */
     Node *node, *tmp;
