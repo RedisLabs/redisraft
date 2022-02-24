@@ -177,23 +177,23 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
-    RaftRedisCommandArray *arr;
+    RaftRedisCommandArray *array;
     RaftRedisCommandArray tmp = {0};
 
     RaftReq *req = entry->user_data;
 
     /* If request exists, use command array from it without deserializing */
     if (req) {
-        arr = &req->r.redis.cmds;
+        array = &req->r.redis.cmds;
     } else {
         if (RaftRedisCommandArrayDeserialize(&tmp, entry->data,
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
-        arr = &tmp;
+        array = &tmp;
     }
 
-    executeRaftRedisCommandArray(arr,
+    executeRaftRedisCommandArray(array,
                                  req ? req->ctx : rr->ctx,
                                  req ? req->ctx : NULL);
 
@@ -204,7 +204,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RaftRedisCommandArrayFree(arr);
+    RaftRedisCommandArrayFree(array);
 
     if (req) {
         /* Free request now, we don't need it anymore */
