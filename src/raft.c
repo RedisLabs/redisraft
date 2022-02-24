@@ -1236,28 +1236,21 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 }
 
 
-/* ------------------------------------ RaftReq ------------------------------------ */
+/* ------------------------------- RaftReq ---------------------------------- */
 
-/* Free a RaftReq structure.
+/* Create a RaftReq and block the client
  *
- * If it is associated with a blocked client, it will be unblocked and
- * the thread safe context released as well.
+ * Clients must be blocked if the request cannot be served immediately in
+ * Redis module command callbacks.
+ *
+ * Raft operations will block clients as these operations need quorum:
+ * Redis commands, ShardGroup operations, config changes (join or node removal)
+ *
+ * When we are ready to execute a command, e.g related raft entry is commited,
+ * we can run the command, add replies via RedisModule_ReplyWith...() family
+ * functions to RaftReq 'ctx'. Finally, RaftReqFree() must be called to unblock
+ * the client, so, Redis will send reply back to the client.
  */
-void RaftReqFree(RaftReq *req)
-{
-    TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p", req, req->ctx, req->client);
-
-    if (req->type == RR_REDISCOMMAND) {
-        if (req->r.redis.cmds.size) {
-            RaftRedisCommandArrayFree(&req->r.redis.cmds);
-        }
-    }
-
-    RedisModule_FreeThreadSafeContext(req->ctx);
-    RedisModule_UnblockClient(req->client, NULL);
-    RedisModule_Free(req);
-}
-
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 {
     RaftReq *req = RedisModule_Calloc(1, sizeof(*req));
@@ -1272,7 +1265,26 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
     return req;
 }
 
-/* ------------------------------------ RaftReq Implementation ------------------------------------ */
+/* Free a RaftReq structure.
+ *
+ * If it is associated with a blocked client, it will be unblocked and
+ * the thread safe context released as well.
+ */
+void RaftReqFree(RaftReq *req)
+{
+    TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p",
+          req, req->ctx, req->client);
+
+    if (req->type == RR_REDISCOMMAND) {
+        if (req->r.redis.cmds.size) {
+            RaftRedisCommandArrayFree(&req->r.redis.cmds);
+        }
+    }
+
+    RedisModule_FreeThreadSafeContext(req->ctx);
+    RedisModule_UnblockClient(req->client, NULL);
+    RedisModule_Free(req);
+}
 
 /*
  * Implementation of specific request types.
