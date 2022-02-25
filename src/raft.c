@@ -2493,6 +2493,7 @@ void handleFsyncCompleted(void *result)
 
     rr->log->fsync_count++;
     rr->log->fsync_total += rs->time;
+    rr->log->fsync_max = MAX(rs->time, rr->log->fsync_max);
 
     int e = raft_flush(rr->raft, rs->fsync_index);
     if (e == RAFT_ERR_SHUTDOWN) {
