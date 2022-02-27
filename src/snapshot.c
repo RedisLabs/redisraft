@@ -411,7 +411,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     if (rr->log) {
         fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
-        if (RaftLogSync(rr->log) != RR_OK) {
+        if (RaftLogSync(rr->log, true) != RR_OK) {
             PANIC("RaftLogSync() failed.");
         }
     }

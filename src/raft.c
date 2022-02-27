@@ -2523,7 +2523,7 @@ void handleBeforeSleep(RedisRaftCtx *rr)
     if (next > 0) {
         fflush(rr->log->file);
 
-        if (rr->log->fsync) {
+        if (rr->config->raft_log_fsync) {
             /* Trigger async fsync() for the current index */
             fsyncThreadAddTask(&rr->fsyncThread, fileno(rr->log->file), next);
         } else {

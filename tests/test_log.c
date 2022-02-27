@@ -195,8 +195,6 @@ static void test_log_fuzzer(void **state)
     RaftLog *log = (RaftLog *) *state;
     int idx = 0, i;
 
-    log->fsync = false;
-
     for (i = 0; i < 10000; i++) {
         int new_entries = random() % 10;
         int j;
