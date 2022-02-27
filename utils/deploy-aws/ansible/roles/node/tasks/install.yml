@@ -47,12 +47,20 @@
     recursive: true
   register: checkout_redisraft
 
-- name: Build RedisRaft
-  command:
-    chdir: "{{ redisraft_build_dir }}"
-    cmd: make -j
-  register: build_redisraft
+- name: Create RedisRaft build dir
+  file:
+    path: "{{ redisraft_build_dir }}/build"
+    state: directory
+  register: builddir_redisraft
   when: checkout_redisraft.changed
+
+- name: Build RedisRaft
+  shell: |
+    cd  {{ redisraft_build_dir }}/build
+    cmake ..
+    make -j
+  register: build_redisraft
+  when: builddir_redisraft.changed
 
 - name: Install RedisRaft module
   copy:
