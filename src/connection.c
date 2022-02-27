@@ -247,7 +247,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
     Connection *conn = c->data;
     CONN_TRACE(conn, "handleConnected: status=%d", status);
 
-    if (conn->rr->config->cluster_user) {
+    if (conn->rr->config->cluster_user && conn->rr->config->cluster_password) {
         handleConnectedWithAuth(conn, status);
     } else {
         handleConnectedWithoutAuth(conn, status);
