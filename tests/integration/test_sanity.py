@@ -7,6 +7,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 import socket
 
+import pytest as pytest
 import time
 from redis import ResponseError
 from pytest import raises, skip
@@ -94,6 +95,7 @@ def test_reelection_basic_flow(cluster):
     assert cluster.execute('set', 'key2', 'value')
 
 
+@pytest.mark.skipif("config.getoption('tls')")
 def test_resp3(cluster):
     cluster.create(3)
 
@@ -367,10 +369,3 @@ def test_rolled_back_read_only_multi_reply(cluster):
 
     with raises(ResponseError, match='TIMEOUT'):
         assert conn.read_response() == None
-
-
-def test_tls(cluster):
-    cluster.create(3, cert_dir=cluster.cert_dir)
-
-    assert cluster.leader_node().client.set('key', 'value')
-    assert cluster.leader_node().client.get('key') == b'value'

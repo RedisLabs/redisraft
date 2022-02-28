@@ -21,9 +21,6 @@ def pytest_addoption(parser):
         '--redis-executable', default='../redis/src/redis-server',
         help='Name of redis-server executable to use.')
     parser.addoption(
-        '--gen-test-certs', default='./utils/gen-test-certs.sh',
-        help='gen-test-certs.sh location for tls testing.')
-    parser.addoption(
         '--raft-loglevel', default='debug',
         help='RedisRaft Module log level.')
     parser.addoption(
@@ -44,6 +41,9 @@ def pytest_addoption(parser):
     parser.addoption(
         '--fsync', default=False, action='store_true',
         help='Use raft-log-fsync')
+    parser.addoption(
+        '--tls', default=False, action='store_true',
+        help='Use tls')
 
 def create_config(pytest_config):
     config = SimpleNamespace()
@@ -57,6 +57,7 @@ def create_config(pytest_config):
     config.workdir = pytest_config.getoption('--work-dir')
     config.keepfiles = pytest_config.getoption('--keep-files')
     config.fsync = pytest_config.getoption('--fsync')
+    config.tls = pytest_config.getoption('--tls')
 
     if (pytest_config.getoption('--valgrind')):
         if config.args is None:
@@ -74,25 +75,13 @@ def create_config(pytest_config):
     return config
 
 
-@pytest.fixture(scope="session")
-def cert_dir(request):
-    tempdir = tempfile.TemporaryDirectory()
-    args = [request.config.getoption('--gen-test-certs'), tempdir.name]
-    logging.info("creating tls certs: {}".format(args))
-    subprocess.run(args)
-
-    yield tempdir.name
-
-    tempdir.cleanup()
-
-
 @pytest.fixture
-def cluster(request, cert_dir):
+def cluster(request):
     """
     A fixture for a sandbox Cluster()
     """
 
-    _cluster = Cluster(create_config(request.config), cert_dir=cert_dir)
+    _cluster = Cluster(create_config(request.config))
     yield _cluster
     _cluster.destroy()
 
