@@ -184,43 +184,27 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
-    RaftRedisCommandArray *array;
-    RaftRedisCommandArray tmp = {0};
-
     RaftReq *req = entry->user_data;
 
-    /* If request exists, use command array from it without deserializing */
     if (req) {
-        array = &req->r.redis.cmds;
+        executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+        entryDetachRaftReq(rr, entry);
+        RaftReqFree(req);
     } else {
-        if (RaftRedisCommandArrayDeserialize(&tmp, entry->data,
+        RaftRedisCommandArray tmp = {0};
+
+        if (RaftRedisCommandArrayDeserialize(&tmp,
+                                             entry->data,
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
-        array = &tmp;
+
+        executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
+        RaftRedisCommandArrayFree(&tmp);
     }
 
-    /* Redis Module API requires commands executing on a locked thread
-     * safe context.
-     */
-    executeRaftRedisCommandArray(array,
-                                 req ? req->ctx : rr->ctx,
-                                 req ? req->ctx : NULL);
-
-    /* Update snapshot info in Redis dataset. This must be done now so it's
-     * always consistent with what we applied and we never end up applying
-     * an entry onto a snapshot where it was applied already.
-     */
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
-
-    RaftRedisCommandArrayFree(array);
-
-    if (req) {
-        /* Free request now, we don't need it anymore */
-        entryDetachRaftReq(rr, entry);
-        RaftReqFree(req);
-    }
 }
 
 static void raftSendNodeShutdown(raft_node_t *raft_node)
