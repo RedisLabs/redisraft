@@ -105,8 +105,6 @@ static void sendNodeAddRequest(Connection *conn)
 
 void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
-    const char * type = "join";
-
     if (checkRaftNotLoading(rr, req) == RR_ERROR) {
         goto exit_fail;
     }
@@ -117,8 +115,7 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
     }
 
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = RedisModule_Calloc(1, strlen(type)+1);
-    strcpy(state->type, type);
+    state->type = "join";
     state->connect_callback = sendNodeAddRequest;
     time(&(state->start));
     NodeAddrListConcat(&state->addr, req->r.cluster_join.addr);

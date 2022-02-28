@@ -1606,8 +1606,6 @@ static void linkSendRequest(Connection *conn)
  */
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
 {
-    const char * type = "link";
-
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
@@ -1619,8 +1617,7 @@ void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
              req->r.shardgroup_link.addr.port);
 
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = RedisModule_Calloc(1, strlen(type)+1);
-    strcpy(state->type, type);
+    state->type = "link";
     state->connect_callback = linkSendRequest;
     time(&(state->start));
     NodeAddrListAddElement(&state->addr, &req->r.shardgroup_link.addr);
