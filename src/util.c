@@ -398,6 +398,10 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 {
     ShardGroup *sg = ShardGroupCreate();
 
+    if (!strcmp(rr->config->slot_config, "-1")) {
+        goto exit;
+    }
+
     char *str = RedisModule_Strdup(rr->config->slot_config);
     sg->slot_ranges_num = 1;
     char *pos = str;
@@ -428,6 +432,7 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 
     RedisModule_Free(str);
 
+exit:
     return sg;
 }
 

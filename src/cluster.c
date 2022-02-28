@@ -1237,6 +1237,10 @@ RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
 {
     RedisModuleString *ret;
 
+    if (sg->slot_ranges_num == 0) {
+        return RedisModule_CreateString(ctx, "", 0);
+    }
+
     if (sg->slot_ranges[0].start_slot != sg->slot_ranges[0].end_slot) {
         ret = RedisModule_CreateStringPrintf(ctx, "%d-%d", sg->slot_ranges[0].start_slot, sg->slot_ranges[0].end_slot);
     } else {
