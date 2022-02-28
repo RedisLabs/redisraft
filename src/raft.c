@@ -203,6 +203,10 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         RaftRedisCommandArrayFree(&tmp);
     }
 
+    /* Update snapshot info in Redis dataset. This must be done now so it's
+     * always consistent with what we applied and we never end up applying
+     * an entry onto a snapshot where it was applied already.
+     */
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 }
