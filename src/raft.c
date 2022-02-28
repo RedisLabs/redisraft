@@ -180,28 +180,32 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
-
 static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
-    /* TODO: optimize and avoid deserialization here, we can use the
-     * original argv in RaftReq
-     */
-
-    RaftRedisCommandArray entry_cmds = { 0 };
-    if (RaftRedisCommandArrayDeserialize(&entry_cmds, entry->data, entry->data_len) != RR_OK) {
-        PANIC("Invalid Raft entry");
-    }
+    RaftRedisCommandArray *array;
+    RaftRedisCommandArray tmp = {0};
 
     RaftReq *req = entry->user_data;
-    RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
+
+    /* If request exists, use command array from it without deserializing */
+    if (req) {
+        array = &req->r.redis.cmds;
+    } else {
+        if (RaftRedisCommandArrayDeserialize(&tmp, entry->data,
+                                             entry->data_len) != RR_OK) {
+            PANIC("Invalid Raft entry");
+        }
+        array = &tmp;
+    }
 
     /* Redis Module API requires commands executing on a locked thread
      * safe context.
      */
-
-    executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
+    executeRaftRedisCommandArray(array,
+                                 req ? req->ctx : rr->ctx,
+                                 req ? req->ctx : NULL);
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
      * always consistent with what we applied and we never end up applying
@@ -210,7 +214,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-    RaftRedisCommandArrayFree(&entry_cmds);
+    RaftRedisCommandArrayFree(array);
 
     if (req) {
         /* Free request now, we don't need it anymore */
