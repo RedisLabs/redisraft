@@ -26,25 +26,6 @@ const char *getStateStr(RedisRaftCtx *rr)
     return state_str[rr->state];
 }
 
-const char *raft_logtype_str(int type)
-{
-    static const char *logtype_str[] = {
-        "NORMAL",
-        "ADD_NONVOTING_NODE",
-        "ADD_NODE",
-        "DEMOTE_NODE",
-        "REMOVE_NODE",
-        "(unknown)"
-    };
-    static const char *logtype_unknown = "(unknown)";
-
-    if (type < RAFT_LOGTYPE_NORMAL || type > RAFT_LOGTYPE_REMOVE_NODE) {
-        return logtype_unknown;
-    } else {
-        return logtype_str[type];
-    }
-}
-
 /* Convert a Raft library error code to an error reply.
  */
 void replyRaftError(RedisModuleCtx *ctx, int error)
