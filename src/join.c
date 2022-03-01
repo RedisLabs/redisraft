@@ -25,11 +25,6 @@
 #include <assert.h>
 #include "redisraft.h"
 
-void HandleClusterJoinFailed(RedisRaftCtx *rr, RaftReq *req) {
-    RedisModule_ReplyWithError(req->ctx, "ERR Failed to join cluster, check logs");
-    RaftReqFree(req);
-}
-
 /* Callback for the RAFT.NODE ADD command.
  */
 static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)

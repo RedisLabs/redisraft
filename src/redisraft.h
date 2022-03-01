@@ -438,8 +438,6 @@ typedef struct Node {
     LIST_ENTRY(Node) entries;
 } Node;
 
-typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
-
 /* General purpose status code.  Convention is this:
  * In redisraft.c (Redis Module wrapper) we generally use REDISMODULE_OK/REDISMODULE_ERR.
  * Elsewhere we stick to it.
@@ -743,13 +741,11 @@ typedef struct JoinLinkState {
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
-const char *raft_logtype_str(int type);
 void replyRaftError(RedisModuleCtx *ctx, int error);
 raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
-RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
 void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 
@@ -780,7 +776,6 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
-void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
