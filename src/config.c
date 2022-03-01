@@ -50,6 +50,8 @@ static const char *CONF_TLS_ENABLED = "tls-enabled";
 static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
 static const char *CONF_TLS_CERT = "tls-cert";
 static const char *CONF_TLS_KEY = "tls-key";
+static const char *CONF_CLUSTER_USER = "cluster-user";
+static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
 
 static RRStatus parseBool(const char *value, bool *result)
 {
@@ -290,6 +292,22 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             RedisModule_Free(target->tls_key);
         }
         target->tls_key = RedisModule_Strdup(value);
+    } else if (!strcmp(keyword, CONF_CLUSTER_PASSWORD)) {
+        if (target->cluster_password) {
+            RedisModule_Free(target->cluster_password);
+            target->cluster_password = NULL;
+        }
+        if (strlen(value) > 0) {
+            target->cluster_password = RedisModule_Strdup(value);
+        }
+    } else if (!strcmp(keyword, CONF_CLUSTER_USER)) {
+        if (target->cluster_user) {
+            RedisModule_Free(target->cluster_user);
+            target->cluster_user = NULL;
+        }
+        if (strlen(value) > 0) {
+            target->cluster_user = RedisModule_Strdup(value);
+        }
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
         return RR_ERROR;
@@ -483,7 +501,10 @@ void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleSt
         len++;
         replyConfigStr(ctx, CONF_TLS_KEY, config->tls_key);
     }
-
+    if (stringmatch(pattern, CONF_CLUSTER_USER, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user ? config->cluster_user : "");
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -586,6 +607,8 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
     config->tls_key = getRedisConfig(ctx, "tls-key-file");
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
+    config->cluster_user = RedisModule_Strdup("default");
+    config->cluster_password = NULL;
 }
 
 

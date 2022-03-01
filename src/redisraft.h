@@ -415,6 +415,8 @@ typedef struct RedisRaftConfig {
     char *tls_ca_cert;
     char *tls_cert;
     char *tls_key;
+    char *cluster_user;                 /* acl user to use for internode communication */
+    char *cluster_password;             /* password used for internode communication */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -659,7 +661,6 @@ typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
     raft_node_id_t      node_id;                /* Node ID */
-    bool                fsync;                  /* Should fsync every append? */
     unsigned long int   num_entries;            /* Entries in log */
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
     raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
@@ -821,7 +822,7 @@ void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
 int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
-RRStatus RaftLogSync(RaftLog *log);
+RRStatus RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
 RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg);
 RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
