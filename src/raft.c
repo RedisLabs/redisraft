@@ -145,7 +145,7 @@ static void executeRaftRedisCommandArray(RedisModuleString * username, RaftRedis
             if (reply_ctx) {
                 handleRMCallError(reply_ctx, errno, cmd, cmd_len);
             }
-            return;
+            goto exit;
         }
     }
 
@@ -196,6 +196,9 @@ static void executeRaftRedisCommandArray(RedisModuleString * username, RaftRedis
             RedisModule_FreeCallReply(reply);
         }
     }
+
+exit:
+    RedisModule_FreeModuleUser(user);
 }
 
 /*
