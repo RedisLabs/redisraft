@@ -265,11 +265,7 @@ exit_fail:
  */
 void joinLinkFreeCallback(void *privdata)
 {
-    JoinLinkState *state = (JoinLinkState *) privdata;
-
-    if (state->type != NULL) {
-        RedisModule_Free(state->type);
-    }
+    JoinLinkState *state = privdata;
 
     NodeAddrListFree(state->addr);
     RedisModule_Free(state);
