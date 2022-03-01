@@ -273,7 +273,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RedisModuleString **username, RaftRedi
         return RR_ERROR;
     }
     p += n; buf_size -= n;
-    *username = RedisModule_CreateString(redis_raft.ctx, p, username_len);
+    *username = RedisModule_CreateString(NULL, p, username_len);
     p += (username_len + 1); buf_size -= (username_len + 1);
 
     /* Read multibulk count */

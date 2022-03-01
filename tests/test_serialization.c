@@ -55,7 +55,7 @@ static void test_serialize_redis_command(void **state)
 
 static void test_deserialize_redis_command(void **state)
 {
-    const char *serialized = "*4\ntest\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n";
+    const char *serialized = "*3\n$3\nSET\n$3\nkey\n$5\nvalue\n";
     int serialized_len = strlen(serialized);
 
     RaftRedisCommand target = { 0 };
@@ -71,16 +71,15 @@ static void test_deserialize_redis_command_array(void **state)
 
     RaftRedisCommandArray cmd_array = { 0 };
     RedisModuleString * username;
-    RedisModuleString * test = RedisModule_CreateString(NULL, "test", 4);
     cmd_array.len = 5; /* free would be called to reset it */
     assert_int_equal(RaftRedisCommandArrayDeserialize(&username, &cmd_array, serialized, serialized_len), RR_OK);
     assert_int_equal(cmd_array.len, 3);
     assert_non_null(username);
-    assert_int_equal(RedisModule_StringCompare(test, username), 0);
-
+    size_t len;
+    const char * tmp = RedisModule_StringPtrLen(username, &len);
+    strcmp("test", tmp);
     RaftRedisCommandArrayFree(&cmd_array);
     RedisModule_FreeString(NULL, username);
-    RedisModule_FreeString(NULL, test);
 }
 
 static void test_deserialize_corrupted_data(void **state)
