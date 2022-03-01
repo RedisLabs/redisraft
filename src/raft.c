@@ -180,28 +180,28 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
-
 static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
 {
     assert(entry->type == RAFT_LOGTYPE_NORMAL);
 
-    /* TODO: optimize and avoid deserialization here, we can use the
-     * original argv in RaftReq
-     */
-
-    RaftRedisCommandArray entry_cmds = { 0 };
-    if (RaftRedisCommandArrayDeserialize(&entry_cmds, entry->data, entry->data_len) != RR_OK) {
-        PANIC("Invalid Raft entry");
-    }
-
     RaftReq *req = entry->user_data;
-    RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
-    /* Redis Module API requires commands executing on a locked thread
-     * safe context.
-     */
+    if (req) {
+        executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+        entryDetachRaftReq(rr, entry);
+        RaftReqFree(req);
+    } else {
+        RaftRedisCommandArray tmp = {0};
 
-    executeRaftRedisCommandArray(&entry_cmds, ctx, req? req->ctx : NULL);
+        if (RaftRedisCommandArrayDeserialize(&tmp,
+                                             entry->data,
+                                             entry->data_len) != RR_OK) {
+            PANIC("Invalid Raft entry");
+        }
+
+        executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
+        RaftRedisCommandArrayFree(&tmp);
+    }
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
      * always consistent with what we applied and we never end up applying
@@ -209,14 +209,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
      */
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
-
-    RaftRedisCommandArrayFree(&entry_cmds);
-
-    if (req) {
-        /* Free request now, we don't need it anymore */
-        entryDetachRaftReq(rr, entry);
-        RaftReqFree(req);
-    }
 }
 
 static void raftSendNodeShutdown(raft_node_t *raft_node)
@@ -1817,15 +1809,20 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 
 static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (computeHashSlotOrReplyError(rr, req) != RR_OK) {
+    int slot;
+    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
+
+    if (computeHashSlotOrReplyError(rr, req->ctx, cmds, &slot) != RR_OK) {
         return RR_ERROR;
     }
 
     /* If command has no keys, continue */
-    if (req->r.redis.hash_slot == -1) return RR_OK;
+    if (slot == -1) {
+        return RR_OK;
+    }
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[req->r.redis.hash_slot];
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
@@ -1837,9 +1834,10 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * last refresh (when refresh is implemented, in the future).
      */
     if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num)
+        if (sg->next_redir >= sg->nodes_num) {
             sg->next_redir = 0;
-        replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
+        }
+        replyRedirect(req->ctx, slot, &sg->nodes[sg->next_redir++].addr);
         return RR_ERROR;
     }
 

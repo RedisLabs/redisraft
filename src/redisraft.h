@@ -438,8 +438,6 @@ typedef struct Node {
     LIST_ENTRY(Node) entries;
 } Node;
 
-typedef void (*RaftReqHandler)(RedisRaftCtx *, struct RaftReq *);
-
 /* General purpose status code.  Convention is this:
  * In redisraft.c (Redis Module wrapper) we generally use REDISMODULE_OK/REDISMODULE_ERR.
  * Elsewhere we stick to it.
@@ -734,7 +732,7 @@ typedef struct JoinLinkState {
     time_t start;                       /* Time we initiated the join, to enable it to fail if it takes too long */
     RaftReq *req;                       /* Original RaftReq, so we can return a reply */
     bool failed;                        /* unrecoverable failure */
-    char *type;                         /* error message to print if exhaust time */
+    const char *type;                   /* error message to print if exhaust time */
     bool started;                       /* we have started connecting */
     ConnectionCallbackFunc connect_callback;
 } JoinLinkState;
@@ -743,14 +741,12 @@ typedef struct JoinLinkState {
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
-const char *raft_logtype_str(int type);
 void replyRaftError(RedisModuleCtx *ctx, int error);
 raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
 RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
-RRStatus setRaftizeMode(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool flag);
-void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr);
+void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 
 /* node_addr.c */
@@ -780,7 +776,6 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
-void RaftReqSubmit(RedisRaftCtx *rr, RaftReq *req);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
@@ -905,8 +900,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
-
-RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req);
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);

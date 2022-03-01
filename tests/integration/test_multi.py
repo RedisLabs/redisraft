@@ -131,44 +131,6 @@ def test_multi_exec_proxying(cluster):
     assert n2.raft_info()['current_index'] == 6
 
 
-def test_multi_exec_with_disconnect(cluster):
-    """
-    MULTI/EXEC, client drops before EXEC.
-    """
-
-    r1 = cluster.add_node()
-
-    c1 = r1.client.connection_pool.get_connection('c1')
-    c2 = r1.client.connection_pool.get_connection('c2')
-
-    # We use RAFT.DEBUG COMPACT with delay to make the Raft thread
-    # busy and allow us to queue up several RaftReqs and disconnect in
-    # time.
-    # Note -- for compact to succeed we need at least one key.
-    r1.client.set('somekey', 'someval')
-
-    c2.send_command('RAFT.DEBUG', 'COMPACT', '2')
-    time.sleep(0.5)
-
-    # While Raft thread is busy, pipeline a first non-MULTI request
-    c1.send_command('SET', 'test-key', '1')
-
-    # Then pipeline a MULTI/EXEC which we expect to fail, because it
-    # cannot determine CAS safety.  We also want to be sure no other
-    # commands that follow get executed.
-    c1.send_command('MULTI')
-    c1.send_command('SET', 'test-key', '2')
-    c1.send_command('EXEC')
-    c1.send_command('SET', 'test-key', '3')
-    c1.disconnect()
-
-    # Wait for RAFT.DEBUG COMPACT
-    assert c2.read_response() == b'OK'
-
-    # Make sure SET succeeded and EXEC didn't.
-    assert r1.client.get('test-key') == b'1'
-
-
 def test_multi_mixed_ro_rw(cluster_factory):
     """
     MULTI/EXEC with mixed read-only and read-write commands.

@@ -1137,12 +1137,13 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
  * the entry or reply with an error or if it can't be done
  */
-
-RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr,
+                                     RedisModuleCtx *ctx,
+                                     RaftRedisCommandArray *cmds,
+                                     int *slot)
 {
-    int slot = -1;
+    *slot = -1;
 
-    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -1152,15 +1153,15 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
         for (int j = 0; j < num_keys; j++) {
             size_t key_len;
             const char *key = RedisModule_StringPtrLen(cmd->argv[keyindex[j]], &key_len);
-            int thisslot = keyHashSlot(key, key_len);
+            int thisslot = (int) keyHashSlot(key, (int) key_len);
 
-            if (slot == -1) {
+            if (*slot == -1) {
                 /* First key */
-                slot = thisslot;
+                *slot = thisslot;
             } else {
-                if (slot != thisslot) {
+                if (*slot != thisslot) {
                     RedisModule_Free(keyindex);
-                    RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+                    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
                     return RR_ERROR;
                 }
             }
@@ -1168,9 +1169,6 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
 
         RedisModule_Free(keyindex);
     }
-
-    req->r.redis.hash_slot = slot;
-
 
     return RR_OK;
 }
@@ -1606,8 +1604,6 @@ static void linkSendRequest(Connection *conn)
  */
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
 {
-    const char * type = "link";
-
     /* Must be done on a leader */
     if (checkRaftState(rr, req) == RR_ERROR ||
         checkLeader(rr, req, NULL) == RR_ERROR) {
@@ -1619,8 +1615,7 @@ void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
              req->r.shardgroup_link.addr.port);
 
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = RedisModule_Calloc(1, strlen(type)+1);
-    strcpy(state->type, type);
+    state->type = "link";
     state->connect_callback = linkSendRequest;
     time(&(state->start));
     NodeAddrListAddElement(&state->addr, &req->r.shardgroup_link.addr);
