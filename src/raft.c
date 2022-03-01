@@ -1842,19 +1842,6 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
 {
     Node *leader_proxy = NULL;
 
-    /* If this is a request from a local client which is no longer connected,
-     * dont process it.
-     *
-     * NOTE: This is required for consistency reasons. MULTI/EXEC needs to do CAS checks at
-     * EXEC time, however the state of the client will be unavailable if it is connected.
-     * In that case, we need not only to discard the EXEC but also any command that followed
-     * in order to maintain consistency.
-     */
-
-    if (req->ctx && RedisModule_BlockedClientDisconnected(req->ctx)) {
-        goto exit;
-    }
-
     /* MULTI/EXEC bundling takes place only if we have a single command. If we have multiple
      * commands we've received this as a RAFT.ENTRY input and bundling, probably through a
      * proxy, and bundling was done before.
