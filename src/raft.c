@@ -48,6 +48,20 @@ static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
+static void shutdownAfterRemoval(RedisRaftCtx *rr)
+{
+    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+
+    if (rr->config->raft_log_filename) {
+        RaftLogArchiveFiles(rr);
+    }
+    if (rr->config->rdb_filename) {
+        archiveSnapshot(rr);
+    }
+
+    exit(0);
+}
+
 static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RaftReq* req = entry->user_data;
@@ -512,30 +526,37 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
 static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
-    RaftCfgChange *req;
-    RaftReq *raftReq;
+    RaftCfgChange *cfg;
+    RaftReq *req;
 
     switch (entry->type) {
-        case RAFT_LOGTYPE_REMOVE_NODE:
-            raftReq = entryDetachRaftReq(rr, entry);
-            req = (RaftCfgChange *) entry->data;
-
-            // unblock client on removal of node, if this is the node it was submitted on
-            if (raftReq) {
-                RedisModule_ReplyWithSimpleString(raftReq->ctx, "OK");
-                RaftReqFree(raftReq);
+        case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
+            req = entryDetachRaftReq(rr, entry);
+            if (!req) {
+                break;
             }
 
-            if (req->id == raft_get_nodeid(raft)) {
-                // doesn't matter to unblock leader on removal, as node will exit anyways
-                LOG_DEBUG("Removing this node from the cluster");
-                return RAFT_ERR_SHUTDOWN;
+            RedisModule_ReplyWithArray(req->ctx, 2);
+            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
+            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
+            RaftReqFree(req);
+            break;
+        case RAFT_LOGTYPE_REMOVE_NODE:
+            req = entryDetachRaftReq(rr, entry);
+            cfg = (RaftCfgChange *) entry->data;
+
+            if (req) {
+                RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+                RaftReqFree(req);
+            }
+
+            if (cfg->id == raft_get_nodeid(raft)) {
+                shutdownAfterRemoval(rr);
             }
 
             if (raft_is_leader(raft)) {
-                raftSendNodeShutdown(raft_get_node(raft, req->id));
+                raftSendNodeShutdown(raft_get_node(raft, cfg->id));
             }
-
             break;
         case RAFT_LOGTYPE_NORMAL:
             executeLogEntry(rr, entry, entry_idx);
@@ -901,20 +922,6 @@ static void handleLoadingState(RedisRaftCtx *rr)
             rr->state = REDIS_RAFT_UNINITIALIZED;
         }
     }
-}
-
-void shutdownAfterRemoval(RedisRaftCtx *rr)
-{
-    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
-
-    if (rr->config->raft_log_filename) {
-        RaftLogArchiveFiles(rr);
-    }
-    if (rr->config->rdb_filename) {
-        archiveSnapshot(rr);
-    }
-
-    exit(0);
 }
 
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
@@ -1533,28 +1540,16 @@ void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     }
 
     raft_entry_release(entry);
-    switch (req->type) {
-        case RR_CFGCHANGE_ADDNODE:
-            // we don't have to block on add node, its all through join which blocks itself
-            entryDetachRaftReq(rr, entry);
-            RedisModule_ReplyWithArray(req->ctx, 2);
-            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
-            RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
-            break;
-        case RR_CFGCHANGE_REMOVENODE:
-            /* Block until removed, so don't reply here. */
 
-            /* Special case, we are the only node and our node has been removed */
-            if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
-                raft_get_num_voting_nodes(rr->raft) == 0) {
-                RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-                RaftReqFree(req);
-                shutdownAfterRemoval(rr);
-            }
-            return;
-        default:
-	    assert(0);
+    if (req->type == RR_CFGCHANGE_REMOVENODE) {
+        /* Special case, we are the only node and our node has been removed */
+        if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
+            raft_get_num_voting_nodes(rr->raft) == 0) {
+            shutdownAfterRemoval(rr);
+        }
     }
+
+    return;
 
 exit:
     RaftReqFree(req);
