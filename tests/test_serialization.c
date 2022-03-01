@@ -40,10 +40,11 @@ static void test_serialize_redis_command(void **state)
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd1_argv, 3);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd2_argv, 2);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd3_argv, 1);
-    
-    const char *expected = "*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    char *username = "test";
 
-    raft_entry_t *e = RaftRedisCommandArraySerialize(&cmd_array);
+    const char *expected = "*4\ntest\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+
+    raft_entry_t *e = RaftRedisCommandArraySerialize(username, strlen(username), &cmd_array);
     assert_non_null(e);
     assert_int_equal(e->data_len, strlen(expected));
     assert_memory_equal(e->data, expected, strlen(expected));
@@ -54,7 +55,7 @@ static void test_serialize_redis_command(void **state)
 
 static void test_deserialize_redis_command(void **state)
 {
-    const char *serialized = "*3\n$3\nSET\n$3\nkey\n$5\nvalue\n";
+    const char *serialized = "*4\ntest\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n";
     int serialized_len = strlen(serialized);
 
     RaftRedisCommand target = { 0 };
@@ -65,15 +66,21 @@ static void test_deserialize_redis_command(void **state)
 
 static void test_deserialize_redis_command_array(void **state)
 {
-    const char *serialized = "*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    const char *serialized = "*4\ntest\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
     int serialized_len = strlen(serialized);
 
     RaftRedisCommandArray cmd_array = { 0 };
+    RedisModuleString * username;
+    RedisModuleString * test = RedisModule_CreateString(NULL, "test", 4);
     cmd_array.len = 5; /* free would be called to reset it */
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array, serialized, serialized_len), RR_OK);
+    assert_int_equal(RaftRedisCommandArrayDeserialize(&username, &cmd_array, serialized, serialized_len), RR_OK);
     assert_int_equal(cmd_array.len, 3);
+    assert_non_null(username);
+    assert_int_equal(RedisModule_StringCompare(test, username), 0);
 
     RaftRedisCommandArrayFree(&cmd_array);
+    RedisModule_FreeString(NULL, username);
+    RedisModule_FreeString(NULL, test);
 }
 
 static void test_deserialize_corrupted_data(void **state)
@@ -123,19 +130,28 @@ static void test_deserialize_corrupted_data(void **state)
     RaftRedisCommandArray cmd_array = { 0 };
 
     /* bad command count */
-    const char *d_bad_array_len = "$1\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
+    RedisModuleString * username;
+    const char *d_bad_array_len = "*4\ntest\n$1\n";
+    assert_int_equal(RaftRedisCommandArrayDeserialize(&username, &cmd_array,
                 d_bad_array_len, strlen(d_bad_array_len)), RR_ERROR);
+    if (username) {
+        RedisModule_FreeString(NULL, username);
+    }
 
     /* empty command array */
-    const char *d_zero_array_len = "*0\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
+    const char *d_zero_array_len = "*4\ntest\n*0\n";
+    assert_int_equal(RaftRedisCommandArrayDeserialize(&username, &cmd_array,
                 d_zero_array_len, strlen(d_zero_array_len)), RR_ERROR);
-
+    if (username) {
+        RedisModule_FreeString(NULL, username);
+    }
     /* empty command */
-    const char *d_array_empty_command = "*1\n*0\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
+    const char *d_array_empty_command = "*4\ntest\n*1\n*0\n";
+    assert_int_equal(RaftRedisCommandArrayDeserialize(&username, &cmd_array,
                 d_array_empty_command, strlen(d_array_empty_command)), RR_ERROR);
+    if (username) {
+        RedisModule_FreeString(NULL, username);
+    }
 }
 
 static void test_serialize_shardgroup(void **state)

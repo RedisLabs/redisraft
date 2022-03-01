@@ -85,7 +85,9 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
     }
 
     req->r.redis.proxy_node = leader;
-    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    size_t len;
+    const char * username = RedisModule_StringPtrLen(req->r.redis.username, &len);
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(username, len, &req->r.redis.cmds);
     int ret = redisAsyncCommand(rc, handleProxiedCommandResponse,
         req, "RAFT.ENTRY %b", entry->data, entry->data_len);
     raft_entry_release(entry);

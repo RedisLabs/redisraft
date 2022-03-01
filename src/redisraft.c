@@ -345,6 +345,8 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    req->r.redis.username = RedisModule_GetCurrentUserName(ctx);
+
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
 
     cmd->argc = argc - 1;
@@ -380,7 +382,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     const char *data = RedisModule_StringPtrLen(argv[1], &data_len);
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    if (RaftRedisCommandArrayDeserialize(&req->r.redis.cmds, data, data_len) != RR_OK) {
+    if (RaftRedisCommandArrayDeserialize(&req->r.redis.username,&req->r.redis.cmds, data, data_len) != RR_OK) {
         RedisModule_ReplyWithError(ctx, "ERR invalid argument");
         RaftReqFree(req);
     } else {

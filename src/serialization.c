@@ -126,12 +126,16 @@ static int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
 }
 
 /* Serialize a number of RaftRedisCommand into a Raft entry */
-raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
+raft_entry_t *RaftRedisCommandArraySerialize(const char * username, size_t username_len, const RaftRedisCommandArray *source)
 {
     size_t sz = calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
+
+    /* compute username size */
+    sz += calcIntSerializedLen(username_len);
+    sz += (username_len + 1);
 
     /* Compute sizes */
     for (i = 0; i < source->len; i++) {
@@ -141,6 +145,16 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
     /* Prepare entry */
     raft_entry_t *ety = raft_entry_new(sz);
     p = ety->data;
+
+    /* Encode username length */
+    n = encodeInteger('*', p, sz, username_len);
+    assert (n != -1);
+    p += n; sz -= n;
+    memcpy(p, username, username_len);
+    p += username_len;
+    *p = '\n';
+    p++;
+    sz -= (username_len + 1);
 
     /* Encode count */
     n = encodeInteger('*', p, sz, source->len);
@@ -243,7 +257,7 @@ error:
     return 0;
 }
 
-RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size)
+RRStatus RaftRedisCommandArrayDeserialize(RedisModuleString **username, RaftRedisCommandArray *target, const void *buf, size_t buf_size)
 {
     const char *p = buf;
     size_t commands_num;
@@ -252,6 +266,15 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     if (target->len) {
         RaftRedisCommandArrayFree(target);
     }
+
+    /* read username */
+    size_t username_len;
+    if ((n = decodeInteger(p, buf_size, '*', &username_len)) < 0 || !username_len) {
+        return RR_ERROR;
+    }
+    p += n; buf_size -= n;
+    *username = RedisModule_CreateString(redis_raft.ctx, p, username_len);
+    p += (username_len + 1); buf_size -= (username_len + 1);
 
     /* Read multibulk count */
     if ((n = decodeInteger(p, buf_size, '*', &commands_num)) < 0 ||

@@ -129,10 +129,25 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
  * If reply_ctx is non-NULL, replies are delivered to it.
  * Otherwise no replies are delivered.
  */
-static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
+static void executeRaftRedisCommandArray(RedisModuleString * username, RaftRedisCommandArray *array,
     RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx)
 {
     int i;
+
+    /* acl validate */
+    RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(username);
+    for(i = 0;  i < array->len; i++) {
+        RaftRedisCommand *c = array->commands[i];
+        size_t cmd_len;
+        const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmd_len);
+
+        if (RedisModule_ACLCheckCommandPermissions(user, c->argv, c->argc) != REDISMODULE_OK) {
+            if (reply_ctx) {
+                handleRMCallError(reply_ctx, errno, cmd, cmd_len);
+            }
+            return;
+        }
+    }
 
     for (i = 0; i < array->len; i++) {
         RaftRedisCommand *c = array->commands[i];
@@ -197,20 +212,22 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     RaftReq *req = entry->user_data;
 
     if (req) {
-        executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+        executeRaftRedisCommandArray(req->r.redis.username, &req->r.redis.cmds, req->ctx, req->ctx);
         entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     } else {
         RaftRedisCommandArray tmp = {0};
-
-        if (RaftRedisCommandArrayDeserialize(&tmp,
-                                             entry->data,
-                                             entry->data_len) != RR_OK) {
+        RedisModuleString * username = NULL;
+        if (RaftRedisCommandArrayDeserialize(&username, &tmp, entry->data, entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
 
-        executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
+        executeRaftRedisCommandArray(username, &tmp, rr->ctx, NULL);
         RaftRedisCommandArrayFree(&tmp);
+
+        if (username) {
+            RedisModule_Free(username);
+        }
     }
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
@@ -1267,6 +1284,10 @@ void RaftReqFree(RaftReq *req)
             if (req->ctx && req->r.redis.cmds.size) {
                 RaftRedisCommandArrayFree(&req->r.redis.cmds);
             }
+            if (req->r.redis.username) {
+                RedisModule_FreeString(req->ctx ? req->ctx : redis_raft.ctx, req->r.redis.username);
+                req->r.redis.username = NULL;
+            }
             // TODO: hold a reference from entry so we can disconnect our req
             break;
         case RR_CLUSTER_JOIN:
@@ -1384,7 +1405,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+    executeRaftRedisCommandArray(req->r.redis.username, &req->r.redis.cmds, req->ctx, req->ctx);
 
 exit:
     RaftReqFree(req);
@@ -1729,7 +1750,10 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    size_t len;
+    const char * username = RedisModule_StringPtrLen(req->r.redis.username, &len);
+
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(username, len, &req->r.redis.cmds);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);

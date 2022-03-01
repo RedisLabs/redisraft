@@ -579,6 +579,7 @@ typedef struct RaftReq {
         struct {
             Node *proxy_node;
             int hash_slot;
+            RedisModuleString * username;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
@@ -720,9 +721,9 @@ void NodeAddPendingResponse(Node *node, bool proxy);
 void NodeDismissPendingResponse(Node *node);
 
 /* serialization.c */
-raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source);
+raft_entry_t *RaftRedisCommandArraySerialize(const char *username, size_t username_len, const RaftRedisCommandArray *source);
 size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, size_t buf_size);
-RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size);
+RRStatus RaftRedisCommandArrayDeserialize(RedisModuleString **username, RaftRedisCommandArray *target, const void *buf, size_t buf_size);
 void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
 void RaftRedisCommandFree(RaftRedisCommand *r);
 RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
