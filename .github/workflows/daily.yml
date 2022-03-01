@@ -124,7 +124,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: Install build dependencies
-        run: brew install autoconf automake openssl
+        run: brew install autoconf automake
       - name: Build
         run: |
           mkdir build && cd build
