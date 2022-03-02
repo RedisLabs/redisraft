@@ -376,3 +376,21 @@ def test_rolled_back_read_only_multi_reply(cluster):
 
     with raises(ResponseError, match='TIMEOUT'):
         assert conn.read_response() == None
+
+
+def test_acl(cluster):
+    cluster.create(3)
+
+    client1 = redis.Redis(host='localhost', port=cluster.node(1).port, username="test", password="test")
+    client2 = redis.Redis(host='localhost', port=cluster.node(2).port, username="test", password="test")
+    client3 = redis.Redis(host='localhost', port=cluster.node(3).port, username="test", password="test")
+
+    with raises(ResponseError, match='WRONGPASS invalid username-password pair or user is disabled'):
+        client1.set('key', 'value')
+
+    cluster.leader_node().client.execute_command("ACL", "SETUSER", "test", "on", "allkeys", "allcommands", ">test")
+    cluster.wait_for_unanimity()
+
+    client1.set('key', 'value')
+    client2.execute_command("info")
+    client3.execute_command("info")
