@@ -8,7 +8,7 @@ on:
       skipjobs:
         description: 'jobs to skip (delete the ones you want to keep, do not leave empty)'
         required: false
-        default: 'address,undefined,macos'
+        default: 'address,undefined,macos,tls'
       use_repo:
         description: 'repo owner and name'
         required: false
@@ -148,5 +148,50 @@ jobs:
           python -m pip install -r tests/integration/requirements.txt
       - name: Run tests
         run: |
+          cd build
+          make tests
+
+  test-tls-address-sanitizer:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'tls')
+    timeout-minutes: 14400
+    steps:
+      - name: prep
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ env.GITHUB_REPOSITORY }}
+          ref: ${{ env.GITHUB_HEAD_REF }}
+      - name: Install build dependencies
+        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          make
+      - name: Checkout Redis
+        uses: actions/checkout@v2
+        with:
+          repository: 'redis/redis'
+          ref: 'unstable'
+          path: 'redis'
+      - name: Build Redis
+        run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
+      - name: Setup Python for testing
+        uses: actions/setup-python@v1
+        with:
+          python-version: '3.9'
+          architecture: 'x64'
+      - name: Install Python dependencies
+        run:
+          python -m pip install -r tests/integration/requirements.txt
+      - name: Run tests
+        run: |
+          ./utils/gen-test-certs.sh
           cd build
           make tests
