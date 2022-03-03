@@ -55,30 +55,13 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
     }
 }
 
-/* Create a -MOVED reply.
- *
- * Depending on cluster_mode, we produce a Redis Cluster compatible or old-style
- * reply. TODO: Consider always using Redis Cluster compatible replies.
- *
- * One anomaly here is that may redirect a client to the leader even for commands
- * that have no keys (hash_slot is -1), which is something Redis Cluster never does.
- *
- * In this case we return an arbitrary (0) hash slot, but we still need to consider
- * how this impacts clients which may not expect it.
- */
-void replyRedirect(RedisRaftCtx *rr, RaftReq *req, NodeAddr *addr)
+/* Create a -MOVED reply. */
+void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
 {
-    size_t reply_maxlen = strlen(addr->host) + 40;
-    char *reply = RedisModule_Alloc(reply_maxlen);
-    int slot = 0;
-    if (rr->config->sharding &&
-        req->type == RR_REDISCOMMAND &&
-        req->r.redis.hash_slot != -1) {
-            slot = req->r.redis.hash_slot;
-    }
-    snprintf(reply, reply_maxlen, "MOVED %d %s:%u", slot, addr->host, addr->port);
-    RedisModule_ReplyWithError(req->ctx, reply);
-    RedisModule_Free(reply);
+    char buf[sizeof(addr->host) + 256];
+
+    snprintf(buf, sizeof(buf), "MOVED %d %s:%u", slot, addr->host, addr->port);
+    RedisModule_ReplyWithError(ctx, buf);
 }
 
 static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
@@ -113,28 +96,33 @@ raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req)
  */
 RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
 {
+    Node *node = NULL;
+
+    if (raft_is_leader(rr->raft)) {
+        return RR_OK;
+    }
+
     raft_node_t *leader = raft_get_leader_node(rr->raft);
-    if (!leader) {
+    if (leader) {
+        node = raft_node_get_udata(leader);
+    }
+
+    if (!node) {
         RedisModule_ReplyWithError(req->ctx, err_clusterdown);
         return RR_ERROR;
     }
-    if (raft_node_get_id(leader) != raft_get_nodeid(rr->raft)) {
-        Node *leader_node = raft_node_get_udata(leader);
 
-        if (leader_node) {
-            if (ret_leader) {
-                *ret_leader = leader_node;
-                return RR_OK;
-            }
-
-            replyRedirect(rr, req, &leader_node->addr);
-        } else {
-            RedisModule_ReplyWithError(req->ctx, err_clusterdown);
-        }
-        return RR_ERROR;
+    if (ret_leader) {
+        *ret_leader = node;
+        return RR_OK;
     }
 
-    return RR_OK;
+    /* One anomaly here is that may redirect a client to the leader even for
+     * commands have no keys, which is something Redis Cluster never does. We
+     * still need to consider how this impacts clients which may not expect it.
+     */
+    replyRedirect(req->ctx, 0, &node->addr);
+    return RR_ERROR;
 }
 
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING

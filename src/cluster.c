@@ -1137,12 +1137,13 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
  * the entry or reply with an error or if it can't be done
  */
-
-RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr,
+                                     RedisModuleCtx *ctx,
+                                     RaftRedisCommandArray *cmds,
+                                     int *slot)
 {
-    int slot = -1;
+    *slot = -1;
 
-    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -1152,15 +1153,15 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
         for (int j = 0; j < num_keys; j++) {
             size_t key_len;
             const char *key = RedisModule_StringPtrLen(cmd->argv[keyindex[j]], &key_len);
-            int thisslot = keyHashSlot(key, key_len);
+            int thisslot = (int) keyHashSlot(key, (int) key_len);
 
-            if (slot == -1) {
+            if (*slot == -1) {
                 /* First key */
-                slot = thisslot;
+                *slot = thisslot;
             } else {
-                if (slot != thisslot) {
+                if (*slot != thisslot) {
                     RedisModule_Free(keyindex);
-                    RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+                    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
                     return RR_ERROR;
                 }
             }
@@ -1168,9 +1169,6 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req)
 
         RedisModule_Free(keyindex);
     }
-
-    req->r.redis.hash_slot = slot;
-
 
     return RR_OK;
 }

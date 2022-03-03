@@ -1809,15 +1809,20 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 
 static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (computeHashSlotOrReplyError(rr, req) != RR_OK) {
+    int slot;
+    RaftRedisCommandArray *cmds = &req->r.redis.cmds;
+
+    if (computeHashSlotOrReplyError(rr, req->ctx, cmds, &slot) != RR_OK) {
         return RR_ERROR;
     }
 
     /* If command has no keys, continue */
-    if (req->r.redis.hash_slot == -1) return RR_OK;
+    if (slot == -1) {
+        return RR_OK;
+    }
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[req->r.redis.hash_slot];
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
@@ -1829,9 +1834,10 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * last refresh (when refresh is implemented, in the future).
      */
     if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num)
+        if (sg->next_redir >= sg->nodes_num) {
             sg->next_redir = 0;
-        replyRedirect(rr, req, &sg->nodes[sg->next_redir++].addr);
+        }
+        replyRedirect(req->ctx, slot, &sg->nodes[sg->next_redir++].addr);
         return RR_ERROR;
     }
 
