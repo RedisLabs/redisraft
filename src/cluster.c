@@ -711,19 +711,19 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         sg->nodes = RedisModule_Calloc(sg->nodes_num, sizeof(ShardGroupNode));
         for (unsigned int j = 0; j < sg->nodes_num; j++) {
             ShardGroupNode *n = &sg->nodes[j];
-            size_t len;
-            char *buf = RedisModule_LoadStringBuffer(rdb, &len);
+            size_t size;
+            char *val = RedisModule_LoadStringBuffer(rdb, &size);
 
-            RedisModule_Assert(len < sizeof(n->node_id));
-            memcpy(n->node_id, buf, len);
-            n->node_id[len] = '\0';
-            RedisModule_Free(buf);
+            RedisModule_Assert(size < sizeof(n->node_id));
+            memcpy(n->node_id, val, size);
+            n->node_id[size] = '\0';
+            RedisModule_Free(val);
 
-            buf = RedisModule_LoadStringBuffer(rdb, &len);
-            RedisModule_Assert(len < sizeof(n->addr.host));
-            memcpy(n->addr.host, buf, len);
-            n->addr.host[len] = '\0';
-            RedisModule_Free(buf);
+            val = RedisModule_LoadStringBuffer(rdb, &size);
+            RedisModule_Assert(size < sizeof(n->addr.host));
+            memcpy(n->addr.host, val, size);
+            n->addr.host[size] = '\0';
+            RedisModule_Free(val);
 
             n->addr.port = RedisModule_LoadUnsigned(rdb);
         }
@@ -1425,13 +1425,13 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
     /* Return array elements */
     iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
     while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-        for (unsigned int j = 0; j < sg->slot_ranges_num; j++) {
+        for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
             RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
             int slot_len = 0;
 
-            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].start_slot); /* Start slot */
-            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[j].end_slot);   /* End slot */
+            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[i].start_slot); /* Start slot */
+            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[i].end_slot);   /* End slot */
             slot_len += 2;
 
             /* Dump Raft nodes now. Leader (master) first, followed by others */
