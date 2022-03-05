@@ -72,11 +72,11 @@ static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
  * Note: it's possible to have an elected but unknown leader node, in which
  * case NULL will also be returned.
  */
-raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req)
+raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     raft_node_t *node = raft_get_leader_node(rr->raft);
     if (!node) {
-        RedisModule_ReplyWithError(req->ctx, err_clusterdown);
+        RedisModule_ReplyWithError(ctx, err_clusterdown);
     }
 
     return node;
@@ -94,7 +94,7 @@ raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req)
  * a -MOVED reply is generated with the current leader and RR_ERROR is
  * returned.
  */
-RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
+RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader)
 {
     Node *node = NULL;
 
@@ -108,7 +108,7 @@ RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
     }
 
     if (!node) {
-        RedisModule_ReplyWithError(req->ctx, err_clusterdown);
+        RedisModule_ReplyWithError(ctx, err_clusterdown);
         return RR_ERROR;
     }
 
@@ -121,17 +121,17 @@ RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader)
      * commands have no keys, which is something Redis Cluster never does. We
      * still need to consider how this impacts clients which may not expect it.
      */
-    replyRedirect(req->ctx, 0, &node->addr);
+    replyRedirect(ctx, 0, &node->addr);
     return RR_ERROR;
 }
 
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING
  * and return an error.
  */
-RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req)
+RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     if (rr->state == REDIS_RAFT_LOADING) {
-        RedisModule_ReplyWithError(req->ctx, "LOADING Raft module is loading data");
+        RedisModule_ReplyWithError(ctx, "LOADING Raft module is loading data");
         return RR_ERROR;
     }
     return RR_OK;
@@ -140,17 +140,17 @@ RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req)
 /* Check that we're in a REDIS_RAFT_UP state.  If not, reply with an appropriate
  * error code and return an error.
  */
-RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req)
+RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     switch (rr->state) {
         case REDIS_RAFT_UNINITIALIZED:
-            RedisModule_ReplyWithError(req->ctx, "NOCLUSTER No Raft Cluster");
+            RedisModule_ReplyWithError(ctx, "NOCLUSTER No Raft Cluster");
             return RR_ERROR;
         case REDIS_RAFT_JOINING:
-            RedisModule_ReplyWithError(req->ctx, "NOCLUSTER No Raft Cluster (joining now)");
+            RedisModule_ReplyWithError(ctx, "NOCLUSTER No Raft Cluster (joining now)");
             return RR_ERROR;
         case REDIS_RAFT_LOADING:
-            RedisModule_ReplyWithError(req->ctx, "LOADING Raft module is loading data");
+            RedisModule_ReplyWithError(ctx, "LOADING Raft module is loading data");
             return RR_ERROR;
         case REDIS_RAFT_UP:
             break;
