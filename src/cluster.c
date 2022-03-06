@@ -1341,15 +1341,15 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
  * 2. All configured shardgroups with their slot ranges and nodes.
  */
 
-static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
+static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, req);
+    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }
     ShardingInfo *si = rr->sharding_info;
 
-    RedisModuleString *ret = RedisModule_CreateString(req->ctx, "", 0);
+    RedisModuleString *ret = RedisModule_CreateString(ctx, "", 0);
 
     if (si->shard_group_map != NULL) {
         size_t key_len;
@@ -1357,7 +1357,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
 
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-            RedisModuleString *slots = generateSlots(req->ctx, sg);
+            RedisModuleString *slots = generateSlots(ctx, sg);
 
             if (sg->local) {
                 for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
@@ -1383,14 +1383,14 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
                                             pong_recv, epoch, link_state, slots);
                 }
             }
-            RedisModule_FreeString(req->ctx, slots);
+            RedisModule_FreeString(ctx, slots);
         }
 
         RedisModule_DictIteratorStop(iter);
     }
 
-    RedisModule_ReplyWithString(req->ctx, ret);
-    RedisModule_FreeString(req->ctx, ret);
+    RedisModule_ReplyWithString(ctx, ret);
+    RedisModule_FreeString(ctx, ret);
 }
 
 /* Produce a CLUSTER SLOTS compatible reply, including:
@@ -1399,16 +1399,16 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RaftReq *req)
  * 2. All configured shardgroups with their slot ranges and nodes.
  */
 
-static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
+static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, req);
+    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }
 
     ShardingInfo *si = rr->sharding_info;
     if (!si->shard_group_map) {
-        RedisModule_ReplyWithArray(req->ctx, 0);
+        RedisModule_ReplyWithArray(ctx, 0);
         return;
     }
 
@@ -1422,18 +1422,18 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
         num_slots += sg->slot_ranges_num;
     }
     RedisModule_DictIteratorStop(iter);
-    RedisModule_ReplyWithArray(req->ctx, num_slots);
+    RedisModule_ReplyWithArray(ctx, num_slots);
 
     /* Return array elements */
     iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
     while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
         for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
-            RedisModule_ReplyWithArray(req->ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+            RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
             int slot_len = 0;
 
-            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[i].start_slot); /* Start slot */
-            RedisModule_ReplyWithLongLong(req->ctx, sg->slot_ranges[i].end_slot);   /* End slot */
+            RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].start_slot); /* Start slot */
+            RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].end_slot);   /* End slot */
             slot_len += 2;
 
             /* Dump Raft nodes now. Leader (master) first, followed by others */
@@ -1443,7 +1443,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
                  * come from the ShardGroup.
                  */
 
-                slot_len += addClusterSlotNodeReply(rr, req->ctx, leader_node);
+                slot_len += addClusterSlotNodeReply(rr, ctx, leader_node);
                 for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
                     raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
                     if (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft) ||
@@ -1451,7 +1451,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
                         continue;
                     }
 
-                    slot_len += addClusterSlotNodeReply(rr, req->ctx, raft_node);
+                    slot_len += addClusterSlotNodeReply(rr, ctx, raft_node);
                 }
             } else {
                 /* Remote cluster: we simply dump what the ShardGroup configuration
@@ -1459,11 +1459,11 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RaftReq *req)
                  */
 
                 for (unsigned int j = 0; j < sg->nodes_num; j++) {
-                    slot_len += addClusterSlotShardGroupNodeReply(rr, req->ctx, &sg->nodes[j]);
+                    slot_len += addClusterSlotShardGroupNodeReply(rr, ctx, &sg->nodes[j]);
                 }
             }
 
-            RedisModule_ReplySetArrayLength(req->ctx, slot_len);
+            RedisModule_ReplySetArrayLength(ctx, slot_len);
         }
     }
 
@@ -1492,10 +1492,10 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
     if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5) && cmd->argc == 2) {
-        addClusterSlotsReply(rr, req);
+        addClusterSlotsReply(rr, req->ctx);
         goto exit;
     } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5) && cmd->argc == 2) {
-        addClusterNodesReply(rr, req);
+        addClusterNodesReply(rr, req->ctx);
         goto exit;
     } else {
         RedisModule_ReplyWithError(req->ctx,
@@ -1609,8 +1609,8 @@ static void linkSendRequest(Connection *conn)
 void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
+        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
         goto exit_fail;
     }
 

@@ -742,10 +742,10 @@ void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 void replyRaftError(RedisModuleCtx *ctx, int error);
-raft_node_t getLeaderNodeOrReply(RedisRaftCtx *rr, RaftReq *req);
-RRStatus checkLeader(RedisRaftCtx *rr, RaftReq *req, Node **ret_leader);
-RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RaftReq *req);
-RRStatus checkRaftState(RedisRaftCtx *rr, RaftReq *req);
+raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
+RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 

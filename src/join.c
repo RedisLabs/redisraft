@@ -100,7 +100,7 @@ static void sendNodeAddRequest(Connection *conn)
 
 void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
+    if (checkRaftNotLoading(rr, req->ctx) == RR_ERROR) {
         goto exit_fail;
     }
 

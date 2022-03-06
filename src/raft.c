@@ -1386,7 +1386,7 @@ void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
 {
     int err;
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -1419,7 +1419,7 @@ exit:
 
 void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -1434,7 +1434,7 @@ void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
 {
     msg_requestvote_response_t response;
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -1462,7 +1462,7 @@ void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
     msg_appendentries_response_t response;
     int err;
 
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -1492,8 +1492,8 @@ void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
     msg_entry_response_t response;
     int e;
 
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
+        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -1856,7 +1856,7 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     /* Check that we're part of a boostrapped cluster and not in the middle of joining
      * or loading data.
      */
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -1876,7 +1876,7 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
     }
 
     /* Confirm that we're the leader and handle redirect or proxying if not. */
-    if (checkLeader(rr, req, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
+    if (checkLeader(rr, req->ctx, rr->config->follower_proxy ? &leader_proxy : NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -2063,7 +2063,7 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
 
 void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftNotLoading(rr, req) == RR_ERROR) {
+    if (checkRaftNotLoading(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
@@ -2334,8 +2334,8 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
 void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
+        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -2358,8 +2358,8 @@ exit:
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
+        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
         goto exit;
     }
 
@@ -2384,8 +2384,8 @@ exit:
 void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 {
     /* Must be done on a leader */
-    if (checkRaftState(rr, req) == RR_ERROR ||
-        checkLeader(rr, req, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
+        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
         goto exit;
     }
 

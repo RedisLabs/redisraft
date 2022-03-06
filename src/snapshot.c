@@ -594,7 +594,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
 void handleSnapshot(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (checkRaftState(rr, req) == RR_ERROR) {
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 
