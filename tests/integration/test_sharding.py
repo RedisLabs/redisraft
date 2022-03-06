@@ -384,10 +384,11 @@ def test_shard_group_refresh(cluster_factory):
     assert_after(check_slots, 10)
 
 
+
 def test_shard_group_no_slots(cluster):
     cluster.create(3, raft_args={
         'sharding': 'yes',
-        'slot-config': '-1'
+        'slot-config': ''
     })
 
     c = cluster.node(1).client

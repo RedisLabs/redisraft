@@ -398,7 +398,7 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 {
     ShardGroup *sg = ShardGroupCreate();
 
-    if (!strcmp(rr->config->slot_config, "-1")) {
+    if (!strcmp(rr->config->slot_config, "")) {
         goto exit;
     }
 

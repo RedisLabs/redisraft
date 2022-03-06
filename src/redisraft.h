@@ -375,13 +375,12 @@ extern raft_log_impl_t RaftLogImpl;
 
 static inline bool HashSlotValid(long slot)
 {
-    return (slot == -1 || (slot >= REDIS_RAFT_HASH_MIN_SLOT && slot <= REDIS_RAFT_HASH_MAX_SLOT));
+    return (slot >= REDIS_RAFT_HASH_MIN_SLOT && slot <= REDIS_RAFT_HASH_MAX_SLOT);
 }
 
 static inline bool HashSlotRangeValid(long start_slot, long end_slot)
 {
-    return (start_slot != -1 && end_slot != -1 &&
-            HashSlotValid(start_slot) && HashSlotValid(end_slot) &&
+    return (HashSlotValid(start_slot) && HashSlotValid(end_slot) &&
             start_slot <= end_slot);
 }
 

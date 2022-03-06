@@ -91,6 +91,10 @@ static const char *getLoglevelName(int level)
 }
 
 int validSlotConfig(char *slot_config) {
+    if (*slot_config == 0) {
+        return 1;
+    }
+
     int ret = 0;
     char *tmp = RedisModule_Strdup(slot_config);
     char *pos = tmp;
