@@ -324,33 +324,31 @@ invalid_value:
     return RR_ERROR;
 }
 
-void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    char errbuf[256] = "ERR ";
+    char *pos = errbuf + strlen(errbuf);
+    const int cap  = (int)(sizeof(errbuf) - strlen(errbuf));
+    bool st = rr->state == REDIS_RAFT_UNINITIALIZED;
+
     if (argc != 4) {
         RedisModule_WrongArity(ctx);
         return;
     }
 
-    size_t key_len;
-    const char *key = RedisModule_StringPtrLen(argv[2], &key_len);
-    char keybuf[key_len + 1];
-    memcpy(keybuf, key, key_len);
-    keybuf[key_len] = '\0';
+    char *key = StrCreateFromString(argv[2]);
+    char *value = StrCreateFromString(argv[3]);
 
-    size_t value_len;
-    const char *value = RedisModule_StringPtrLen(argv[3], &value_len);
-    char valuebuf[value_len + 1];
-    memcpy(valuebuf, value, value_len);
-    valuebuf[value_len] = '\0';
-
-    char errbuf[256] = "ERR ";
-    if (processConfigParam(keybuf, valuebuf, rr->config,
-                           false, rr->state == REDIS_RAFT_UNINITIALIZED,
-                errbuf + strlen(errbuf), (int)(sizeof(errbuf) - strlen(errbuf))) == RR_OK) {
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else {
+    if (processConfigParam(key, value, rr->config, false, st, pos, cap) != RR_OK) {
         RedisModule_ReplyWithError(ctx, errbuf);
+        goto out;
     }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+out:
+    RedisModule_Free(key);
+    RedisModule_Free(value);
 }
 
 static void replyConfigStr(RedisModuleCtx *ctx, const char *name, const char *str)
@@ -383,8 +381,10 @@ static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
     replyConfigStr(ctx, name, val ? "yes" : "no");
 }
 
-void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc)
+void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisRaftConfig *config = rr->config;
+
     if (argc != 3) {
         RedisModule_WrongArity(ctx);
         return;

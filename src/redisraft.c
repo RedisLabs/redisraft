@@ -415,7 +415,6 @@ error_cleanup:
  * This is basically identical to Redis CONFIG GET / CONFIG SET, for
  * Raft specific configuration.
  */
-
 static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -428,14 +427,20 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
-    if ((!strncasecmp(cmd, "SET", cmd_len) && argc >= 4) || (!strncasecmp(cmd, "GET", cmd_len) && argc == 3)) {
-        RaftReq * req = RaftReqInit(ctx, RR_CONFIG);
-        req->r.config.argc = argc;
-        req->r.config.argv = RedisModule_Alloc(argc*sizeof(RedisModuleString *));
-        for (int i = 0; i < argc; i++) {
-            req->r.config.argv[i] = RedisModule_CreateStringFromString(ctx, argv[i]);
+    if (!strncasecmp(cmd, "SET", cmd_len)) {
+        if (argc != 4) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
         }
-        handleConfig(rr, req);
+
+        ConfigSet(rr, ctx, argv, argc);
+    } else if (!strncasecmp(cmd, "GET", cmd_len)) {
+        if (argc != 3) {
+            RedisModule_WrongArity(ctx);
+            return REDISMODULE_OK;
+        }
+
+        ConfigGet(rr, ctx, argv, argc);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
     }
