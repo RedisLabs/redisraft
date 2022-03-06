@@ -23,7 +23,6 @@ const char *RaftReqTypeStr[] = {
     "RR_CFGCHANGE_ADDNODE",
     "RR_CFGCHANGE_REMOVENODE",
     "RR_APPENDENTRIES",
-    "RR_REQUESTVOTE",
     "RR_REDISCOMMAND",
     "RR_INFO",
     "RR_SNAPSHOT",
@@ -1429,33 +1428,6 @@ void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
 exit:
     RaftReqFree(req);
 }
-
-void handleRequestVote(RedisRaftCtx *rr, RaftReq *req)
-{
-    msg_requestvote_response_t response;
-
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    if (raft_recv_requestvote(rr->raft,
-                raft_get_node(rr->raft, req->r.requestvote.src_node_id),
-                &req->r.requestvote.msg,
-                &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR operation failed"); // TODO: Identify cases
-        goto exit;
-    }
-
-    RedisModule_ReplyWithArray(req->ctx, 4);
-    RedisModule_ReplyWithLongLong(req->ctx, response.prevote);
-    RedisModule_ReplyWithLongLong(req->ctx, response.request_term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.vote_granted);
-
-exit:
-    RaftReqFree(req);
-}
-
 
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
 {
