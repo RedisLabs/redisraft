@@ -382,3 +382,18 @@ def test_shard_group_refresh(cluster_factory):
                 assert slots[i][2][1] != 5001, slots
 
     assert_after(check_slots, 10)
+
+
+
+def test_shard_group_no_slots(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'slot-config': ''
+    })
+
+    c = cluster.node(1).client
+    results = c.execute_command('CLUSTER', 'NODES').split(b"\r\n")
+
+    splits = results[0].split(b" ")
+    assert len(splits) == 9
+    assert splits[8] == b""

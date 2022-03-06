@@ -373,12 +373,12 @@ extern raft_log_impl_t RaftLogImpl;
 #define REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL 5000
 #define REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES          4
 
-static inline bool HashSlotValid(int slot)
+static inline bool HashSlotValid(long slot)
 {
     return (slot >= REDIS_RAFT_HASH_MIN_SLOT && slot <= REDIS_RAFT_HASH_MAX_SLOT);
 }
 
-static inline bool HashSlotRangeValid(int start_slot, int end_slot)
+static inline bool HashSlotRangeValid(long start_slot, long end_slot)
 {
     return (HashSlotValid(start_slot) && HashSlotValid(end_slot) &&
             start_slot <= end_slot);

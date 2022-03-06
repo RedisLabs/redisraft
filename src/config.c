@@ -91,18 +91,22 @@ static const char *getLoglevelName(int level)
 }
 
 int validSlotConfig(char *slot_config) {
+    if (*slot_config == 0) {
+        return 1;
+    }
+
     int ret = 0;
     char *tmp = RedisModule_Strdup(slot_config);
     char *pos = tmp;
     char *endptr;
-    int val_l, val_h;
+    long val_l, val_h;
     if ((pos = strchr(tmp, ':'))) {
         *pos = '\0';
-        val_l = strtoul(tmp, &endptr, 10);
+        val_l = strtol(tmp, &endptr, 10);
         if (*endptr != 0) {
             goto exit;
         }
-        val_h = strtoul(pos+1, &endptr, 10);
+        val_h = strtol(pos+1, &endptr, 10);
         if (*endptr != 0) {
             goto exit;
         }
@@ -110,7 +114,7 @@ int validSlotConfig(char *slot_config) {
             goto exit;
         }
     } else {
-        val_l = val_h = strtoul(tmp, &endptr, 10);
+        val_l = strtol(tmp, &endptr, 10);
         if (*endptr != 0 || !HashSlotValid(val_l)) {
             goto exit;
         }
