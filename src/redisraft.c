@@ -132,11 +132,14 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 /* RAFT.TRANSFER_LEADER [target_node_id]
   *   Attempt to transfer raft cluster leadership to targeted node
  * Reply:
- * ???
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   -ERR
+ *   +OK
  */
-
 static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    char buf[128];
     RedisRaftCtx *rr = &redis_raft;
 
     if (argc != 2) {
@@ -144,9 +147,12 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return REDISMODULE_OK;
     }
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR) {
-        LOG_ERROR("failed to convert %s", RedisModule_StringPtrLen(argv[1], NULL));
         RedisModule_ReplyWithError(ctx, "invalid target node id");
         return REDISMODULE_OK;
     }
@@ -156,29 +162,54 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
-    req->r.node_to_transfer_leader = target_node_id;
+    int err = raft_transfer_leader(rr->raft, target_node_id, 0);
+    if (err != 0) {
+        switch (err) {
+            case RAFT_ERR_NOT_LEADER:
+                RedisModule_ReplyWithError(ctx, "ERR not leader");
+                break;
+            case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
+                RedisModule_ReplyWithError(ctx, "ERR transfer already in progress");
+                break;
+            case RAFT_ERR_INVALID_NODEID:
+                snprintf(buf, sizeof(buf), "ERR invalid node id: %d", target_node_id);
+                RedisModule_ReplyWithError(ctx, buf);
+                break;
+            default:
+                snprintf(buf, sizeof(buf), "ERR unknown error transferring leader: %d", err);
+                RedisModule_ReplyWithError(ctx, buf);
+                break;
+        }
+        return REDISMODULE_OK;
+    }
 
-    handleTransferLeader(rr, req);
+    rr->transfer_req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
+
     return REDISMODULE_OK;
 }
 
 /* RAFT.TIMEOUT_NOW
  *   instruct this node to force an election
  * Reply:
- * ???
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   +OK
  */
-
 static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
+
     if (argc != 1) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_TIMEOUT_NOW);
-    handleTimeoutNow(rr, req);
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    raft_set_timeout_now(rr->raft);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
 
     return REDISMODULE_OK;
 }
@@ -951,12 +982,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.transfer_leader",
-                                  cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+                cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.timeout_now",
-                                  cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+                cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
