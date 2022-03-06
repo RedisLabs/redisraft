@@ -26,7 +26,6 @@ const char *RaftReqTypeStr[] = {
     "RR_REQUESTVOTE",
     "RR_REDISCOMMAND",
     "RR_INFO",
-    "RR_SNAPSHOT",
     "RR_COMPACT",
     "RR_CLIENT_DISCONNECT",
     "RR_SHARDGROUP_ADD",
@@ -1271,9 +1270,6 @@ void RaftReqFree(RaftReq *req)
                 RaftRedisCommandArrayFree(&req->r.redis.cmds);
             }
             // TODO: hold a reference from entry so we can disconnect our req
-            break;
-        case RR_SNAPSHOT:
-            RedisModule_FreeString(req->ctx, req->r.snapshot.data);
             break;
         case RR_CLUSTER_JOIN:
             NodeAddrListFree(req->r.cluster_join.addr);

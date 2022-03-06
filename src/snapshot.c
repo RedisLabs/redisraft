@@ -592,33 +592,6 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
     return 0;
 }
 
-void handleSnapshot(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    msg_snapshot_response_t response;
-
-    if (raft_recv_snapshot(rr->raft,
-                           raft_get_node(rr->raft, req->r.snapshot.src_node_id),
-                           &req->r.snapshot.msg,
-                           &response) != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR operation failed");
-        goto exit;
-    }
-
-    RedisModule_ReplyWithArray(req->ctx, 5);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
-    RedisModule_ReplyWithLongLong(req->ctx, response.offset);
-    RedisModule_ReplyWithLongLong(req->ctx, response.success);
-    RedisModule_ReplyWithLongLong(req->ctx, response.last_chunk);
-
-exit:
-    RaftReqFree(req);
-}
-
 /* ------------------------------------ Snapshot metadata type ------------------------------------ */
 
 RedisModuleType *RedisRaftType = NULL;

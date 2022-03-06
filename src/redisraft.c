@@ -458,7 +458,6 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  *    :<success>
  *    :<last_chunk>
  */
-
 static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -468,48 +467,60 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return REDISMODULE_OK;
     }
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) != REDISMODULE_OK ||
         target_node_id != rr->config->id) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
-            return REDISMODULE_OK;
-        }
 
-    RaftReq *req = RaftReqInit(ctx, RR_SNAPSHOT);
-    if (RedisModuleStringToInt(argv[2], &req->r.snapshot.src_node_id) == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "invalid source node id");
-        goto error;
+        RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
+        return REDISMODULE_OK;
     }
 
-    size_t tmplen;
-    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
+    int src_node_id;
+    if (RedisModuleStringToInt(argv[2], &src_node_id) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "invalid source node id");
+        return REDISMODULE_OK;
+    }
+
+    msg_snapshot_t req = {0};
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], NULL);
 
     if (sscanf(tmpstr, "%lu:%d:%lu:%lu:%lu:%llu:%d",
-               &req->r.snapshot.msg.term,
-               &req->r.snapshot.msg.leader_id,
-               &req->r.snapshot.msg.msg_id,
-               &req->r.snapshot.msg.snapshot_index,
-               &req->r.snapshot.msg.snapshot_term,
-               &req->r.snapshot.msg.chunk.offset,
-               &req->r.snapshot.msg.chunk.last_chunk) != 7) {
+               &req.term,
+               &req.leader_id,
+               &req.msg_id,
+               &req.snapshot_index,
+               &req.snapshot_term,
+               &req.chunk.offset,
+               &req.chunk.last_chunk) != 7) {
         RedisModule_ReplyWithError(ctx, "invalid message");
-        goto error;
+        return REDISMODULE_OK;
     }
-
-    RedisModule_RetainString(req->ctx, argv[4]);
-    req->r.snapshot.data = argv[4];
 
     size_t len;
     void *data = (void*) RedisModule_StringPtrLen(argv[4], &len);
 
-    req->r.snapshot.msg.chunk.data = data;
-    req->r.snapshot.msg.chunk.len = len;
+    req.chunk.data = data;
+    req.chunk.len = len;
 
-    handleSnapshot(rr, req);
-    return REDISMODULE_OK;
+    msg_snapshot_response_t resp = {0};
+    raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) src_node_id);
 
-error:
-    RaftReqFree(req);
+    if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
+    RedisModule_ReplyWithLongLong(ctx, resp.offset);
+    RedisModule_ReplyWithLongLong(ctx, resp.success);
+    RedisModule_ReplyWithLongLong(ctx, resp.last_chunk);
+
     return REDISMODULE_OK;
 }
 
