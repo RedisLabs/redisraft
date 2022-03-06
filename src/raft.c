@@ -48,7 +48,7 @@ static RedisModuleDict *multiClientState = NULL;
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
-static void shutdownAfterRemoval(RedisRaftCtx *rr)
+void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
 
@@ -62,7 +62,7 @@ static void shutdownAfterRemoval(RedisRaftCtx *rr)
     exit(0);
 }
 
-static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
+RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RaftReq* req = entry->user_data;
 
@@ -80,8 +80,7 @@ static RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
 /* Set up a Raft log entry with an attached RaftReq. We use this when a user command provided
  * in a RaftReq should keep the client blocked until the log entry is committed and applied.
  */
-
-static void entryFreeAttachedRaftReq(raft_entry_t *ety)
+void entryFreeAttachedRaftReq(raft_entry_t *ety)
 {
     RaftReq *req = entryDetachRaftReq(&redis_raft, ety);
 
@@ -100,7 +99,7 @@ static void entryFreeAttachedRaftReq(raft_entry_t *ety)
  * When the entry will later reach the apply flow, the linkage to the RaftReq will
  * make it possible to generate the reply to the user.
  */
-static void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
+void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     entry->user_data = req;
     entry->free_func = entryFreeAttachedRaftReq;
@@ -532,12 +531,13 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
     switch (entry->type) {
         case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
             req = entryDetachRaftReq(rr, entry);
+            cfg = (RaftCfgChange *) entry->data;
             if (!req) {
                 break;
             }
 
             RedisModule_ReplyWithArray(req->ctx, 2);
-            RedisModule_ReplyWithLongLong(req->ctx, req->r.cfgchange.id);
+            RedisModule_ReplyWithLongLong(req->ctx, cfg->id);
             RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
             RaftReqFree(req);
             break;
@@ -1018,7 +1018,7 @@ static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr
     return 0;
 }
 
-static raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
+raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
 {
     unsigned int tmp;
     raft_node_id_t id;
@@ -1481,75 +1481,6 @@ void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithLongLong(req->ctx, response.success);
     RedisModule_ReplyWithLongLong(req->ctx, response.current_idx);
     RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
-
-exit:
-    RaftReqFree(req);
-}
-
-void handleCfgChange(RedisRaftCtx *rr, RaftReq *req)
-{
-    raft_entry_t *entry;
-    msg_entry_response_t response;
-    int e;
-
-    if (checkRaftState(rr, req->ctx) == RR_ERROR ||
-        checkLeader(rr, req->ctx, NULL) == RR_ERROR) {
-        goto exit;
-    }
-
-    short type;
-
-    switch (req->type) {
-        case RR_CFGCHANGE_ADDNODE:
-            if (hasNodeIdBeenUsed(rr, req->r.cfgchange.id)) {
-                RedisModule_ReplyWithError(req->ctx,
-                               "node id has already been used in this cluster");
-                goto exit;
-            }
-
-            type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
-            if (!req->r.cfgchange.id) {
-                req->r.cfgchange.id = makeRandomNodeId(rr);
-            }
-            break;
-        case RR_CFGCHANGE_REMOVENODE:
-            /* Validate it exists */
-            if (!raft_get_node(rr->raft, req->r.cfgchange.id)) {
-                RedisModule_ReplyWithError(req->ctx, "node id does not exist");
-                goto exit;
-            }
-
-            type = RAFT_LOGTYPE_REMOVE_NODE;
-            break;
-        default:
-            RedisModule_Assert(0);
-    }
-
-    entry = raft_entry_new(sizeof(req->r.cfgchange));
-    entry->id = rand();
-    entry->type = type;
-    memcpy(entry->data, &req->r.cfgchange, sizeof(req->r.cfgchange));
-    entryAttachRaftReq(rr, entry, req);
-
-    e = raft_recv_entry(rr->raft, entry, &response);
-    if (e != 0) {
-        entryDetachRaftReq(rr, entry);
-        raft_entry_release(entry);
-        replyRaftError(req->ctx, e);
-        goto exit;
-    }
-
-    raft_entry_release(entry);
-
-    if (req->type == RR_CFGCHANGE_REMOVENODE) {
-        /* Special case, we are the only node and our node has been removed */
-        if (req->r.cfgchange.id == raft_get_nodeid(rr->raft) &&
-            raft_get_num_voting_nodes(rr->raft) == 0) {
-            shutdownAfterRemoval(rr);
-        }
-    }
-
-    return;
 
 exit:
     RaftReqFree(req);
