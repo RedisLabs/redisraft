@@ -338,8 +338,6 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
 exit:
     /* If this is a result of a RAFT.DEBUG COMPACT request, we need to reply. */
     if (rr->debug_req) {
-        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
-
         if (ret == 1) {
             LOG_DEBUG("RAFT.DEBUG COMPACT completed successfully.");
             RedisModule_ReplyWithSimpleString(rr->debug_req->ctx, "OK");
@@ -364,7 +362,6 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     }
 
     if (rr->debug_req) {
-        assert(rr->debug_req->r.debug.type == RR_DEBUG_COMPACT);
         LOG_DEBUG("Initiating RAFT.DEBUG COMPACT initiated snapshot.");
     } else {
         LOG_DEBUG("Initiating snapshot.");
@@ -430,12 +427,12 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
-            int delay = rr->debug_req->r.debug.d.compact.delay;
+            int delay = rr->debug_req->r.debug.delay;
             if (delay) {
                 sleep(delay);
             }
 
-            if (rr->debug_req->r.debug.d.compact.fail) {
+            if (rr->debug_req->r.debug.fail) {
                 strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
                 sr.err[sizeof(sr.err) - 1] = '\0';
                 goto exit;
