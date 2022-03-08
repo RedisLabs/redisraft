@@ -63,24 +63,23 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
  *   -MOVED <slot> <addr>:<port> ||
  *   +OK
  */
-
 static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RedisRaftCtx *rr = &redis_raft;
-    RaftReq *req = NULL;
-    size_t cmd_len;
-
-    if (rr->state != REDIS_RAFT_UP) {
-        RedisModule_ReplyWithError(ctx, "NOCLUSTER No Raft Cluster");
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
         return REDISMODULE_OK;
     }
 
+    size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+
     if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -95,16 +94,45 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        if (hasNodeIdBeenUsed(rr, (raft_node_id_t) node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id has already been used in this cluster");
+            return REDISMODULE_OK;
+        }
+
+        if (node_id == 0) {
+            node_id = makeRandomNodeId(rr);
+        }
+
+        RaftCfgChange cfg = {
+            .id = (raft_node_id_t) node_id
+        };
+
         /* Parse address */
-        NodeAddr node_addr = { 0 };
-        if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == RR_ERROR) {
+        if (getNodeAddrFromArg(ctx, argv[3], &cfg.addr) == RR_ERROR) {
             /* Error already produced */
             return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
-        req->r.cfgchange.id = node_id;
-        req->r.cfgchange.addr = node_addr;
+        msg_entry_response_t resp;
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
+
+        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        entry->id = rand();
+        entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+        memcpy(entry->data, &cfg, sizeof(cfg));
+        entryAttachRaftReq(rr, entry, req);
+
+        int e = raft_recv_entry(rr->raft, entry, &resp);
+        if (e != 0) {
+            entryDetachRaftReq(rr, entry);
+            replyRaftError(req->ctx, e);
+            raft_entry_release(entry);
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        raft_entry_release(entry);
+
     } else if (!strncasecmp(cmd, "REMOVE", cmd_len)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);
@@ -118,14 +146,45 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
-        req->r.cfgchange.id = node_id;
+        /* Validate it exists */
+        if (!raft_get_node(rr->raft, (raft_node_id_t) node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id does not exist");
+            return REDISMODULE_OK;
+        }
+
+        RaftCfgChange cfg = {
+            .id = (raft_node_id_t) node_id
+        };
+
+        msg_entry_response_t resp;
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
+
+        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        entry->id = rand();
+        entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+        memcpy(entry->data, &cfg, sizeof(cfg));
+        entryAttachRaftReq(rr, entry, req);
+
+        int e = raft_recv_entry(rr->raft, entry, &resp);
+        if (e != 0) {
+            entryDetachRaftReq(rr, entry);
+            replyRaftError(req->ctx, e);
+            raft_entry_release(entry);
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        raft_entry_release(entry);
+
+        /* Special case, we are the only node and our node has been removed */
+        if (cfg.id == raft_get_nodeid(rr->raft) &&
+            raft_get_num_voting_nodes(rr->raft) == 0) {
+            shutdownAfterRemoval(rr);
+        }
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.NODE supports ADD / REMOVE only");
-        return REDISMODULE_OK;
     }
 
-    handleCfgChange(rr, req);
     return REDISMODULE_OK;
 }
 
