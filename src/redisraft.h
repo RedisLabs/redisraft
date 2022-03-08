@@ -454,7 +454,6 @@ enum RaftReqType {
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_APPENDENTRIES,
-    RR_REQUESTVOTE,
     RR_REDISCOMMAND,
     RR_INFO,
     RR_SNAPSHOT,
@@ -606,10 +605,6 @@ typedef struct RaftReq {
             raft_node_id_t src_node_id;
             msg_appendentries_t msg;
         } appendentries;
-        struct {
-            raft_node_id_t src_node_id;
-            msg_requestvote_t msg;
-        } requestvote;
         struct {
             Node *proxy_node;
             int hash_slot;
@@ -791,7 +786,6 @@ void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req);
 void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req);
-void handleRequestVote(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
 void handleConfig(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
