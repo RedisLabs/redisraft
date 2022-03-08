@@ -63,24 +63,23 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
  *   -MOVED <slot> <addr>:<port> ||
  *   +OK
  */
-
 static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RedisRaftCtx *rr = &redis_raft;
-    RaftReq *req = NULL;
-    size_t cmd_len;
-
-    if (rr->state != REDIS_RAFT_UP) {
-        RedisModule_ReplyWithError(ctx, "NOCLUSTER No Raft Cluster");
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
         return REDISMODULE_OK;
     }
 
+    size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+
     if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -95,16 +94,45 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        if (hasNodeIdBeenUsed(rr, (raft_node_id_t) node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id has already been used in this cluster");
+            return REDISMODULE_OK;
+        }
+
+        if (node_id == 0) {
+            node_id = makeRandomNodeId(rr);
+        }
+
+        RaftCfgChange cfg = {
+            .id = (raft_node_id_t) node_id
+        };
+
         /* Parse address */
-        NodeAddr node_addr = { 0 };
-        if (getNodeAddrFromArg(ctx, argv[3], &node_addr) == RR_ERROR) {
+        if (getNodeAddrFromArg(ctx, argv[3], &cfg.addr) == RR_ERROR) {
             /* Error already produced */
             return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
-        req->r.cfgchange.id = node_id;
-        req->r.cfgchange.addr = node_addr;
+        msg_entry_response_t resp;
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
+
+        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        entry->id = rand();
+        entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+        memcpy(entry->data, &cfg, sizeof(cfg));
+        entryAttachRaftReq(rr, entry, req);
+
+        int e = raft_recv_entry(rr->raft, entry, &resp);
+        if (e != 0) {
+            entryDetachRaftReq(rr, entry);
+            replyRaftError(req->ctx, e);
+            raft_entry_release(entry);
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        raft_entry_release(entry);
+
     } else if (!strncasecmp(cmd, "REMOVE", cmd_len)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);
@@ -118,23 +146,56 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
-        req->r.cfgchange.id = node_id;
+        /* Validate it exists */
+        if (!raft_get_node(rr->raft, (raft_node_id_t) node_id)) {
+            RedisModule_ReplyWithError(ctx, "node id does not exist");
+            return REDISMODULE_OK;
+        }
+
+        RaftCfgChange cfg = {
+            .id = (raft_node_id_t) node_id
+        };
+
+        msg_entry_response_t resp;
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
+
+        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        entry->id = rand();
+        entry->type = RAFT_LOGTYPE_REMOVE_NODE;
+        memcpy(entry->data, &cfg, sizeof(cfg));
+        entryAttachRaftReq(rr, entry, req);
+
+        int e = raft_recv_entry(rr->raft, entry, &resp);
+        if (e != 0) {
+            entryDetachRaftReq(rr, entry);
+            replyRaftError(req->ctx, e);
+            raft_entry_release(entry);
+            RaftReqFree(req);
+            return REDISMODULE_OK;
+        }
+
+        raft_entry_release(entry);
+
+        /* Special case, we are the only node and our node has been removed */
+        if (cfg.id == raft_get_nodeid(rr->raft) &&
+            raft_get_num_voting_nodes(rr->raft) == 0) {
+            shutdownAfterRemoval(rr);
+        }
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.NODE supports ADD / REMOVE only");
-        return REDISMODULE_OK;
     }
 
-    handleCfgChange(rr, req);
     return REDISMODULE_OK;
 }
 
 /* RAFT.TRANSFER_LEADER [target_node_id]
   *   Attempt to transfer raft cluster leadership to targeted node
  * Reply:
- * ???
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   -ERR
+ *   +OK
  */
-
 static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -144,9 +205,12 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return REDISMODULE_OK;
     }
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR) {
-        LOG_ERROR("failed to convert %s", RedisModule_StringPtrLen(argv[1], NULL));
         RedisModule_ReplyWithError(ctx, "invalid target node id");
         return REDISMODULE_OK;
     }
@@ -156,29 +220,39 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
-    req->r.node_to_transfer_leader = target_node_id;
+    int err = raft_transfer_leader(rr->raft, target_node_id, 0);
+    if (err != 0) {
+        replyRaftError(ctx, err);
+        return REDISMODULE_OK;
+    }
 
-    handleTransferLeader(rr, req);
+    rr->transfer_req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
+
     return REDISMODULE_OK;
 }
 
 /* RAFT.TIMEOUT_NOW
  *   instruct this node to force an election
  * Reply:
- * ???
+ *   -NOCLUSTER ||
+ *   -LOADING ||
+ *   +OK
  */
-
 static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
+
     if (argc != 1) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_TIMEOUT_NOW);
-    handleTimeoutNow(rr, req);
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    raft_set_timeout_now(rr->raft);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
 
     return REDISMODULE_OK;
 }
@@ -192,7 +266,6 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *   :<term>
  *   :<granted> (0 or 1)
  */
-
 static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -202,37 +275,53 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return REDISMODULE_OK;
     }
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
         target_node_id != rr->config->id) {
-            RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
-            return REDISMODULE_OK;
+
+        RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
+        return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_REQUESTVOTE);
-    if (RedisModuleStringToInt(argv[2], &req->r.requestvote.src_node_id) == REDISMODULE_ERR) {
+    int src_node_id;
+    if (RedisModuleStringToInt(argv[2], &src_node_id) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "invalid source node id");
-        goto error_cleanup;
+        return REDISMODULE_OK;
     }
 
-    size_t tmplen;
-    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
+
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], NULL);
+    msg_requestvote_t req = {0};
+
     if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld:%d",
-                &req->r.requestvote.msg.prevote,
-                &req->r.requestvote.msg.term,
-                &req->r.requestvote.msg.candidate_id,
-                &req->r.requestvote.msg.last_log_idx,
-                &req->r.requestvote.msg.last_log_term,
-                &req->r.requestvote.msg.transfer_leader) != 6) {
+                &req.prevote,
+                &req.term,
+                &req.candidate_id,
+                &req.last_log_idx,
+                &req.last_log_term,
+                &req.transfer_leader) != 6) {
         RedisModule_ReplyWithError(ctx, "invalid message");
-        goto error_cleanup;
+        return REDISMODULE_OK;
     }
 
-    handleRequestVote(rr, req);
-    return REDISMODULE_OK;
+    msg_requestvote_response_t resp = {0};
+    raft_node_t *node = raft_get_node(rr->raft, src_node_id);
 
-error_cleanup:
-    RaftReqFree(req);
+    if (raft_recv_requestvote(rr->raft, node, &req, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithLongLong(ctx, resp.prevote);
+    RedisModule_ReplyWithLongLong(ctx, resp.request_term);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.vote_granted);
+
     return REDISMODULE_OK;
 }
 
@@ -463,7 +552,6 @@ static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
  *    :<success>
  *    :<last_chunk>
  */
-
 static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -473,48 +561,60 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return REDISMODULE_OK;
     }
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) != REDISMODULE_OK ||
         target_node_id != rr->config->id) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
-            return REDISMODULE_OK;
-        }
 
-    RaftReq *req = RaftReqInit(ctx, RR_SNAPSHOT);
-    if (RedisModuleStringToInt(argv[2], &req->r.snapshot.src_node_id) == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "invalid source node id");
-        goto error;
+        RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
+        return REDISMODULE_OK;
     }
 
-    size_t tmplen;
-    const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
+    int src_node_id;
+    if (RedisModuleStringToInt(argv[2], &src_node_id) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "invalid source node id");
+        return REDISMODULE_OK;
+    }
+
+    msg_snapshot_t req = {0};
+    const char *tmpstr = RedisModule_StringPtrLen(argv[3], NULL);
 
     if (sscanf(tmpstr, "%lu:%d:%lu:%lu:%lu:%llu:%d",
-               &req->r.snapshot.msg.term,
-               &req->r.snapshot.msg.leader_id,
-               &req->r.snapshot.msg.msg_id,
-               &req->r.snapshot.msg.snapshot_index,
-               &req->r.snapshot.msg.snapshot_term,
-               &req->r.snapshot.msg.chunk.offset,
-               &req->r.snapshot.msg.chunk.last_chunk) != 7) {
+               &req.term,
+               &req.leader_id,
+               &req.msg_id,
+               &req.snapshot_index,
+               &req.snapshot_term,
+               &req.chunk.offset,
+               &req.chunk.last_chunk) != 7) {
         RedisModule_ReplyWithError(ctx, "invalid message");
-        goto error;
+        return REDISMODULE_OK;
     }
-
-    RedisModule_RetainString(req->ctx, argv[4]);
-    req->r.snapshot.data = argv[4];
 
     size_t len;
     void *data = (void*) RedisModule_StringPtrLen(argv[4], &len);
 
-    req->r.snapshot.msg.chunk.data = data;
-    req->r.snapshot.msg.chunk.len = len;
+    req.chunk.data = data;
+    req.chunk.len = len;
 
-    handleSnapshot(rr, req);
-    return REDISMODULE_OK;
+    msg_snapshot_response_t resp = {0};
+    raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) src_node_id);
 
-error:
-    RaftReqFree(req);
+    if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithArray(ctx, 5);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
+    RedisModule_ReplyWithLongLong(ctx, resp.offset);
+    RedisModule_ReplyWithLongLong(ctx, resp.success);
+    RedisModule_ReplyWithLongLong(ctx, resp.last_chunk);
+
     return REDISMODULE_OK;
 }
 
@@ -956,12 +1056,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.transfer_leader",
-                                  cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+                cmdRaftTransferLeader, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.timeout_now",
-                                  cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
+                cmdRaftTimeoutNow, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

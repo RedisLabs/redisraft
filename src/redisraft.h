@@ -454,10 +454,8 @@ enum RaftReqType {
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_APPENDENTRIES,
-    RR_REQUESTVOTE,
     RR_REDISCOMMAND,
     RR_INFO,
-    RR_SNAPSHOT,
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
@@ -465,8 +463,7 @@ enum RaftReqType {
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_NODE_SHUTDOWN,
-    RR_TRANSFER_LEADER,
-    RR_TIMEOUT_NOW
+    RR_TRANSFER_LEADER
 };
 
 extern const char *RaftReqTypeStr[];
@@ -601,28 +598,16 @@ typedef struct RaftReq {
         struct {
             NodeAddrListElement *addr;
         } cluster_join;
-        RaftCfgChange cfgchange;
         struct {
             raft_node_id_t src_node_id;
             msg_appendentries_t msg;
         } appendentries;
-        struct {
-            raft_node_id_t src_node_id;
-            msg_requestvote_t msg;
-        } requestvote;
         struct {
             Node *proxy_node;
             int hash_slot;
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
-        struct {
-            void *data;
-            raft_node_id_t src_node_id;
-            raft_term_t term;
-            raft_index_t idx;
-            msg_snapshot_t msg;
-        } snapshot;
         struct {
             unsigned long long client_id;
         } client_disconnect;
@@ -772,6 +757,10 @@ void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
+raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
+void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
+RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry);
+void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
@@ -781,10 +770,6 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
 void handleDebug(RedisRaftCtx *rr, RaftReq *req);
 void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
-void handleCfgChange(RedisRaftCtx *rr, RaftReq *req);
-void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req);
-void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req);
-void handleRequestVote(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
@@ -858,7 +843,6 @@ extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
 void initSnapshotTransferData(RedisRaftCtx *ctx);
 void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
-void handleSnapshot(RedisRaftCtx *rr, RaftReq *req);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
