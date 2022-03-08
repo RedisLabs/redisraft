@@ -456,7 +456,6 @@ enum RaftReqType {
     RR_APPENDENTRIES,
     RR_REDISCOMMAND,
     RR_INFO,
-    RR_SNAPSHOT,
     RR_DEBUG,
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
@@ -610,13 +609,6 @@ typedef struct RaftReq {
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
-        struct {
-            void *data;
-            raft_node_id_t src_node_id;
-            raft_term_t term;
-            raft_index_t idx;
-            msg_snapshot_t msg;
-        } snapshot;
         struct {
             unsigned long long client_id;
         } client_disconnect;
@@ -854,7 +846,6 @@ extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
 void initSnapshotTransferData(RedisRaftCtx *ctx);
 void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
-void handleSnapshot(RedisRaftCtx *rr, RaftReq *req);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
