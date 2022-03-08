@@ -465,7 +465,6 @@ enum RaftReqType {
     RR_SHARDGROUP_LINK,
     RR_NODE_SHUTDOWN,
     RR_TRANSFER_LEADER,
-    RR_TIMEOUT_NOW,
     RR_CONFIG,
 };
 
@@ -784,8 +783,6 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
 void handleDebug(RedisRaftCtx *rr, RaftReq *req);
 void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
-void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req);
-void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
 void handleConfig(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);

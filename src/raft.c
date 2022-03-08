@@ -32,8 +32,7 @@ const char *RaftReqTypeStr[] = {
     "RR_SHARDGROUP_UPDATE",
     "RR_SHARDGROUP_GET",
     "RR_SHARDGROUP_LINK",
-    "RR_TRANSFER_LEADER",
-    "RR_TIMEOUT_NOW",
+    "RR_TRANSFER_LEADER"
 };
 
 /* Forward declarations */
@@ -1379,54 +1378,6 @@ void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e sta
 
     RaftReqFree(redis_raft.transfer_req);
     redis_raft.transfer_req = NULL;
-}
-
-void handleTransferLeader(RedisRaftCtx *rr, RaftReq *req)
-{
-    int err;
-
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    if ((err = raft_transfer_leader(rr->raft, req->r.node_to_transfer_leader, 0)) != 0) {
-        char e[128];
-        switch (err) {
-            case RAFT_ERR_NOT_LEADER:
-                RedisModule_ReplyWithError(req->ctx, "ERR not leader");
-                break;
-            case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
-                RedisModule_ReplyWithError(req->ctx, "ERR transfer already in progress");
-                break;
-            case RAFT_ERR_INVALID_NODEID:
-                snprintf(e, 128, "ERR invalid node id: %d", req->r.node_to_transfer_leader);
-                RedisModule_ReplyWithError(req->ctx, e);
-                break;
-            default:
-                snprintf(e, 128, "ERR unknown error transferring leader: %d", err);
-                RedisModule_ReplyWithError(req->ctx, e);
-                break;
-        }
-        goto exit;
-    }
-    redis_raft.transfer_req = req;
-    return;
-
-exit:
-    RaftReqFree(req);
-}
-
-void handleTimeoutNow(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    raft_set_timeout_now(rr->raft);
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
-
-exit:
-    RaftReqFree(req);
 }
 
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
