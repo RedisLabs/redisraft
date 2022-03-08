@@ -48,8 +48,14 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
         case RAFT_ERR_NOMEM:
             RedisModule_ReplyWithError(ctx, "OOM Raft out of memory");
             break;
+        case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
+            RedisModule_ReplyWithError(ctx, "ERR transfer already in progress");
+            break;
+        case RAFT_ERR_INVALID_NODEID:
+            RedisModule_ReplyWithError(ctx, "ERR invalid node id");
+            break;
         default:
-            snprintf(buf, sizeof(buf) - 1, "ERR Raft error %d", error);
+            snprintf(buf, sizeof(buf), "ERR Raft error %d", error);
             RedisModule_ReplyWithError(ctx, buf);
             break;
     }

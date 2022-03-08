@@ -139,7 +139,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  */
 static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    char buf[128];
     RedisRaftCtx *rr = &redis_raft;
 
     if (argc != 2) {
@@ -164,22 +163,7 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     int err = raft_transfer_leader(rr->raft, target_node_id, 0);
     if (err != 0) {
-        switch (err) {
-            case RAFT_ERR_NOT_LEADER:
-                RedisModule_ReplyWithError(ctx, "ERR not leader");
-                break;
-            case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
-                RedisModule_ReplyWithError(ctx, "ERR transfer already in progress");
-                break;
-            case RAFT_ERR_INVALID_NODEID:
-                snprintf(buf, sizeof(buf), "ERR invalid node id: %d", target_node_id);
-                RedisModule_ReplyWithError(ctx, buf);
-                break;
-            default:
-                snprintf(buf, sizeof(buf), "ERR unknown error transferring leader: %d", err);
-                RedisModule_ReplyWithError(ctx, buf);
-                break;
-        }
+        replyRaftError(ctx, err);
         return REDISMODULE_OK;
     }
 
