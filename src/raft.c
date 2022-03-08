@@ -1300,15 +1300,6 @@ void RaftReqFree(RaftReq *req)
                 req->r.shardgroups_replace.shardgroups = NULL;
             }
             break;
-        case RR_CONFIG:
-            if (req->r.config.argv != NULL) {
-                for (int i = 0; i < req->r.config.argc; i++) {
-                    RedisModule_FreeString(req->ctx, req->r.config.argv[i]);
-                }
-                RedisModule_Free(req->r.config.argv);
-                req->r.config.argv = NULL;
-            }
-            break;
     }
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
@@ -2298,20 +2289,6 @@ void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
 
     RaftReqFree(req);
     shutdownAfterRemoval(rr);
-}
-
-void handleConfig(RedisRaftCtx *rr, RaftReq *req)
-{
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(req->r.config.argv[1], &cmd_len);
-
-    if (!strncasecmp(cmd, "SET", cmd_len)) {
-        handleConfigSet(rr, req->ctx, req->r.config.argv, req->r.config.argc);
-    } else if (!strncasecmp(cmd, "GET", cmd_len)) {
-        handleConfigGet(req->ctx, rr->config, req->r.config.argv, req->r.config.argc);
-    }
-
-    RaftReqFree(req);
 }
 
 /* Callback for fsync thread. This will be triggerred by fsync thread but will

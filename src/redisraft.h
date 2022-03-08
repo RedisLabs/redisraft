@@ -463,8 +463,7 @@ enum RaftReqType {
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_NODE_SHUTDOWN,
-    RR_TRANSFER_LEADER,
-    RR_CONFIG,
+    RR_TRANSFER_LEADER
 };
 
 extern const char *RaftReqTypeStr[];
@@ -628,10 +627,6 @@ typedef struct RaftReq {
         struct {
             char id[RAFT_DBID_LEN];
         } cluster_init;
-        struct {
-            RedisModuleString **argv;
-            int argc;
-        } config;
     } r;
 } RaftReq;
 
@@ -776,7 +771,6 @@ void handleDebug(RedisRaftCtx *rr, RaftReq *req);
 void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
-void handleConfig(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
@@ -786,6 +780,9 @@ void handleFsyncCompleted(void *arg);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)  __attribute__((format(printf, 3, 4)));
+
+char *StrCreate(const void *buf, size_t len);
+char *StrCreateFromString(RedisModuleString *str);
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int stringmatch(const char *pattern, const char *string, int nocase);
 int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
@@ -836,8 +833,8 @@ long EntryCacheCompact(EntryCache *cache, size_t max_memory);
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
-void handleConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-void handleConfigGet(RedisModuleCtx *ctx, RedisRaftConfig *config, RedisModuleString **argv, int argc);
+void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
 
