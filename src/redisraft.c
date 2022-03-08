@@ -803,6 +803,8 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
@@ -818,12 +820,14 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (!strncasecmp(cmd, "compact", cmdlen)) {
         long long fail = 0;
         long long delay = 0;
+
         if (argc == 3) {
             if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
                 RedisModule_ReplyWithError(ctx, "ERR invalid compact delay value");
                 return REDISMODULE_OK;
             }
         }
+
         if (argc == 4) {
             if (RedisModule_StringToLongLong(argv[3], &fail) != REDISMODULE_OK) {
                 RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
@@ -831,10 +835,18 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             }
         }
 
-        RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_COMPACT);
-        req->r.debug.d.compact.delay = (int) delay;
-        req->r.debug.d.compact.fail = (int) fail;
-        handleDebug(&redis_raft, req);
+        RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
+        req->r.debug.delay = (int) delay;
+        req->r.debug.fail = (int) fail;
+
+        rr->debug_req = req;
+
+        if (initiateSnapshot(rr) != RR_OK) {
+            LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.");
+            RedisModule_ReplyWithError(req->ctx, "ERR operation failed");
+            rr->debug_req = NULL;
+            RaftReqFree(req);
+        }
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -847,15 +859,44 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) node_id);
+        if (!node) {
+            RedisModule_ReplyWithError(ctx, "ERR node does not exist");
+            return REDISMODULE_OK;
+        }
+
         size_t slen;
         const char *str = RedisModule_StringPtrLen(argv[3], &slen);
 
-        RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_NODECFG);
-        req->r.debug.d.nodecfg.id = node_id;
-        req->r.debug.d.nodecfg.str = RedisModule_Alloc(slen + 1);
-        memcpy(req->r.debug.d.nodecfg.str, str, slen);
-        req->r.debug.d.nodecfg.str[slen] = '\0';
-        handleDebug(&redis_raft, req);
+        char *cfg = RedisModule_Alloc(slen + 1);
+        memcpy(cfg, str, slen);
+        cfg[slen] = '\0';
+
+        char *saveptr = NULL;
+        char *tok;
+
+        tok = strtok_r(cfg, " ", &saveptr);
+        while (tok != NULL) {
+            if (!strcasecmp(tok, "+voting")) {
+                raft_node_set_voting(node, 1);
+                raft_node_set_voting_committed(node, 1);
+            } else if (!strcasecmp(tok, "-voting")) {
+                raft_node_set_voting(node, 0);
+                raft_node_set_voting_committed(node, 0);
+            } else if (!strcasecmp(tok, "+active")) {
+                raft_node_set_active(node, 1);
+            } else if (!strcasecmp(tok, "-active")) {
+                raft_node_set_active(node, 0);
+            } else {
+                RedisModule_ReplyWithError(ctx, "ERR invalid nodecfg option");
+                RedisModule_Free(cfg);
+                return REDISMODULE_OK;
+            }
+            tok = strtok_r(NULL, " ", &saveptr);
+        }
+
+        RedisModule_Free(cfg);
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else if (!strncasecmp(cmd, "sendsnapshot", cmdlen)) {
         if (argc != 3) {
             RedisModule_WrongArity(ctx);
@@ -868,26 +909,41 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        RaftReq *req = RaftDebugReqInit(ctx, RR_DEBUG_SENDSNAPSHOT);
-        req->r.debug.d.sendsnapshot.id = node_id;
-        handleDebug(&redis_raft, req);
+        raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) node_id);
+        if (!node) {
+            RedisModule_ReplyWithError(ctx, "ERR node does not exist");
+            return REDISMODULE_OK;
+        }
+
+        if (node_id == raft_get_nodeid(rr->raft)) {
+            RedisModule_ReplyWithError(ctx, "ERR cannot send snapshot itself");
+            return REDISMODULE_OK;
+        }
+
+        raft_node_set_next_idx(node, raft_get_snapshot_last_idx(rr->raft));
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+
     } else if (!strncasecmp(cmd, "used_node_ids", cmdlen)) {
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
         int len = 0;
-        for (NodeIdEntry *e = redis_raft.snapshot_info.used_node_ids; e != NULL; e = e->next) {
+        NodeIdEntry *e;
+
+        for (e = rr->snapshot_info.used_node_ids; e != NULL; e = e->next) {
             RedisModule_ReplyWithLongLong(ctx, e->id);
             len++;
         }
 
         RedisModule_ReplySetArrayLength(ctx, len);
     } else if (!strncasecmp(cmd, "exec", cmdlen) && argc > 3) {
-        size_t exec_cmd_len;
-        const char *exec_cmd = RedisModule_StringPtrLen(argv[2], &exec_cmd_len);
+        RedisModuleCallReply *reply;
+
+        const char *exec_cmd = RedisModule_StringPtrLen(argv[2], NULL);
 
         enterRedisModuleCall();
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, exec_cmd, "v", &argv[3], argc - 3);
+        reply = RedisModule_Call(ctx, exec_cmd, "v", &argv[3], argc - 3);
         exitRedisModuleCall();
+
         if (!reply) {
             RedisModule_ReplyWithError(ctx, "Bad command or failed to execute");
         } else {

@@ -563,32 +563,6 @@ typedef struct ShardingInfo {
     ShardGroup *migrating_slots_map[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
 
-/* Debug message structure, used for RAFT.DEBUG / RR_DEBUG
- * requests.
- */
-enum RaftDebugReqType {
-    RR_DEBUG_COMPACT,
-    RR_DEBUG_NODECFG,
-    RR_DEBUG_SENDSNAPSHOT
-};
-
-typedef struct RaftDebugReq {
-    enum RaftDebugReqType type;
-    union {
-        struct {
-            int delay;
-            int fail;
-        } compact;
-        struct {
-            raft_node_id_t id;
-            char *str;
-        } nodecfg;
-        struct {
-            raft_node_id_t id;
-        } sendsnapshot;
-    } d;
-} RaftDebugReq;
-
 typedef struct RaftReq {
     int type;
     STAILQ_ENTRY(RaftReq) entries;
@@ -615,7 +589,10 @@ typedef struct RaftReq {
         struct {
             NodeAddr addr;
         } shardgroup_link;
-        RaftDebugReq debug;
+        struct {
+            int fail;
+            int delay;
+        } debug;
         struct {
             raft_node_id_t id;
         } node_shutdown;
@@ -755,7 +732,6 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
-RaftReq *RaftDebugReqInit(RedisModuleCtx *ctx, enum RaftDebugReqType type);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
@@ -767,7 +743,6 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
-void handleDebug(RedisRaftCtx *rr, RaftReq *req);
 void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
