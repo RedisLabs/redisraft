@@ -313,7 +313,13 @@ static void handleResolved(void *arg)
 
 #ifdef HAVE_TLS
     if (conn->rr->config->tls_enabled) {
-        if (redisInitiateSSLWithContext(&conn->rc->c, conn->rr->ssl) != REDIS_OK) {
+        SSL *ssl = SSL_new(conn->rr->ssl);
+        if (!ssl) {
+            CONN_LOG_WARNING(conn, "Couldn't create SSL object");
+            RedisModule_Assert(NULL);
+        }
+        if (redisInitiateSSL(&conn->rc->c, ssl) != REDIS_OK) {
+            SSL_free(ssl);
             CONN_LOG_WARNING(conn, "SSL Error!");
             goto fail;
         }

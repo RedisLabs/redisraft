@@ -659,19 +659,19 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
     config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
     config->tls_key = getRedisConfig(ctx, "tls-key-file");
     char *key = getRedisConfig(ctx, "tls-client-key-file");
-    if (*key != 0) {
+    if (key) {
         RedisModule_Free(config->tls_key);
         config->tls_key = key;
     }
     config->tls_key_file_pass = getRedisConfig(ctx, "tls-key-file-pass");
     char *pass = getRedisConfig(ctx, "tls-client-key-file-pass");
-    if (*pass != 0) {
+    if (pass) {
         RedisModule_Free(config->tls_key_file_pass);
         config->tls_key_file_pass = pass;
     }
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
     char *cert = getRedisConfig(ctx, "tls-client-cert-file");
-    if (*cert != 0) {
+    if (cert) {
         RedisModule_Free(config->tls_cert);
         config->tls_cert = cert;
     }

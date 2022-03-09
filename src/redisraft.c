@@ -1052,24 +1052,64 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
 }
 
 #ifdef HAVE_TLS
-void generateSSLContex(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
-    if (rr->ssl) {
-        redisFreeSSLContext(rr->ssl);
+/* Callback for passing a keyfile password stored as a char * to OpenSSL,  copied from redis */
+static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
+    UNUSED(rwflag);
+
+    const char *pass = u;
+    size_t pass_len;
+
+    if (!pass) return -1;
+    pass_len = strlen(pass);
+    if (pass_len > (size_t) size) return -1;
+    memcpy(buf, pass, pass_len);
+
+    return (int) pass_len;
+}
+
+SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
+    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+    if (!ssl_ctx) {
+//        if (error) *error = REDIS_SSL_CTX_CREATE_FAILED;
+        return NULL;
     }
-    redisSSLContextError ssl_error;
-    rr->ssl = redisCreateSSLContext(rr->config->tls_ca_cert,
-                                           NULL,
-                                           rr->config->tls_cert,
-                                           rr->config->tls_key,
-                                           NULL,
-                                           &ssl_error);
-    if (!rr->ssl) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to create ssl context.");
-        LOG_ERROR("Error: %s", redisSSLContextGetError(ssl_error));
-        RedisModule_Assert(rr->ssl != NULL);
+
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+
+    if ((rr->config->tls_cert != NULL && rr->config->tls_key == NULL) ||
+            (rr->config->tls_key != NULL && rr->config->tls_cert == NULL)) {
+//        if (error) *error = REDIS_SSL_CTX_CERT_KEY_REQUIRED;
+        goto error;
     }
+
+    if (!SSL_CTX_load_verify_locations(ssl_ctx, rr->config->tls_ca_cert, NULL)) {
+//        if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
+        goto error;
+    }
+
+    if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, rr->config->tls_cert)) {
+//        if (error) *error = REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED;
+        goto error;
+    }
+    if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, rr->config->tls_key, SSL_FILETYPE_PEM)) {
+//        if (error) *error = REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED;
+        goto error;
+    }
+
+    if (*rr->config->tls_key_file_pass != 0) {
+        SSL_CTX_set_default_passwd_cb(ssl_ctx, tlsPasswordCallback);
+        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) rr->config->tls_key_file_pass);
+    }
+
+    return ssl_ctx;
+
+error:
+    SSL_CTX_free(ssl_ctx);
+    return NULL;
 }
 #endif
+
 
 void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -1089,7 +1129,13 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
                 strcmp("tls-key-file", ei->config_names[i]) == 0 ||
                 strcmp("tls-cert-file", ei->config_names[i]) == 0) {
             updateTLSConfig(ctx, redis_raft.config);
-            generateSSLContex(ctx, &redis_raft);
+            SSL_CTX *new_ctx = generateSSLContext(ctx, &redis_raft);
+            if (new_ctx != NULL) {
+                if (redis_raft.ssl) {
+                    SSL_CTX_free(redis_raft.ssl);
+                }
+                redis_raft.ssl = new_ctx;
+            }
             break;
         }
     }
@@ -1365,7 +1411,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
-        generateSSLContex(ctx, rr);
+        rr->ssl = generateSSLContext(ctx, rr);
     }
 #endif
 

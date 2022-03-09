@@ -19,6 +19,7 @@
 
 #include "hiredis/hiredis.h"
 #ifdef HAVE_TLS
+#include <openssl/ssl.h>
 #include "hiredis/hiredis_ssl.h"
 #endif
 #include "hiredis/async.h"
@@ -343,7 +344,7 @@ typedef struct RedisRaftCtx {
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
 #ifdef HAVE_TLS
-    redisSSLContext *ssl;                        /* hiredis context for ssl */
+    SSL_CTX *ssl;                                    /* OpenSSL context for use by hiredis */
 #endif
 
 } RedisRaftCtx;
