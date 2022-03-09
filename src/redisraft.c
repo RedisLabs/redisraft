@@ -1051,6 +1051,51 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+#ifdef HAVE_TLS
+void generateSSLContex(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
+    if (rr->ssl) {
+        redisFreeSSLContext(rr->ssl);
+    }
+    redisSSLContextError ssl_error;
+    rr->ssl = redisCreateSSLContext(rr->config->tls_ca_cert,
+                                           NULL,
+                                           rr->config->tls_cert,
+                                           rr->config->tls_key,
+                                           NULL,
+                                           &ssl_error);
+    if (!rr->ssl) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Failed to create ssl context.");
+        LOG_ERROR("Error: %s", redisSSLContextGetError(ssl_error));
+        RedisModule_Assert(rr->ssl != NULL);
+    }
+}
+#endif
+
+void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
+{
+    if (eid.id != REDISMODULE_EVENT_CONFIG || subevent != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+        return;
+    }
+
+#ifdef HAVE_TLS
+    if (!redis_raft.config->tls_enabled || redis_raft.config->tls_manual) {
+        return;
+    }
+
+    RedisModuleConfigChangeV1 *ei = data;
+
+    for(unsigned int i = 0; i < ei->num_changes; i++) {
+        if (strcmp("tls-ca-cert-file", ei->config_names[i]) == 0 ||
+                strcmp("tls-key-file", ei->config_names[i]) == 0 ||
+                strcmp("tls-cert-file", ei->config_names[i]) == 0) {
+            updateTLSConfig(ctx, redis_raft.config);
+            generateSSLContex(ctx, &redis_raft);
+            break;
+        }
+    }
+#endif
+}
+
 void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -1310,22 +1355,17 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config,
+                                           handleConfigChangeEvent) != REDISMODULE_OK) {
+        LOG_WARNING("Failed to subscribe to server events.");
+        return REDISMODULE_ERR;
+    }
+
     RedisRaftCtx *rr = &redis_raft;
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
-         redisSSLContextError ssl_error;
-         rr->ssl = redisCreateSSLContext(rr->config->tls_ca_cert,
-                                         NULL,
-                                         rr->config->tls_cert,
-                                         rr->config->tls_key,
-                                         NULL,
-                                         &ssl_error);
-         if (!rr->ssl) {
-             const char *err = redisSSLContextGetError(ssl_error);
-             LOG_WARNING("Failed to create ssl context: %s", err);
-             return REDISMODULE_ERR;
-         }
+        generateSSLContex(ctx, rr);
     }
 #endif
 
