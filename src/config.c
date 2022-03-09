@@ -51,7 +51,7 @@ static const char *CONF_TLS_ENABLED = "tls-enabled";
 static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
 static const char *CONF_TLS_CERT = "tls-cert";
 static const char *CONF_TLS_KEY = "tls-key";
-static const char *CONF_TLS_KEY_FILE_PASS = "tls-key-file-pass";
+static const char *CONF_TLS_KEY_PASS = "tls-key-pass";
 static const char *CONF_CLUSTER_USER = "cluster-user";
 static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
 
@@ -428,12 +428,12 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             RedisModule_Free(target->tls_key);
         }
         target->tls_key = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_TLS_KEY_FILE_PASS)) {
+    } else if (!strcmp(keyword, CONF_TLS_KEY_PASS)) {
         target->tls_manual = true;
-        if (target->tls_key_file_pass) {
-            RedisModule_Free(target->tls_key_file_pass);
+        if (target->tls_key_pass) {
+            RedisModule_Free(target->tls_key_pass);
         }
-        target->tls_key_file_pass = RedisModule_Strdup(value);
+        target->tls_key_pass = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, CONF_CLUSTER_PASSWORD)) {
         if (target->cluster_password) {
             RedisModule_Free(target->cluster_password);
@@ -663,11 +663,11 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
         RedisModule_Free(config->tls_key);
         config->tls_key = key;
     }
-    config->tls_key_file_pass = getRedisConfig(ctx, "tls-key-file-pass");
+    config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
     char *pass = getRedisConfig(ctx, "tls-client-key-file-pass");
     if (pass) {
-        RedisModule_Free(config->tls_key_file_pass);
-        config->tls_key_file_pass = pass;
+        RedisModule_Free(config->tls_key_pass);
+        config->tls_key_pass = pass;
     }
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
     char *cert = getRedisConfig(ctx, "tls-client-cert-file");

@@ -413,7 +413,7 @@ typedef struct RedisRaftConfig {
     char *tls_ca_cert;
     char *tls_cert;
     char *tls_key;
-    char *tls_key_file_pass;
+    char *tls_key_pass;
     char *cluster_user;                 /* acl user to use for internode communication */
     char *cluster_password;             /* password used for internode communication */
 } RedisRaftConfig;

@@ -1097,9 +1097,9 @@ SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
         goto error;
     }
 
-    if (*rr->config->tls_key_file_pass != 0) {
+    if (*rr->config->tls_key_pass != 0) {
         SSL_CTX_set_default_passwd_cb(ssl_ctx, tlsPasswordCallback);
-        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) rr->config->tls_key_file_pass);
+        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) rr->config->tls_key_pass);
     }
 
     return ssl_ctx;

@@ -1,5 +1,4 @@
-RedisRaft TLS Support
-=====================
+# RedisRaft TLS Support
 
 RedisRaft's TLS support mirrors Redis's native TLS support.  
 
@@ -15,10 +14,29 @@ In addition, one has to pass the `tls-enabled yes` option to the redisraft modul
 --loadmodule ./redisraft.so <other options> tls-enabled yes
 ```
 
-RedisRaft is smart enough to figure out which files to use for the local cert/key/ca by querying the underlying Redis server.  However, if a user wants to use different files for the client aspects vs server aspects, one can specify RedisRaft module options as well
+## Configuring RedisRaft TLS support
 
-```asm
-tls-ca-cert
-tls-cert
-tls-key
-```
+RedisRaft can be configured by reusing the Redis server's TLS configuration, or by configuring the RedisRaft module directly.  In general, we expect people will configure the Redis server. 
+
+### Configuring RedisRaft via Redis.
+
+| Config Key Name          | Meaning                                                                                                   |
+|--------------------------|-----------------------------------------------------------------------------------------------------------|
+| tls-ca-cert-file         | File Containing the CA Sertificate                                                                        |
+| tls-key-file             | File Containing the PEM encoded private key file                                                          |
+| tls-client-key-file      | File Containing the PEM encoded private key file for client connecitons (overrides value of tls-key-file) |
+| tls-cert-file            | File Containg the PEM encoded public signed CERT                                                          |
+| tla-client-cert-file     | File Containg the PEM encoded public signed CERT (overrides tla-cert-file)                                |                                                                                                          |
+| tls-key-file-pass        | String containing password to decrypt the private key, if encrypted                                       |
+| tls-client-key-file-pass | String containing password to decrypt the private key if using client key field                           | 
+
+### Configuring RedisRaft
+
+| Redis Module Config Key Name | Maps to Redis Configuration |
+|------------------------------|-----------------------------|
+| tls-ca-cert                  | tla-ca-cert-file            |
+| tls-key                      | tls-key-file                |
+| tls-cert                     | tla-cert-file               |
+| tla-key-pass                 | tile-key-file-pass          |
+
+One thing to note, if one configures RedisRaft via the module configuration, one should ensure that one configures all required fields via the module configuration options.
