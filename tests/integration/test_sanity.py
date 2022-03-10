@@ -9,7 +9,7 @@ import socket
 
 import pytest as pytest
 import time
-from redis import ResponseError
+from redis import ResponseError, Redis
 from pytest import raises, skip
 from .sandbox import RedisRaft, RedisRaftFailedToStart
 
@@ -381,9 +381,9 @@ def test_rolled_back_read_only_multi_reply(cluster):
 def test_acl(cluster):
     cluster.create(3)
 
-    client1 = redis.Redis(host='localhost', port=cluster.node(1).port, username="test", password="test")
-    client2 = redis.Redis(host='localhost', port=cluster.node(2).port, username="test", password="test")
-    client3 = redis.Redis(host='localhost', port=cluster.node(3).port, username="test", password="test")
+    client1 = Redis(host='localhost', port=cluster.node(1).port, username="test", password="test")
+    client2 = Redis(host='localhost', port=cluster.node(2).port, username="test", password="test")
+    client3 = Redis(host='localhost', port=cluster.node(3).port, username="test", password="test")
 
     with raises(ResponseError, match='WRONGPASS invalid username-password pair or user is disabled'):
         client1.set('key', 'value')
