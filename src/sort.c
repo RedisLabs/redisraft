@@ -117,7 +117,9 @@ early_exit:
 /* Calls Redis commands whose results can be sorted without semantically breaking them */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    const CommandSpec *cs = CommandSpecGet(argv[0]);
+    RedisModuleString *cmd = argv[0];
+    RedisModuleString *subcommand = argc > 1 ? argv[1] : NULL;
+    const CommandSpec *cs = CommandSpecGet(cmd, subcommand);
     if (!cs || !(cs->flags & CMD_SPEC_SORT_REPLY)) {
         RedisModule_ReplyWithError(ctx, "ERR not a sortable command");
         return;

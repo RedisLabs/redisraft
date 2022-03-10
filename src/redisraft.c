@@ -1027,12 +1027,14 @@ void handleClientDisconnectEvent(RedisModuleCtx *ctx,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
+    RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
+    RedisModuleString *subcommand = RedisModule_CommandFilterArgGet(filter, 1);
+    const CommandSpec *cs;
+
     if (checkInRedisModuleCall()) {
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
         if (redis_raft.entered_eval) {
-            RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-            const CommandSpec *cs;
-            if ((cs = CommandSpecGet(cmd)) != NULL) {
+            if ((cs = CommandSpecGet(cmd, subcommand)) != NULL) {
                 if (cs->flags & CMD_SPEC_SORT_REPLY) {
                     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
@@ -1046,7 +1048,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
+    cs = CommandSpecGet(cmd, subcommand);
     if (cs && (cs->flags & CMD_SPEC_DONT_INTERCEPT))
         return;
 

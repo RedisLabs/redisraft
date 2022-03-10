@@ -111,6 +111,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "xinfo",                  CMD_SPEC_UNSUPPORTED },
             { "xdel",                   CMD_SPEC_UNSUPPORTED },
             { "xtrim",                  CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+            { "acl",                     CMD_SPEC_SUBCOMMAND },
             /* Admin commands - bypassed */
             { "auth",                   CMD_SPEC_DONT_INTERCEPT },
             { "ping",                   CMD_SPEC_DONT_INTERCEPT },
@@ -151,12 +152,41 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { NULL,0 }
     };
 
+    static CommandSpec acl_commands[] = {
+            { "cat", CMD_SPEC_DONT_INTERCEPT },
+            { "deluser", CMD_SPEC_WRITE },
+            { "dryrun", CMD_SPEC_WRITE },
+            { "genpass", CMD_SPEC_READONLY },
+            { "getuser", CMD_SPEC_READONLY },
+            { "list", CMD_SPEC_READONLY },
+            { "load", CMD_SPEC_UNSUPPORTED },
+            { "log", CMD_SPEC_DONT_INTERCEPT },
+            { "save", CMD_SPEC_UNSUPPORTED },
+            { "setuser", CMD_SPEC_WRITE },
+            { "user", CMD_SPEC_READONLY },
+            { "whoami", CMD_SPEC_DONT_INTERCEPT },
+            { NULL, 0 },
+    };
+
+    RedisModuleDict *aclSubCommandsDict = RedisModule_CreateDict(ctx);
+    for (int i = 0; acl_commands[i].name != NULL; i++) {
+        if (RedisModule_DictSetC(aclSubCommandsDict, acl_commands[i].name,
+                                 strlen(acl_commands[i].name), &acl_commands[i]) != REDISMODULE_OK) {
+            RedisModule_FreeDict(ctx, aclSubCommandsDict);
+            return RR_ERROR;
+        }
+    }
+
     commandSpecDict = RedisModule_CreateDict(ctx);
     for (int i = 0; commands[i].name != NULL; i++) {
         if (RedisModule_DictSetC(commandSpecDict, commands[i].name,
             strlen(commands[i].name), &commands[i]) != REDISMODULE_OK) {
                 RedisModule_FreeDict(ctx, commandSpecDict);
                 return RR_ERROR;
+        }
+
+        if (strncmp("acl", commands[i].name, 3) == 0) {
+            commands[i].commands = aclSubCommandsDict;
         }
     }
 
@@ -184,7 +214,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 /* Look up the specified command in the command spec table and return the
  * CommandSpec associated with it, or NULL.
  */
-const CommandSpec *CommandSpecGet(const RedisModuleString *cmd)
+const CommandSpec *CommandSpecGet(const RedisModuleString *cmd, const RedisModuleString *subcommand)
 {
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
@@ -204,6 +234,24 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd)
         RedisModule_Free(lcmd);
     }
 
+    if (cs && cs->flags & CMD_SPEC_SUBCOMMAND) {
+        cmd_str = RedisModule_StringPtrLen(subcommand, &cmd_len);
+        lcmd = buf;
+
+        if (cmd_len > sizeof(buf)) {
+            lcmd = RedisModule_Alloc(cmd_len);
+        }
+
+        for (size_t i = 0; i < cmd_len; i++) {
+            lcmd[i] = (char) tolower(cmd_str[i]);
+        }
+        lcmd[cmd_len] = 0;
+        cs = RedisModule_DictGetC(cs->commands, lcmd, cmd_len, NULL);
+        if (lcmd != buf) {
+            RedisModule_Free(lcmd);
+        }
+    }
+
     return cs;
 }
 
@@ -215,7 +263,9 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
 {
     unsigned int flags = 0;
     for (int i = 0; i < array->len; i++) {
-        const CommandSpec *cs = CommandSpecGet(array->commands[i]->argv[0]);
+        RedisModuleString *cmd = array->commands[i]->argv[0];
+        RedisModuleString *subcommand = array->commands[i]->argc > 1 ? array->commands[i]->argv[1] : NULL;
+        const CommandSpec *cs = CommandSpecGet(cmd, subcommand);
         if (cs) {
             flags |= cs->flags;
         } else {

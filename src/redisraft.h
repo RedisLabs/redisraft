@@ -647,6 +647,7 @@ typedef struct SnapshotResult {
 typedef struct {
     char *name;                 /* Command name */
     unsigned int flags;         /* Command flags, see CMD_SPEC_* */
+    RedisModuleDict *commands;  /* SubCommandSpec for sub commands */
 } CommandSpec;
 
 #define CMD_SPEC_READONLY       (1<<1)      /* Command is a read-only command */
@@ -655,6 +656,7 @@ typedef struct {
 #define CMD_SPEC_DONT_INTERCEPT (1<<4)      /* Command should not be intercepted to RAFT */
 #define CMD_SPEC_SORT_REPLY     (1<<5)      /* Command output should be sorted within a lua script */
 #define CMD_SPEC_RANDOM         (1<<6)      /* Commands that are always random */
+#define CMD_SPEC_SUBCOMMAND     (1<<7)      /* Commands that have subcommands to be handled */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -878,7 +880,7 @@ void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
 /* commands.c */
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
-const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
+const CommandSpec *CommandSpecGet(const RedisModuleString *cmd, const RedisModuleString *subcommand);
 
 /* sort.c */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
