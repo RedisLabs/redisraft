@@ -279,8 +279,11 @@ def test_rolled_back_reply(cluster):
     cluster.node(2).wait_for_election()
     cluster.node(1).resume()
 
-    with raises(ResponseError, match='TIMEOUT'):
+    with raises(ResponseError, match='MOVED'):
         conn.read_response()
+
+    cluster.update_leader()
+    assert cluster.leader_node().client.get('INCR') is None
 
 
 def test_rolled_back_read_only_reply(cluster):
@@ -308,7 +311,7 @@ def test_rolled_back_read_only_reply(cluster):
     cluster.node(2).wait_for_election()
     cluster.node(1).resume()
 
-    with raises(ResponseError, match='TIMEOUT'):
+    with raises(ResponseError, match='MOVED'):
         conn.read_response()
 
 
@@ -341,8 +344,11 @@ def test_rolled_back_multi_reply(cluster):
     cluster.node(2).wait_for_election()
     cluster.node(1).resume()
 
-    with raises(ResponseError, match='TIMEOUT'):
-        assert conn.read_response() == None
+    with raises(ResponseError, match='MOVED'):
+        assert conn.read_response() is None
+
+    cluster.update_leader()
+    assert cluster.leader_node().client.get('INCR') is None
 
 
 def test_rolled_back_read_only_multi_reply(cluster):
@@ -374,5 +380,5 @@ def test_rolled_back_read_only_multi_reply(cluster):
     cluster.node(2).wait_for_election()
     cluster.node(1).resume()
 
-    with raises(ResponseError, match='TIMEOUT'):
-        assert conn.read_response() == None
+    with raises(ResponseError, match='MOVED'):
+        assert conn.read_response() is None

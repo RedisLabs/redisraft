@@ -79,10 +79,17 @@ RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
  */
 void entryFreeAttachedRaftReq(raft_entry_t *ety)
 {
+    RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = entryDetachRaftReq(&redis_raft, ety);
 
     if (req) {
-        RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
+        /* If not the leader, checkLeader() will generate a reply. */
+        if (checkLeader(rr, req->ctx, NULL) == RR_OK) {
+            /* We should not reach here as entry rollback only happens when
+             * another node becomes leader. Just being defensive and leaving
+             * this line here. */
+            RedisModule_ReplyWithError(req->ctx, "TIMEOUT not committed yet");
+        }
         RaftReqFree(req);
     }
 
@@ -1377,10 +1384,14 @@ exit:
 
 static void handleReadOnlyCommand(void *arg, int can_read)
 {
+    RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = arg;
 
     if (!can_read) {
-        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
+        /* If not the leader, checkLeader() will generate a reply. */
+        if (checkLeader(rr, req->ctx, NULL) == RR_OK) {
+            RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
+        }
         goto exit;
     }
 
