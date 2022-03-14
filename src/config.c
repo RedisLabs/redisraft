@@ -48,6 +48,7 @@ static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 static const char *CONF_TLS_ENABLED = "tls-enabled";
+static const char *CONF_TLS_TRACE = "tls-trace";
 static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
 static const char *CONF_TLS_CERT = "tls-cert";
 static const char *CONF_TLS_KEY = "tls-key";
@@ -410,6 +411,11 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->tls_enabled = val;
+    } else if (!strcmp(keyword, CONF_TLS_TRACE)) {
+        bool val;
+        if (parseBool(value, &val) != RR_OK)
+            goto invalid_value;
+        target->tls_trace = val;
     } else if (!strcmp(keyword, CONF_TLS_CA_CERT)) {
         target->tls_manual = true;
         if (target->tls_ca_cert) {
@@ -660,20 +666,32 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
     config->tls_key = getRedisConfig(ctx, "tls-key-file");
     char *key = getRedisConfig(ctx, "tls-client-key-file");
     if (key) {
-        RedisModule_Free(config->tls_key);
-        config->tls_key = key;
+        if (strcmp("", key)) {
+            RedisModule_Free(config->tls_key);
+            config->tls_key = key;
+        } else {
+            RedisModule_Free(key);
+        }
     }
     config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
     char *pass = getRedisConfig(ctx, "tls-client-key-file-pass");
     if (pass) {
-        RedisModule_Free(config->tls_key_pass);
-        config->tls_key_pass = pass;
+        if (strcmp("", pass)) {
+            RedisModule_Free(config->tls_key_pass);
+            config->tls_key_pass = pass;
+        } else {
+            RedisModule_Free(pass);
+        }
     }
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
     char *cert = getRedisConfig(ctx, "tls-client-cert-file");
     if (cert) {
-        RedisModule_Free(config->tls_cert);
-        config->tls_cert = cert;
+        if (strcmp("", cert)) {
+            RedisModule_Free(config->tls_cert);
+            config->tls_cert = cert;
+        } else {
+            RedisModule_Free(cert);
+        }
     }
 
 }

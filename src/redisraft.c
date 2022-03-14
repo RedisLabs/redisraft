@@ -1070,6 +1070,7 @@ static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
 SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
+        RedisModule_Log(ctx, REDIS_WARNING, "REDIS_SSL_CTX_CREATE_FAILED");
 //        if (error) *error = REDIS_SSL_CTX_CREATE_FAILED;
         return NULL;
     }
@@ -1079,20 +1080,24 @@ SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
 
     if ((rr->config->tls_cert != NULL && rr->config->tls_key == NULL) ||
             (rr->config->tls_key != NULL && rr->config->tls_cert == NULL)) {
+        RedisModule_Log(ctx, REDIS_WARNING, "REDIS_SSL_CTX_CERT_KEY_REQUIRED");
 //        if (error) *error = REDIS_SSL_CTX_CERT_KEY_REQUIRED;
         goto error;
     }
 
     if (!SSL_CTX_load_verify_locations(ssl_ctx, rr->config->tls_ca_cert, NULL)) {
+        RedisModule_Log(ctx, REDIS_WARNING, "REDIS_SSL_CTX_CA_CERT_LOAD_FAILED: tls_ca_ccert = %s", rr->config->tls_ca_cert);
 //        if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
         goto error;
     }
 
     if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, rr->config->tls_cert)) {
+        RedisModule_Log(ctx, REDIS_WARNING, "REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED: tls_cert = %s", rr->config->tls_cert);
 //        if (error) *error = REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED;
         goto error;
     }
     if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, rr->config->tls_key, SSL_FILETYPE_PEM)) {
+        RedisModule_Log(ctx, REDIS_WARNING, "REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED");
 //        if (error) *error = REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED;
         goto error;
     }
@@ -1102,10 +1107,12 @@ SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
         SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) rr->config->tls_key_pass);
     }
 
+    RedisModule_Log(ctx, REDIS_WARNING, "returning %p", ssl_ctx);
     return ssl_ctx;
 
 error:
     SSL_CTX_free(ssl_ctx);
+    RedisModule_Log(ctx, REDIS_WARNING, "returning %p", NULL);
     return NULL;
 }
 #endif
@@ -1411,8 +1418,10 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
+        RedisModule_Log(ctx, REDIS_WARNING, "Generating SSL Context");
         rr->ssl = generateSSLContext(ctx, rr);
     }
+    RedisModule_Log(ctx, REDIS_WARNING, "ssl context = %p", rr->ssl);
 #endif
 
     RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);

@@ -20,6 +20,7 @@
 #include "hiredis/hiredis.h"
 #ifdef HAVE_TLS
 #include <openssl/ssl.h>
+#include <openssl/err.h>
 #include "hiredis/hiredis_ssl.h"
 #endif
 #include "hiredis/async.h"
@@ -199,6 +200,10 @@ typedef struct Connection {
 
     /* Linkage to global connections list */
     LIST_ENTRY(Connection) entries;
+
+#ifdef HAVE_TLS
+    SSL *ssl;
+#endif
 } Connection;
 
 /* -------------------- Global Raft Context -------------------- */
@@ -344,7 +349,7 @@ typedef struct RedisRaftCtx {
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
 #ifdef HAVE_TLS
-    SSL_CTX *ssl;                                    /* OpenSSL context for use by hiredis */
+    SSL_CTX *ssl;                                /* OpenSSL context for use by hiredis */
 #endif
 
 } RedisRaftCtx;
@@ -409,6 +414,7 @@ typedef struct RedisRaftConfig {
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
     int external_sharding;              /* use external sharding orchestrator only */
     bool tls_enabled;                   /* use TLS for all inter cluster communication */
+    bool tls_trace;                     /* trace TLS connections for debugging purposes */
     bool tls_manual;                    /* if shouldn't reconfigure tls via redis.  true if any element via module */
     char *tls_ca_cert;
     char *tls_cert;

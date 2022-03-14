@@ -1540,7 +1540,12 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
     JoinLinkState *state = ConnGetPrivateData(conn);
 
     if (!reply) {
+#ifndef HAVE_TLS
         LOG_WARNING("RAFT.SHARDGROUP GET failed: connection dropped.");
+#else
+        unsigned long e = ERR_peek_last_error();
+        LOG_WARNING("RAFT.SHARDGROUP GET failed: connection dropped: %s", ERR_reason_error_string(e));
+#endif
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
