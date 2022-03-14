@@ -55,7 +55,7 @@ jobs:
                   --nemesis kill,pause,partition,member \
                   --redis-version unstable \
                   --raft-repo https://github.com/${{ env.REDISRAFT_REPO }} \
-                  --raft-version ${{ env.REDISRAFT_VERSION }} | rg --passthrough '^0 failures'
+                  --raft-version ${{ env.REDISRAFT_VERSION }} | rg --multiline --multiline-dotall --passthrough '^0 failures.*\n0 crashed|^0 crashed.*\n0 failures'
     - name: Archive Jepsen results
       uses: actions/upload-artifact@v2
       if: failure() || cancelled()
