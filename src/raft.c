@@ -183,7 +183,16 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
     }
 }
 
-RRStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+typedef enum KeysStatus{
+    NoKeys,
+    AllExist,
+    SomeExist,
+    NoneExist,
+} KeysStatus;
+
+KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+    KeysStatus ret = NoKeys;
+
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -191,14 +200,25 @@ RRStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
         int num_keys = 0;
         int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
         for (int j = 0; j < num_keys; j++) {
-            if (!RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
-                return RR_ERROR;
+            int exist = RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]]);
+            if (exist) {
+                if (ret == NoKeys) {
+                    ret = AllExist;
+                } else if (ret == NoneExist) {
+                    return SomeExist;
+                }
+            } else {
+                if (ret == NoKeys) {
+                    ret = NoneExist;
+                } else if (ret == AllExist) {
+                    return SomeExist;
+                }
             }
         }
         RedisModule_Free(keyindex);
     }
 
-    return RR_OK;
+    return ret;
 }
 
 RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, RedisModuleCtx *reply_ctx) {
@@ -215,11 +235,12 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
         slot_type = SLOTRANGE_TYPE_MIGRATING;
         osg = rr->sharding_info->migrating_slots_map[slot];
     }
+    ShardGroup *isg = rr->sharding_info->importing_slots_map[slot];
 
     ShardGroup *sg = osg;
     if (cmds->asking) {
         slot_type = SLOTRANGE_TYPE_IMPORTING;
-        sg = rr->sharding_info->importing_slots_map[slot];
+        sg = isg;
     }
 
     if (!sg) {
@@ -230,21 +251,42 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
     }
 
     if (!sg->local) {
-        if (osg->next_redir >= osg->nodes_num) {
-            osg->next_redir = 0;
-        }
         if (reply_ctx) {
-            replyRedirect(reply_ctx, slot, &osg->nodes[osg->next_redir++].addr);
+            if (osg->next_redir >= osg->nodes_num) {
+                osg->next_redir = 0;
+            }
+            replyRedirect(reply_ctx, slot, &osg->nodes[0].addr);
         }
         return RR_ERROR;
     }
 
     /* if our keys belong to a local migrating/importing slot, all keys must exist */
-    if (slot_type == SLOTRANGE_TYPE_MIGRATING || slot_type == SLOTRANGE_TYPE_IMPORTING) {
-        if (validateKeyExistence(rr, cmds) != RR_OK) {
-            if (reply_ctx) {
-                RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
-            }
+    if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
+        switch (validateKeyExistence(rr, cmds)) {
+            case SomeExist:
+                if (reply_ctx) {
+                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+                }
+                return RR_ERROR;
+            case NoneExist:
+                if (reply_ctx) {
+                    replyAsk(reply_ctx, slot, &isg->nodes[0].addr);
+                }
+                return RR_ERROR;
+            case AllExist:
+            case NoKeys:
+                return RR_OK;
+        }
+    } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
+        switch (validateKeyExistence(rr, cmds)) {
+            case SomeExist:
+            case NoneExist:
+                if (reply_ctx) {
+                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+                }
+            case AllExist:
+            case NoKeys:
+                return RR_OK;
         }
     }
 

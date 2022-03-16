@@ -70,6 +70,15 @@ void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
     RedisModule_ReplyWithError(ctx, buf);
 }
 
+/* Create a -ASK reply. */
+void replyAsk(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
+{
+    char buf[sizeof(addr->host) + 256];
+
+    snprintf(buf, sizeof(buf), "ASK %d %s:%u", slot, addr->host, addr->port);
+    RedisModule_ReplyWithError(ctx, buf);
+}
+
 static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
 
 /* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
