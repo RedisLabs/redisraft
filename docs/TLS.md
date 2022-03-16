@@ -32,11 +32,4 @@ RedisRaft can be configured by reusing the Redis server's TLS configuration, or 
 
 ### Configuring RedisRaft
 
-| Redis Module Config Key Name | Maps to Redis Configuration |
-|------------------------------|-----------------------------|
-| tls-ca-cert                  | tls-ca-cert-file            |
-| tls-key                      | tls-key-file                |
-| tls-cert                     | tls-cert-file               |
-| tls-key-pass                 | tls-key-file-pass           |
-
-One thing to note, if one configures RedisRaft via the module configuration, one should ensure that one configures all required fields via the module configuration options.
+RedisRaft can also be configured via module configuration using the same Redis configuration key names if one wants to keep it separate from Redis.  One thing to note, if one configures RedisRaft via the module configuration, one should ensure that one configures all required fields via the module configuration options.

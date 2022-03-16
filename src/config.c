@@ -48,10 +48,10 @@ static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 static const char *CONF_TLS_ENABLED = "tls-enabled";
-static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
-static const char *CONF_TLS_CERT = "tls-cert";
-static const char *CONF_TLS_KEY = "tls-key";
-static const char *CONF_TLS_KEY_PASS = "tls-key-pass";
+static const char *CONF_TLS_CA_CERT = "tls-ca-cert-file";
+static const char *CONF_TLS_CERT = "tls-cert-file";
+static const char *CONF_TLS_KEY = "tls-key-file";
+static const char *CONF_TLS_KEY_PASS = "tls-key-file-pass";
 static const char *CONF_CLUSTER_USER = "cluster-user";
 static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
 

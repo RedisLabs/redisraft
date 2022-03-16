@@ -1084,16 +1084,19 @@ SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
     }
 
     if (!SSL_CTX_load_verify_locations(ssl_ctx, rr->config->tls_ca_cert, NULL)) {
-        LOG_ERROR("REDIS_SSL_CTX_CA_CERT_LOAD_FAILED: tls_ca_ccert = %s", rr->config->tls_ca_cert);
+        unsigned long e = ERR_peek_last_error();
+        LOG_ERROR("SSL_CTX_load_verify_locations(): %s", ERR_reason_error_string(e));
         goto error;
     }
 
     if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, rr->config->tls_cert)) {
-        LOG_ERROR("REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED: tls_cert = %s", rr->config->tls_cert);
+        unsigned long e = ERR_peek_last_error();
+        LOG_ERROR("SSL_CTX_use_certificate_chain_file(): tls_cert = %s, err = %s", rr->config->tls_cert, ERR_reason_error_string(e));
         goto error;
     }
     if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, rr->config->tls_key, SSL_FILETYPE_PEM)) {
-        LOG_ERROR("REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED");
+        unsigned long e = ERR_peek_last_error();
+        LOG_ERROR("SSL_CTX_use_PrivateKey_file(): tls_key = %s, err = %s", rr->config->tls_key, ERR_reason_error_string(e));
         goto error;
     }
 
