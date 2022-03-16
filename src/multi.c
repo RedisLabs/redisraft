@@ -38,6 +38,7 @@
 typedef struct MultiState {
     RaftRedisCommandArray cmds;
     bool error;
+    bool asking;
 } MultiState;
 
 void MultiInitClientState(RedisRaftCtx *rr)
@@ -83,10 +84,17 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
 
     /* Is this a MULTI command? */
     RaftRedisCommand *cmd = cmds->commands[0];
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+    size_t cmd0_len;
+    const char *cmd0_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd0_len);
+    size_t cmd1_len = 0;
+    const char *cmd1_str = "";
+    if (cmd->argc > 1) { /* possibly will have to be > 2 in future with magic value in asking and argv[2] */
+        cmd1_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd1_len);
+    }
 
-    if (cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
+    if ((cmds->len == 1 && (cmd0_len == 5 && !strncasecmp(cmd0_str, "MULTI", 5))) ||
+        (cmd0_len == 6 && !strncasecmp(cmd0_str, "ASKING", 6) && cmd1_len == 5 && !strncasecmp(cmd1_str, "MULTI", 5))
+    ) {
         if (multiState) {
             RedisModule_ReplyWithError(ctx, "ERR MULTI calls can not be nested");
         } else {
@@ -101,9 +109,9 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         }
 
         return true;
-    } else if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
+    } else if (cmd0_len == 4 && !strncasecmp(cmd0_str, "EXEC", 4)) {
         if (!multiState) {
-            RedisModule_ReplyWithError(ctx, "ERR EXEC without MULTI");
+            RedisModule_ReplyWithError(ctx, "ERR iEXEC without MULTI");
             return true;
         }
 
@@ -118,7 +126,7 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         MultiFreeClientState(rr, client_id);
 
         return false;
-    } else if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
+    } else if (cmd0_len == 7 && !strncasecmp(cmd0_str, "DISCARD", 7)) {
         if (!multiState) {
             RedisModule_ReplyWithError(ctx, "ERR DISCARD without MULTI");
             return true;

@@ -175,6 +175,125 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
     }
 }
 
+typedef enum KeysStatus{
+    NoKeys,
+    AllExist,
+    SomeExist,
+    NoneExist,
+} KeysStatus;
+
+KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+    int total_keys = 0;
+    int found = 0;
+
+    for (int i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *cmd = cmds->commands[i];
+
+        /* Iterate command keys */
+        int num_keys = 0;
+        int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
+        total_keys += num_keys;
+
+        for (int j = 0; j < num_keys; j++) {
+            found += RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]]);
+        }
+        RedisModule_Free(keyindex);
+
+        /* shortcut as we know the result is now SomeExist */
+        if (found != 0 && found != total_keys) {
+            return SomeExist;
+        }
+    }
+
+    if (found != total_keys) {
+        return (found == 0) ? NoneExist : SomeExist;
+    }
+
+    return (total_keys == 0) ? NoKeys : AllExist;
+}
+
+RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *cmds) {
+    /* Make sure hash slot is mapped and handled locally. */
+    /* figure out the "owner shardgroup (osg)" and "importing shard group (isg)"
+     * 'osg' the stable/migrating cluster, while 'isg' will always be the importer cluster if it exists
+     *
+     * we care about finding the correct local one.  if it's an asking, it will be isg, otherwise it will be osg
+     *
+     * first we get the right shardgroup for the request (stable/migrating/importing if asking)
+     *
+     * if the selected shardgroup doesn't exist, that's an error.  if it does, we verify that its the local cluster,
+     * otherwise we redirect to the owning shardgroup.
+     *
+     * After this, we determine the "key status" (do they all exist/none exist/some exist). as can only process
+     * if all keys exist locally.
+     */
+    SlotRangeType slot_type = SLOTRANGE_TYPE_STABLE;
+    ShardGroup *osg = rr->sharding_info->stable_slots_map[cmds->slot];
+    if (!osg) {
+        slot_type = SLOTRANGE_TYPE_MIGRATING;
+        osg = rr->sharding_info->migrating_slots_map[cmds->slot];
+    }
+    ShardGroup *isg = rr->sharding_info->importing_slots_map[cmds->slot];
+
+    ShardGroup *sg = osg;
+    if (cmds->asking) {
+        slot_type = SLOTRANGE_TYPE_IMPORTING;
+        sg = isg;
+    }
+
+    if (!sg) {
+        if (reply_ctx) {
+            RedisModule_ReplyWithError(reply_ctx, "CLUSTERDOWN Hash slot is not served");
+        }
+        return RR_ERROR;
+    }
+
+    if (!sg->local) {
+        if (reply_ctx) {
+            if (osg->next_redir >= osg->nodes_num) {
+                osg->next_redir = 0;
+            }
+
+            LOG_DEBUG("replyRedirect from validateRaftRedisCommandArray");
+            replyRedirect(reply_ctx, cmds->slot, &osg->nodes[0].addr);
+        }
+        return RR_ERROR;
+    }
+
+    /* if our keys belong to a local migrating/importing slot, all keys must exist */
+    if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
+        switch (validateKeyExistence(rr, cmds)) {
+            case SomeExist:
+                if (reply_ctx) {
+                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+                }
+                return RR_ERROR;
+            case NoneExist:
+                if (reply_ctx) {
+                    replyAsk(reply_ctx, cmds->slot, &isg->nodes[0].addr);
+                }
+                return RR_ERROR;
+            case AllExist:
+            case NoKeys:
+                return RR_OK;
+        }
+    } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
+        switch (validateKeyExistence(rr, cmds)) {
+            case SomeExist:
+            case NoneExist:
+                if (reply_ctx) {
+                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+                }
+                break;
+            case AllExist:
+            case NoKeys:
+                return RR_OK;
+        }
+    }
+
+    return RR_OK;
+}
+
 /*
  * Execution of Raft log on the local instance.
  *
@@ -188,21 +307,39 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     RaftReq *req = entry->user_data;
 
-    if (req) {
-        RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
-        entryDetachRaftReq(rr, entry);
-        RaftReqFree(req);
-    } else {
-        RaftRedisCommandArray tmp = {0};
+    RedisModuleCtx *reply_ctx;
+    RedisModuleCtx *ctx;
+    RaftRedisCommandArray *cmds;
+    RaftRedisCommandArray tmp = {0};
 
+    if (req) {
+        cmds = &req->r.redis.cmds;
+        ctx = req->ctx;
+        reply_ctx = req->ctx;
+    } else {
         if (RaftRedisCommandArrayDeserialize(&tmp,
                                              entry->data,
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
 
-        RaftExecuteCommandArray(rr->ctx, NULL, &tmp);
-        RaftRedisCommandArrayFree(&tmp);
+        cmds = &tmp;
+        ctx = redis_raft.ctx;
+        reply_ctx = NULL;
+    }
+
+    HandleAsking(cmds);
+
+    /* When we're in cluster mode, go through handleSharding. This will perform
+     * hash slot validation and return an error / redirection if necessary. We do this
+     * before checkLeader() to avoid multiple redirect hops.
+     */
+    if (rr->config->sharding && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
+        goto exit;
+    }
+
+    if (cmds->slot == -1 || validateRaftRedisCommandArray(rr, reply_ctx, cmds) == RR_OK) {
+        RaftExecuteCommandArray(ctx, reply_ctx, cmds);
     }
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
@@ -211,6 +348,14 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
      */
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
+
+exit:
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+        RaftReqFree(req);
+    } else {
+        RaftRedisCommandArrayFree(cmds);
+    }
 }
 
 static void raftSendNodeShutdown(raft_node_t *raft_node)

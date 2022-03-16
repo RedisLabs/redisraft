@@ -331,6 +331,7 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 static void handleReadOnlyCommand(void *arg, int can_read)
 {
+    RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = arg;
 
     if (!can_read) {
@@ -338,7 +339,17 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftRedisCommandArray * cmds = &req->r.redis.cmds;
+
+    HandleAsking(cmds);
+
+    if (rr->config->sharding && handleSharding(rr, req->ctx, cmds) != RR_OK) {
+        goto exit;
+    }
+
+    if (cmds->slot == -1 || validateRaftRedisCommandArray(&redis_raft, req->ctx, cmds) == RR_OK) {
+        RaftExecuteCommandArray(req->ctx, req->ctx, cmds);
+    }
 
 exit:
     RaftReqFree(req);
@@ -413,8 +424,8 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
  * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
  * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
  */
-static RRStatus handleSharding(RedisRaftCtx *rr,
-                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+RRStatus handleSharding(RedisRaftCtx *rr,
+                        RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     int slot;
 
@@ -427,10 +438,24 @@ static RRStatus handleSharding(RedisRaftCtx *rr,
         return RR_OK;
     }
 
+    cmds->slot = slot;
+
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
+    /* 1. is this a stable slot? */
+    ShardGroup * sg = rr->sharding_info->stable_slots_map[slot];
     if (!sg) {
-        RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
+        /* 2. if not, are migrating */
+        sg = rr->sharding_info->migrating_slots_map[slot];
+    }
+    ShardGroup *osg = sg;
+    if (cmds->asking) {
+        /* 3. if we were tagged with asking, check the importing table */
+        sg = rr->sharding_info->importing_slots_map[slot];
+    }
+    if (!sg) {
+        if (ctx) {
+            RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
+        }
         return RR_ERROR;
     }
 
@@ -440,10 +465,19 @@ static RRStatus handleSharding(RedisRaftCtx *rr,
      * last refresh (when refresh is implemented, in the future).
      */
     if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num) {
-            sg->next_redir = 0;
+        if (!osg) {
+            if (ctx) {
+                RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
+            }
+            return RR_ERROR;
         }
-        replyRedirect(ctx, slot, &sg->nodes[sg->next_redir++].addr);
+
+        if (osg->next_redir >= osg->nodes_num) {
+            osg->next_redir = 0;
+        }
+        if (ctx) {
+            replyRedirect(ctx, slot, &osg->nodes[osg->next_redir++].addr);
+        }
         return RR_ERROR;
     }
 
@@ -570,6 +604,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RaftRedisCommandArray cmds = {0};
+    cmds.slot = -1;
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&cmds);
 
     cmd->argc = argc - 1;

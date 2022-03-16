@@ -476,6 +476,8 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
+    bool asking;        /* if this command array is an asking */
+    int slot;           /* key slot for cluster mode, so doesn't have to be recalculated */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
@@ -494,13 +496,13 @@ typedef struct ShardGroupNode {
  * but excluding nodes and shard groups */
 #define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
 
-enum SlotRangeType {
+typedef enum SlotRangeType {
     SLOTRANGE_TYPE_UNDEF = 0,
     SLOTRANGE_TYPE_STABLE,
     SLOTRANGE_TYPE_IMPORTING,
     SLOTRANGE_TYPE_MIGRATING,
     SLOTRANGE_TYPE_MAX
-};
+} SlotRangeType;
 
 static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
     return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);
@@ -678,6 +680,7 @@ RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
+void replyAsk(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 
 /* node_addr.c */
@@ -718,6 +721,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *cmds);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
@@ -733,6 +737,7 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
+void HandleAsking(RaftRedisCommandArray *cmds);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -771,6 +776,9 @@ raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);
 long EntryCacheCompact(EntryCache *cache, size_t max_memory);
+
+/* redisraft.c */
+RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
