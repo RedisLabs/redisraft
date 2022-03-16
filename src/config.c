@@ -48,7 +48,6 @@ static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 static const char *CONF_TLS_ENABLED = "tls-enabled";
-static const char *CONF_TLS_TRACE = "tls-trace";
 static const char *CONF_TLS_CA_CERT = "tls-ca-cert";
 static const char *CONF_TLS_CERT = "tls-cert";
 static const char *CONF_TLS_KEY = "tls-key";
@@ -411,11 +410,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->tls_enabled = val;
-    } else if (!strcmp(keyword, CONF_TLS_TRACE)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->tls_trace = val;
     } else if (!strcmp(keyword, CONF_TLS_CA_CERT)) {
         target->tls_manual = true;
         if (target->tls_ca_cert) {
@@ -661,8 +655,15 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
-void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
+void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
+{
+    if (config->tls_ca_cert) {
+        RedisModule_Free(config->tls_ca_cert);
+    }
     config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
+    if (config->tls_key) {
+        RedisModule_Free(config->tls_key);
+    }
     config->tls_key = getRedisConfig(ctx, "tls-key-file");
     char *key = getRedisConfig(ctx, "tls-client-key-file");
     if (key) {
@@ -672,6 +673,9 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
         } else {
             RedisModule_Free(key);
         }
+    }
+    if (config->tls_key_pass) {
+        RedisModule_Free(config->tls_key_pass);
     }
     config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
     char *pass = getRedisConfig(ctx, "tls-client-key-file-pass");
@@ -683,6 +687,9 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
             RedisModule_Free(pass);
         }
     }
+    if (config->tls_cert) {
+        RedisModule_Free(config->tls_cert);
+    }
     config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
     char *cert = getRedisConfig(ctx, "tls-client-cert-file");
     if (cert) {
@@ -693,7 +700,6 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config) {
             RedisModule_Free(cert);
         }
     }
-
 }
 
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
