@@ -128,7 +128,9 @@ static int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t sz = calcIntSerializedLen(source->len);
+    int asking_val = source->asking ? 1 : 0;
+    size_t sz = calcIntSerializedLen(asking_val);
+    sz += calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
@@ -141,6 +143,11 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
     /* Prepare entry */
     raft_entry_t *ety = raft_entry_new(sz);
     p = ety->data;
+
+    /* Encode Asking */
+    n = encodeInteger('*', p, sz, asking_val);
+    assert (n != -1);
+    p += n; sz -= n;
 
     /* Encode count */
     n = encodeInteger('*', p, sz, source->len);
@@ -253,6 +260,14 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
         RaftRedisCommandArrayFree(target);
     }
 
+    /* deserialize asking flag */
+    size_t asking_val;
+    if ((n = decodeInteger(p, buf_size, '*', &asking_val)) < 0) {
+        return RR_ERROR;
+    }
+    p += n; buf_size -= n;
+    target->asking = asking_val;
+
     /* Read multibulk count */
     if ((n = decodeInteger(p, buf_size, '*', &commands_num)) < 0 ||
             !commands_num) {
@@ -261,8 +276,9 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     p += n; buf_size -= n;
 
     /* Allocate array */
-    target->len = target->size = commands_num;
+    target->len = target->size = (int) commands_num;
     target->commands = RedisModule_Calloc(commands_num, sizeof(RaftRedisCommand*));
+
     for (i = 0; i < commands_num; i++) {
         target->commands[i] = RedisModule_Calloc(1, sizeof(RaftRedisCommand));
         size_t len = RaftRedisCommandDeserialize(target->commands[i], p, buf_size);
@@ -278,5 +294,3 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 
     return RR_OK;
 }
-
-

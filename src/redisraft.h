@@ -479,6 +479,7 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
+    bool asking;        /* if this command array is an asking */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
@@ -497,13 +498,13 @@ typedef struct ShardGroupNode {
  * but excluding nodes and shard groups */
 #define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
 
-enum SlotRangeType {
+typedef enum SlotRangeType {
     SLOTRANGE_TYPE_UNDEF = 0,
     SLOTRANGE_TYPE_STABLE,
     SLOTRANGE_TYPE_IMPORTING,
     SLOTRANGE_TYPE_MIGRATING,
     SLOTRANGE_TYPE_MAX
-};
+} SlotRangeType;
 
 static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
     return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);

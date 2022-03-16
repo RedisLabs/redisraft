@@ -183,6 +183,74 @@ static void executeRaftRedisCommandArray(RaftRedisCommandArray *array,
     }
 }
 
+RRStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+    for (int i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *cmd = cmds->commands[i];
+
+        /* Iterate command keys */
+        int num_keys = 0;
+        int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
+        for (int j = 0; j < num_keys; j++) {
+            if (!RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
+                return RR_ERROR;
+            }
+        }
+        RedisModule_Free(keyindex);
+    }
+
+    return RR_OK;
+}
+
+RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, RedisModuleCtx *reply_ctx) {
+    int slot;
+    /* assert verifies that not cross slot, but shouldn't be possible
+     * as verified before append?
+     * only calling to recalculate slot, it would probably be smarter to include slot in the log entry
+     */
+    RedisModule_Assert(computeHashSlotOrReplyError(rr, NULL, cmds, &slot) == RR_OK);
+    /* Make sure hash slot is mapped and handled locally. */
+    SlotRangeType slot_type = SLOTRANGE_TYPE_STABLE;
+    ShardGroup *osg = rr->sharding_info->stable_slots_map[slot];
+    if (!osg) {
+        slot_type = SLOTRANGE_TYPE_MIGRATING;
+        osg = rr->sharding_info->migrating_slots_map[slot];
+    }
+
+    ShardGroup *sg = osg;
+    if (cmds->asking) {
+        slot_type = SLOTRANGE_TYPE_IMPORTING;
+        sg = rr->sharding_info->importing_slots_map[slot];
+    }
+
+    if (!sg) {
+        if (reply_ctx) {
+            RedisModule_ReplyWithError(reply_ctx, "CLUSTERDOWN Hash slot is not served");
+        }
+        return RR_ERROR;
+    }
+
+    if (!sg->local) {
+        if (osg->next_redir >= osg->nodes_num) {
+            osg->next_redir = 0;
+        }
+        if (reply_ctx) {
+            replyRedirect(reply_ctx, slot, &osg->nodes[osg->next_redir++].addr);
+        }
+        return RR_ERROR;
+    }
+
+    /* if our keys belong to a local migrating/importing slot, all keys must exist */
+    if (slot_type == SLOTRANGE_TYPE_MIGRATING || slot_type == SLOTRANGE_TYPE_IMPORTING) {
+        if (validateKeyExistence(rr, cmds) != RR_OK) {
+            if (reply_ctx) {
+                RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+            }
+        }
+    }
+
+    return RR_OK;
+}
+
 /*
  * Execution of Raft log on the local instance.
  *
@@ -197,19 +265,21 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     RaftReq *req = entry->user_data;
 
     if (req) {
-        executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+        if (!rr->config->sharding || validateRaftRedisCommandArray(rr, &req->r.redis.cmds, req->ctx) == RR_OK) {
+            executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+        }
         entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     } else {
         RaftRedisCommandArray tmp = {0};
-
         if (RaftRedisCommandArrayDeserialize(&tmp,
                                              entry->data,
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
-
-        executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
+        if (!rr->config->sharding || validateRaftRedisCommandArray(rr, &tmp, NULL) == RR_OK) {
+            executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
+        }
         RaftRedisCommandArrayFree(&tmp);
     }
 
@@ -1425,6 +1495,7 @@ exit:
 
 typedef struct MultiState {
     RaftRedisCommandArray cmds;
+    bool asking;
     bool error;
 } MultiState;
 
@@ -1463,6 +1534,8 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             RedisModule_ReplyWithError(req->ctx, "ERR MULTI calls can not be nested");
         } else {
             multiState = RedisModule_Calloc(sizeof(MultiState), 1);
+            multiState->asking = req->r.redis.cmds.asking;
+
             RedisModule_DictSetC(multiClientState, &client_id, sizeof(client_id), multiState);
 
             /* We put the MULTI as the first command in the array, as we still need to
@@ -1502,6 +1575,7 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
             /* Just swap our commands with the EXEC command and proceed. */
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, &multiState->cmds);
+            req->r.redis.cmds.asking = multiState->asking;
         }
 
         RedisModule_DictDelC(multiClientState, &client_id, sizeof(client_id), NULL);
@@ -1607,6 +1681,17 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
     return false;
 }
 
+ShardGroup * getSlotOwnerShardGroup(RedisRaftCtx *rr, int slot) {
+    ShardGroup *ret = NULL;
+
+    ret = rr->sharding_info->stable_slots_map[slot];
+    if (!ret) {
+        ret = rr->sharding_info->migrating_slots_map[slot];
+    }
+
+    return ret;
+}
+
 /* When sharding is enabled, handle sharding aspects before processing
  * the request:
  *
@@ -1632,7 +1717,11 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     }
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
+    ShardGroup * osg = getSlotOwnerShardGroup(rr, slot);
+    ShardGroup *sg = osg;
+    if (req->r.redis.cmds.asking) {
+        sg = rr->sharding_info->importing_slots_map[slot];
+    }
     if (!sg) {
         RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
         return RR_ERROR;
@@ -1644,14 +1733,35 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
      * last refresh (when refresh is implemented, in the future).
      */
     if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num) {
-            sg->next_redir = 0;
+        if (!osg) {
+            RedisModule_ReplyWithError(req->ctx, "CLUSTERDOWN Hash slot is not served");
+            return RR_ERROR;
         }
-        replyRedirect(req->ctx, slot, &sg->nodes[sg->next_redir++].addr);
+
+        if (osg->next_redir >= osg->nodes_num) {
+            osg->next_redir = 0;
+        }
+        replyRedirect(req->ctx, slot, &osg->nodes[osg->next_redir++].addr);
         return RR_ERROR;
     }
 
     return RR_OK;
+}
+
+void handleAsking(RaftReq *req)
+{
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+
+    if (cmd_len == 6 && !strncasecmp(cmd_str, "ASKING", 6)) {
+        req->r.redis.cmds.asking = true;
+        RedisModule_FreeString(NULL, req->r.redis.cmds.commands[0]->argv[0]);
+        for (int i = 1; i < req->r.redis.cmds.commands[0]->argc; i++) {
+            req->r.redis.cmds.commands[0]->argv[i-1] = req->r.redis.cmds.commands[0]->argv[i];
+        }
+        req->r.redis.cmds.commands[0]->argc--;
+    }
 }
 
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
@@ -1662,6 +1772,9 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
      * commands we've received this as a RAFT.ENTRY input and bundling, probably through a
      * proxy, and bundling was done before.
      */
+
+    handleAsking(req);
+
     if (req->r.redis.cmds.len == 1) {
         if (handleMultiExec(rr, req)) {
             return;
