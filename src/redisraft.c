@@ -1120,6 +1120,7 @@ error:
 
 void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
 {
+    LOG_WARNING("handleConfigChangeEvent: enter");
     if (eid.id != REDISMODULE_EVENT_CONFIG || subevent != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
         return;
     }
