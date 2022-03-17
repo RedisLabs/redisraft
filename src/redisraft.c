@@ -1053,21 +1053,25 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
 
 #ifdef HAVE_TLS
 /* Callback for passing a keyfile password stored as a char * to OpenSSL,  copied from redis */
-static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
-    UNUSED(rwflag);
-
+static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
+{
     const char *pass = u;
     size_t pass_len;
 
-    if (!pass) return -1;
+    if (!pass) {
+        return -1;
+    }
     pass_len = strlen(pass);
-    if (pass_len > (size_t) size) return -1;
+    if (pass_len > (size_t) size) {
+        return -1;
+    }
     memcpy(buf, pass, pass_len);
 
     return (int) pass_len;
 }
 
-SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr) {
+SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+{
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
         LOG_ERROR("REDIS_SSL_CTX_CREATE_FAILED");
@@ -1127,7 +1131,7 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
 
     RedisModuleConfigChangeV1 *ei = data;
 
-    for(unsigned int i = 0; i < ei->num_changes; i++) {
+    for (unsigned int i = 0; i < ei->num_changes; i++) {
         if (strcmp("tls-ca-cert-file", ei->config_names[i]) == 0 ||
                 strcmp("tls-key-file", ei->config_names[i]) == 0 ||
                 strcmp("tls-cert-file", ei->config_names[i]) == 0) {
@@ -1417,7 +1421,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         RedisModule_Log(ctx, REDIS_WARNING, "Generating SSL Context");
         rr->ssl = generateSSLContext(ctx, rr);
     }
-    RedisModule_Log(ctx, REDIS_WARNING, "ssl context = %p", rr->ssl);
 #endif
 
     RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);

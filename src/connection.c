@@ -80,7 +80,7 @@ static void ConnFree(Connection *conn)
 
     LIST_REMOVE(conn, entries);
 
-#ifdef SSL
+#ifdef HAVE_TLS
     if (conn->ssl) {
         SSL_free(conn->ssl);
     }
