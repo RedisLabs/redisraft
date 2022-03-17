@@ -384,9 +384,11 @@ def test_rolled_back_read_only_multi_reply(cluster):
     with raises(ResponseError, match='TIMEOUT'):
         assert conn.read_response() == None
 
-# need to figure out how to only run in context of tls
-#te@pytest.mark.skip()
+
 def test_tls_reconfig(cluster):
+    if not cluster.config.tls:
+        return
+
     cluster.create(3)
     cluster.node(1).client.execute_command("config", "set", "tls-cert-file", cluster.node(1).cert)
     cluster.node(2).restart()
