@@ -1595,11 +1595,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
 
     if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
-        if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-            RaftReqFree(req);
-            return true;
-        }
-
         handleClusterCommand(rr, req);
         return true;
     }
@@ -1680,8 +1675,8 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         return;
     }
 
-    /* Check that we're part of a boostrapped cluster and not in the middle of joining
-     * or loading data.
+    /* Check that we're part of a boostrapped cluster and not in the middle of
+     * joining or loading data.
      */
     if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
