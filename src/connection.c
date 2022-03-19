@@ -19,20 +19,13 @@
 #define CONN_LOG(level, conn, fmt, ...) \
     LOG(level, "{conn:%lu} " fmt, conn ? conn->id : 0, ##__VA_ARGS__)
 
-#define CONN_LOG_ERROR(conn, fmt, ...) CONN_LOG(LOGLEVEL_ERROR, conn, fmt, ##__VA_ARGS__)
-#define CONN_LOG_INFO(conn, fmt, ...) CONN_LOG(LOGLEVEL_INFO, conn, fmt, ##__VA_ARGS__)
-#define CONN_LOG_VERBOSE(conn, fmt, ...) CONN_LOG(LOGLEVEL_VERBOSE, conn, fmt, ##__VA_ARGS__)
-#define CONN_LOG_DEBUG(conn, fmt, ...) CONN_LOG(LOGLEVEL_DEBUG, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_DEBUG(conn, fmt, ...) CONN_LOG(LOG_LEVEL_DEBUG, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_VERBOSE(conn, fmt, ...) CONN_LOG(LOG_LEVEL_VERBOSE, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_NOTICE(conn, fmt, ...) CONN_LOG(LOG_LEVEL_NOTICE, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_WARNING(conn, fmt, ...) CONN_LOG(LOG_LEVEL_WARNING, conn, fmt, ##__VA_ARGS__)
 
-#ifdef ENABLE_TRACE
-#define CONN_TRACE(conn, fmt, ...) \
-    LOG(LOGLEVEL_DEBUG, "%s:%d {conn:%lu} " fmt, \
-            __FILE__, __LINE__, \
-            (conn) ? (conn)->id : 0, \
-            ##__VA_ARGS__)
-#else
-#define CONN_TRACE(conn, fmt, ...) do {} while (0)
-#endif
+#define CONN_TRACE(node, fmt, ...) \
+    TRACE_MODULE(CONN, "<conn {%lu}> " fmt, (conn) ? (conn)->id : 0, ##__VA_ARGS__)
 
 static const char *ConnStateStr[] = {
     "disconnected",
@@ -174,14 +167,14 @@ static void handleAuth(redisAsyncContext *c, void *r, void *privdata)
 
     redisReply *reply = r;
     if (!reply) {
-        LOG_ERROR("Redis connection authentication failed: connection died");
+        LOG_WARNING("Redis connection authentication failed: connection died");
         ConnMarkDisconnected(conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
-        LOG_ERROR("Redis connection authentication failed: %s", reply->str);
+        LOG_WARNING("Redis connection authentication failed: %s", reply->str);
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     } else if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str) != 0) {
-        LOG_ERROR("Redis connection authentication failed: unexpected response");
+        LOG_WARNING("Redis connection authentication failed: unexpected response");
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     } else {
@@ -293,8 +286,8 @@ static void handleResolved(void *arg)
     }
 
     if (res->rc != 0) {
-        CONN_LOG_ERROR(conn, "Failed to resolve '%s': %s", conn->addr.host,
-                       gai_strerror(res->rc));
+        CONN_LOG_WARNING(conn, "Failed to resolve '%s': %s", conn->addr.host,
+                         gai_strerror(res->rc));
         goto fail;
     }
 
@@ -321,7 +314,7 @@ static void handleResolved(void *arg)
 #ifdef HAVE_TLS
     if (conn->rr->config->tls_enabled) {
         if (redisInitiateSSLWithContext(&conn->rc->c, conn->rr->ssl) != REDIS_OK) {
-            CONN_LOG_ERROR(conn, "SSL Error!");
+            CONN_LOG_WARNING(conn, "SSL Error!");
             goto fail;
         }
     }

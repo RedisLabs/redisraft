@@ -305,7 +305,7 @@ char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param
 
     while ((r = RedisInfoIterate(&info, &info_len, &key, &keylen, &val, &vallen))) {
         if (r == -1) {
-            LOG_ERROR("Failed to parse INFO reply");
+            LOG_WARNING("Failed to parse INFO reply");
             goto exit;
         }
 

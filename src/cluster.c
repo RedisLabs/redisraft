@@ -398,7 +398,7 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
     raft_entry_release(entry);
 
     if (e != 0) {
-        LOG_ERROR("Failed to append shardgroup entry, error %d", e);
+        LOG_WARNING("Failed to append shardgroup entry, error %d", e);
         return RR_ERROR;
     }
 
@@ -434,7 +434,7 @@ RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg
     raft_entry_release(entry);
 
     if (e != 0) {
-        LOG_ERROR("Failed to append shardgroups entry, error %d", e);
+        LOG_WARNING("Failed to append shardgroups entry, error %d", e);
         return RR_ERROR;
     }
 
@@ -457,26 +457,26 @@ static void handleShardGroupResponse(redisAsyncContext *c, void *r, void *privda
     ShardGroup *sg = ConnGetPrivateData(conn);
 
     if (!reply) {
-        LOG_ERROR("RAFT.SHARDGROUP GET failed: connection dropped.");
+        LOG_WARNING("RAFT.SHARDGROUP GET failed: connection dropped.");
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
             if (!parseMovedReply(reply->str, &sg->conn_addr)) {
-                LOG_ERROR("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
+                LOG_WARNING("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
             } else {
                 LOG_VERBOSE("RAFT.SHARDGROUP GET redirected to leader: %s:%d",
                             sg->conn_addr.host, sg->conn_addr.port);
                 sg->use_conn_addr = true;
             }
         } else {
-            LOG_ERROR("RAFT.SHARDGROUP GET failed: %s", reply->str);
+            LOG_WARNING("RAFT.SHARDGROUP GET failed: %s", reply->str);
         }
     } else {
         ShardGroup recv_sg;
         ShardGroupInit(&recv_sg);
 
         if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
-            LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
+            LOG_WARNING("RAFT.SHARDGROUP GET invalid reply.");
         } else {
             LOG_DEBUG("Received shardgroup %s reply.", recv_sg.id);
             sg->use_conn_addr = true;
@@ -750,24 +750,24 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     /* Verify all specified slots are available */
     for (unsigned int h = 0; h < new_sg->slot_ranges_num; h++) {
         if (!HashSlotRangeValid(new_sg->slot_ranges[h].start_slot, new_sg->slot_ranges[h].end_slot)) {
-            LOG_ERROR("Invalid shardgroup: bad slots range %u-%u",
-                      new_sg->slot_ranges[h].start_slot, new_sg->slot_ranges[h].end_slot);
+            LOG_WARNING("Invalid shardgroup: bad slots range %u-%u",
+                        new_sg->slot_ranges[h].start_slot, new_sg->slot_ranges[h].end_slot);
             return RR_ERROR;
         }
 
         for (unsigned int i = new_sg->slot_ranges[h].start_slot; i <= new_sg->slot_ranges[h].end_slot; i++) {
             if (si->stable_slots_map[i] != NULL) {
-                LOG_ERROR("Invalid shardgroup: hash slot already mapped as stable: %u", i);
+                LOG_WARNING("Invalid shardgroup: hash slot already mapped as stable: %u", i);
                 return RR_ERROR;
             }
             if (new_sg->slot_ranges[h].type == SLOTRANGE_TYPE_MIGRATING) {
                 if (si->migrating_slots_map[i] != NULL) {
-                    LOG_ERROR("Invalid shardgroup: hash slot already mapped as migrating: %u", i);
+                    LOG_WARNING("Invalid shardgroup: hash slot already mapped as migrating: %u", i);
                     return RR_ERROR;
                 }
             } else if (new_sg->slot_ranges[h].type == SLOTRANGE_TYPE_IMPORTING) {
                 if (si->importing_slots_map[i] != NULL) {
-                    LOG_ERROR("Invalid shardgroup: hash slot already mapped as importing: %u", i);
+                    LOG_WARNING("Invalid shardgroup: hash slot already mapped as importing: %u", i);
                     return RR_ERROR;
                 }
             }
@@ -896,7 +896,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     id = RedisModule_StringPtrLen(argv[0], &len);
     if (len > RAFT_DBID_LEN) {
-        LOG_ERROR("ShardGroupParse failed; argv[%d] shard_group id is too long", base_argv_idx + argidx);
+        LOG_WARNING("ShardGroupParse failed; argv[%d] shard_group id is too long", base_argv_idx + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (shard group id length)");
         goto error;
     }
@@ -906,14 +906,14 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     sg->id[RAFT_DBID_LEN] = '\0';
 
     if (RedisModule_StringToLongLong(argv[1], &num_slots) != REDISMODULE_OK) {
-        LOG_ERROR("ShardGroupParse failed; argv[%d]: couldn't parse num_slots", base_argv_idx + argidx);
+        LOG_WARNING("ShardGroupParse failed; argv[%d]: couldn't parse num_slots", base_argv_idx + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num slots)");
         goto error;
     }
     argidx++;
 
     if (RedisModule_StringToLongLong(argv[2], &num_nodes) != REDISMODULE_OK) {
-        LOG_ERROR("ShardGroupParse failed; argv[%d]: couldn't parse num_nodes", base_argv_idx + argidx);
+        LOG_WARNING("ShardGroupParse failed; argv[%d]: couldn't parse num_nodes", base_argv_idx + argidx);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (num nodes)");
         goto error;
     }
@@ -922,7 +922,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     /* Validate node arguments count is correct */
     *num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
     if (*num_argv_entries > argc) {
-        LOG_ERROR("ShardGroupParse failed; not enough args to parse: want %d have %d", *num_argv_entries, argc);
+        LOG_WARNING("ShardGroupParse failed; not enough args to parse: want %d have %d", *num_argv_entries, argc);
         RedisModule_WrongArity(ctx);
         goto error;
     }
@@ -937,7 +937,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             RedisModule_StringToLongLong(argv[argidx++], &type) != REDISMODULE_OK ||
             !HashSlotRangeValid((int) start_slot, (int) end_slot) ||
             !SlotRangeTypeValid(type)) {
-            LOG_ERROR("ShardGroupParse failed; argv[%d]:argv[%d]: invalid parse slot_range", base_argv_idx + argidx - 3,  base_argv_idx + argidx - 1);
+            LOG_WARNING("ShardGroupParse failed; argv[%d]:argv[%d]: invalid parse slot_range", base_argv_idx + argidx - 3, base_argv_idx + argidx - 1);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (slot range)");
             goto error;
         }
@@ -953,7 +953,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         const char *str = RedisModule_StringPtrLen(argv[argidx], &len);
 
         if (len != RAFT_SHARDGROUP_NODEID_LEN) {
-            LOG_ERROR("ShardGroupParse failed; argv[%d] node id is too long", base_argv_idx + argidx);
+            LOG_WARNING("ShardGroupParse failed; argv[%d] node id is too long", base_argv_idx + argidx);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node id length)");
             goto error;
         }
@@ -964,7 +964,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
         str = RedisModule_StringPtrLen(argv[argidx], &len);
         if (!NodeAddrParse(str, len, &sg->nodes[i].addr)) {
-            LOG_ERROR("ShardGroupParse failed; argv[%d] failed to parse node", base_argv_idx + argidx);
+            LOG_WARNING("ShardGroupParse failed; argv[%d] failed to parse node", base_argv_idx + argidx);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node address/port)");
             goto error;
         }
@@ -988,7 +988,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 {
     long long val;
     if (RedisModule_StringToLongLong(argv[0], &val) != REDISMODULE_OK || val < 0 || val >= REDIS_RAFT_HASH_SLOTS) {
-        LOG_ERROR("Invalid shard group message: argv[0] (number of shard groups)");
+        LOG_WARNING("Invalid shard group message: argv[0] (number of shard groups)");
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message(1)");
         return RR_ERROR;
     }
@@ -1016,7 +1016,7 @@ RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     }
 
     if (argc != 0) {
-        LOG_ERROR("Invalid shard group message: extra unexpected arguments");
+        LOG_WARNING("Invalid shard group message: extra unexpected arguments");
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (extra arguments)");
         goto fail;
     }
@@ -1526,20 +1526,20 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
     JoinLinkState *state = ConnGetPrivateData(conn);
 
     if (!reply) {
-        LOG_ERROR("RAFT.SHARDGROUP GET failed: connection dropped.");
+        LOG_WARNING("RAFT.SHARDGROUP GET failed: connection dropped.");
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
             NodeAddr addr;
             if (!parseMovedReply(reply->str, &addr)) {
-                LOG_ERROR("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
+                LOG_WARNING("RAFT.SHARDGROUP GET failed: invalid MOVED response: %s", reply->str);
             } else {
                 LOG_VERBOSE("RAFT.SHARDGROUP GET redirected to leader: %s:%d",
                             addr.host, addr.port);
                 NodeAddrListAddElement(&state->addr, &addr);
             }
         } else {
-            LOG_ERROR("RAFT.SHARDGROUP GET failed: %s", reply->str);
+            LOG_WARNING("RAFT.SHARDGROUP GET failed: %s", reply->str);
 
         }
     } else {
@@ -1547,11 +1547,11 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
         ShardGroupInit(&recv_sg);
 
         if (parseShardGroupReply(reply, &recv_sg) == RR_ERROR) {
-            LOG_ERROR("RAFT.SHARDGROUP GET invalid reply.");
+            LOG_WARNING("RAFT.SHARDGROUP GET invalid reply.");
         } else {
             /* Validate */
             if (ShardingInfoValidateShardGroup(rr, &recv_sg) != RR_OK) {
-                LOG_ERROR("Received shardgroup failed validation!");
+                LOG_WARNING("Received shardgroup failed validation!");
                 state->failed = true;
             } else {
                 LOG_VERBOSE("Shardgroup link: %s:%u: received configuration, propagating to Raft log.",
@@ -1613,9 +1613,9 @@ void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req)
         goto exit_fail;
     }
 
-    LOG_INFO("Attempting to link shardgroup %s:%u",
-             req->r.shardgroup_link.addr.host,
-             req->r.shardgroup_link.addr.port);
+    LOG_NOTICE("Attempting to link shardgroup %s:%u",
+               req->r.shardgroup_link.addr.host,
+               req->r.shardgroup_link.addr.port);
 
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
     state->type = "link";

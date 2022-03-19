@@ -37,7 +37,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
             RedisModule_ReplyWithError(ctx, "ERR not leader");
             break;
         case RAFT_ERR_SHUTDOWN:
-            LOG_ERROR("Raft requires immediate shutdown!");
+            LOG_WARNING("Raft requires immediate shutdown!");
             enterRedisModuleCall();
             RedisModule_Call(ctx, "SHUTDOWN", "");
             exitRedisModuleCall();
@@ -196,12 +196,12 @@ void joinLinkIdleCallback(Connection *conn)
     time(&now);
 
     if (state->failed) {
-        LOG_ERROR("Cluster %s: unrecoverable error, check logs", state->type);
+        LOG_WARNING("Cluster %s: unrecoverable error, check logs", state->type);
         goto exit_fail;
     }
 
     if (difftime(now, state->start) > rr->config->join_timeout) {
-        LOG_ERROR("Cluster %s: timed out, took longer than %d seconds", state->type, rr->config->join_timeout);
+        LOG_WARNING("Cluster %s: timed out, took longer than %d seconds", state->type, rr->config->join_timeout);
         goto exit_fail;
     }
 
@@ -214,7 +214,7 @@ void joinLinkIdleCallback(Connection *conn)
             state->started = true;
             state->addr_iter = state->addr;
         } else {
-            LOG_ERROR("exhausted all possible hosts to connect to");
+            LOG_WARNING("exhausted all possible hosts to connect to");
             goto exit_fail;
         }
     }

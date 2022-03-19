@@ -75,7 +75,7 @@ class RedisRaft(object):
                       '--bind', '0.0.0.0',
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename,
-                      '--loglevel', 'debug']
+                      '--loglevel', config.raft_loglevel]
         if password:
             self.args += ['--requirepass', password]
 

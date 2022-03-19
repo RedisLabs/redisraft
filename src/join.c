@@ -36,30 +36,30 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     redisReply *reply = r;
 
     if (!reply) {
-        LOG_ERROR("RAFT.NODE ADD failed: connection dropped.");
+        LOG_WARNING("RAFT.NODE ADD failed: connection dropped.");
         ConnMarkDisconnected(conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */
         if (strlen(reply->str) > 6 && !strncmp(reply->str, "MOVED ", 6)) {
             NodeAddr addr;
             if (!parseMovedReply(reply->str, &addr)) {
-                LOG_ERROR("RAFT.NODE ADD failed: invalid MOVED response: %s", reply->str);
+                LOG_WARNING("RAFT.NODE ADD failed: invalid MOVED response: %s", reply->str);
             } else {
                 LOG_VERBOSE("Join redirected to leader: %s:%d", addr.host, addr.port);
                 NodeAddrListAddElement(&state->addr, &addr);
             }
         } else if (strlen(reply->str) > 12 && !strncmp(reply->str, "CLUSTERDOWN ", 12)) {
-            LOG_ERROR("RAFT.NODE ADD error: %s, retrying.", reply->str);
+            LOG_WARNING("RAFT.NODE ADD error: %s, retrying.", reply->str);
         } else {
-            LOG_ERROR("RAFT.NODE ADD failed: %s", reply->str);
+            LOG_WARNING("RAFT.NODE ADD failed: %s", reply->str);
             state->failed = true;
         }
     } else if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 2) {
-        LOG_ERROR("RAFT.NODE ADD invalid reply.");
+        LOG_WARNING("RAFT.NODE ADD invalid reply.");
     } else {
-        LOG_INFO("Joined Raft cluster, node id: %lu, dbid: %.*s",
-                 (unsigned long) reply->element[0]->integer,
-                 (int) reply->element[1]->len, reply->element[1]->str);
+        LOG_NOTICE("Joined Raft cluster, node id: %lu, dbid: %.*s",
+                   (unsigned long) reply->element[0]->integer,
+                   (int) reply->element[1]->len, reply->element[1]->str);
 
         strncpy(rr->snapshot_info.dbid, reply->element[1]->str, reply->element[1]->len);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
