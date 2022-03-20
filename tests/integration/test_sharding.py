@@ -397,3 +397,35 @@ def test_shard_group_no_slots(cluster):
     splits = results[0].split(b" ")
     assert len(splits) == 9
     assert splits[8] == b""
+
+
+def test_shard_group_reshard_to_migrate(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.leader_node().client.set("key", "value");
+
+    assert cluster.leader_node().client.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().raft_info()['dbid'],
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    assert cluster.leader_node().client.get("key") == b'value'
+
+    with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
+        cluster.leader_node().client.set("key1", "value1")
+
+    assert cluster.leader_node().client.execute_command("del", "key") == 1
+
+    with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
+        cluster.leader_node().client.get("key")

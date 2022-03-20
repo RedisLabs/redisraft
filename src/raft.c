@@ -1517,7 +1517,11 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
+    RaftRedisCommandArray * cmds = &req->r.redis.cmds;
+
+    if (!redis_raft.config->sharding || validateRaftRedisCommandArray(&redis_raft, cmds, req->ctx) == RR_OK) {
+        executeRaftRedisCommandArray(cmds, req->ctx, req->ctx);
+    }
 
 exit:
     RaftReqFree(req);
@@ -1778,6 +1782,8 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req)
     if (slot == -1) {
         return RR_OK;
     }
+
+    cmds->slot = slot;
 
     /* Make sure hash slot is mapped and handled locally. */
     ShardGroup * osg = getSlotOwnerShardGroup(rr, slot);
