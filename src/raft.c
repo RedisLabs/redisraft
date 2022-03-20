@@ -222,20 +222,14 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
 }
 
 RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, RedisModuleCtx *reply_ctx) {
-    int slot;
-    /* assert verifies that not cross slot, but shouldn't be possible
-     * as verified before append?
-     * only calling to recalculate slot, it would probably be smarter to include slot in the log entry
-     */
-    RedisModule_Assert(computeHashSlotOrReplyError(rr, NULL, cmds, &slot) == RR_OK);
     /* Make sure hash slot is mapped and handled locally. */
     SlotRangeType slot_type = SLOTRANGE_TYPE_STABLE;
-    ShardGroup *osg = rr->sharding_info->stable_slots_map[slot];
+    ShardGroup *osg = rr->sharding_info->stable_slots_map[cmds->slot];
     if (!osg) {
         slot_type = SLOTRANGE_TYPE_MIGRATING;
-        osg = rr->sharding_info->migrating_slots_map[slot];
+        osg = rr->sharding_info->migrating_slots_map[cmds->slot];
     }
-    ShardGroup *isg = rr->sharding_info->importing_slots_map[slot];
+    ShardGroup *isg = rr->sharding_info->importing_slots_map[cmds->slot];
 
     ShardGroup *sg = osg;
     if (cmds->asking) {
@@ -255,7 +249,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
             if (osg->next_redir >= osg->nodes_num) {
                 osg->next_redir = 0;
             }
-            replyRedirect(reply_ctx, slot, &osg->nodes[0].addr);
+            replyRedirect(reply_ctx, cmds->slot, &osg->nodes[0].addr);
         }
         return RR_ERROR;
     }
@@ -270,7 +264,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
                 return RR_ERROR;
             case NoneExist:
                 if (reply_ctx) {
-                    replyAsk(reply_ctx, slot, &isg->nodes[0].addr);
+                    replyAsk(reply_ctx, cmds->slot, &isg->nodes[0].addr);
                 }
                 return RR_ERROR;
             case AllExist:
@@ -306,12 +300,14 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     RaftReq *req = entry->user_data;
 
+    RedisModuleCtx *reply_ctx;
+    RedisModuleCtx *ctx;
+    RaftRedisCommandArray *cmds;
+
     if (req) {
-        if (!rr->config->sharding || validateRaftRedisCommandArray(rr, &req->r.redis.cmds, req->ctx) == RR_OK) {
-            executeRaftRedisCommandArray(&req->r.redis.cmds, req->ctx, req->ctx);
-        }
-        entryDetachRaftReq(rr, entry);
-        RaftReqFree(req);
+        cmds = &req->r.redis.cmds;
+        ctx = req->ctx;
+        reply_ctx = req->ctx;
     } else {
         RaftRedisCommandArray tmp = {0};
         if (RaftRedisCommandArrayDeserialize(&tmp,
@@ -319,10 +315,21 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
-        if (!rr->config->sharding || validateRaftRedisCommandArray(rr, &tmp, NULL) == RR_OK) {
-            executeRaftRedisCommandArray(&tmp, rr->ctx, NULL);
-        }
-        RaftRedisCommandArrayFree(&tmp);
+
+        cmds = &tmp;
+        ctx = redis_raft.ctx;
+        reply_ctx = NULL;
+    }
+
+    if (!rr->config->sharding || validateRaftRedisCommandArray(rr, cmds, reply_ctx) == RR_OK) {
+        executeRaftRedisCommandArray(cmds, ctx, reply_ctx);
+    }
+
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+        RaftReqFree(req);
+    } else {
+        RaftRedisCommandArrayFree(cmds);
     }
 
     /* Update snapshot info in Redis dataset. This must be done now so it's

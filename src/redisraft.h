@@ -480,6 +480,7 @@ typedef struct {
 
 typedef struct {
     bool asking;        /* if this command array is an asking */
+    int slot;           /* key slot for cluster mode, so doesn't have to be recalculated */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;

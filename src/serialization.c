@@ -130,6 +130,7 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 {
     int asking_val = source->asking ? 1 : 0;
     size_t sz = calcIntSerializedLen(asking_val);
+    sz += calcIntSerializedLen(source->slot);
     sz += calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
@@ -146,6 +147,11 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode Asking */
     n = encodeInteger('*', p, sz, asking_val);
+    assert (n != -1);
+    p += n; sz -= n;
+
+    /* Encode slot value */
+    n = encodeInteger('*', p, sz, source->slot);
     assert (n != -1);
     p += n; sz -= n;
 
@@ -267,6 +273,14 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     }
     p += n; buf_size -= n;
     target->asking = asking_val;
+
+    /* deserialize slot value */
+    size_t slot_val;
+    if ((n = decodeInteger(p, buf_size, '*', &slot_val)) < 0) {
+        return RR_ERROR;
+    }
+    p += n; buf_size -= n;
+    target->slot = slot_val;
 
     /* Read multibulk count */
     if ((n = decodeInteger(p, buf_size, '*', &commands_num)) < 0 ||

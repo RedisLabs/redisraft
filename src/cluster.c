@@ -1160,9 +1160,7 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr,
             } else {
                 if (*slot != thisslot) {
                     RedisModule_Free(keyindex);
-                    if (ctx) {
-                        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
-                    }
+                    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
                     return RR_ERROR;
                 }
             }
