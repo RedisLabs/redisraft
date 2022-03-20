@@ -425,12 +425,21 @@ def test_shard_group_reshard_to_migrate(cluster):
     with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
         cluster.leader_node().client.set("key1", "value1")
 
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('set', 'key', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('set', '{key}key1', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('EXEC')
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
     assert cluster.leader_node().client.execute_command("del", "key") == 1
 
     with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
         cluster.leader_node().client.get("key")
-
-    # add a multikey test here to return a TRYAGAIN
 
 
 def test_shard_group_reshard_to_import(cluster):

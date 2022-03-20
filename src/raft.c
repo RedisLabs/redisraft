@@ -205,12 +205,14 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
                 if (ret == NoKeys) {
                     ret = AllExist;
                 } else if (ret == NoneExist) {
+                    RedisModule_Free(keyindex);
                     return SomeExist;
                 }
             } else {
                 if (ret == NoKeys) {
                     ret = NoneExist;
                 } else if (ret == AllExist) {
+                    RedisModule_Free(keyindex);
                     return SomeExist;
                 }
             }
@@ -317,13 +319,13 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     RedisModuleCtx *reply_ctx;
     RedisModuleCtx *ctx;
     RaftRedisCommandArray *cmds;
+    RaftRedisCommandArray tmp = {0};
 
     if (req) {
         cmds = &req->r.redis.cmds;
         ctx = req->ctx;
         reply_ctx = req->ctx;
     } else {
-        RaftRedisCommandArray tmp = {0};
         if (RaftRedisCommandArrayDeserialize(&tmp,
                                              entry->data,
                                              entry->data_len) != RR_OK) {
