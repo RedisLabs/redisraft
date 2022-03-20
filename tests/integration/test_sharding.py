@@ -429,3 +429,40 @@ def test_shard_group_reshard_to_migrate(cluster):
 
     with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
         cluster.leader_node().client.get("key")
+
+    # add a multikey test here to return a TRYAGAIN
+
+
+def test_shard_group_reshard_to_import(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.leader_node().client.set("key", "value");
+
+    assert cluster.leader_node().client.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().raft_info()['dbid'],
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
+        cluster.leader_node().client.get("key")
+
+    assert cluster.leader_node().client.execute_command("asking", "get", "key") == b'value'
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.leader_node().client.execute_command("asking", "get", "key1")
+
+    assert cluster.leader_node().client.execute_command("asking", "del", "key") == 1
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.leader_node().client.execute_command("asking", "get", "key1")
