@@ -14,6 +14,12 @@ from pytest import raises, skip
 from .sandbox import RedisRaft, RedisRaftFailedToStart
 
 
+def test_info_before_cluster_init(cluster):
+    node = RedisRaft(1, cluster.base_port, cluster.config)
+    node.start()
+    assert node.raft_info()["state"] == "uninitialized"
+
+
 def test_info(cluster):
     r1 = cluster.add_node()
     data = r1.client.execute_command('info')
