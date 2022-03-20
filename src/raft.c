@@ -223,6 +223,19 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
 
 RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, RedisModuleCtx *reply_ctx) {
     /* Make sure hash slot is mapped and handled locally. */
+    /* figure out the "owner shardgroup (osg)" and "importing shard group (isg)"
+     * 'osg' the stable/migrating cluster, while 'isg' will always be the importer cluster if it exists
+     *
+     * we care about finding the correct local one.  if it's an asking, it will be isg, otherwise it will be osg
+     *
+     * first we get the right shardgroup for the request (stable/migrating/importing if asking)
+     *
+     * if the selected shardgroup doesn't exist, that's an error.  if it does, we verify that its the local cluster,
+     * otherwise we redirect to the owning shardgroup.
+     *
+     * After this, we determine the "key status" (do they all exist/none exist/some exist). as can only process
+     * if all keys exist locally.
+     */
     SlotRangeType slot_type = SLOTRANGE_TYPE_STABLE;
     ShardGroup *osg = rr->sharding_info->stable_slots_map[cmds->slot];
     if (!osg) {
@@ -249,6 +262,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
             if (osg->next_redir >= osg->nodes_num) {
                 osg->next_redir = 0;
             }
+
             replyRedirect(reply_ctx, cmds->slot, &osg->nodes[0].addr);
         }
         return RR_ERROR;
