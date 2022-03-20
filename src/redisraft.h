@@ -200,10 +200,6 @@ typedef struct Connection {
 
     /* Linkage to global connections list */
     LIST_ENTRY(Connection) entries;
-
-#ifdef HAVE_TLS
-    SSL *ssl;
-#endif
 } Connection;
 
 /* -------------------- Global Raft Context -------------------- */
@@ -793,7 +789,6 @@ void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
-char *getRedisConfig(RedisModuleCtx *ctx, const char *name);
 void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config);
 
 /* snapshot.c */

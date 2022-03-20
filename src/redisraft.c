@@ -1419,7 +1419,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Generating SSL Context");
         rr->ssl = generateSSLContext(ctx, rr);
     }
 #endif

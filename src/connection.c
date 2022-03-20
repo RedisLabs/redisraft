@@ -80,13 +80,6 @@ static void ConnFree(Connection *conn)
 
     LIST_REMOVE(conn, entries);
 
-#ifdef HAVE_TLS
-    if (conn->ssl) {
-//        SSL_free(conn->ssl);
-        conn->ssl = NULL;
-    }
-#endif
-
     RedisModule_Free(conn);
 }
 
@@ -321,11 +314,6 @@ static void handleResolved(void *arg)
 
 #ifdef HAVE_TLS
     if (conn->rr->config->tls_enabled) {
-        if (conn->ssl) {
-//            SSL_free(conn->ssl);
-            conn->ssl = NULL;
-        }
-
         SSL *ssl = SSL_new(conn->rr->ssl);
         if (!ssl) {
             CONN_LOG_WARNING(conn, "Couldn't create SSL object");
@@ -333,11 +321,9 @@ static void handleResolved(void *arg)
         }
         int result = redisInitiateSSL(&conn->rc->c, ssl);
         if (result != REDIS_OK) {
-//            SSL_free(ssl);
             CONN_LOG_WARNING(conn, "redisInitiateSSL error(%d): %s", conn->rc->c.err, conn->rc->c.errstr);
             goto fail;
         }
-        conn->ssl = ssl;
     }
 #endif
 
