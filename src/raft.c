@@ -31,7 +31,8 @@ const char *RaftReqTypeStr[] = {
     [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
     [RR_SHARDGROUP_GET]       = "RR_SHARDGROUP_GET",
     [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
-    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER",
+    [RR_DELETE_UNLOCK_KEYS]   = "RR_DELETE_UNLOCK_KEYS",
 };
 
 /* Forward declarations */
@@ -190,7 +191,7 @@ typedef enum KeysStatus{
     NoneExist,
 } KeysStatus;
 
-KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+KeysStatus validateKeyAvailability(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
     int total_keys = 0;
     int found = 0;
 
@@ -270,7 +271,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
 
     /* if our keys belong to a local migrating/importing slot, all keys must exist */
     if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
-        switch (validateKeyExistence(rr, cmds)) {
+        switch (validateKeyAvailability(rr, cmds)) {
             case SomeExist:
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
@@ -286,7 +287,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *
                 return RR_OK;
         }
     } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
-        switch (validateKeyExistence(rr, cmds)) {
+        switch (validateKeyAvailability(rr, cmds)) {
             case SomeExist:
             case NoneExist:
                 if (reply_ctx) {
@@ -369,6 +370,57 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandA
     }
 
     return RR_OK;
+}
+
+static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
+
+    RaftReq *req = entry->user_data;
+
+    size_t num_keys;
+    RedisModuleString ** keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
+
+    for (int i = 0; i < num_keys; i++) {
+        RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
+        RedisModule_FreeString(rr->ctx, keys[i]);
+    }
+
+    RedisModule_Free(keys);
+
+    if (req) {
+        /* currently, we just return, but eventually this is where should kick off migration of the keys */
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+    }
+}
+
+static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
+
+    RaftReq *req = entry->user_data;
+
+    size_t num_keys;
+    RedisModuleString ** keys;
+
+    keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
+
+    enterRedisModuleCall();
+    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys);
+    exitRedisModuleCall();
+    RedisModule_FreeCallReply(reply);
+
+    for (int i = 0; i < num_keys; i++) {
+        RedisModule_DictDel(rr->locked_keys, keys[i], NULL);
+        RedisModule_FreeString(rr->ctx, keys[i]);
+    }
+    RedisModule_Free(keys);
+
+    if (req) {
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+    }
 }
 
 /*
@@ -778,6 +830,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_REPLACE_SHARDGROUPS:
             replaceShardGroups(rr, entry);
+            break;
+        case RAFT_LOGTYPE_LOCK_KEYS:
+            lockKeys(rr, entry);
+            break;
+        case RAFT_LOGTYPE_DELETE_UNLOCK_KEYS:
+            unlockDeleteKeys(rr, entry);
             break;
         default:
             break;
@@ -1444,6 +1502,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
     threadPoolInit(&rr->thread_pool, 5);
 
+    rr->locked_keys = RedisModule_CreateDict(ctx);
+
     return RR_OK;
 }
 
@@ -1812,6 +1872,51 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
     RaftReqFree(req);
 }
 
+void handleMigrateCommand(RedisRaftCtx *rr, RaftReq *req) {
+    msg_entry_response_t response;
+
+    // 1. Extract migration info and store it in a dict rr->migrate_info
+    // MigrationInfo * migrationInfo = extractMigrationInfo(req);
+
+    // 2. add a lock operation to the log
+    /* FIXME: validate that old style key is empty string */
+
+    /* find "keys" for parsing out keys */
+    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
+    int idx = 6;
+    for(; idx < cmd->argc; idx++) {
+        size_t str_len;
+        const char * str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
+        if (str_len == 4 && !strcasecmp("keys", str)) {
+            break;
+        }
+    }
+
+    /* FIXME: some error checking here on idx */
+    raft_entry_t *entry = RaftRedisLockKeysSerialize(cmd->argv + idx, cmd->argc - idx);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_LOCK_KEYS;
+    entryAttachRaftReq(rr, entry, req);
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
+        goto exit;
+    }
+
+    raft_entry_release(entry);
+
+    /* Unless applied by raft_apply_all() (and freed by it), the request
+     * is pending so we don't free it or unblock the client.
+     */
+    return;
+
+exit:
+    RaftReqFree(req);
+
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -1821,6 +1926,7 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
  * Currently intercepted commands:
  * - CLUSTER
  * - INFO
+ * - MIGRATE
  *
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
@@ -1838,6 +1944,11 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 
     if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
         handleInfoCommand(rr, req);
+        return true;
+    }
+
+    if (len == strlen("MIGRATE") && strncasecmp(cmd_str, "MIGRATE", len) == 0) {
+        handleMigrateCommand(rr, req);
         return true;
     }
 
@@ -2351,6 +2462,35 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
 
     }
     RedisModule_ReplySetArrayLength(req->ctx, node_count);
+exit:
+    RaftReqFree(req);
+}
+
+void handleDelete(RedisRaftCtx *rr, RaftReq *req)
+{
+    msg_entry_response_t response;
+    RedisModule_Log(req->ctx, REDIS_WARNING, "handleDelete: enter");
+
+    raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.unlock_delete_keys.argv, req->r.unlock_delete_keys.argc);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_DELETE_UNLOCK_KEYS;
+    entryAttachRaftReq(rr, entry, req);
+
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
+        goto exit;
+    }
+
+    raft_entry_release(entry);
+
+    /* Unless applied by raft_apply_all() (and freed by it), the request
+     * is pending so we don't free it or unblock the client.
+     */
+    return;
+
 exit:
     RaftReqFree(req);
 }

@@ -346,6 +346,7 @@ typedef struct RedisRaftCtx {
     unsigned long snapshots_created;             /* Number of snapshots created */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
+    RedisModuleDict *locked_keys;                /* keys thar have been locked for migration */
 #ifdef HAVE_TLS
     redisSSLContext *ssl;                        /* hiredis context for ssl */
 #endif
@@ -463,7 +464,8 @@ enum RaftReqType {
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_TRANSFER_LEADER,
-    RR_RAFTREQ_MAX
+    RR_RAFTREQ_MAX,
+    RR_DELETE_UNLOCK_KEYS,
 };
 
 extern const char *RaftReqTypeStr[];
@@ -546,6 +548,8 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
 #define RAFT_LOGTYPE_UPDATE_SHARDGROUP   (RAFT_LOGTYPE_NUM+2)
 #define RAFT_LOGTYPE_REPLACE_SHARDGROUPS (RAFT_LOGTYPE_NUM+3)
+#define RAFT_LOGTYPE_LOCK_KEYS           (RAFT_LOGTYPE_NUM+4)
+#define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM+5)
 
 /* Sharding information, used when cluster_mode is enabled and multiple
  * RedisRaft clusters operate together to perform sharding.
@@ -603,6 +607,10 @@ typedef struct RaftReq {
         struct {
             char id[RAFT_DBID_LEN];
         } cluster_init;
+        struct {
+            size_t argc;
+            RedisModuleString **argv;
+        } unlock_delete_keys;
     } r;
 } RaftReq;
 
@@ -727,6 +735,8 @@ void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
 void RaftRedisCommandFree(RaftRedisCommand *r);
 RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
 void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandArray *source);
+raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc);
+RedisModuleString ** RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys);
 
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
@@ -750,6 +760,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void handleDelete(RedisRaftCtx *rr, RaftReq *req);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);

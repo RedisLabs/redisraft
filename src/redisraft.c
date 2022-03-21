@@ -1005,6 +1005,25 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+static int cmdRaftDeleteKey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_DELETE_UNLOCK_KEYS);
+    argv++;
+    argc--;
+    req->r.unlock_delete_keys.argc = argc;
+    req->r.unlock_delete_keys.argv = argv;
+
+    handleDelete(rr, req);
+
+    return REDISMODULE_OK;
+}
+
 void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -1148,6 +1167,10 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
+    if (RedisModule_CreateCommand(ctx, "raft.delete",
+                                  cmdRaftDeleteKey, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
 
     if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
             &RedisRaftTypeMethods)) == NULL) {
