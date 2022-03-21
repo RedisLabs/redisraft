@@ -462,7 +462,6 @@ enum RaftReqType {
     RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
-    RR_NODE_SHUTDOWN,
     RR_TRANSFER_LEADER
 };
 
@@ -593,9 +592,6 @@ typedef struct RaftReq {
             int fail;
             int delay;
         } debug;
-        struct {
-            raft_node_id_t id;
-        } node_shutdown;
         struct {
             ShardGroup **shardgroups;
             unsigned int len;
