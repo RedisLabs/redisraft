@@ -739,7 +739,6 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
-void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
