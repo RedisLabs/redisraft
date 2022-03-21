@@ -17,21 +17,21 @@
 #include "redisraft.h"
 
 const char *RaftReqTypeStr[] = {
-    "<undef>",
-    "RR_CLUSTER_INIT",
-    "RR_CLUSTER_JOIN",
-    "RR_CFGCHANGE_ADDNODE",
-    "RR_CFGCHANGE_REMOVENODE",
-    "RR_APPENDENTRIES",
-    "RR_REDISCOMMAND",
-    "RR_INFO",
-    "RR_DEBUG",
-    "RR_CLIENT_DISCONNECT",
-    "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUPS_REPLACE",
-    "RR_SHARDGROUP_GET",
-    "RR_SHARDGROUP_LINK",
-    "RR_TRANSFER_LEADER"
+    [0]                       = "<undef>",
+    [RR_CLUSTER_INIT]         = "RR_CLUSTER_INIT",
+    [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
+    [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
+    [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
+    [RR_APPENDENTRIES]        = "RR_APPENDENTRIES",
+    [RR_REDISCOMMAND]         = "RR_REDISCOMMAND",
+    [RR_INFO]                 = "RR_INFO",
+    [RR_DEBUG]                = "RR_DEBUG",
+    [RR_CLIENT_DISCONNECT]    = "RR_CLIENT_DISCONNECT",
+    [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
+    [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
+    [RR_SHARDGROUP_GET]       = "RR_SHARDGROUP_GET",
+    [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
 };
 
 /* Forward declarations */

@@ -462,7 +462,8 @@ enum RaftReqType {
     RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
-    RR_TRANSFER_LEADER
+    RR_TRANSFER_LEADER,
+    RR_RAFTREQ_MAX
 };
 
 extern const char *RaftReqTypeStr[];
