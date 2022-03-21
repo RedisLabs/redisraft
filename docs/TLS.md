@@ -16,7 +16,7 @@ In addition, one has to pass the `tls-enabled yes` option to the redisraft modul
 
 ## Configuring RedisRaft TLS support
 
-RedisRaft can be configured by reusing the Redis server's TLS configuration, or by configuring the RedisRaft module directly. In general, we expect people will configure the Redis server. 
+RedisRaft is configured by reusing the Redis server's TLS configuration. 
 
 ### Configuring RedisRaft via Redis.
 
@@ -29,7 +29,3 @@ RedisRaft can be configured by reusing the Redis server's TLS configuration, or 
 | tls-client-cert-file     | File Containing the PEM encoded public signed CERT (overrides tls-cert-file)                              |                                                                                                          |
 | tls-key-file-pass        | String containing password to decrypt the private key, if encrypted                                       |
 | tls-client-key-file-pass | String containing password to decrypt the private key if using client key field                           | 
-
-### Configuring RedisRaft
-
-RedisRaft can also be configured via module configuration using the same Redis configuration key names if one wants to keep it separate from Redis.  One thing to note, if one configures RedisRaft via the module configuration, one should ensure that one configures all required fields via the module configuration options.

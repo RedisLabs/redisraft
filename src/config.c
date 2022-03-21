@@ -48,10 +48,6 @@ static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
 static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
 static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 static const char *CONF_TLS_ENABLED = "tls-enabled";
-static const char *CONF_TLS_CA_CERT = "tls-ca-cert-file";
-static const char *CONF_TLS_CERT = "tls-cert-file";
-static const char *CONF_TLS_KEY = "tls-key-file";
-static const char *CONF_TLS_KEY_PASS = "tls-key-file-pass";
 static const char *CONF_CLUSTER_USER = "cluster-user";
 static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
 
@@ -410,30 +406,6 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         if (parseBool(value, &val) != RR_OK)
             goto invalid_value;
         target->tls_enabled = val;
-    } else if (!strcmp(keyword, CONF_TLS_CA_CERT)) {
-        target->tls_manual = true;
-        if (target->tls_ca_cert) {
-            RedisModule_Free(target->tls_ca_cert);
-        }
-        target->tls_ca_cert = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_TLS_CERT)) {
-        target->tls_manual = true;
-        if (target->tls_cert) {
-            RedisModule_Free(target->tls_cert);
-        }
-        target->tls_cert = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_TLS_KEY)) {
-        target->tls_manual = true;
-        if (target->tls_key) {
-            RedisModule_Free(target->tls_key);
-        }
-        target->tls_key = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_TLS_KEY_PASS)) {
-        target->tls_manual = true;
-        if (target->tls_key_pass) {
-            RedisModule_Free(target->tls_key_pass);
-        }
-        target->tls_key_pass = RedisModule_Strdup(value);
     } else if (!strcmp(keyword, CONF_CLUSTER_PASSWORD)) {
         if (target->cluster_password) {
             RedisModule_Free(target->cluster_password);
@@ -635,18 +607,6 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
     if (stringmatch(pattern, CONF_TLS_ENABLED, 1)) {
         len++;
         replyConfigBool(ctx, CONF_TLS_ENABLED, config->tls_enabled);
-    }
-    if (stringmatch(pattern, CONF_TLS_CA_CERT, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_TLS_CA_CERT, config->tls_ca_cert);
-    }
-    if (stringmatch(pattern, CONF_TLS_CERT, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_TLS_CERT, config->tls_cert);
-    }
-    if (stringmatch(pattern, CONF_TLS_KEY, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_TLS_KEY, config->tls_key);
     }
     if (stringmatch(pattern, CONF_CLUSTER_USER, 1)) {
         len++;
