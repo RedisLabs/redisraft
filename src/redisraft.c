@@ -345,6 +345,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    req->r.redis.cmds.slot = -1;
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
 
     cmd->argc = argc - 1;

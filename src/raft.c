@@ -334,7 +334,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         reply_ctx = NULL;
     }
 
-    if (!rr->config->sharding || validateRaftRedisCommandArray(rr, cmds, reply_ctx) == RR_OK) {
+    if (cmds->slot == -1 || validateRaftRedisCommandArray(rr, cmds, reply_ctx) == RR_OK) {
         executeRaftRedisCommandArray(cmds, ctx, reply_ctx);
     }
 
@@ -1518,7 +1518,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
 
     RaftRedisCommandArray * cmds = &req->r.redis.cmds;
 
-    if (!redis_raft.config->sharding || validateRaftRedisCommandArray(&redis_raft, cmds, req->ctx) == RR_OK) {
+    if (cmds->slot == -1 || validateRaftRedisCommandArray(&redis_raft, cmds, req->ctx) == RR_OK) {
         executeRaftRedisCommandArray(cmds, req->ctx, req->ctx);
     }
 
