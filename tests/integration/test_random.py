@@ -313,12 +313,14 @@ def test_raft_sort_sets(cluster):
     sinter = cluster.execute("raft._sort_reply", "sinter", "test", "test1")
     sunion = cluster.execute("raft._sort_reply", "sunion", "test", "test1")
     sdiff = cluster.execute("raft._sort_reply", "sdiff", "test", "test1")
-    smembers = cluster.execute("raft._sort_reply", "smembers", "test")
+    smembers1 = cluster.execute("raft._sort_reply", "smembers", "test")
+    smembers2 = cluster.execute("raft._sort_reply", "smembers", "test1")
 
-    assert len(sinter) == 500
+    assert len(smembers1) == 1000
+    assert len(smembers2) == 500
     assert len(sunion) == 1000
+    assert len(sinter) == 500
     assert len(sdiff) == 500
-    assert len(smembers) == 1000
 
     old_val = ""
     for i in range(0, len(sinter)):
@@ -348,8 +350,8 @@ def test_raft_sort_sets(cluster):
         old_val = k
 
     old_val = ""
-    for i in range(0, len(smembers)):
-        k = smembers[i]
+    for i in range(0, len(smembers1)):
+        k = smembers1[i]
         if old_val == "":
             old_val = k
             continue
