@@ -191,7 +191,8 @@ typedef enum KeysStatus{
 } KeysStatus;
 
 KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
-    KeysStatus ret = NoKeys;
+    int total_keys = 0;
+    int found = 0;
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
@@ -199,28 +200,24 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
         /* Iterate command keys */
         int num_keys = 0;
         int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
+        total_keys += num_keys;
+
         for (int j = 0; j < num_keys; j++) {
-            int exist = RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]]);
-            if (exist) {
-                if (ret == NoKeys) {
-                    ret = AllExist;
-                } else if (ret == NoneExist) {
-                    RedisModule_Free(keyindex);
-                    return SomeExist;
-                }
-            } else {
-                if (ret == NoKeys) {
-                    ret = NoneExist;
-                } else if (ret == AllExist) {
-                    RedisModule_Free(keyindex);
-                    return SomeExist;
-                }
-            }
+            found += RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]]);
         }
         RedisModule_Free(keyindex);
+
+        /* shortcut as we know the result is now SomeExist */
+        if (found != 0 && found != total_keys) {
+            return SomeExist;
+        }
     }
 
-    return ret;
+    if (found != total_keys) {
+        return (found == 0) ? NoneExist : SomeExist;
+    }
+
+    return (total_keys == 0) ? NoKeys : AllExist;
 }
 
 RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, RedisModuleCtx *reply_ctx) {
