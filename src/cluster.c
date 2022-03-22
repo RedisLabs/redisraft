@@ -66,24 +66,23 @@ char *ShardGroupSerialize(ShardGroup *sg)
             (SHARDGROUPNODE_MAXLEN * sg->nodes_num) + 1 +
             (SLOT_RANGE_MAXLEN * sg->slot_ranges_num) + 1;
     char *buf = RedisModule_Calloc(1, buf_size);
-    char *p = buf;
 
     /* shard group id */
-    p = catsnprintf(p, &buf_size, "%s\n", sg->id);
+    buf = catsnprintf(buf, &buf_size, "%s\n", sg->id);
 
     /* number of slot ranges and nodes */
-    p = catsnprintf(p, &buf_size, "%u\n%u\n", sg->slot_ranges_num, sg->nodes_num);
+    buf = catsnprintf(buf, &buf_size, "%u\n%u\n", sg->slot_ranges_num, sg->nodes_num);
 
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         /* individual slot ranges */
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        p = catsnprintf(p, &buf_size, "%u\n%u\n%u\n", sr->start_slot, sr->end_slot, sr->type);
+        buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n", sr->start_slot, sr->end_slot, sr->type);
     }
 
     for (unsigned int i = 0; i < sg->nodes_num; i++) {
         /* individual nodes */
         NodeAddr *addr = &sg->nodes[i].addr;
-        p = catsnprintf(p, &buf_size, "%s\n%s:%d\n", sg->nodes[i].node_id, addr->host, addr->port);
+        buf = catsnprintf(buf, &buf_size, "%s\n%s:%d\n", sg->nodes[i].node_id, addr->host, addr->port);
     }
 
     return buf;
@@ -1495,6 +1494,10 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
          * with a synthetic client that no longer has the original argv.
          */
         RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
+        goto exit;
+    }
+
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
         goto exit;
     }
 

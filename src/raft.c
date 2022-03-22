@@ -17,21 +17,20 @@
 #include "redisraft.h"
 
 const char *RaftReqTypeStr[] = {
-    "<undef>",
-    "RR_CLUSTER_INIT",
-    "RR_CLUSTER_JOIN",
-    "RR_CFGCHANGE_ADDNODE",
-    "RR_CFGCHANGE_REMOVENODE",
-    "RR_APPENDENTRIES",
-    "RR_REDISCOMMAND",
-    "RR_INFO",
-    "RR_DEBUG",
-    "RR_CLIENT_DISCONNECT",
-    "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUPS_REPLACE",
-    "RR_SHARDGROUP_LINK",
-    "RR_NODE_SHUTDOWN",
-    "RR_TRANSFER_LEADER"
+    [0]                       = "<undef>",
+    [RR_CLUSTER_INIT]         = "RR_CLUSTER_INIT",
+    [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
+    [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
+    [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
+    [RR_APPENDENTRIES]        = "RR_APPENDENTRIES",
+    [RR_REDISCOMMAND]         = "RR_REDISCOMMAND",
+    [RR_INFO]                 = "RR_INFO",
+    [RR_DEBUG]                = "RR_DEBUG",
+    [RR_CLIENT_DISCONNECT]    = "RR_CLIENT_DISCONNECT",
+    [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
+    [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
+    [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
 };
 
 /* Forward declarations */
@@ -1571,25 +1570,20 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
  */
-
 static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 {
-    const char _cmd_cluster[] = "CLUSTER";
-    const char _cmd_info[] = "INFO";
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+    size_t len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
 
-    if (cmd_len == sizeof(_cmd_cluster) - 1 &&
-        !strncasecmp(cmd_str, _cmd_cluster, sizeof(_cmd_cluster) - 1)) {
-            handleClusterCommand(rr, req);
-            return true;
+    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
+        handleClusterCommand(rr, req);
+        return true;
     }
 
-    if (cmd_len == sizeof(_cmd_info) - 1 &&
-        !strncasecmp(cmd_str, _cmd_info, sizeof(_cmd_info) - 1)) {
-            handleInfoCommand(rr, req);
-            return true;
+    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
+        handleInfoCommand(rr, req);
+        return true;
     }
 
     return false;
@@ -1656,18 +1650,18 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         }
     }
 
-    /* Check that we're part of a boostrapped cluster and not in the middle of joining
-     * or loading data.
-     */
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
     /* Handle intercepted commands. We do this also on non-leader nodes or if we don't
      * have a leader, so it's up to the commands to check these conditions if they have to.
      */
     if (handleInterceptedCommands(rr, req)) {
         return;
+    }
+
+    /* Check that we're part of a boostrapped cluster and not in the middle of
+     * joining or loading data.
+     */
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
+        goto exit;
     }
 
     /* When we're in cluster mode, go through handleSharding. This will perform
@@ -2047,18 +2041,6 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
 
         entry->user_data = NULL;
     }
-}
-
-void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
-        LOG_ERROR("Received invalid nodeshutdown message with id : %d.",
-                  req->r.node_shutdown.id);
-        return;
-    }
-
-    RaftReqFree(req);
-    shutdownAfterRemoval(rr);
 }
 
 /* Callback for fsync thread. This will be triggerred by fsync thread but will

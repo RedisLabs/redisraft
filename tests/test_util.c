@@ -16,6 +16,13 @@
 
 #include "../src/redisraft.h"
 
+static void test_raftreq_str(void **state)
+{
+    for (int i = 1; i < RR_RAFTREQ_MAX; i++) {
+        assert_ptr_not_equal(RaftReqTypeStr[i], NULL);
+    }
+}
+
 static void test_memory_conversion(void **state)
 {
     unsigned long val;
@@ -124,6 +131,7 @@ static void test_redis_info_iterate(void **state)
 }
 
 const struct CMUnitTest util_tests[] = {
+    cmocka_unit_test(test_raftreq_str),
     cmocka_unit_test(test_redis_info_iterate),
     cmocka_unit_test(test_memory_conversion),
     { .test_func = NULL }
