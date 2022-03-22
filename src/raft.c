@@ -19,21 +19,21 @@
 #define RAFTLIB_TRACE(fmt, ...) TRACE_MODULE(RAFTLIB, fmt, ##__VA_ARGS__)
 
 const char *RaftReqTypeStr[] = {
-    "<undef>",
-    "RR_CLUSTER_INIT",
-    "RR_CLUSTER_JOIN",
-    "RR_CFGCHANGE_ADDNODE",
-    "RR_CFGCHANGE_REMOVENODE",
-    "RR_APPENDENTRIES",
-    "RR_REDISCOMMAND",
-    "RR_INFO",
-    "RR_COMPACT",
-    "RR_CLIENT_DISCONNECT",
-    "RR_SHARDGROUP_ADD",
-    "RR_SHARDGROUP_UPDATE",
-    "RR_SHARDGROUP_GET",
-    "RR_SHARDGROUP_LINK",
-    "RR_TRANSFER_LEADER"
+    [0]                       = "<undef>",
+    [RR_CLUSTER_INIT]         = "RR_CLUSTER_INIT",
+    [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
+    [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
+    [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
+    [RR_APPENDENTRIES]        = "RR_APPENDENTRIES",
+    [RR_REDISCOMMAND]         = "RR_REDISCOMMAND",
+    [RR_INFO]                 = "RR_INFO",
+    [RR_DEBUG]                = "RR_DEBUG",
+    [RR_CLIENT_DISCONNECT]    = "RR_CLIENT_DISCONNECT",
+    [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
+    [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
+    [RR_SHARDGROUP_GET]       = "RR_SHARDGROUP_GET",
+    [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
 };
 
 /* Forward declarations */
@@ -2178,18 +2178,6 @@ void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplySetArrayLength(req->ctx, node_count);
 exit:
     RaftReqFree(req);
-}
-
-void handleNodeShutdown(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (req->r.node_shutdown.id != raft_get_nodeid(rr->raft)) {
-        LOG_WARNING("Received invalid nodeshutdown message with id : %d.",
-                    req->r.node_shutdown.id);
-        return;
-    }
-
-    RaftReqFree(req);
-    shutdownAfterRemoval(rr);
 }
 
 /* Callback for fsync thread. This will be triggerred by fsync thread but will

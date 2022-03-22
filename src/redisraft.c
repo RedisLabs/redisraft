@@ -976,16 +976,12 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
 
     long long node_id;
     if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
-        (node_id && !VALID_NODE_ID(node_id))) {
+        node_id != rr->config->id) {
         RedisModule_ReplyWithError(ctx, "invalid node id");
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_NODE_SHUTDOWN);
-    req->r.node_shutdown.id = (raft_node_id_t) node_id;
-
-    handleNodeShutdown(rr, req);
-
+    shutdownAfterRemoval(rr);
     return REDISMODULE_OK;
 }
 

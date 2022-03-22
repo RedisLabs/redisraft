@@ -306,3 +306,11 @@ def test_transfer_unexpected(cluster):
     Thread(target=timeout, daemon=True).start()
     with raises(ResponseError, match="different node elected leader"):
         cluster.leader_node().transfer_leader(2)
+
+
+def test_nodeshutdown_wrong_id(cluster):
+    cluster.create(1, raft_args={'election-timeout': '10000'})
+
+    with raises(ResponseError, match='invalid node id'):
+        cluster.node(1).client.execute_command('RAFT.NODESHUTDOWN', 51423122)
+

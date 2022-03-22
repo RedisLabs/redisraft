@@ -1487,6 +1487,10 @@ void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
+        goto exit;
+    }
+
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
