@@ -20,7 +20,6 @@
 
 const char *RaftReqTypeStr[] = {
     [0]                       = "<undef>",
-    [RR_CLUSTER_INIT]         = "RR_CLUSTER_INIT",
     [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
     [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
     [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
@@ -36,7 +35,6 @@ const char *RaftReqTypeStr[] = {
 };
 
 /* Forward declarations */
-static void initRaftLibrary(RedisRaftCtx *rr);
 static void configureFromSnapshot(RedisRaftCtx *rr);
 static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
 static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry);
@@ -892,13 +890,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
             AddBasicLocalShardGroup(rr);
         }
 
-        initRaftLibrary(rr);
-
-        raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
-        if (!self) {
-            PANIC("Failed to create local Raft node [id %d]", rr->config->id);
-        }
-
+        RaftLibraryInit(rr, false);
         initSnapshotTransferData(rr);
 
         if (rr->snapshot_info.loaded) {
@@ -996,26 +988,6 @@ void callHandleNodeStates(RedisModuleCtx *ctx, void *arg)
     HandleNodeStates(rr);
 }
 
-static int appendRaftCfgChangeEntry(RedisRaftCtx *rr, int type, int id, NodeAddr *addr)
-{
-
-    raft_entry_t *ety = raft_entry_new(sizeof(RaftCfgChange));
-    RaftCfgChange *cfgchange = (RaftCfgChange *) ety->data;
-
-    cfgchange->id = id;
-    if (addr != NULL) {
-        cfgchange->addr = *addr;
-    }
-
-    ety->id = rand();
-    ety->type = type;
-
-    RaftLogImpl.append(rr, ety);
-    raft_entry_release(ety);
-
-    return 0;
-}
-
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
 {
     unsigned int tmp;
@@ -1033,73 +1005,6 @@ raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr)
     } while (!id || (rr->raft && raft_get_node(rr->raft, id) != NULL) || hasNodeIdBeenUsed(rr, id));
 
     return id;
-}
-
-RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
-{
-    rr->log = RaftLogCreate(rr->config->raft_log_filename,
-                            rr->snapshot_info.dbid, 1, 0, rr->config);
-    if (!rr->log) {
-        LOG_WARNING("Failed to initialize Raft log");
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-}
-
-RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config, char *id)
-{
-    /* Initialize dbid */
-    memcpy(rr->snapshot_info.dbid, id, RAFT_DBID_LEN);
-    rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
-
-    /* This is the first node, so there are no used node ids yet */
-    rr->snapshot_info.used_node_ids = NULL;
-
-    /* If node id was not specified, make up one */
-    if (!config->id) {
-        config->id = makeRandomNodeId(rr);
-    }
-
-    addUsedNodeId(rr, config->id);
-
-    /* Initialize log */
-    if (initRaftLog(ctx, rr) == RR_ERROR) {
-        return RR_ERROR;
-    }
-
-    AddBasicLocalShardGroup(rr);
-
-    initRaftLibrary(rr);
-
-    /* Create our own node */
-    raft_node_t *self = raft_add_node(rr->raft, NULL, config->id, 1);
-    if (!self) {
-        LOG_WARNING("Failed to initialize raft_node");
-        return RR_ERROR;
-    }
-
-    initSnapshotTransferData(rr);
-
-    /* Become leader and create initial entry */
-    rr->state = REDIS_RAFT_UP;
-    raft_set_current_term(rr->raft, 1);
-    raft_become_leader(rr->raft);
-
-    /* We need to create the first add node entry.  Because we don't have
-     * callbacks set yet, we also need to manually push this in our log
-     * as well.
-     *
-     * In the future it could be nicer to have callbacks already set and this
-     * be done automatically (but some other raft lib fixes would be required).
-     */
-
-    if (appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) != 0) {
-        LOG_WARNING("Failed to append initial configuration entry");
-        return RR_ERROR;
-    }
-
-    return RR_OK;
 }
 
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id) {
@@ -1147,12 +1052,15 @@ RRStatus loadRaftLog(RedisRaftCtx *rr)
     return RR_OK;
 }
 
-static void initRaftLibrary(RedisRaftCtx *rr)
+void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 {
+    raft_node_t *node;
+
     rr->raft = raft_new_with_log(&RaftLogImpl, rr);
     if (!rr->raft) {
         PANIC("Failed to initialize Raft library");
     }
+
     raft_set_election_timeout(rr->raft, rr->config->election_timeout);
     raft_set_request_timeout(rr->raft, rr->config->request_timeout);
 
@@ -1163,6 +1071,37 @@ static void initRaftLibrary(RedisRaftCtx *rr)
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
     raft_set_auto_flush(rr->raft, 0);
+
+    node = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
+    if (!node) {
+        PANIC("Failed to create local Raft node [id %d]", rr->config->id);
+    }
+
+    if (cluster_init) {
+        if (raft_set_current_term(rr->raft, 1) != 0 ||
+            raft_become_leader(rr->raft) != 0) {
+            PANIC("Failed to init raft library");
+        }
+
+        RaftCfgChange cfg = {
+            .id = rr->config->id,
+            .addr = rr->config->addr
+        };
+
+        msg_entry_response_t resp = {0};
+        msg_entry_t *ety = raft_entry_new(sizeof(cfg));
+
+        ety->id = rand();
+        ety->type = RAFT_LOGTYPE_ADD_NODE;
+        memcpy(ety->data, &cfg, sizeof(cfg));
+
+        if (raft_recv_entry(rr->raft, ety, &resp) != 0) {
+            PANIC("Failed to init raft library");
+        }
+        raft_entry_release(ety);
+    }
+
+    rr->state = REDIS_RAFT_UP;
 }
 
 static void configureFromSnapshot(RedisRaftCtx *rr)
@@ -1270,9 +1209,6 @@ void RaftReqFree(RaftReq *req)
                 RaftRedisCommandArrayFree(&req->r.redis.cmds);
             }
             // TODO: hold a reference from entry so we can disconnect our req
-            break;
-        case RR_CLUSTER_JOIN:
-            NodeAddrListFree(req->r.cluster_join.addr);
             break;
     }
     if (req->ctx) {
@@ -1863,64 +1799,6 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);
 
-    RaftReqFree(req);
-}
-
-void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
-{
-    if (checkRaftNotLoading(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
-        goto exit;
-    }
-
-    if (initCluster(req->ctx, rr, rr->config, req->r.cluster_init.id) == RR_ERROR) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Failed to initialize, check logs");
-        goto exit;
-    }
-
-    char reply[RAFT_DBID_LEN+5];
-    snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
-
-    rr->state = REDIS_RAFT_UP;
-    RedisModule_ReplyWithSimpleString(req->ctx, reply);
-
-    LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s", rr->config->id, rr->snapshot_info.dbid);
-exit:
-    RaftReqFree(req);
-}
-
-void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *req)
-{
-    /* Initialize Raft log.  We delay this operation as we want to create the log
-     * with the proper dbid which is only received now.
-     */
-
-    rr->log = RaftLogCreate(rr->config->raft_log_filename, rr->snapshot_info.dbid,
-            rr->snapshot_info.last_applied_term, rr->snapshot_info.last_applied_idx,
-            rr->config);
-    if (!rr->log) {
-        PANIC("Failed to initialize Raft log");
-    }
-
-    AddBasicLocalShardGroup(rr);
-
-    initRaftLibrary(rr);
-
-    /* Create our own node */
-    raft_node_t *self = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
-    if (!self) {
-        PANIC("Failed to initialize raft_node");
-    }
-
-    initSnapshotTransferData(rr);
-
-    rr->state = REDIS_RAFT_UP;
-
-    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     RaftReqFree(req);
 }
 

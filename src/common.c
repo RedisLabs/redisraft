@@ -143,6 +143,15 @@ RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     return RR_OK;
 }
 
+RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        RedisModule_ReplyWithError(ctx, "ERR Already cluster member");
+        return RR_ERROR;
+    }
+    return RR_OK;
+}
+
 /* Check that we're in a REDIS_RAFT_UP state.  If not, reply with an appropriate
  * error code and return an error.
  */
