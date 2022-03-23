@@ -37,8 +37,8 @@ void initSnapshotTransferData(RedisRaftCtx *ctx)
     /* Delete if there is a partial incoming snapshot file from previous run */
     int ret = unlink(ctx->incoming_snapshot_file);
     if (ret != 0 && errno != ENOENT) {
-        LOG_ERROR("Unlink file:%s, error :%s \n", ctx->incoming_snapshot_file,
-                  strerror(errno));
+        LOG_WARNING("Unlink file:%s, error :%s \n", ctx->incoming_snapshot_file,
+                    strerror(errno));
     }
 }
 
@@ -129,23 +129,23 @@ int raftStoreSnapshotChunk(raft_server_t* raft, void *user_data,
 
     int fd = open(rr->incoming_snapshot_file, flags, S_IWUSR | S_IRUSR);
     if (fd == -1) {
-        LOG_ERROR("open file:%s, error:%s \n", rr->incoming_snapshot_file,
-                  strerror(errno));
+        LOG_WARNING("open file:%s, error:%s \n", rr->incoming_snapshot_file,
+                    strerror(errno));
         return -1;
     }
 
     off_t ret_offset = lseek(fd, offset, SEEK_CUR);
     if (ret_offset != offset) {
-        LOG_ERROR("lseek file:%s, error:%s \n", rr->incoming_snapshot_file,
-                  strerror(errno));
+        LOG_WARNING("lseek file:%s, error:%s \n", rr->incoming_snapshot_file,
+                    strerror(errno));
         close(fd);
         return -1;
     }
 
     size_t len = write(fd, chunk->data, chunk->len);
     if (len != chunk->len) {
-        LOG_ERROR("write, written : %zu, chunk len : %llu, err :%s \n", len,
-                  chunk->len, strerror(errno));
+        LOG_WARNING("write, written: %zu, chunk len : %llu, err :%s \n", len,
+                    chunk->len, strerror(errno));
         close(fd);
         return -1;
     }
@@ -160,8 +160,8 @@ int raftClearSnapshot(raft_server_t* raft, void *user_data)
 
     int ret = unlink(rr->incoming_snapshot_file);
     if (ret != 0 && errno != ENOENT) {
-        LOG_ERROR("Unlink file:%s, error :%s \n", rr->incoming_snapshot_file,
-                  strerror(errno));
+        LOG_WARNING("Unlink file:%s, error :%s \n", rr->incoming_snapshot_file,
+                    strerror(errno));
     }
 
     return 0;
@@ -255,7 +255,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     assert(rr->snapshot_in_progress);
 
-    TRACE("Finalizing snapshot.");
+    LOG_DEBUG("Finalizing snapshot.");
 
     /* Rewrite any additional log entries beyond the snapshot to a new
      * log file.
@@ -265,7 +265,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
     if (!new_log) {
-        LOG_ERROR("Failed to open log after rewrite: %s", strerror(errno));
+        LOG_WARNING("Failed to open log after rewrite: %s", strerror(errno));
         cancelSnapshot(rr, sr);
         return -1;
     }
@@ -280,8 +280,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      */
 
     if (rename(sr->rdb_filename, rr->config->rdb_filename) < 0) {
-        LOG_ERROR("Failed to switch snapshot filename (%s to %s): %s",
-                sr->rdb_filename, rr->config->rdb_filename, strerror(errno));
+        LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
+                    sr->rdb_filename, rr->config->rdb_filename, strerror(errno));
         RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
         return -1;
@@ -316,18 +316,18 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
             return 0;
         }
 
-        LOG_ERROR("Failed to read snapshot result from child process: %s", strerror(errno));
+        LOG_WARNING("Failed to read snapshot result from child process: %s", strerror(errno));
         goto exit;
     }
 
     if (sr->magic != SNAPSHOT_RESULT_MAGIC) {
-        LOG_ERROR("Corrupted snapshot result (magic=%08x)", sr->magic);
+        LOG_WARNING("Corrupted snapshot result (magic=%08x)", sr->magic);
         ret = -1;
         goto exit;
     }
 
     if (!sr->success) {
-        LOG_ERROR("Snapshot failed: %s", sr->err);
+        LOG_WARNING("Snapshot failed: %s", sr->err);
         ret = -1;
         goto exit;
     }
@@ -392,14 +392,14 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     int snapshot_fds[2];    /* [0] our side, [1] child's side */
     if (pipe(snapshot_fds) < 0) {
-        LOG_ERROR("Failed to create snapshot child pipe: %s", strerror(errno));
+        LOG_WARNING("Failed to create snapshot child pipe: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     }
 
     rr->snapshot_child_fd = snapshot_fds[0];
     if (fcntl(rr->snapshot_child_fd, F_SETFL, O_NONBLOCK) < 0) {
-        LOG_ERROR("Failed to prepare child pipe: %s", strerror(errno));
+        LOG_WARNING("Failed to prepare child pipe: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     }
@@ -415,7 +415,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     pid_t child = RedisModule_Fork(NULL, NULL);
     if (child < 0) {
-        LOG_ERROR("Failed to fork snapshot child: %s", strerror(errno));
+        LOG_WARNING("Failed to fork snapshot child: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
         return RR_ERROR;
     } else if (!child) {
@@ -548,8 +548,8 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
     ret = rename(rr->incoming_snapshot_file, rr->config->rdb_filename);
     if (ret != 0) {
-        LOG_ERROR("rename : %s to %s failed with error : %s \n",
-                  rr->incoming_snapshot_file, rr->config->rdb_filename, strerror(errno));
+        LOG_WARNING("rename(): %s to %s failed with error : %s \n",
+                    rr->incoming_snapshot_file, rr->config->rdb_filename, strerror(errno));
         return -1;
     }
 
@@ -746,7 +746,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
         reply->element[2]->type != REDIS_REPLY_INTEGER ||
         reply->element[3]->type != REDIS_REPLY_INTEGER ||
         reply->element[4]->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_ERROR(node, "invalid RAFT.LOADSNAPSHOT reply");
+        NODE_LOG_WARNING(node, "invalid RAFT.LOADSNAPSHOT reply");
         return;
     }
 
@@ -766,7 +766,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
 
     int ret;
     if ((ret = raft_recv_snapshot_response(rr->raft, raft_node, &response)) != 0) {
-        TRACE("raft_recv_snapshot_response failed, error %d", ret);
+        LOG_DEBUG("raft_recv_snapshot_response failed, error %d", ret);
     }
 }
 

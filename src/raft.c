@@ -16,6 +16,8 @@
 
 #include "redisraft.h"
 
+#define RAFTLIB_TRACE(fmt, ...) TRACE_MODULE(RAFTLIB, fmt, ##__VA_ARGS__)
+
 const char *RaftReqTypeStr[] = {
     [0]                       = "<undef>",
     [RR_CLUSTER_INIT]         = "RR_CLUSTER_INIT",
@@ -46,7 +48,7 @@ static RedisModuleDict *multiClientState = NULL;
 
 void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
-    LOG_INFO("*** NODE REMOVED, SHUTTING DOWN.");
+    LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
     if (rr->config->raft_log_filename) {
         RaftLogArchiveFiles(rr);
@@ -268,7 +270,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
             reply->element[1]->type != REDIS_REPLY_INTEGER ||
             reply->element[2]->type != REDIS_REPLY_INTEGER ||
             reply->element[3]->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_ERROR(node, "invalid RAFT.REQUESTVOTE reply");
+        NODE_LOG_WARNING(node, "invalid RAFT.REQUESTVOTE reply");
         return;
     }
 
@@ -290,7 +292,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
             rr->raft,
             raft_node,
             &response)) != 0) {
-        TRACE("raft_recv_requestvote_response failed, error %d", ret);
+        LOG_DEBUG("raft_recv_requestvote_response failed, error %d", ret);
     }
 }
 
@@ -348,7 +350,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
             reply->element[1]->type != REDIS_REPLY_INTEGER ||
             reply->element[2]->type != REDIS_REPLY_INTEGER ||
             reply->element[3]->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_ERROR(node, "invalid RAFT.AE reply");
+        NODE_LOG_WARNING(node, "invalid RAFT.AE reply");
         return;
     }
 
@@ -460,7 +462,7 @@ static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privda
     }
 
     if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str)) {
-        NODE_LOG_ERROR(node, "invalid RAFT.TIMEOUT_NOW reply");
+        NODE_LOG_WARNING(node, "invalid RAFT.TIMEOUT_NOW reply");
         return;
     }
 }
@@ -495,7 +497,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
 
     if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
                       raft_get_current_term(raft), vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftMetaWrite()");
+        LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -511,7 +513,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
 
     if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
                       term, vote) != RR_OK) {
-        LOG_ERROR("ERROR: RaftMetaWrite()");
+        LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
     }
 
@@ -582,11 +584,11 @@ static void raftLog(raft_server_t *raft, raft_node_id_t node, void *user_data, c
     if (raft_node) {
         Node *n = raft_node_get_udata(raft_node);
         if (n) {
-            NODE_TRACE(n, "<raftlib> %s", buf);
+            RAFTLIB_TRACE("<raftlib> node{%p,%d}: %s", n, n->id, buf);
             return;
         }
     }
-    TRACE("<raftlib> %s", buf);
+    RAFTLIB_TRACE("<raftlib> %s", buf);
 }
 
 static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data, raft_entry_t *entry,
@@ -620,7 +622,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     Node *node = raft_node_get_udata(raft_node);
     assert (node != NULL);
 
-    TRACE("node:%d has sufficient logs now, adding as voting node.", node->id);
+    LOG_DEBUG("node:%d has sufficient logs, adding as voting node.", node->id);
 
     raft_entry_t *entry = raft_entry_new(sizeof(RaftCfgChange));
     entry->id = rand();
@@ -731,27 +733,27 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
 {
     switch (state) {
         case RAFT_STATE_FOLLOWER:
-            LOG_INFO("State change: Node is now a follower, term %ld",
-                    raft_get_current_term(raft));
+            LOG_NOTICE("State change: Node is now a follower, term %ld",
+                       raft_get_current_term(raft));
             break;
         case RAFT_STATE_PRECANDIDATE:
-            LOG_INFO("State change: Election starting, node is now a pre-candidate, term %ld",
-                     raft_get_current_term(raft));
+            LOG_NOTICE("State change: Election starting, node is now a pre-candidate, term %ld",
+                       raft_get_current_term(raft));
             break;
         case RAFT_STATE_CANDIDATE:
-            LOG_INFO("State change: Node is now a candidate, term %ld",
-                    raft_get_current_term(raft));
+            LOG_NOTICE("State change: Node is now a candidate, term %ld",
+                       raft_get_current_term(raft));
             break;
         case RAFT_STATE_LEADER:
-            LOG_INFO("State change: Node is now a leader, term %ld",
-                    raft_get_current_term(raft));
+            LOG_NOTICE("State change: Node is now a leader, term %ld",
+                       raft_get_current_term(raft));
             break;
         default:
             break;
     }
 
     char *s = raftMembershipInfoString(raft);
-    LOG_INFO("Cluster Membership: %s", s);
+    LOG_NOTICE("Cluster Membership: %s", s);
     RedisModule_Free(s);
 }
 
@@ -843,11 +845,11 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     raft_set_current_term(rr->raft, rr->meta.term);
     raft_vote_for_nodeid(rr->raft, rr->meta.vote);
 
-    LOG_INFO("Raft Meta: loaded current term=%lu, vote=%d", rr->meta.term, rr->meta.vote);
-    LOG_INFO("Raft state after applying log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
-            raft_get_log_count(rr->raft),
-            raft_get_current_idx(rr->raft),
-            raft_get_last_applied_idx(rr->raft));
+    LOG_NOTICE("Raft Meta: loaded current term=%lu, vote=%d", rr->meta.term, rr->meta.vote);
+    LOG_NOTICE("Raft state after applying log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
+               raft_get_log_count(rr->raft),
+               raft_get_current_idx(rr->raft),
+               raft_get_last_applied_idx(rr->raft));
 
     return RR_OK;
 }
@@ -871,7 +873,7 @@ static void handleLoadingState(RedisRaftCtx *rr)
         /* If Redis loaded a snapshot (RDB), log some information and configure the
          * raft library as necessary.
          */
-        LOG_INFO("Loading: Redis loading complete, snapshot %s",
+        LOG_NOTICE("Loading: Redis loading complete, snapshot %s",
                 rr->snapshot_info.loaded ? "LOADED" : "NOT LOADED");
 
         /* If id is configured, confirm the log matches.  If not, we set it from
@@ -906,10 +908,10 @@ static void handleLoadingState(RedisRaftCtx *rr)
 
         if (loadRaftLog(rr) == RR_OK) {
             if (rr->log->snapshot_last_term) {
-                LOG_INFO("Loading: Log starts from snapshot term=%lu, index=%lu",
-                        rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
+                LOG_NOTICE("Loading: Log starts from snapshot term=%lu, index=%lu",
+                           rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
             } else {
-                LOG_INFO("Loading: Log is complete.");
+                LOG_NOTICE("Loading: Log is complete.");
             }
 
             applyLoadedRaftLog(rr);
@@ -946,7 +948,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
 
         ret = pollSnapshotStatus(rr, &sr);
         if (ret == -1) {
-            LOG_ERROR("Snapshot operation failed, cancelling.");
+            LOG_WARNING("Snapshot operation failed, cancelling.");
             cancelSnapshot(rr, &sr);
         }  else if (ret) {
             LOG_DEBUG("Snapshot operation completed successfully.");
@@ -1038,7 +1040,7 @@ RRStatus initRaftLog(RedisModuleCtx *ctx, RedisRaftCtx *rr)
     rr->log = RaftLogCreate(rr->config->raft_log_filename,
                             rr->snapshot_info.dbid, 1, 0, rr->config);
     if (!rr->log) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize Raft log");
+        LOG_WARNING("Failed to initialize Raft log");
         return RR_ERROR;
     }
 
@@ -1073,7 +1075,7 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
     /* Create our own node */
     raft_node_t *self = raft_add_node(rr->raft, NULL, config->id, 1);
     if (!self) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize raft_node");
+        LOG_WARNING("Failed to initialize raft_node");
         return RR_ERROR;
     }
 
@@ -1093,7 +1095,7 @@ RRStatus initCluster(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *con
      */
 
     if (appendRaftCfgChangeEntry(rr, RAFT_LOGTYPE_ADD_NODE, config->id, &config->addr) != 0) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to append initial configuration entry");
+        LOG_WARNING("Failed to append initial configuration entry");
         return RR_ERROR;
     }
 
@@ -1135,11 +1137,11 @@ RRStatus loadRaftLog(RedisRaftCtx *rr)
 {
     int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr);
     if (entries < 0) {
-        LOG_ERROR("Failed to read Raft log");
+        LOG_WARNING("Failed to read Raft log");
         return RR_ERROR;
     } else {
-        LOG_INFO("Loading: Log loaded, %d entries, snapshot last term=%lu, index=%lu",
-               entries, rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
+        LOG_NOTICE("Loading: Log loaded, %d entries, snapshot last term=%lu, index=%lu",
+                   entries, rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
     }
 
     return RR_OK;
@@ -1155,7 +1157,7 @@ static void initRaftLibrary(RedisRaftCtx *rr)
     raft_set_request_timeout(rr->raft, rr->config->request_timeout);
 
     // To avoid performance hit, get library logs only if log level is debug
-    if (redis_raft_loglevel != LOGLEVEL_DEBUG) {
+    if (redis_raft_loglevel != LOG_LEVEL_DEBUG) {
         redis_raft_callbacks.log = NULL;
     }
 
@@ -1167,13 +1169,13 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
 {
     SnapshotCfgEntry *c;
 
-    LOG_INFO("Loading: Snapshot: applied term=%lu index=%lu",
-            rr->snapshot_info.last_applied_term,
-            rr->snapshot_info.last_applied_idx);
+    LOG_NOTICE("Loading: Snapshot: applied term=%lu index=%lu",
+               rr->snapshot_info.last_applied_term,
+               rr->snapshot_info.last_applied_idx);
 
     for (c = rr->snapshot_info.cfg; c != NULL; c = c->next) {
-        LOG_INFO("Loading: Snapshot config: node id=%u [%s:%u], voting=%u",
-                c->id, c->addr.host, c->addr.port, c->voting);
+        LOG_NOTICE("Loading: Snapshot config: node id=%u [%s:%u], voting=%u",
+                   c->id, c->addr.host, c->addr.port, c->voting);
     }
 
     /* Load configuration loaded from the snapshot into Raft library.
@@ -1243,7 +1245,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
 void RaftReqFree(RaftReq *req)
 {
-    TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p", req, req->ctx, req->client);
+    TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p",
+          req, req->ctx, req->client);
 
     switch (req->type) {
         case RR_APPENDENTRIES:
@@ -1289,7 +1292,7 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
     req->type = type;
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
-            req, RaftReqTypeStr[req->type], req->client, req->ctx);
+          req, RaftReqTypeStr[req->type], req->client, req->ctx);
 
     return req;
 }
@@ -1303,7 +1306,7 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
 {
     if (!redis_raft.transfer_req) {
-        LOG_ERROR("leader transfer update: but no req to correlate it to!");
+        LOG_WARNING("leader transfer update: but no req to correlate it to!");
         return;
     }
 
@@ -1570,20 +1573,25 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
  */
+
 static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
 {
+    const char _cmd_cluster[] = "CLUSTER";
+    const char _cmd_info[] = "INFO";
     RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-    size_t len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
 
-    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
-        handleClusterCommand(rr, req);
-        return true;
+    if (cmd_len == sizeof(_cmd_cluster) - 1 &&
+        !strncasecmp(cmd_str, _cmd_cluster, sizeof(_cmd_cluster) - 1)) {
+            handleClusterCommand(rr, req);
+            return true;
     }
 
-    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
-        handleInfoCommand(rr, req);
-        return true;
+    if (cmd_len == sizeof(_cmd_info) - 1 &&
+        !strncasecmp(cmd_str, _cmd_info, sizeof(_cmd_info) - 1)) {
+            handleInfoCommand(rr, req);
+            return true;
     }
 
     return false;
@@ -1650,18 +1658,18 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         }
     }
 
+    /* Check that we're part of a boostrapped cluster and not in the middle of joining
+     * or loading data.
+     */
+    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
+        goto exit;
+    }
+
     /* Handle intercepted commands. We do this also on non-leader nodes or if we don't
      * have a leader, so it's up to the commands to check these conditions if they have to.
      */
     if (handleInterceptedCommands(rr, req)) {
         return;
-    }
-
-    /* Check that we're part of a boostrapped cluster and not in the middle of
-     * joining or loading data.
-     */
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
     }
 
     /* When we're in cluster mode, go through handleSharding. This will perform
@@ -1880,7 +1888,7 @@ void handleClusterInit(RedisRaftCtx *rr, RaftReq *req)
     rr->state = REDIS_RAFT_UP;
     RedisModule_ReplyWithSimpleString(req->ctx, reply);
 
-    LOG_INFO("Raft Cluster initialized, node id: %d, dbid: %s", rr->config->id, rr->snapshot_info.dbid);
+    LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s", rr->config->id, rr->snapshot_info.dbid);
 exit:
     RaftReqFree(req);
 }
@@ -1937,19 +1945,19 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
     ShardGroup *sg;
 
     if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
-        LOG_ERROR("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
-                entry->data_len, entry->data);
+        LOG_WARNING("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
+                    entry->data_len, entry->data);
         return;
     }
 
     switch (entry->type) {
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
             if ((ret = ShardingInfoAddShardGroup(rr, sg)) != RR_OK)
-                LOG_ERROR("Failed to add a shardgroup");
+                LOG_WARNING("Failed to add a shardgroup");
             break;
         case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
             if ((ret = ShardingInfoUpdateShardGroup(rr, sg)) != RR_OK)
-                LOG_ERROR("Failed to update shardgroup");
+                LOG_WARNING("Failed to update shardgroup");
             break;
         default:
             PANIC("Unknown entry type %d", entry->type);
@@ -2019,7 +2027,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
 
         ShardGroup *sg;
         if ((sg = ShardGroupDeserialize(payload, payload_len)) == NULL) {
-            LOG_ERROR("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
+            LOG_WARNING("Failed to deserialize shardgroup payload: [%.*s]", (int) payload_len, payload);
             return;
         }
 

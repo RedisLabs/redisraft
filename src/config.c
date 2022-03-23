@@ -40,6 +40,7 @@ static const char *CONF_RAFT_LOG_FSYNC = "raft-log-fsync";
 static const char *CONF_FOLLOWER_PROXY = "follower-proxy";
 static const char *CONF_QUORUM_READS = "quorum-reads";
 static const char *CONF_LOGLEVEL = "loglevel";
+static const char *CONF_TRACE = "trace";
 static const char *CONF_SHARDING = "sharding";
 static const char *CONF_SLOT_CONFIG = "slot-config";
 static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
@@ -53,6 +54,78 @@ static const char *CONF_TLS_KEY = "tls-key";
 static const char *CONF_CLUSTER_USER = "cluster-user";
 static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
 
+static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
+{
+    size_t len;
+    const char *str;
+    RedisModuleCallReply *reply = NULL;
+    RRStatus ret = RR_OK;
+
+    enterRedisModuleCall();
+    if (!(reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value))) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 2 || memcmp(str, "OK", 2) != 0) {
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    exit:
+    exitRedisModuleCall();
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return ret;
+}
+
+static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
+{
+    size_t len;
+    const char *str;
+    char *buf = NULL;
+    RedisModuleCallReply *reply = NULL, *reply_name = NULL;
+
+    enterRedisModuleCall();
+    if (!(reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name))) {
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY ||
+        RedisModule_CallReplyLength(reply) < 2) {
+        goto exit;
+    }
+
+    reply_name = RedisModule_CallReplyArrayElement(reply, 1);
+    if (!reply_name || RedisModule_CallReplyType(reply_name) != REDISMODULE_REPLY_STRING) {
+        goto exit;
+    }
+
+    str = RedisModule_CallReplyStringPtr(reply_name, &len);
+    buf = RedisModule_Alloc(len + 1);
+    memcpy(buf, str, len);
+    buf[len] = '\0';
+
+    exit:
+    exitRedisModuleCall();
+    if (reply_name) {
+        RedisModule_FreeCallReply(reply_name);
+    }
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return buf;
+}
+
 static RRStatus parseBool(const char *value, bool *result)
 {
     if (!strcmp(value, "yes")) {
@@ -65,29 +138,80 @@ static RRStatus parseBool(const char *value, bool *result)
     return RR_OK;
 }
 
-static char *loglevels[] = {
-    "error",
-    "info",
-    "verbose",
-    "debug",
-    NULL
-};
-
-static int parseLogLevel(const char *value)
+static int setLogLevel(const char *value)
 {
-    int i;
-    for (i = 0; loglevels[i] != NULL; i++) {
-        if (!strcasecmp(value, loglevels[i])) {
-            return i;
+    for (int i = 0; i < LOG_LEVEL_COUNT; i++) {
+        if (!strcasecmp(value, redis_raft_log_levels[i])) {
+            redis_raft_loglevel = i;
+            return 0;
         }
     }
+
     return -1;
 }
 
 static const char *getLoglevelName(int level)
 {
-    assert(level >= 0 && level <= LOGLEVEL_DEBUG);
-    return loglevels[level];
+    assert(level >= 0 && level < LOG_LEVEL_COUNT);
+    return redis_raft_log_levels[level];
+}
+
+static int setTrace(const char *value)
+{
+    if (!strcasecmp(value, "off")) {
+        redis_raft_trace = TRACE_OFF;
+    } else if (!strcasecmp(value, "node")) {
+        redis_raft_trace ^= TRACE_NODE;
+    } else if (!strcasecmp(value, "conn")) {
+        redis_raft_trace ^= TRACE_CONN;
+    } else if (!strcasecmp(value, "raftlog")) {
+        redis_raft_trace ^= TRACE_RAFTLOG;
+    } else if (!strcasecmp(value, "raftlib")) {
+        redis_raft_trace ^= TRACE_RAFTLIB;
+    } else if (!strcasecmp(value, "generic")) {
+        redis_raft_trace ^= TRACE_GENERIC;
+    } else if (!strcasecmp(value, "all")) {
+        redis_raft_trace = TRACE_ALL;
+    }  else {
+        return -1;
+    }
+
+    return 0;
+}
+
+static const char *getTraceFlags(char *buf, size_t size)
+{
+    RedisModule_Assert(size >= 128);
+
+    size_t wr = 0;
+
+    if (redis_raft_trace == TRACE_OFF) {
+        *buf = '\0';
+        return buf;
+    }
+
+    if (redis_raft_trace & TRACE_NODE) {
+        wr += snprintf(buf + wr, size - wr, "node ");
+    }
+    if (redis_raft_trace & TRACE_CONN) {
+        wr += snprintf(buf + wr, size - wr, "conn ");
+    }
+    if (redis_raft_trace & TRACE_RAFTLOG) {
+        wr += snprintf(buf + wr, size - wr, "raftlog ");
+    }
+    if (redis_raft_trace & TRACE_RAFTLIB) {
+        wr += snprintf(buf + wr, size - wr, "raftlib ");
+    }
+    if (redis_raft_trace & TRACE_GENERIC) {
+        wr += snprintf(buf + wr, size - wr, "generic ");
+    }
+
+    /* Trim extra space at the end */
+    if (wr) {
+        buf[wr - 1] = '\0';
+    }
+
+    return buf;
 }
 
 int validSlotConfig(char *slot_config) {
@@ -236,13 +360,17 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             goto invalid_value;
         target->quorum_reads = val;
     } else if (!strcmp(keyword, CONF_LOGLEVEL)) {
-        int loglevel = parseLogLevel(value);
-        if (loglevel < 0) {
-            snprintf(errbuf, errbuflen-1,
-                     "invalid '%s', must be 'error', 'info', 'verbose' or 'debug'", keyword);
+        if (setLogLevel(value) != 0) {
+            snprintf(errbuf, errbuflen,
+                     "invalid '%s', must be 'warning', 'notice', 'verbose' or 'debug'", keyword);
             return RR_ERROR;
         }
-        redis_raft_loglevel = loglevel;
+    } else if (!strcmp(keyword, CONF_TRACE)) {
+        if (setTrace(value) != 0) {
+            snprintf(errbuf, errbuflen,
+                     "invalid '%s', must be 'node', 'conn', 'raftlog', 'raftlib', 'generic', 'all', or 'off'", keyword);
+            return RR_ERROR;
+        }
     } else if (!strcmp(keyword, CONF_SHARDING)) {
         bool val;
         if (parseBool(value, &val) != RR_OK)
@@ -465,6 +593,11 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
         len++;
         replyConfigStr(ctx, CONF_LOGLEVEL, getLoglevelName(redis_raft_loglevel));
     }
+    if (stringmatch(pattern, CONF_TRACE, 1)) {
+        len++;
+        char buf[512];
+        replyConfigStr(ctx, CONF_TRACE, getTraceFlags(buf, sizeof(buf)));
+    }
     if (stringmatch(pattern, CONF_SHARDING, 1)) {
         len++;
         replyConfigBool(ctx, CONF_SHARDING, config->sharding);
@@ -510,78 +643,6 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
         replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user ? config->cluster_user : "");
     }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
-}
-
-static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
-{
-    size_t len;
-    const char *str;
-    RedisModuleCallReply *reply = NULL;
-    RRStatus ret = RR_OK;
-
-    enterRedisModuleCall();
-    if (!(reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value))) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-    str = RedisModule_CallReplyStringPtr(reply, &len);
-    if (len != 2 || memcmp(str, "OK", 2) != 0) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-exit:
-    exitRedisModuleCall();
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
-    }
-
-    return ret;
-}
-
-static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
-{
-    size_t len;
-    const char *str;
-    char *buf = NULL;
-    RedisModuleCallReply *reply = NULL, *reply_name = NULL;
-
-    enterRedisModuleCall();
-    if (!(reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name))) {
-        goto exit;
-    }
-
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY ||
-            RedisModule_CallReplyLength(reply) < 2) {
-        goto exit;
-    }
-
-    reply_name = RedisModule_CallReplyArrayElement(reply, 1);
-    if (!reply_name || RedisModule_CallReplyType(reply_name) != REDISMODULE_REPLY_STRING) {
-        goto exit;
-    }
-
-    str = RedisModule_CallReplyStringPtr(reply_name, &len);
-    buf = RedisModule_Alloc(len + 1);
-    memcpy(buf, str, len);
-    buf[len] = '\0';
-
-exit:
-    exitRedisModuleCall();
-    if (reply_name) {
-        RedisModule_FreeCallReply(reply_name);
-    }
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
-    }
-
-    return buf;
 }
 
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
@@ -688,8 +749,8 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         const char *kw = RedisModule_StringPtrLen(argv[i], &kwlen);
 
         if (i + 1 >= argc) {
-            RedisModule_Log(ctx, REDIS_WARNING, "No argument specified for keyword '%.*s'",
-                (int) kwlen, kw);
+            LOG_WARNING("No argument specified for keyword '%.*s'",
+                        (int) kwlen, kw);
             return RR_ERROR;
         }
 
@@ -700,7 +761,7 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         char errbuf[256];
         if (processConfigParam(kw, val, target, true, true,
                     errbuf, sizeof(errbuf)) != RR_OK) {
-            RedisModule_Log(ctx, REDIS_WARNING, "%s", errbuf);
+            LOG_WARNING("%s", errbuf);
             return RR_ERROR;
         }
     }

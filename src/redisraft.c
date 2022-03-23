@@ -14,10 +14,17 @@
 
 #include "redisraft.h"
 
-int redis_raft_loglevel = LOGLEVEL_INFO;
 RedisModuleCtx *redis_raft_log_ctx = NULL;
 
-const char *redis_raft_log_levels[] = { "warning", "notice", "verbose", "debug" };
+int redis_raft_trace = TRACE_OFF;
+int redis_raft_loglevel = LOG_LEVEL_NOTICE;
+
+const char *redis_raft_log_levels[] = {
+    REDISMODULE_LOGLEVEL_DEBUG,
+    REDISMODULE_LOGLEVEL_VERBOSE,
+    REDISMODULE_LOGLEVEL_NOTICE,
+    REDISMODULE_LOGLEVEL_WARNING
+};
 
 RedisRaftCtx redis_raft = { 0 };
 static RedisRaftConfig config;
@@ -1136,9 +1143,9 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft version %s [%s]",
-            REDISRAFT_VERSION,
-            REDISRAFT_GIT_SHA1);
+    RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                    "RedisRaft version %s [%s]",
+                    REDISRAFT_VERSION, REDISRAFT_GIT_SHA1);
 
     /* With https://github.com/redis/redis/pull/9968, rdbSave() function
      * prototype has changed. RedisRaft uses this function, we are dependent on
@@ -1148,7 +1155,8 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
      * release. */
     void *handle = dlopen(NULL, RTLD_NOW);
     if (!dlsym(handle, "rdbSaveFunctions") ) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft requires Redis build from unstable branch!");
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                        "RedisRaft requires Redis build from unstable branch!");
         dlclose(handle);
         return REDISMODULE_ERR;
     }
@@ -1160,21 +1168,22 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
             RedisModule_GetCommandKeys == NULL ||
             RedisModule_GetDetachedThreadSafeContext == NULL ||
             RedisModule_MonotonicMicroseconds == NULL) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis build from unstable branch!");
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                        "RedisRaft requires Redis build from unstable branch!");
         return REDISMODULE_ERR;
     }
+
+    /* Create a logging context */
+    redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
 
     /* Sanity check that not running with cluster_enabled */
     RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
     int cluster_enabled = (int) RedisModule_ServerInfoGetFieldSigned(info, "cluster_enabled", NULL);
     RedisModule_FreeServerInfo(ctx, info);
     if (cluster_enabled) {
-        RedisModule_Log(ctx, REDIS_NOTICE, "Redis Raft requires Redis not be started with cluster_enabled!");
+        LOG_WARNING("Redis Raft requires Redis not be started with cluster_enabled!");
         return REDISMODULE_ERR;
     }
-
-    /* Create a logging context */
-    redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
 
     /* Report arguments */
     size_t str_len = 1024;
@@ -1186,7 +1195,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", (int) slen, s);
     }
 
-    RedisModule_Log(ctx, REDIS_NOTICE, "RedisRaft starting, arguments: %s", str);
+    LOG_NOTICE("RedisRaft starting, arguments: %s", str);
     RedisModule_Free(str);
 
     /* Initialize and validate configuration */
@@ -1197,17 +1206,17 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     /* Configure Redis */
     if (ConfigureRedis(ctx) == RR_ERROR) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to set Redis configuration!");
+        LOG_WARNING("Failed to set Redis configuration!");
         return REDISMODULE_ERR;
     }
 
     if (CommandSpecInit(ctx, &config) == RR_ERROR) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to initialize internal command table");
+        LOG_WARNING("Failed to initialize internal command table");
         return REDISMODULE_ERR;
     }
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to register commands");
+        LOG_WARNING("Failed to register commands");
         return REDISMODULE_ERR;
     }
 
@@ -1225,13 +1234,13 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientDisconnectEvent) != REDISMODULE_OK) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+        LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
                                            beforeSleep) != REDISMODULE_OK) {
-        RedisModule_Log(ctx, REDIS_WARNING, "Failed to subscribe to server events.");
+        LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
@@ -1247,8 +1256,8 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                                          NULL,
                                          &ssl_error);
          if (!rr->ssl) {
-             RedisModule_Log(ctx, REDIS_WARNING, "Failed to create ssl context.");
-             LOG_ERROR("Error: %s", redisSSLContextGetError(ssl_error));
+             const char *err = redisSSLContextGetError(ssl_error);
+             LOG_WARNING("Failed to create ssl context: %s", err);
              return REDISMODULE_ERR;
          }
     }
@@ -1257,8 +1266,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);
     RedisModule_CreateTimer(ctx, rr->config->reconnect_interval, callHandleNodeStates, rr);
 
-    RedisModule_Log(ctx, REDIS_VERBOSE, "Raft module loaded, state is '%s'",
-            getStateStr(rr));
+    LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
 
     fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
 
