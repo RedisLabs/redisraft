@@ -443,7 +443,7 @@ typedef enum RRStatus {
     RR_ERROR
 } RRStatus;
 
-/* Request types.  Note that these must match the order in RaftReqHandlers! */
+/* Request types. */
 enum RaftReqType {
     RR_CLUSTER_INIT = 1,
     RR_CLUSTER_JOIN,
@@ -456,7 +456,6 @@ enum RaftReqType {
     RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
     RR_SHARDGROUPS_REPLACE,
-    RR_SHARDGROUP_GET,
     RR_SHARDGROUP_LINK,
     RR_TRANSFER_LEADER,
     RR_RAFTREQ_MAX
@@ -734,10 +733,7 @@ bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
-void handleShardGroupAdd(RedisRaftCtx *rr, RaftReq *req);
-void handleShardGroupGet(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
-void handleShardGroupsReplace(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
@@ -845,9 +841,7 @@ ShardGroup *ShardGroupCreate();
 void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
-RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
-int compareShardGroups(ShardGroup *a, ShardGroup *b);
-ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
+ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
 RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 void ShardingInfoInit(RedisRaftCtx *rr);
@@ -860,7 +854,10 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb);
 void ShardingPeriodicCall(RedisRaftCtx *rr);
 RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, void *user_data);
 RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg, int type, void *user_data);
-void handleShardGroupLink(RedisRaftCtx *rr, RaftReq *req);
+void ShardGroupLink(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+void ShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+void ShardGroupReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* join.c */
 void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *pReq);
