@@ -713,18 +713,22 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  *   +OK
  *   -ERR error description
  */
-
 static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RaftReq *req;
+    RedisRaftCtx *rr = &redis_raft;
 
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    if (!redis_raft.config->sharding) {
-        RedisModule_ReplyWithError(ctx, "ERR: RedisRaft sharding not enabled");
+    if (!rr->config->sharding) {
+        RedisModule_ReplyWithError(ctx, "ERR RedisRaft sharding not enabled");
+        return REDISMODULE_OK;
+    }
+
+    if (checkRaftState(rr, ctx) == RR_ERROR ||
+        checkLeader(rr, ctx, NULL) == RR_ERROR) {
         return REDISMODULE_OK;
     }
 
@@ -732,9 +736,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
     if (!strncasecmp(cmd, "GET", cmd_len)) {
-        req = RaftReqInit(ctx, RR_SHARDGROUP_GET);
-        handleShardGroupGet(&redis_raft, req);
-
+        ShardGroupGet(rr, ctx);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "ADD", cmd_len)) {
         if (argc < 4) {
@@ -742,17 +744,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
-        int num_elems;
-        ShardGroup *sg;
-        if ((sg = ShardGroupParse(ctx, &argv[2], argc - 2, 2, &num_elems)) == NULL) {
-            /* Error reply already produced by parseShardGroupFromArgs */
-            RaftReqFree(req);
-            return REDISMODULE_OK;
-        }
-        req->r.shardgroup_add = sg;
-
-        handleShardGroupAdd(&redis_raft, req);
+        ShardGroupAdd(rr, ctx, argv, argc);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "REPLACE", cmd_len)) {
         if (argc < 4) {
@@ -760,14 +752,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        req = RaftReqInit(ctx, RR_SHARDGROUPS_REPLACE);
-        if (ShardGroupsParse(ctx, &argv[2], argc - 2, req) != RR_OK) {
-            /* Error reply already produced by parseShardGroupFromArgs */
-            RaftReqFree(req);
-            return REDISMODULE_OK;
-        }
-
-        handleShardGroupsReplace(&redis_raft, req);
+        ShardGroupReplace(rr, ctx, argv, argc);
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "LINK", cmd_len)) {
         if (argc != 3) {
@@ -775,24 +760,13 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             return REDISMODULE_OK;
         }
 
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(argv[2], &len);
-
-        req = RaftReqInit(ctx, RR_SHARDGROUP_LINK);
-        if (!NodeAddrParse(str, len, &req->r.shardgroup_link.addr)) {
-            RedisModule_ReplyWithError(ctx, "invalid address/port specified") ;
-            RaftReqFree(req);
-            return REDISMODULE_OK;
-        }
-
-        handleShardGroupLink(&redis_raft, req);
+        ShardGroupLink(rr, ctx, argv, argc);
         return REDISMODULE_OK;
     } else {
-        RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET / ADD / LINK only");
+        RedisModule_ReplyWithError(ctx, "RAFT.SHARDGROUP supports GET/ADD/REPLACE/LINK only");
         return REDISMODULE_OK;
     }
 }
-
 
 /* RAFT.DEBUG COMPACT [delay]
  *   Initiate an immediate rewrite of the Raft log + snapshot.
