@@ -617,6 +617,8 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
+    bool client_key = false;
+
     if (config->tls_ca_cert) {
         RedisModule_Free(config->tls_ca_cert);
     }
@@ -628,37 +630,30 @@ void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config)
     char *key = getRedisConfig(ctx, "tls-client-key-file");
     if (key) {
         if (strcmp("", key)) {
+            client_key = true;
             RedisModule_Free(config->tls_key);
             config->tls_key = key;
         } else {
             RedisModule_Free(key);
         }
     }
+
     if (config->tls_key_pass) {
         RedisModule_Free(config->tls_key_pass);
     }
-    config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
-    char *pass = getRedisConfig(ctx, "tls-client-key-file-pass");
-    if (pass) {
-        if (strcmp("", pass)) {
-            RedisModule_Free(config->tls_key_pass);
-            config->tls_key_pass = pass;
-        } else {
-            RedisModule_Free(pass);
-        }
+    if (!client_key) {
+        config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
+    } else {
+        config->tls_key_pass = getRedisConfig(ctx, "tls-client-key-file-pass");
     }
+
     if (config->tls_cert) {
         RedisModule_Free(config->tls_cert);
     }
-    config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
-    char *cert = getRedisConfig(ctx, "tls-client-cert-file");
-    if (cert) {
-        if (strcmp("", cert)) {
-            RedisModule_Free(config->tls_cert);
-            config->tls_cert = cert;
-        } else {
-            RedisModule_Free(cert);
-        }
+    if (!client_key) {
+        config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
+    } else {
+        config->tls_cert = getRedisConfig(ctx, "tls-client-cert-file");
     }
 }
 
@@ -688,7 +683,6 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
 #ifdef HAVE_TLS
     updateTLSConfig(ctx, config);
-    config->tls_manual = false;
 #endif
     config->cluster_user = RedisModule_Strdup("default");
     config->cluster_password = NULL;

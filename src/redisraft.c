@@ -1120,7 +1120,6 @@ error:
 
 void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
 {
-    LOG_WARNING("handleConfigChangeEvent: enter");
     if (eid.id != REDISMODULE_EVENT_CONFIG || subevent != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
         return;
     }
@@ -1135,7 +1134,11 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
     for (unsigned int i = 0; i < ei->num_changes; i++) {
         if (strcmp("tls-ca-cert-file", ei->config_names[i]) == 0 ||
                 strcmp("tls-key-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-cert-file", ei->config_names[i]) == 0) {
+                strcmp("tls-key-file-pass", ei->config_names[i]) == 0 ||
+                strcmp("tls-client-key-file", ei->config_names[i]) == 0 ||
+                strcmp("tls-client-key-file-pass", ei->config_names[i]) == 0 ||
+                strcmp("tls-cert-file", ei->config_names[i]) == 0 ||
+                strcmp("tls-client-cert-file", ei->config_names[i]) == 0) {
             updateTLSConfig(ctx, redis_raft.config);
             SSL_CTX *new_ctx = generateSSLContext(ctx, &redis_raft);
             if (new_ctx != NULL) {

@@ -410,7 +410,6 @@ typedef struct RedisRaftConfig {
     char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
     int external_sharding;              /* use external sharding orchestrator only */
     bool tls_enabled;                   /* use TLS for all inter cluster communication */
-    bool tls_manual;                    /* if shouldn't reconfigure tls via redis.  true if any element via module */
     char *tls_ca_cert;
     char *tls_cert;
     char *tls_key;
