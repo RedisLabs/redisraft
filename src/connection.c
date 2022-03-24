@@ -317,11 +317,12 @@ static void handleResolved(void *arg)
         SSL *ssl = SSL_new(conn->rr->ssl);
         if (!ssl) {
             CONN_LOG_WARNING(conn, "Couldn't create SSL object");
-	    goto fail;
+	        goto fail;
         }
         int result = redisInitiateSSL(&conn->rc->c, ssl);
         if (result != REDIS_OK) {
             CONN_LOG_WARNING(conn, "redisInitiateSSL error(%d): %s", conn->rc->c.err, conn->rc->c.errstr);
+            SSL_free(ssl);
             goto fail;
         }
     }
