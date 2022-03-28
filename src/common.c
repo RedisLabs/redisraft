@@ -136,6 +136,7 @@ RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader)
      * commands have no keys, which is something Redis Cluster never does. We
      * still need to consider how this impacts clients which may not expect it.
      */
+    LOG_DEBUG("replyRedirect from checkLeader");
     replyRedirect(ctx, 0, &node->addr);
     return RR_ERROR;
 }

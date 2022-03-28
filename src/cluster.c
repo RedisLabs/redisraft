@@ -1137,7 +1137,7 @@ void ShardingInfoReset(RedisRaftCtx *rr)
  * the entry or reply with an error or if it can't be done
  */
 RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr,
-                                     RedisModuleCtx *ctx,
+                                     RaftReq *req,
                                      RaftRedisCommandArray *cmds,
                                      int *slot)
 {
@@ -1160,7 +1160,9 @@ RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr,
             } else {
                 if (*slot != thisslot) {
                     RedisModule_Free(keyindex);
-                    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+                    if (req) {
+                        RedisModule_ReplyWithError(req->ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+                    }
                     return RR_ERROR;
                 }
             }

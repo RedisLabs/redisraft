@@ -52,13 +52,6 @@ def test_shard_group_sanity(cluster):
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
 
-    # Follower redirect straight to remote shardgroup to
-    # avoid another redirect hop.
-    cluster.wait_for_unanimity()
-    cluster.node(2).wait_for_log_applied()  # to get shardgroup
-    with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
-        cluster.node(2).client.set('key', 'value')
-
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
     # Test by adding another fake shardgroup with same shardgroup id, should fail

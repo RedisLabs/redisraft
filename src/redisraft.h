@@ -765,6 +765,7 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
+void HandleAsking(RaftRedisCommandArray *cmds);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -855,7 +856,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 RRStatus ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RaftReq *req);
 int compareShardGroups(ShardGroup *a, ShardGroup *b);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id);
-RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
+RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandArray *cmds, int *slot);
 void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
