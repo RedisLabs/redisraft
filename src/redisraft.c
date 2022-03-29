@@ -625,6 +625,61 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
+static void clusterInit(const char *cluster_id)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    /* Initialize dbid */
+    memcpy(rr->snapshot_info.dbid, cluster_id, RAFT_DBID_LEN);
+    rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
+
+    /* This is the first node, so there are no used node ids yet */
+    rr->snapshot_info.used_node_ids = NULL;
+
+    /* If node id was not specified, make up one */
+    if (!rr->config->id) {
+        rr->config->id = makeRandomNodeId(rr);
+    }
+
+    rr->log = RaftLogCreate(rr->config->raft_log_filename,
+                            rr->snapshot_info.dbid, 1, 0, rr->config);
+    if (!rr->log) {
+        PANIC("Failed to initialize Raft log");
+    }
+
+    addUsedNodeId(rr, rr->config->id);
+    RaftLibraryInit(rr, true);
+    initSnapshotTransferData(rr);
+    AddBasicLocalShardGroup(rr);
+
+    LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s",
+               rr->config->id, rr->snapshot_info.dbid);
+}
+
+static void clusterJoinCompleted(RaftReq *req)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    /* Initialize Raft log.  We delay this operation as we want to create the
+     * log with the proper dbid which is only received now.
+     */
+    rr->log = RaftLogCreate(rr->config->raft_log_filename,
+                            rr->snapshot_info.dbid,
+                            rr->snapshot_info.last_applied_term,
+                            rr->snapshot_info.last_applied_idx,
+                            rr->config);
+    if (!rr->log) {
+        PANIC("Failed to initialize Raft log");
+    }
+
+    AddBasicLocalShardGroup(rr);
+    RaftLibraryInit(rr, false);
+    initSnapshotTransferData(rr);
+
+    RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+    RaftReqFree(req);
+}
+
 /* RAFT.CLUSTER INIT <id>
  *   Initializes a new Raft cluster.
  *   <id> is an optional 32 character string, if set, cluster will use it for the id
@@ -637,7 +692,6 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
  * Reply:
  *   +OK
  */
-
 static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -647,9 +701,14 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = NULL;
+    if (checkRaftUninitialized(rr, ctx) == RR_ERROR ||
+        checkRaftNotLoading(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
+
     if (!strncasecmp(cmd, "INIT", cmd_len)) {
         if (argc != 2 && argc != 3) {
             RedisModule_WrongArity(ctx);
@@ -657,6 +716,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         }
 
         char cluster_id[RAFT_DBID_LEN];
+
         if (argc == 2) {
             RedisModule_GetRandomHexChars(cluster_id, RAFT_DBID_LEN);
         } else {
@@ -669,30 +729,36 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             memcpy(cluster_id, reqId, RAFT_DBID_LEN);
         }
 
-        req = RaftReqInit(ctx, RR_CLUSTER_INIT);
-        memcpy(req->r.cluster_init.id, cluster_id, RAFT_DBID_LEN);
-        handleClusterInit(rr, req);
+        clusterInit(cluster_id);
+
+        char reply[RAFT_DBID_LEN + 256];
+        snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
+
+        RedisModule_ReplyWithSimpleString(ctx, reply);
     } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
         if (argc < 3) {
             RedisModule_WrongArity(ctx);
             return REDISMODULE_OK;
         }
 
-        int i;
-        req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
+        NodeAddrListElement *addrs = NULL;
 
-        for (i = 2; i < argc; i++) {
+        for (int i = 2; i < argc; i++) {
             NodeAddr addr;
             if (getNodeAddrFromArg(ctx, argv[i], &addr) == RR_ERROR) {
                 /* Error already produced */
                 return REDISMODULE_OK;
             }
-            NodeAddrListAddElement(&req->r.cluster_join.addr, &addr);
+            NodeAddrListAddElement(&addrs, &addr);
         }
-        handleClusterJoin(rr, req);
+
+        RaftReq *req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
+        JoinCluster(rr, addrs, req, clusterJoinCompleted);
+
+        NodeAddrListFree(addrs);
+        rr->state = REDIS_RAFT_JOINING;
     } else {
         RedisModule_ReplyWithError(ctx, "RAFT.CLUSTER supports INIT / JOIN only");
-        return REDISMODULE_OK;
     }
 
     return REDISMODULE_OK;

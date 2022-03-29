@@ -65,8 +65,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
         rr->config->id = reply->element[0]->integer;
-
-        HandleClusterJoinCompleted(rr, state->req);
+        state->complete_callback(state->req);
         assert(rr->state == REDIS_RAFT_UP);
 
         ConnAsyncTerminate(conn);
@@ -98,33 +97,20 @@ static void sendNodeAddRequest(Connection *conn)
     }
 }
 
-void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req)
+void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req,
+                  void (*complete_callback)(RaftReq *req))
 {
-    if (checkRaftNotLoading(rr, req->ctx) == RR_ERROR) {
-        goto exit_fail;
-    }
+    JoinLinkState *st = RedisModule_Calloc(1, sizeof(*st));
 
-    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Already cluster member");
-        goto exit_fail;
-    }
-
-    JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = "join";
-    state->connect_callback = sendNodeAddRequest;
-    time(&(state->start));
-    NodeAddrListConcat(&state->addr, req->r.cluster_join.addr);
-    state->req = req;
+    NodeAddrListConcat(&st->addr, el);
+    st->type = "join";
+    st->connect_callback = sendNodeAddRequest;
+    st->complete_callback = complete_callback;
+    st->start = time(NULL);
+    st->req = req;
 
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
      */
-    state->conn = ConnCreate(rr, state, joinLinkIdleCallback, joinLinkFreeCallback);
-
-    rr->state = REDIS_RAFT_JOINING;
-
-    return;
-
-exit_fail:
-    RaftReqFree(req);
+    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback);
 }

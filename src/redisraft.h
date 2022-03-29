@@ -445,8 +445,7 @@ typedef enum RRStatus {
 
 /* Request types. */
 enum RaftReqType {
-    RR_CLUSTER_INIT = 1,
-    RR_CLUSTER_JOIN,
+    RR_CLUSTER_JOIN = 1,
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_APPENDENTRIES,
@@ -565,9 +564,6 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     union {
         struct {
-            NodeAddrListElement *addr;
-        } cluster_join;
-        struct {
             raft_node_id_t src_node_id;
             msg_appendentries_t msg;
         } appendentries;
@@ -593,9 +589,6 @@ typedef struct RaftReq {
             unsigned int len;
         } shardgroups_replace;
         raft_node_id_t node_to_transfer_leader;
-        struct {
-            char id[RAFT_DBID_LEN];
-        } cluster_init;
     } r;
 } RaftReq;
 
@@ -684,6 +677,7 @@ typedef struct JoinLinkState {
     const char *type;                   /* error message to print if exhaust time */
     bool started;                       /* we have started connecting */
     ConnectionCallbackFunc connect_callback;
+    void (*complete_callback)(RaftReq *req);
 } JoinLinkState;
 
 /* common.c */
@@ -694,6 +688,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error);
 raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
@@ -724,6 +719,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
+void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
@@ -860,8 +856,7 @@ void ShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **ar
 void ShardGroupReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* join.c */
-void HandleClusterJoinCompleted(RedisRaftCtx *rr, RaftReq *pReq);
-void handleClusterJoin(RedisRaftCtx *rr, RaftReq *req);
+void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req, void (*complete_callback)(RaftReq *req));
 
 /* commands.c */
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
