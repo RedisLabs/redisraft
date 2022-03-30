@@ -1,8 +1,7 @@
 /* Handle MULTI/EXEC transactions here.
  *
  * If this logic was applied, the return value is true, indicating no further
- * processing is required. Otherwise, the main handleRedisCommand() flow is
- * applied.
+ * processing is required.
  *
  * 1) On MULTI, we create a RaftRedisCommandArray which will store all
  *    user commands as they are queued.
