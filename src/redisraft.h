@@ -6,8 +6,8 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#ifndef _REDISRAFT_H
-#define _REDISRAFT_H
+#ifndef REDISRAFT_H
+#define REDISRAFT_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -28,7 +28,7 @@
 
 #include "version.h"
 
-#define UNUSED(x)   ((void) x)
+#define UNUSED(x)   ((void) (x))
 
 /* Disable GNU attributes for non-GNU compilers */
 #ifndef __GNUC__
@@ -559,7 +559,6 @@ typedef struct ShardingInfo {
 
 typedef struct RaftReq {
     int type;
-    STAILQ_ENTRY(RaftReq) entries;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
@@ -576,19 +575,10 @@ typedef struct RaftReq {
         struct {
             unsigned long long client_id;
         } client_disconnect;
-        struct ShardGroup *shardgroup_add;
-        struct {
-            NodeAddr addr;
-        } shardgroup_link;
         struct {
             int fail;
             int delay;
         } debug;
-        struct {
-            ShardGroup **shardgroups;
-            unsigned int len;
-        } shardgroups_replace;
-        raft_node_id_t node_to_transfer_leader;
     } r;
 } RaftReq;
 
@@ -726,7 +716,6 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry);
 void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
-void handleClusterInit(RedisRaftCtx *rr, RaftReq *req);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
 void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
