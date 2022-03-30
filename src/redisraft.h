@@ -331,6 +331,7 @@ typedef struct RedisRaftCtx {
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
+    RedisModuleDict *multiClientState;           /* A dict that tracks multi state of the clients */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
