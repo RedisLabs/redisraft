@@ -453,7 +453,6 @@ enum RaftReqType {
     RR_REDISCOMMAND,
     RR_INFO,
     RR_DEBUG,
-    RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
     RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_LINK,
@@ -573,9 +572,6 @@ typedef struct RaftReq {
             RaftRedisCommandArray cmds;
             msg_entry_response_t response;
         } redis;
-        struct {
-            unsigned long long client_id;
-        } client_disconnect;
         struct {
             int fail;
             int delay;
@@ -719,7 +715,6 @@ void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
-void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);

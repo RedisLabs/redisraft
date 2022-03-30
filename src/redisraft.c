@@ -1054,12 +1054,15 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
 void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
+    (void) ctx;
+
+    RedisRaftCtx *rr = &redis_raft;
+    RedisModuleClientInfo *ci = data;
+
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
-            subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
-        RedisModuleClientInfo *ci = (RedisModuleClientInfo *) data;
-        RaftReq *req = RaftReqInit(NULL, RR_CLIENT_DISCONNECT);
-        req->r.client_disconnect.client_id = ci->id;
-        handleClientDisconnect(&redis_raft, req);
+        subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
+
+        MultiFreeClientState(rr, ci->id);
     }
 }
 

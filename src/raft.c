@@ -27,7 +27,6 @@ const char *RaftReqTypeStr[] = {
     [RR_REDISCOMMAND]         = "RR_REDISCOMMAND",
     [RR_INFO]                 = "RR_INFO",
     [RR_DEBUG]                = "RR_DEBUG",
-    [RR_CLIENT_DISCONNECT]    = "RR_CLIENT_DISCONNECT",
     [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
     [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
     [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
@@ -1628,12 +1627,6 @@ void handleInfo(RedisRaftCtx *rr, RaftReq *req)
     RedisModule_ReplyWithStringBuffer(req->ctx, s, strlen(s));
     RedisModule_Free(s);
 
-    RaftReqFree(req);
-}
-
-void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req)
-{
-    MultiFreeClientState(rr, req->r.client_disconnect.client_id);
     RaftReqFree(req);
 }
 
