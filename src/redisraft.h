@@ -724,6 +724,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void handleRedisInfoCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
@@ -828,7 +829,7 @@ void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
 RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
-void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
+void handleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
 RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);

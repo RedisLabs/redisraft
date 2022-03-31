@@ -332,6 +332,38 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
+/* Handle interception of Redis commands that have a different
+ * implementation in RedisRaft.
+ *
+ * This is logically similar to handleMultiExec but implemented
+ * separately for readability purposes.
+ *
+ * Currently intercepted commands:
+ * - CLUSTER
+ * - INFO
+ *
+ * Returns true if the command was intercepted, in which case the RaftReq has
+ * been replied to and freed.
+ */
+static bool handleInterceptedCommands(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx * rr = &redis_raft;
+    size_t len;
+    const char *cmd_str = RedisModule_StringPtrLen(argv[0], &len);
+
+    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
+        handleClusterCommand(rr, ctx, argv, argc);
+        return true;
+    }
+
+    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
+        handleRedisInfoCommand(rr, ctx, argv, argc);
+        return true;
+    }
+
+    return false;
+}
+
 /* RAFT [Redis command to execute]
  *   Submit a Redis command to be appended to the Raft log and applied.
  *   The command blocks until it has been committed to the log by the majority
@@ -348,6 +380,10 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    if (handleInterceptedCommands(ctx, argv + 1, argc - 1)) {
         return REDISMODULE_OK;
     }
 

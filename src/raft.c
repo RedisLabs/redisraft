@@ -1469,17 +1469,16 @@ static bool handleMultiExec(RedisRaftCtx *rr, RaftReq *req)
     return false;
 }
 
-void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
+void handleRedisInfoCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisModuleCallReply *reply;
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
 
     /* Skip "INFO" string */
-    int argc = cmd->argc - 1;
-    RedisModuleString **argv = cmd->argc == 1 ? NULL : &cmd->argv[1];
+    int sub_argc = argc - 1;
+    RedisModuleString **sub_argv = argc == 1 ? NULL : &argv[1];
 
     enterRedisModuleCall();
-    reply = RedisModule_Call(req->ctx, "INFO", "v", argv, argc);
+    reply = RedisModule_Call(rr->ctx, "INFO", "v", sub_argv, sub_argc);
     exitRedisModuleCall();
 
     size_t info_len;
@@ -1491,41 +1490,8 @@ void handleInfoCommand(RedisRaftCtx *rr, RaftReq *req)
         *(pos + strlen("cluster_enabled:")) = '1';
     }
 
-    RedisModule_ReplyWithStringBuffer(req->ctx, info, info_len);
+    RedisModule_ReplyWithStringBuffer(ctx, info, info_len);
     RedisModule_FreeCallReply(reply);
-    RaftReqFree(req);
-}
-
-/* Handle interception of Redis commands that have a different
- * implementation in RedisRaft.
- *
- * This is logically similar to handleMultiExec but implemented
- * separately for readability purposes.
- *
- * Currently intercepted commands:
- * - CLUSTER
- * - INFO
- *
- * Returns true if the command was intercepted, in which case the RaftReq has
- * been replied to and freed.
- */
-static bool handleInterceptedCommands(RedisRaftCtx *rr, RaftReq *req)
-{
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-    size_t len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
-
-    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
-        handleClusterCommand(rr, req);
-        return true;
-    }
-
-    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
-        handleInfoCommand(rr, req);
-        return true;
-    }
-
-    return false;
 }
 
 /* When sharding is enabled, handle sharding aspects before processing
@@ -1587,13 +1553,6 @@ void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req)
         if (handleMultiExec(rr, req)) {
             return;
         }
-    }
-
-    /* Handle intercepted commands. We do this also on non-leader nodes or if we don't
-     * have a leader, so it's up to the commands to check these conditions if they have to.
-     */
-    if (handleInterceptedCommands(rr, req)) {
-        return;
     }
 
     /* Check that we're part of a bootstrapped cluster and not in the middle of

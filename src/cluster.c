@@ -1485,39 +1485,34 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
  *   - SLOTS.
  *   - NODES.
  */
-void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
+void handleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-
-    if (cmd->argc < 2) {
+    if (argc < 2) {
         /* Note: we can't use RM_WrongArity here because our req->ctx is a thread-safe context
          * with a synthetic client that no longer has the original argv.
          */
-        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR wrong number of arguments for 'cluster' command");
+        return;
     }
 
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
+    const char *cmd_str = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
-    if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5) && cmd->argc == 2) {
-        addClusterSlotsReply(rr, req->ctx);
-        goto exit;
-    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5) && cmd->argc == 2) {
-        addClusterNodesReply(rr, req->ctx);
-        goto exit;
+    if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5) && argc == 2) {
+        addClusterSlotsReply(rr, ctx);
+        return;
+    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5) && argc == 2) {
+        addClusterNodesReply(rr, ctx);
+        return;
     } else {
-        RedisModule_ReplyWithError(req->ctx,
+        RedisModule_ReplyWithError(ctx,
             "ERR Unknown subcommand or wrong number of arguments.");
-        goto exit;
+        return;
     }
-
-exit:
-    RaftReqFree(req);
 }
 
 /* -----------------------------------------------------------------------------
