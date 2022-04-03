@@ -17,7 +17,7 @@
 
 #define INITIAL_CAPACITY 10
 
-typedef struct
+struct raft_log
 {
     /* size of array */
     raft_index_t size;
@@ -37,15 +37,15 @@ typedef struct
     raft_log_cbs_t cb;
 
     void* raft;
-} log_private_t;
+};
 
-static int mod(raft_index_t a, raft_index_t b)
+static raft_index_t mod(raft_index_t a, raft_index_t b)
 {
-    int r = a % b;
+    raft_index_t r = a % b;
     return r < 0 ? r + b : r;
 }
 
-static int __ensurecapacity(log_private_t * me)
+static int ensure_capacity(raft_log_t *me)
 {
     raft_index_t i, j;
     raft_entry_t **temp;
@@ -74,57 +74,53 @@ static int __ensurecapacity(log_private_t * me)
     return 0;
 }
 
-int log_load_from_snapshot(log_t *me_, raft_index_t idx, raft_term_t term)
+int raft_log_load_from_snapshot(raft_log_t *me, raft_index_t idx, raft_term_t term)
 {
-    log_private_t* me = (log_private_t*)me_;
+    (void) term;
 
-    log_clear_entries(me_);
-    log_clear(me_);
+    raft_log_clear_entries(me);
+    raft_log_clear(me);
     me->base = idx;
 
     return 0;
 }
 
-log_t* log_alloc(raft_index_t initial_size)
+raft_log_t *raft_log_alloc(raft_index_t initial_size)
 {
-    log_private_t* me = raft_calloc(1, sizeof(log_private_t));
+    raft_log_t *me = raft_calloc(1, sizeof(*me));
     if (!me)
         return NULL;
     me->size = initial_size;
-    log_clear((log_t*)me);
+    raft_log_clear(me);
     me->entries = raft_calloc(1, sizeof(raft_entry_t *) * me->size);
     if (!me->entries) {
         raft_free(me);
         return NULL;
     }
-    return (log_t*)me;
+    return me;
 }
 
-log_t* log_new(void)
+raft_log_t *raft_log_new(void)
 {
-    return log_alloc(INITIAL_CAPACITY);
+    return raft_log_alloc(INITIAL_CAPACITY);
 }
 
-void log_set_callbacks(log_t* me_, raft_log_cbs_t* funcs, void* raft)
+void raft_log_set_callbacks(raft_log_t *me, raft_log_cbs_t* funcs, void* raft)
 {
-    log_private_t* me = (log_private_t*)me_;
-
     me->raft = raft;
     me->cb = *funcs;
 }
 
-void log_clear(log_t* me_)
+void raft_log_clear(raft_log_t *me)
 {
-    log_private_t* me = (log_private_t*)me_;
     me->count = 0;
     me->back = 0;
     me->front = 0;
     me->base = 0;
 }
 
-void log_clear_entries(log_t* me_)
+void raft_log_clear_entries(raft_log_t* me)
 {
-    log_private_t* me = (log_private_t*)me_;
     raft_index_t i;
 
     if (!me->count || !me->cb.log_clear)
@@ -138,17 +134,16 @@ void log_clear_entries(log_t* me_)
 }
 
 /** TODO: rename log_append */
-int log_append_entry(log_t* me_, raft_entry_t* ety)
+int raft_log_append_entry(raft_log_t *me, raft_entry_t*c)
 {
-    log_private_t* me = (log_private_t*)me_;
     raft_index_t idx = me->base + me->count + 1;
     int e;
 
-    e = __ensurecapacity(me);
+    e = ensure_capacity(me);
     if (e != 0)
         return e;
 
-    me->entries[me->back] = ety;
+    me->entries[me->back] = c;
 
     if (me->cb.log_offer)
     {
@@ -165,9 +160,8 @@ int log_append_entry(log_t* me_, raft_entry_t* ety)
     return 0;
 }
 
-raft_entry_t** log_get_from_idx(log_t* me_, raft_index_t idx, long *n_etys)
+raft_entry_t**raft_log_get_from_idx(raft_log_t *me, raft_index_t idx, long *n_etys)
 {
-    log_private_t* me = (log_private_t*)me_;
     raft_index_t i;
 
     assert(0 <= idx - 1);
@@ -192,9 +186,8 @@ raft_entry_t** log_get_from_idx(log_t* me_, raft_index_t idx, long *n_etys)
     return &me->entries[i];
 }
 
-raft_entry_t* log_get_at_idx(log_t* me_, raft_index_t idx)
+raft_entry_t* raft_log_get_at_idx(raft_log_t *me, raft_index_t idx)
 {
-    log_private_t* me = (log_private_t*)me_;
     raft_index_t i;
 
     if (idx == 0)
@@ -210,15 +203,13 @@ raft_entry_t* log_get_at_idx(log_t* me_, raft_index_t idx)
     return me->entries[i];
 }
 
-raft_index_t log_count(log_t* me_)
+raft_index_t raft_log_count(raft_log_t *me)
 {
-    return ((log_private_t*)me_)->count;
+    return me->count;
 }
 
-static int __log_delete(log_t* me_, raft_index_t idx, func_entry_notify_f cb, void *cb_arg)
+static int log_delete(raft_log_t* me, raft_index_t idx, raft_entry_notify_f cb, void *cb_arg)
 {
-    log_private_t* me = (log_private_t*)me_;
-
     if (0 == idx)
         return -1;
 
@@ -249,14 +240,13 @@ static int __log_delete(log_t* me_, raft_index_t idx, func_entry_notify_f cb, vo
     return 0;
 }
 
-int log_delete(log_t* me_, raft_index_t idx)
+int raft_log_delete(raft_log_t *me, raft_index_t idx)
 {
-    return __log_delete(me_, idx, NULL, NULL);
+    return log_delete(me, idx, NULL, NULL);
 }
 
-int log_poll(log_t * me_, void** etyp)
+int raft_log_poll(raft_log_t *me, raft_entry_t **etyp)
 {
-    log_private_t* me = (log_private_t*)me_;
     raft_index_t idx = me->base + 1;
 
     if (0 == me->count)
@@ -282,10 +272,8 @@ int log_poll(log_t * me_, void** etyp)
     return 0;
 }
 
-raft_entry_t *log_peektail(log_t * me_)
+raft_entry_t *raft_log_peektail(raft_log_t *me)
 {
-    log_private_t* me = (log_private_t*)me_;
-
     if (0 == me->count)
         return NULL;
 
@@ -295,32 +283,27 @@ raft_entry_t *log_peektail(log_t * me_)
         return me->entries[me->back - 1];
 }
 
-void log_empty(log_t * me_)
+void raft_log_empty(raft_log_t *me)
 {
-    log_private_t* me = (log_private_t*)me_;
-
     me->front = 0;
     me->back = 0;
     me->count = 0;
 }
 
-void log_free(log_t * me_)
+void raft_log_free(raft_log_t *me)
 {
-    log_private_t* me = (log_private_t*)me_;
-
     raft_free(me->entries);
     raft_free(me);
 }
 
-raft_index_t log_get_current_idx(log_t* me_)
+raft_index_t raft_log_get_current_idx(raft_log_t *me)
 {
-    log_private_t* me = (log_private_t*)me_;
-    return log_count(me_) + me->base;
+    return raft_log_count(me) + me->base;
 }
 
-raft_index_t log_get_base(log_t* me_)
+raft_index_t raft_log_get_base(raft_log_t *me)
 {
-    return ((log_private_t*)me_)->base;
+    return me->base;
 }
 
 /**
@@ -335,47 +318,49 @@ raft_index_t log_get_base(log_t* me_)
  *      log implementations.
  */
 
-void *__log_init(void *raft, void *arg)
+static void *log_init(void *raft, void *arg)
 {
-    log_t *log = log_new();
+    raft_log_t *log = raft_log_new();
     if (arg) {
-        log_set_callbacks(log, arg, raft);
+        raft_log_set_callbacks(log, arg, raft);
     }
     return log;
 }
 
-static void __log_free(void *log)
+static void log_free(void *log)
 {
-    log_free(log);
+    raft_log_free(log);
 }
 
-static void __log_reset(void *log, raft_index_t first_idx, raft_term_t term)
+static void log_reset(void *log, raft_index_t first_idx, raft_term_t term)
 {
-    log_clear_entries(log);
-    log_clear(log);
+    (void) term;
+
+    raft_log_clear_entries(log);
+    raft_log_clear(log);
 
     assert(first_idx >= 1);
-    ((log_private_t*) log)->base = first_idx - 1;
+    ((raft_log_t *) log)->base = first_idx - 1;
 }
 
-static int __log_append(void *log, raft_entry_t *entry)
+static int log_append(void *log, raft_entry_t *entry)
 {
     raft_entry_hold(entry);
-    return log_append_entry(log, entry);
+    return raft_log_append_entry(log, entry);
 }
 
-static raft_entry_t *__log_get(void *log, raft_index_t idx)
+static raft_entry_t *log_get(void *log, raft_index_t idx)
 {
-    raft_entry_t *e = log_get_at_idx(log, idx);
+    raft_entry_t *e = raft_log_get_at_idx(log, idx);
     if (e != NULL)
         raft_entry_hold(e);
     return e;
 }
 
-static int __log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entry_t **entries)
+static int log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entry_t **entries)
 {
     long n, i;
-    raft_entry_t **r = log_get_from_idx(log, idx, &n);
+    raft_entry_t **r = raft_log_get_from_idx(log, idx, &n);
 
     if (!r || n < 1) {
         return 0;
@@ -391,16 +376,16 @@ static int __log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entr
     return (int) n;
 }
 
-static int __log_pop(void *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
+static int log_pop(void *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
 {
-    return __log_delete(log, from_idx, cb, cb_arg);
+    return log_delete(log, from_idx, cb, cb_arg);
 }
 
-static int __log_poll(void *log, raft_index_t first_idx)
+static int log_poll(void *log, raft_index_t first_idx)
 {
-    while (log_get_base(log) + 1 < first_idx) {
+    while (raft_log_get_base(log) + 1 < first_idx) {
         raft_entry_t *ety;
-        int e = log_poll(log, (void **) &ety);
+        int e = raft_log_poll(log, &ety);
 
         if (e < 0)
             return e;
@@ -409,37 +394,38 @@ static int __log_poll(void *log, raft_index_t first_idx)
     return 0;
 }
 
-static raft_index_t __log_first_idx(void *log)
+static raft_index_t log_first_idx(void *log)
 {
-    return log_get_base(log) + 1;
+    return raft_log_get_base(log) + 1;
 }
 
-static raft_index_t __log_current_idx(void *log)
+static raft_index_t log_current_idx(void *log)
 {
-    return log_get_current_idx(log);
+    return raft_log_get_current_idx(log);
 }
 
-static raft_index_t __log_count(void *log)
+static raft_index_t log_count(void *log)
 {
-    return log_count(log);
+    return raft_log_count(log);
 }
 
-static int __log_sync(void *log)
+static int log_sync(void *log)
 {
+    (void) log;
     return 0;
 }
 
 const raft_log_impl_t raft_log_internal_impl = {
-    .init = __log_init,
-    .free = __log_free,
-    .reset = __log_reset,
-    .append = __log_append,
-    .poll = __log_poll,
-    .pop = __log_pop,
-    .get = __log_get,
-    .get_batch = __log_get_batch,
-    .first_idx = __log_first_idx,
-    .current_idx = __log_current_idx,
-    .count = __log_count,
-    .sync = __log_sync
+    .init = log_init,
+    .free = log_free,
+    .reset = log_reset,
+    .append = log_append,
+    .poll = log_poll,
+    .pop = log_pop,
+    .get = log_get,
+    .get_batch = log_get_batch,
+    .first_idx = log_first_idx,
+    .current_idx = log_current_idx,
+    .count = log_count,
+    .sync = log_sync
 };

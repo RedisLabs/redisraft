@@ -47,7 +47,7 @@ class CoreTestCase(unittest.TestCase):
         r = self.r.lib
 
         unique_id = 1
-        l = r.log_alloc(1)
+        l = r.raft_log_alloc(1)
 
         log = Log()
 
@@ -57,32 +57,31 @@ class CoreTestCase(unittest.TestCase):
                 entry.id = unique_id
                 unique_id += 1
 
-                ret = r.log_append_entry(l, entry)
+                ret = r.raft_log_append_entry(l, entry)
                 assert ret == 0
 
                 log.append(entry)
 
             elif cmd == 'poll':
-                entry_ptr = self.r.ffi.new('void**')
+                entry_ptr = self.r.ffi.new('raft_entry_t**')
 
                 if log.entries:
-                    ret = r.log_poll(l, entry_ptr)
+                    ret = r.raft_log_poll(l, entry_ptr)
                     assert ret == 0
 
                     ety_expected = log.poll()
-                    ety_actual = self.r.ffi.cast('raft_entry_t**', entry_ptr)[0]
-                    assert ety_actual.id == ety_expected.id
+                    assert entry_ptr[0].id == ety_expected.id
 
             elif isinstance(cmd, int):
                 if log.entries:
                     log.delete(cmd)
-                    ret = r.log_delete(l, cmd)
+                    ret = r.raft_log_delete(l, cmd)
                     assert ret == 0
 
             else:
                 assert False
 
-            self.assertEqual(r.log_count(l), log.count())
+            self.assertEqual(r.raft_log_count(l), log.count())
 
 
 if __name__ == '__main__':
