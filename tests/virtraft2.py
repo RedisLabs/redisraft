@@ -530,7 +530,7 @@ class Network(object):
         new_msg = ffi.cast(ffi.typeof(msg), lib.malloc(msg_size))
         ffi.memmove(new_msg, msg, msg_size)
 
-        if msg_type == 'msg_appendentries_t *':
+        if msg_type == 'raft_appendentries_req_t *':
             new_msg.entries = lib.raft_entry_array_deepcopy(msg.entries, msg.n_entries)
 
         self.messages.append(Message(new_msg, sendor, sendee))
@@ -540,9 +540,9 @@ class Network(object):
 
         logger.debug(f"poll_message: {msg.sendor.id} -> {msg.sendee.id} ({msg_type}")
 
-        if msg_type == 'msg_appendentries_t *':
+        if msg_type == 'raft_appendentries_req_t *':
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
-            response = ffi.new('msg_appendentries_response_t*')
+            response = ffi.new('raft_appendentries_resp_t*')
             e = lib.raft_recv_appendentries(msg.sendee.raft, node, msg.data, response)
             if lib.RAFT_ERR_SHUTDOWN == e:
                 logger.error('Catastrophic')
@@ -553,27 +553,27 @@ class Network(object):
             else:
                 self.enqueue_msg(response, msg.sendee, msg.sendor)
 
-        elif msg_type == 'msg_appendentries_response_t *':
+        elif msg_type == 'raft_appendentries_resp_t *':
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             lib.raft_recv_appendentries_response(msg.sendee.raft, node, msg.data)
 
-        elif msg_type == 'msg_snapshot_t *':
-            response = ffi.new('msg_snapshot_response_t *')
+        elif msg_type == 'raft_snapshot_req_t *':
+            response = ffi.new('raft_snapshot_resp_t *')
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             lib.raft_recv_snapshot(msg.sendee.raft, node, msg.data, response)
             self.enqueue_msg(response, msg.sendee, msg.sendor)
 
-        elif msg_type == 'msg_snapshot_response_t *':
+        elif msg_type == 'raft_snapshot_resp_t *':
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             lib.raft_recv_snapshot_response(msg.sendee.raft, node, msg.data)
 
-        elif msg_type == 'msg_requestvote_t *':
-            response = ffi.new('msg_requestvote_response_t*')
+        elif msg_type == 'raft_requestvote_req_t *':
+            response = ffi.new('raft_requestvote_resp_t*')
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             lib.raft_recv_requestvote(msg.sendee.raft, node, msg.data, response)
             self.enqueue_msg(response, msg.sendee, msg.sendor)
 
-        elif msg_type == 'msg_requestvote_response_t *':
+        elif msg_type == 'raft_requestvote_resp_t *':
             node = lib.raft_get_node(msg.sendee.raft, msg.sendor.id)
             e = lib.raft_recv_requestvote_response(msg.sendee.raft, node, msg.data)
             if lib.RAFT_ERR_SHUTDOWN == e:
@@ -847,9 +847,10 @@ class RaftServer(object):
         log_cbs.log_pop = self.raft_logentry_pop
 
         lib.raft_set_callbacks(self.raft, cbs, self.udata)
-        lib.log_set_callbacks(lib.raft_get_log(self.raft), log_cbs, self.raft)
+        lib.raft_log_set_callbacks(lib.raft_get_log(self.raft), log_cbs, self.raft)
         lib.raft_set_election_timeout(self.raft, 500)
         lib.raft_set_auto_flush(self.raft, network.auto_flush)
+        lib.raft_set_log_enabled(self.raft, 1)
 
         self.fsm_dict = {}
         self.fsm_log = []
@@ -941,9 +942,9 @@ class RaftServer(object):
         self.network = network
 
     def load_callbacks(self):
-        self.raft_send_requestvote = ffi.callback("int(raft_server_t*, void*, raft_node_t*, msg_requestvote_t*)", raft_send_requestvote)
-        self.raft_send_appendentries = ffi.callback("int(raft_server_t*, void*, raft_node_t*, msg_appendentries_t*)", raft_send_appendentries)
-        self.raft_send_snapshot = ffi.callback("int(raft_server_t*, void* , raft_node_t*, msg_snapshot_t*)", raft_send_snapshot)
+        self.raft_send_requestvote = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_requestvote_req_t*)", raft_send_requestvote)
+        self.raft_send_appendentries = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_appendentries_req_t*)", raft_send_appendentries)
+        self.raft_send_snapshot = ffi.callback("int(raft_server_t*, void* , raft_node_t*, raft_snapshot_req_t*)", raft_send_snapshot)
         self.raft_load_snapshot = ffi.callback("int(raft_server_t*, void*, raft_index_t, raft_term_t)", raft_load_snapshot)
         self.raft_clear_snapshot = ffi.callback("int(raft_server_t*, void*)", raft_clear_snapshot)
         self.raft_get_snapshot_chunk = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_size_t offset, raft_snapshot_chunk_t*)", raft_get_snapshot_chunk)
@@ -962,7 +963,7 @@ class RaftServer(object):
 
     def recv_entry(self, ety):
         # FIXME: leak
-        response = ffi.new('msg_entry_response_t*')
+        response = ffi.new('raft_entry_resp_t*')
         return lib.raft_recv_entry(self.raft, ety, response)
 
     def get_entry(self, idx):
