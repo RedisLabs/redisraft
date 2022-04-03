@@ -567,13 +567,13 @@ typedef struct RaftReq {
     union {
         struct {
             raft_node_id_t src_node_id;
-            msg_appendentries_t msg;
+            raft_appendentries_req_t msg;
         } appendentries;
         struct {
             Node *proxy_node;
             int hash_slot;
             RaftRedisCommandArray cmds;
-            msg_entry_response_t response;
+            raft_entry_resp_t response;
         } redis;
         struct {
             unsigned long long client_id;
@@ -752,7 +752,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg);
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg);
 RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
@@ -801,7 +801,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_index_t idx, raft_term_t term);
-int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, msg_snapshot_t *msg);
+int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, raft_snapshot_req_t *msg);
 int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 int raftStoreSnapshotChunk(raft_server_t *raft, void *udata, raft_index_t idx, raft_size_t offset, raft_snapshot_chunk_t *chunk);
