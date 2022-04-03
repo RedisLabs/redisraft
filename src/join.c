@@ -36,7 +36,12 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     redisReply *reply = r;
 
     if (!reply) {
+#ifndef HAVE_TLS
         LOG_WARNING("RAFT.NODE ADD failed: connection dropped.");
+#else
+        unsigned long e = ERR_peek_last_error();
+        LOG_WARNING("RAFT.NODE ADD failed: connection dropped: %s", ERR_reason_error_string(e));
+#endif
         ConnMarkDisconnected(conn);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         /* -MOVED? */

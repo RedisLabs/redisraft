@@ -19,6 +19,8 @@
 
 #include "hiredis/hiredis.h"
 #ifdef HAVE_TLS
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include "hiredis/hiredis_ssl.h"
 #endif
 #include "hiredis/async.h"
@@ -343,7 +345,7 @@ typedef struct RedisRaftCtx {
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
 #ifdef HAVE_TLS
-    redisSSLContext *ssl;                        /* hiredis context for ssl */
+    SSL_CTX *ssl;                                /* OpenSSL context for use by hiredis */
 #endif
 
 } RedisRaftCtx;
@@ -411,6 +413,7 @@ typedef struct RedisRaftConfig {
     char *tls_ca_cert;
     char *tls_cert;
     char *tls_key;
+    char *tls_key_pass;
     char *cluster_user;                 /* acl user to use for internode communication */
     char *cluster_password;             /* password used for internode communication */
 } RedisRaftConfig;
@@ -785,6 +788,7 @@ void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
+void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

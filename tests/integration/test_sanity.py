@@ -383,3 +383,18 @@ def test_rolled_back_read_only_multi_reply(cluster):
 
     with raises(ResponseError, match='TIMEOUT'):
         assert conn.read_response() == None
+
+
+def test_tls_reconfig(cluster):
+    if not cluster.config.tls:
+        return
+
+    cluster.create(3)
+    cluster.node(1).client.execute_command("config", "set", "tls-cert-file", cluster.node(1).cert)
+    cluster.node(2).restart()
+    cluster.node(3).restart()
+    cluster.node(3).wait_for_election()
+    assert cluster.node(3).raft_info().get('leader_id') == 1
+    commit_idx = cluster.leader_node().commit_index()
+    cluster.node(3).wait_for_commit_index(commit_idx, gt_ok=True)
+    cluster.node(3).wait_for_log_applied()

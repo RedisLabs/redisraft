@@ -79,15 +79,15 @@ class RedisRaft(object):
         if password:
             self.args += ['--requirepass', password]
 
-        cert = os.getcwd() + '/tests/tls/redis.crt'
-        key = os.getcwd() + '/tests/tls/redis.key'
-        cacert = os.getcwd() + '/tests/tls/ca.crt'
+        self.cert = os.getcwd() + '/tests/tls/redis.crt'
+        self.key = os.getcwd() + '/tests/tls/redis.key'
+        self.cacert = os.getcwd() + '/tests/tls/ca.crt'
 
         if config.tls:
             self.args += ['--tls-port', str(port),
-                          '--tls-cert-file', cert,
-                          '--tls-key-file', key,
-                          '--tls-ca-cert-file', cacert]
+                          '--tls-cert-file', self.cert,
+                          '--tls-key-file', self.key,
+                          '--tls-ca-cert-file', self.cacert]
 
         self.args += redis_args if redis_args else []
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
@@ -119,9 +119,9 @@ class RedisRaft(object):
         self.client = redis.Redis(host='localhost', port=self.port,
                                   password=password,
                                   ssl = config.tls,
-                                  ssl_certfile = cert,
-                                  ssl_keyfile = key,
-                                  ssl_ca_certs = cacert)
+                                  ssl_certfile = self.cert,
+                                  ssl_keyfile = self.key,
+                                  ssl_ca_certs = self.cacert)
 
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser

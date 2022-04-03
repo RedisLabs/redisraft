@@ -1,5 +1,4 @@
-RedisRaft TLS Support
-=====================
+# RedisRaft TLS Support
 
 RedisRaft's TLS support mirrors Redis's native TLS support.  
 
@@ -15,10 +14,18 @@ In addition, one has to pass the `tls-enabled yes` option to the redisraft modul
 --loadmodule ./redisraft.so <other options> tls-enabled yes
 ```
 
-RedisRaft is smart enough to figure out which files to use for the local cert/key/ca by querying the underlying Redis server.  However, if a user wants to use different files for the client aspects vs server aspects, one can specify RedisRaft module options as well
+## Configuring RedisRaft TLS support
 
-```asm
-tls-ca-cert
-tls-cert
-tls-key
-```
+RedisRaft is configured by reusing the Redis server's TLS configuration. 
+
+### Configuring RedisRaft via Redis.
+
+| Config Key Name          | Meaning                                                                                                   |
+|--------------------------|-----------------------------------------------------------------------------------------------------------|
+| tls-ca-cert-file         | File Containing the CA Certificate                                                                        |
+| tls-key-file             | File Containing the PEM encoded private key file                                                          |
+| tls-client-key-file      | File Containing the PEM encoded private key file for client connections (overrides value of tls-key-file) |
+| tls-cert-file            | File Containing the PEM encoded public signed CERT                                                        |
+| tls-client-cert-file     | File Containing the PEM encoded public signed CERT (overrides tls-cert-file)                              |                                                                                                          |
+| tls-key-file-pass        | String containing password to decrypt the private key, if encrypted                                       |
+| tls-client-key-file-pass | String containing password to decrypt the private key if using client key field                           | 
