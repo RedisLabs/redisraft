@@ -181,7 +181,7 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
     cluster.node(cluster.leader).wait_for_num_nodes(2)
 
     logger.info("Re-add node")
-    with raises(ResponseError, match='failed to join'):
+    with raises(ResponseError, match='failed to connect to cluster for join'):
         new_node = cluster.add_node(port=port, node_id=node_id, single_run=True)
 
 
@@ -250,7 +250,7 @@ def test_join_while_cluster_is_down(cluster):
     time.sleep(3)
 
     # Confirm nodes cannot be added
-    with raises(ResponseError, match='failed to join'):
+    with raises(ResponseError, match='failed to connect to cluster for join'):
         cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
                          join_addr_list=[cluster.node(3).address])
 
@@ -259,7 +259,7 @@ def test_join_wrong_cluster(cluster):
     cluster.create(3)
 
     # Confirm nodes fails fast with bad server address
-    with raises(ResponseError, match='failed to join'):
+    with raises(ResponseError, match='failed to connect to cluster for join'):
         cluster.add_node(raft_args={'join-timeout': 1}, single_run=True,
                          join_addr_list=["bad-server:1234"])
 

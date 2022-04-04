@@ -196,7 +196,7 @@ bool parseMovedReply(const char *str, NodeAddr *addr)
  */
 void joinLinkIdleCallback(Connection *conn)
 {
-    char err_msg[50];
+    char err_msg[60];
 
     RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinLinkState *state = ConnGetPrivateData(conn);
@@ -238,9 +238,12 @@ void joinLinkIdleCallback(Connection *conn)
 
 exit_fail:
     ConnAsyncTerminate(conn);
-    rr->state = REDIS_RAFT_UNINITIALIZED;
+    /* only reset state to UNINITIALIZED on a join failure */
+    if (!strcmp(state->type, "join")) {
+        rr->state = REDIS_RAFT_UNINITIALIZED;
+    }
 
-    snprintf(err_msg, sizeof(err_msg), "ERR failed to %s cluster, please check logs", state->type);
+    snprintf(err_msg, sizeof(err_msg), "ERR failed to connect to cluster for %s, please check logs", state->type);
     RedisModule_ReplyWithError(state->req->ctx, err_msg);
     RaftReqFree(state->req);
 }
