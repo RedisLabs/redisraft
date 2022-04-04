@@ -670,6 +670,7 @@ typedef struct JoinLinkState {
     const char *type;                   /* error message to print if exhaust time */
     bool started;                       /* we have started connecting */
     ConnectionCallbackFunc connect_callback;
+    ConnectionCallbackFunc fail_callback;
     void (*complete_callback)(RaftReq *req);
 } JoinLinkState;
 

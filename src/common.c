@@ -239,8 +239,8 @@ void joinLinkIdleCallback(Connection *conn)
 exit_fail:
     ConnAsyncTerminate(conn);
     /* only reset state to UNINITIALIZED on a join failure */
-    if (!strcmp(state->type, "join")) {
-        rr->state = REDIS_RAFT_UNINITIALIZED;
+    if (state->fail_callback) {
+        state->fail_callback(conn);
     }
 
     snprintf(err_msg, sizeof(err_msg), "ERR failed to connect to cluster for %s, please check logs", state->type);

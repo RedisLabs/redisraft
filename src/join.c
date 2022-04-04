@@ -79,6 +79,13 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
     redisAsyncDisconnect(c);
 }
 
+/* failed join -- reset cluster state */
+static void failed_join_callback(Connection *conn)
+{
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
+    rr->state = REDIS_RAFT_UNINITIALIZED;
+}
+
 /* Connect callback -- if connection was established successfully we
  * send the RAFT.NODE ADD command.
  */
@@ -111,6 +118,7 @@ void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req,
     st->type = "join";
     st->connect_callback = sendNodeAddRequest;
     st->complete_callback = complete_callback;
+    st->fail_callback = failed_join_callback;
     st->start = time(NULL);
     st->req = req;
 
