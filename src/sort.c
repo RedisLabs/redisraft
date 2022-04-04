@@ -7,6 +7,7 @@
  */
 
 #include <strings.h>
+#include <inttypes.h>
 
 #include "redisraft.h"
 
@@ -46,7 +47,8 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         RedisModule_DictReplaceC(dict, (char *) entry_str, entry_len, (void *) val);
     }
 
-    LOG_DEBUG("replySortedArray: number of elements in dict = %ld\n", RedisModule_DictSize(dict));
+    LOG_DEBUG("replySortedArray: number of elements in dict = %"PRIu64,
+              RedisModule_DictSize(dict));
 
     switch (reply_type)
     {
@@ -108,7 +110,8 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         }
     }
 
-    LOG_DEBUG("replySortedMap: number of elements in dict = %ld\n", RedisModule_DictSize(dict));
+    LOG_DEBUG("replySortedMap: number of elements in dict = %"PRIu64,
+              RedisModule_DictSize(dict));
 
     if (RedisModule_ReplyWithMap(ctx, len) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
