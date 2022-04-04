@@ -19,7 +19,7 @@ RUN wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
     chmod +x /usr/bin/lein && \
     lein self-install
 
-ARG JEPSEN_REPO=jepsen-io/redis
+ARG JEPSEN_REPO=redislabs/jepsen-redisraft
 RUN git clone https://github.com/${JEPSEN_REPO} /jepsen && \
     cd /jepsen && \
     lein install
