@@ -69,7 +69,8 @@ def test_raft_log_max_file_size(cluster):
     assert r1.raft_config_set('raft-log-max-file-size', '1kb')
     for _ in range(10):
         assert r1.client.set('testkey', 'x'*500)
-    time.sleep(1)
+
+    r1.wait_for_info_param('snapshots_created', 1)
     assert r1.raft_info()['log_entries'] < 10
 
 
