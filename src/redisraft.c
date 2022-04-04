@@ -1072,9 +1072,12 @@ static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
 
 SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 {
+    (void) ctx;
+
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
-        LOG_ERROR("REDIS_SSL_CTX_CREATE_FAILED");
+        LOG_WARNING("SSL_CTX_new(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
         return NULL;
     }
 
@@ -1083,30 +1086,31 @@ SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr)
 
     if ((rr->config->tls_cert != NULL && rr->config->tls_key == NULL) ||
             (rr->config->tls_key != NULL && rr->config->tls_cert == NULL)) {
-        LOG_ERROR("REDIS_SSL_CTX_CERT_KEY_REQUIRED");
+        LOG_WARNING("'tls-cert-file' or 'tls-key-file' is not configured.");
         goto error;
     }
 
     if (!SSL_CTX_load_verify_locations(ssl_ctx, rr->config->tls_ca_cert, NULL)) {
-        unsigned long e = ERR_peek_last_error();
-        LOG_ERROR("SSL_CTX_load_verify_locations(): %s", ERR_reason_error_string(e));
+        LOG_WARNING("SSL_CTX_load_verify_locations(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
         goto error;
     }
 
     if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, rr->config->tls_cert)) {
-        unsigned long e = ERR_peek_last_error();
-        LOG_ERROR("SSL_CTX_use_certificate_chain_file(): tls_cert = %s, err = %s", rr->config->tls_cert, ERR_reason_error_string(e));
+        LOG_WARNING("SSL_CTX_use_certificate_chain_file(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
         goto error;
     }
+
     if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, rr->config->tls_key, SSL_FILETYPE_PEM)) {
-        unsigned long e = ERR_peek_last_error();
-        LOG_ERROR("SSL_CTX_use_PrivateKey_file(): tls_key = %s, err = %s", rr->config->tls_key, ERR_reason_error_string(e));
+        LOG_WARNING("SSL_CTX_use_PrivateKey_file(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
         goto error;
     }
 
     if (rr->config->tls_key_pass && *rr->config->tls_key_pass != '\0') {
         SSL_CTX_set_default_passwd_cb(ssl_ctx, tlsPasswordCallback);
-        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) rr->config->tls_key_pass);
+        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, rr->config->tls_key_pass);
     }
 
     return ssl_ctx;
@@ -1125,7 +1129,7 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
     }
 
 #ifdef HAVE_TLS
-    if (!redis_raft.config->tls_enabled || redis_raft.config->tls_manual) {
+    if (!redis_raft.config->tls_enabled) {
         return;
     }
 
