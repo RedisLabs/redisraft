@@ -333,6 +333,7 @@ typedef struct RedisRaftCtx {
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
+    RedisModuleDict *multi_client_state;         /* A dict that tracks multi state of the clients */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -455,7 +456,6 @@ enum RaftReqType {
     RR_REDISCOMMAND,
     RR_INFO,
     RR_DEBUG,
-    RR_CLIENT_DISCONNECT,
     RR_SHARDGROUP_ADD,
     RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_LINK,
@@ -575,9 +575,6 @@ typedef struct RaftReq {
             RaftRedisCommandArray cmds;
             raft_entry_resp_t response;
         } redis;
-        struct {
-            unsigned long long client_id;
-        } client_disconnect;
         struct {
             int fail;
             int delay;
@@ -721,7 +718,6 @@ void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
-void handleClientDisconnect(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
@@ -859,4 +855,9 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 /* sort.c */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+/* multi.c */
+void MultiInitClientState(RedisRaftCtx *rr);
+uint64_t MultiClientStateCount(RedisRaftCtx *rr);
+void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
+bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */

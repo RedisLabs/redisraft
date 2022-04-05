@@ -167,6 +167,7 @@ add_library(redisraft MODULE
         src/fsync.c
         src/join.c
         src/log.c
+        src/multi.c
         src/node.c
         src/node_addr.c
         src/proxy.c
@@ -218,6 +219,7 @@ add_executable(main
         src/fsync.c
         src/join.c
         src/log.c
+        src/multi.c
         src/node.c
         src/node_addr.c
         src/proxy.c
