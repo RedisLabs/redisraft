@@ -452,7 +452,6 @@ enum RaftReqType {
     RR_CLUSTER_JOIN = 1,
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
-    RR_APPENDENTRIES,
     RR_REDISCOMMAND,
     RR_INFO,
     RR_DEBUG,
@@ -565,10 +564,6 @@ typedef struct RaftReq {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     union {
-        struct {
-            raft_node_id_t src_node_id;
-            raft_appendentries_req_t msg;
-        } appendentries;
         struct {
             Node *proxy_node;
             int hash_slot;
@@ -718,7 +713,6 @@ RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry);
 void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
 void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
-void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req);
 void handleInfo(RedisRaftCtx *rr, RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);

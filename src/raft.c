@@ -23,7 +23,6 @@ const char *RaftReqTypeStr[] = {
     [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
     [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
     [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
-    [RR_APPENDENTRIES]        = "RR_APPENDENTRIES",
     [RR_REDISCOMMAND]         = "RR_REDISCOMMAND",
     [RR_INFO]                 = "RR_INFO",
     [RR_DEBUG]                = "RR_DEBUG",
@@ -1177,36 +1176,17 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
  * If it is associated with a blocked client, it will be unblocked and
  * the thread safe context released as well.
  */
-
 void RaftReqFree(RaftReq *req)
 {
     TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p",
           req, req->ctx, req->client);
 
-    switch (req->type) {
-        case RR_APPENDENTRIES:
-            /* Note: we only free the array of entries but not actual entries, as they
-             * are owned by the log and should be freed when the log entry is freed.
-             */
-            if (req->r.appendentries.msg.entries) {
-                int i;
-                for (i = 0; i < req->r.appendentries.msg.n_entries; i++) {
-                    raft_entry_t *e = req->r.appendentries.msg.entries[i];
-                    if (e) {
-                        raft_entry_release(e);
-                    }
-                }
-                RedisModule_Free(req->r.appendentries.msg.entries);
-                req->r.appendentries.msg.entries = NULL;
-            }
-            break;
-        case RR_REDISCOMMAND:
-            if (req->ctx && req->r.redis.cmds.size) {
-                RaftRedisCommandArrayFree(&req->r.redis.cmds);
-            }
-            // TODO: hold a reference from entry so we can disconnect our req
-            break;
+    if (req->type == RR_REDISCOMMAND) {
+        if (req->r.redis.cmds.size) {
+            RaftRedisCommandArrayFree(&req->r.redis.cmds);
+        }
     }
+
     if (req->ctx) {
         RedisModule_FreeThreadSafeContext(req->ctx);
         RedisModule_UnblockClient(req->client, NULL);
@@ -1265,35 +1245,6 @@ void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e re
 
     RaftReqFree(rr->transfer_req);
     rr->transfer_req = NULL;
-}
-
-void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
-{
-    raft_appendentries_resp_t response;
-    int err;
-
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
-    }
-
-    if ((err = raft_recv_appendentries(rr->raft,
-                raft_get_node(rr->raft, req->r.appendentries.src_node_id),
-                &req->r.appendentries.msg,
-                &response)) != 0) {
-        char msg[128];
-        snprintf(msg, sizeof(msg)-1, "operation failed, error %d", err);
-        RedisModule_ReplyWithError(req->ctx, msg);
-        goto exit;
-    }
-
-    RedisModule_ReplyWithArray(req->ctx, 4);
-    RedisModule_ReplyWithLongLong(req->ctx, response.term);
-    RedisModule_ReplyWithLongLong(req->ctx, response.success);
-    RedisModule_ReplyWithLongLong(req->ctx, response.current_idx);
-    RedisModule_ReplyWithLongLong(req->ctx, response.msg_id);
-
-exit:
-    RaftReqFree(req);
 }
 
 static void handleReadOnlyCommand(void *arg, int can_read)
