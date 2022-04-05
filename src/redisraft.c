@@ -10,6 +10,7 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <dlfcn.h>
 
 #include "redisraft.h"
@@ -403,8 +404,130 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  */
 static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RaftReq *req = RaftReqInit(ctx, RR_INFO);
-    handleInfo(&redis_raft, req);
+    RedisRaftCtx *rr = &redis_raft;
+    size_t slen = 1024;
+    char *s = RedisModule_Calloc(1, slen);
+    const char* role;
+
+    if (!rr->raft) {
+        role = "-";
+    } else {
+        switch (raft_get_state(rr->raft)) {
+            case RAFT_STATE_FOLLOWER:
+                role = "follower";
+                break;
+            case RAFT_STATE_LEADER:
+                role = "leader";
+                break;
+            case RAFT_STATE_PRECANDIDATE:
+                role = "pre-candidate";
+                break;
+            case RAFT_STATE_CANDIDATE:
+                role = "candidate";
+                break;
+            default:
+                role = "(none)";
+                break;
+        }
+    }
+
+    raft_node_t *me = rr->raft ? raft_get_my_node(rr->raft) : NULL;
+    s = catsnprintf(s, &slen,
+            "# RedisRaft\r\n"
+            "redisraft_version:%s\r\n"
+            "redisraft_git_sha1:%s\r\n"
+            "\r\n"
+            "# Raft\r\n"
+            "dbid:%s\r\n"
+            "node_id:%d\r\n"
+            "state:%s\r\n"
+            "role:%s\r\n"
+            "is_voting:%s\r\n"
+            "leader_id:%d\r\n"
+            "current_term:%ld\r\n"
+            "num_nodes:%d\r\n"
+            "num_voting_nodes:%d\r\n",
+            REDISRAFT_VERSION,
+            REDISRAFT_GIT_SHA1,
+            rr->snapshot_info.dbid,
+            rr->config->id,
+            getStateStr(rr),
+            role,
+            me ? (raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no") : "-",
+            rr->raft ? raft_get_leader_id(rr->raft) : -1,
+            rr->raft ? raft_get_current_term(rr->raft) : 0,
+            rr->raft ? raft_get_num_nodes(rr->raft) : 0,
+            rr->raft ? raft_get_num_voting_nodes(rr->raft) : 0);
+
+    int i;
+    long long now = RedisModule_Milliseconds();
+    int num_nodes = rr->raft ? raft_get_num_nodes(rr->raft) : 0;
+    for (i = 0; i < num_nodes; i++) {
+        raft_node_t *rnode = raft_get_node_from_idx(rr->raft, i);
+        Node *node = raft_node_get_udata(rnode);
+        if (!node) {
+            continue;
+        }
+
+        s = catsnprintf(s, &slen,
+                "node%d:id=%d,state=%s,voting=%s,addr=%s,port=%d,last_conn_secs=%lld,conn_errors=%lu,conn_oks=%lu\r\n",
+                i, node->id, ConnGetStateStr(node->conn),
+                raft_node_is_voting(rnode) ? "yes" : "no",
+                node->addr.host, node->addr.port,
+                node->conn->last_connected_time ? (now - node->conn->last_connected_time)/1000 : -1,
+                node->conn->connect_errors, node->conn->connect_oks);
+    }
+
+    s = catsnprintf(s, &slen,
+            "\r\n# Log\r\n"
+            "log_entries:%ld\r\n"
+            "current_index:%ld\r\n"
+            "commit_index:%ld\r\n"
+            "last_applied_index:%ld\r\n"
+            "file_size:%lu\r\n"
+            "cache_memory_size:%lu\r\n"
+            "cache_entries:%lu\r\n"
+            "client_attached_entries:%lu\r\n"
+            "fsync_count:%"PRIu64"\r\n"
+            "fsync_max_microseconds:%"PRIu64"\r\n"
+            "fsync_avg_microseconds:%"PRIu64"\r\n",
+            rr->raft ? raft_get_log_count(rr->raft) : 0,
+            rr->raft ? raft_get_current_idx(rr->raft) : 0,
+            rr->raft ? raft_get_commit_idx(rr->raft) : 0,
+            rr->raft ? raft_get_last_applied_idx(rr->raft) : 0,
+            rr->log ? rr->log->file_size : 0,
+            rr->logcache ? rr->logcache->entries_memsize : 0,
+            rr->logcache ? rr->logcache->len : 0,
+            rr->client_attached_entries,
+            rr->log ? rr->log->fsync_count : 0,
+            rr->log ? rr->log->fsync_max : 0,
+            rr->log ? rr->log->fsync_count ?
+                        (rr->log->fsync_total / rr->log->fsync_count) : 0 : 0);
+
+    s = catsnprintf(s, &slen,
+            "\r\n# Snapshot\r\n"
+            "snapshot_in_progress:%s\r\n"
+            "snapshots_loaded:%lu\r\n"
+            "snapshots_created:%lu\r\n",
+            rr->snapshot_in_progress ? "yes" : "no",
+            rr->snapshots_loaded,
+            rr->snapshots_created);
+
+    s = catsnprintf(s, &slen,
+            "\r\n# Clients\r\n"
+            "clients_in_multi_state:%"PRIu64"\r\n"
+            "proxy_reqs:%llu\r\n"
+            "proxy_failed_reqs:%llu\r\n"
+            "proxy_failed_responses:%llu\r\n"
+            "proxy_outstanding_reqs:%ld\r\n",
+            MultiClientStateCount(rr),
+            rr->proxy_reqs,
+            rr->proxy_failed_reqs,
+            rr->proxy_failed_responses,
+            rr->proxy_outstanding_reqs);
+
+    RedisModule_ReplyWithStringBuffer(ctx, s, strlen(s));
+    RedisModule_Free(s);
 
     return REDISMODULE_OK;
 }
