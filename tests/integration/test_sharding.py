@@ -331,7 +331,7 @@ def test_shard_group_linking_checks(cluster_factory):
         'slot-config': '1:16383'})
 
     # Link
-    with raises(ResponseError, match='failed to link'):
+    with raises(ResponseError, match='failed to connect to cluster for link'):
         cluster1.node(1).client.execute_command(
             'RAFT.SHARDGROUP', 'LINK',
             'localhost:%s' % cluster2.node(1).port)
