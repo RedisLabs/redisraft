@@ -49,6 +49,7 @@ FUNCTION - verify OOM on function load and function restore
 FUNCTION - deny oom
 FUNCTION - deny oom on no-writes function
 allow-oom shebang flag
+reject script do not cause a Lua stack leak
 
 -- ACL test fails because we prepend "raft" string to the command
 Script ACL check
