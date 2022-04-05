@@ -14,8 +14,8 @@ on:
         default: 'master'
         required: false
       jepsen-repo:
-        description: 'Jepsen repository, e.g jepsen-io/redis'
-        default:  'jepsen-io/redis'
+        description: 'Jepsen repository, e.g redislabs/jepsen-redisraft'
+        default:  'redislabs/jepsen-redisraft'
         required: false
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
       env:
         REDISRAFT_REPO: 'redislabs/redisraft'
         REDISRAFT_VERSION: ${{ github.sha }}
-        JEPSEN_REPO: 'jepsen-io/redis'
+        JEPSEN_REPO: 'redislabs/jepsen-redisraft'
       run: |
         echo "REDISRAFT_REPO=${{ github.event.inputs.repository || env.REDISRAFT_REPO }}" >> $GITHUB_ENV
         echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV

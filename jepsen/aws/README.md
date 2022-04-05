@@ -22,7 +22,7 @@ Once launched, connect to the control node:
 Clone the Jepsen Redis test. You may need the auto generated SSH key file
 authorized to do that in GitHub.
 
-    git clone https://github.com/jepsen-io/redis jepsen
+    git clone https://github.com/redislabs/jepsen-redisraft jepsen
     cd jepsen
     lein install
 
