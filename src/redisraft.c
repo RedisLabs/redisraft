@@ -120,10 +120,10 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        msg_entry_response_t resp;
+        raft_entry_resp_t resp;
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
 
-        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
         entry->id = rand();
         entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
         memcpy(entry->data, &cfg, sizeof(cfg));
@@ -163,10 +163,10 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             .id = (raft_node_id_t) node_id
         };
 
-        msg_entry_response_t resp;
+        raft_entry_resp_t resp;
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
 
-        msg_entry_t *entry = raft_entry_new(sizeof(cfg));
+        raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
         entry->id = rand();
         entry->type = RAFT_LOGTYPE_REMOVE_NODE;
         memcpy(entry->data, &cfg, sizeof(cfg));
@@ -258,13 +258,13 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
-    raft_set_timeout_now(rr->raft);
+    raft_timeout_now(rr->raft);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]:[transfer_leader]
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -302,20 +302,19 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], NULL);
-    msg_requestvote_t req = {0};
+    raft_requestvote_req_t req = {0};
 
-    if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld:%d",
+    if (sscanf(tmpstr, "%d:%ld:%d:%ld:%ld",
                 &req.prevote,
                 &req.term,
                 &req.candidate_id,
                 &req.last_log_idx,
-                &req.last_log_term,
-                &req.transfer_leader) != 6) {
+                &req.last_log_term) != 5) {
         RedisModule_ReplyWithError(ctx, "invalid message");
         return REDISMODULE_OK;
     }
 
-    msg_requestvote_response_t resp = {0};
+    raft_requestvote_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, src_node_id);
 
     if (raft_recv_requestvote(rr->raft, node, &req, &resp) != 0) {
@@ -471,13 +470,13 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     req->r.appendentries.msg.n_entries = (int)n_entries;
     if (n_entries > 0) {
-        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(msg_entry_t));
+        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(raft_entry_t));
     }
 
     for (int i = 0; i < n_entries; i++) {
         /* Create entry with payload */
         tmpstr = RedisModule_StringPtrLen(argv[6 + 2*i], &tmplen);
-        msg_entry_t *e = raft_entry_new(tmplen);
+        raft_entry_t *e = raft_entry_new(tmplen);
         memcpy(e->data, tmpstr, tmplen);
 
         /* Parse additional entry fields */
@@ -586,7 +585,7 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return REDISMODULE_OK;
     }
 
-    msg_snapshot_t req = {0};
+    raft_snapshot_req_t req = {0};
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], NULL);
 
     if (sscanf(tmpstr, "%lu:%d:%lu:%lu:%lu:%llu:%d",
@@ -607,7 +606,7 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     req.chunk.data = data;
     req.chunk.len = len;
 
-    msg_snapshot_response_t resp = {0};
+    raft_snapshot_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) src_node_id);
 
     if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {

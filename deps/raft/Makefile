@@ -7,15 +7,15 @@ LIB = -I libs
 INC = -I include
 GCOV_CFLAGS = -fprofile-arcs -ftest-coverage
 SHELL  = /bin/bash
-CFLAGS += -Iinclude -Werror -Werror=return-type -Werror=uninitialized -Wcast-align \
-	  -Wno-pointer-sign -fno-omit-frame-pointer -fno-common -fsigned-char \
-	  -Wunused-variable -g -O2 -fPIC
+CFLAGS += -Iinclude -fno-omit-frame-pointer -fno-common -fsigned-char -g -O2 -fPIC
 ifeq ($(COVERAGE), 1)
 CFLAGS += $(GCOV_CFLAGS)
 TEST_CFLAGS = $(CFLAGS)
 else
 TEST_CFLAGS = $(CFLAGS) $(GCOV_CFLAGS)
 endif
+
+LIB_CFLAGS = $(CFLAGS) -Wextra -Wall -pedantic -Werror
 
 UNAME := $(shell uname)
 
@@ -62,7 +62,7 @@ shared: $(LIBRAFT_SHARED)
 static: $(LIBRAFT_STATIC)
 
 $(LIBRAFT_SHARED): $(OBJECTS)
-	$(CC) $^ $(LDFLAGS) $(CFLAGS) -fPIC $(SHAREDFLAGS) -o $@
+	$(CC) $^ $(LDFLAGS) $(LIB_CFLAGS) -fPIC $(SHAREDFLAGS) -o $@
 
 $(LIBRAFT_STATIC): $(OBJECTS)
 	ar -r $@ $^
@@ -86,7 +86,7 @@ $(TEST_DIR)/%.o: $(TEST_DIR)/%.c
 	$(CC) $(TEST_CFLAGS) $(INC) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) $(INC) -c -o $@ $<
+	$(CC) $(LIB_CFLAGS) $(INC) -c -o $@ $<
 
 .PHONY: test_helper
 test_helper: $(TEST_HELPERS)

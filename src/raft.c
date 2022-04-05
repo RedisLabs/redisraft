@@ -272,7 +272,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
         return;
     }
 
-    msg_requestvote_response_t response = {
+    raft_requestvote_resp_t response = {
         .prevote = reply->element[0]->integer,
         .request_term = reply->element[1]->integer,
         .term = reply->element[2]->integer,
@@ -296,7 +296,7 @@ static void handleRequestVoteResponse(redisAsyncContext *c, void *r, void *privd
 
 
 static int raftSendRequestVote(raft_server_t *raft, void *user_data,
-        raft_node_t *raft_node, msg_requestvote_t *msg)
+        raft_node_t *raft_node, raft_requestvote_req_t *msg)
 {
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
@@ -307,15 +307,14 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
 
     /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
-                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld:%d",
+                node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
                 raft_node_get_id(raft_node),
                 raft_get_nodeid(raft),
                 msg->prevote,
                 msg->term,
                 msg->candidate_id,
                 msg->last_log_idx,
-                msg->last_log_term,
-                msg->transfer_leader) != REDIS_OK) {
+                msg->last_log_term) != REDIS_OK) {
         NODE_TRACE(node, "failed requestvote");
     } else {
         NodeAddPendingResponse(node, false);
@@ -352,7 +351,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
         return;
     }
 
-    msg_appendentries_response_t response = {
+    raft_appendentries_resp_t response = {
         .term = reply->element[0]->integer,
         .success = reply->element[1]->integer,
         .current_idx = reply->element[2]->integer,
@@ -371,7 +370,7 @@ static void handleAppendEntriesResponse(redisAsyncContext *c, void *r, void *pri
 }
 
 static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
-        raft_node_t *raft_node, msg_appendentries_t *msg)
+        raft_node_t *raft_node, raft_appendentries_req_t *msg)
 {
     Node *node = (Node *) raft_node_get_udata(raft_node);
 
@@ -622,14 +621,15 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
 
     LOG_DEBUG("node:%d has sufficient logs, adding as voting node.", node->id);
 
-    raft_entry_t *entry = raft_entry_new(sizeof(RaftCfgChange));
+    raft_entry_req_t *entry = raft_entry_new(sizeof(RaftCfgChange));
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_ADD_NODE;
 
-    msg_entry_response_t response;
     RaftCfgChange *cfgchange = (RaftCfgChange *) entry->data;
     cfgchange->id = node->id;
     cfgchange->addr = node->addr;
+
+    raft_entry_resp_t response;
 
     int e = raft_recv_entry(raft, entry, &response);
     raft_entry_release(entry);
@@ -717,14 +717,14 @@ static char *raftMembershipInfoString(raft_server_t *raft)
     return buf;
 }
 
-static void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state);
+static void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e result);
 
 /* just keep libraft callbacks together
  * so this just calls the redisraft RaftReq compleition function, which is kept together with its functions
  */
-static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_transfer_state_e state)
+static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_leader_transfer_e result)
 {
-    handleTransferLeaderComplete(raft, state);
+    handleTransferLeaderComplete(raft, result);
 }
 
 static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
@@ -1088,8 +1088,8 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
             .addr = rr->config->addr
         };
 
-        msg_entry_response_t resp = {0};
-        msg_entry_t *ety = raft_entry_new(sizeof(cfg));
+        raft_entry_resp_t resp = {0};
+        raft_entry_t *ety = raft_entry_new(sizeof(cfg));
 
         ety->id = rand();
         ety->type = RAFT_LOGTYPE_ADD_NODE;
@@ -1239,37 +1239,41 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
  * Implementation of specific request types.
  */
 
-void handleTransferLeaderComplete(raft_server_t *raft, raft_transfer_state_e state)
+void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e result)
 {
-    if (!redis_raft.transfer_req) {
+    char buf[64];
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (!rr->transfer_req) {
         LOG_WARNING("leader transfer update: but no req to correlate it to!");
         return;
     }
 
-    char e[40];
-    switch (state) {
-        case RAFT_STATE_LEADERSHIP_TRANSFER_EXPECTED_LEADER:
-            RedisModule_ReplyWithSimpleString(redis_raft.transfer_req->ctx, "OK");
+    RedisModuleCtx *ctx = rr->transfer_req->ctx;
+
+    switch (result) {
+        case RAFT_LEADER_TRANSFER_EXPECTED_LEADER:
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
             break;
-        case RAFT_STATE_LEADERSHIP_TRANSFER_UNEXPECTED_LEADER:
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR different node elected leader");
+        case RAFT_LEADER_TRANSFER_UNEXPECTED_LEADER:
+            RedisModule_ReplyWithError(ctx, "ERR different node elected leader");
             break;
-        case RAFT_STATE_LEADERSHIP_TRANSFER_TIMEOUT:
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, "ERR transfer timed out");
+        case RAFT_LEADER_TRANSFER_TIMEOUT:
+            RedisModule_ReplyWithError(ctx, "ERR transfer timed out");
             break;
         default:
-            snprintf(e, 40,"ERR unknown case: %d", state);
-            RedisModule_ReplyWithError(redis_raft.transfer_req->ctx, e);
+            snprintf(buf, sizeof(buf),"ERR unknown case: %d", result);
+            RedisModule_ReplyWithError(ctx, buf);
             break;
     }
 
-    RaftReqFree(redis_raft.transfer_req);
-    redis_raft.transfer_req = NULL;
+    RaftReqFree(rr->transfer_req);
+    rr->transfer_req = NULL;
 }
 
 void handleAppendEntries(RedisRaftCtx *rr, RaftReq *req)
 {
-    msg_appendentries_response_t response;
+    raft_appendentries_resp_t response;
     int err;
 
     if (checkRaftState(rr, req->ctx) == RR_ERROR) {

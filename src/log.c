@@ -811,7 +811,7 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
     return e;
 }
 
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
 {
     off_t offset;
     RRStatus ret = RR_OK;
@@ -1136,7 +1136,7 @@ static int logImplPoll(void *rr_, raft_index_t first_idx)
     return 0;
 }
 
-static int logImplPop(void *rr_, raft_index_t from_idx, func_entry_notify_f cb, void *cb_arg)
+static int logImplPop(void *rr_, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
     RAFTLOG_TRACE("Delete(from_idx=%lu)", from_idx);

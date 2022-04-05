@@ -750,7 +750,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
         return;
     }
 
-    msg_snapshot_response_t response = {
+    raft_snapshot_resp_t response = {
         .term = reply->element[0]->integer,
         .msg_id = reply->element[1]->integer,
         .offset = reply->element[2]->integer,
@@ -773,7 +773,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
 int raftSendSnapshot(raft_server_t* raft,
                      void *user_data,
                      raft_node_t* raft_node,
-                     msg_snapshot_t* msg)
+                     raft_snapshot_req_t* msg)
 {
     Node *node = raft_node_get_udata(raft_node);
 

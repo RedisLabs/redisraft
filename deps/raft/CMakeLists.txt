@@ -107,13 +107,13 @@ set(RAFT_SOURCE_FILES
         src/raft_server_properties.c)
 
 add_library(raft STATIC ${RAFT_SOURCE_FILES})
-target_compile_options(raft PRIVATE -g)
+target_compile_options(raft PRIVATE -g -Wall -Wextra -pedantic)
 target_include_directories(raft PRIVATE include)
 
 add_library(raft_shared SHARED ${RAFT_SOURCE_FILES})
 target_include_directories(raft_shared PRIVATE include)
 set_property(TARGET raft_shared PROPERTY POSITION_INDEPENDENT_CODE ON)
-target_compile_options(raft PRIVATE -g)
+target_compile_options(raft_shared PRIVATE -g -Wall -Wextra -pedantic)
 
 define_test(test_log)
 define_test(test_log_impl)
