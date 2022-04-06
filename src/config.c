@@ -598,7 +598,7 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
     }
     if (stringmatch(pattern, CONF_IGNORED_COMMANDS, 1)) {
         len++;
-        replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands);
+        replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands ? config->ignored_commands : "");
     }
     if (stringmatch(pattern, CONF_MAX_APPEND_REQ_IN_FLIGHT, 1)) {
         len++;
@@ -680,6 +680,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->external_sharding = false;
     config->slot_config = "0:16383";
     config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
+    config->ignored_commands = NULL;
     config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
 #ifdef HAVE_TLS
     updateTLSConfig(ctx, config);
