@@ -79,10 +79,10 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase)
 {
-    while (patternLen) {
+    while (patternLen && stringLen) {
         switch (pattern[0]) {
         case '*':
-            while (pattern[1] == '*') {
+            while (patternLen && pattern[1] == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -93,7 +93,7 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
 
             while (stringLen) {
                 if (stringmatchlen(pattern + 1, patternLen - 1,
-                                   string, stringLen, nocase)) {
+                            string, stringLen, nocase)) {
                     return 1;    /* match */
                 }
 
@@ -128,7 +128,7 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
             match = 0;
 
             while (1) {
-                if (pattern[0] == '\\') {
+                if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
 
@@ -141,7 +141,7 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
                     pattern--;
                     patternLen++;
                     break;
-                } else if (pattern[1] == '-' && patternLen >= 3) {
+                } else if (patternLen >= 3 && pattern[1] == '-') {
                     int start = pattern[0];
                     int end = pattern[2];
                     int c = string[0];
@@ -199,7 +199,7 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
                 patternLen--;
             }
 
-        /* fall through */
+            /* fall through */
         default:
             if (!nocase) {
                 if (pattern[0] != string[0]) {
