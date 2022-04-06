@@ -186,7 +186,7 @@ set_target_properties(redisraft PROPERTIES
 set_property(TARGET redisraft APPEND PROPERTY
         ADDITIONAL_CLEAN_FILES ${LIBRARY_OUTPUT_DIRECTORY}/$<TARGET_FILE_NAME:redisraft>)
 
-target_compile_options(redisraft PRIVATE -Wall -Werror)
+target_compile_options(redisraft PRIVATE -Wall -Werror -Wextra -Wno-unused-parameter)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(LINKER_FLAGS "-Wl,-Bsymbolic-functions")

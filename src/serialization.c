@@ -119,7 +119,7 @@ static int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
 {
     int n = snprintf(ptr, sz, "%c%lu\n", prefix, val);
     
-    if (n >= sz) {
+    if (n >= (int) sz) {
         return -1;
     }
     return n;
@@ -247,7 +247,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 {
     const char *p = buf;
     size_t commands_num;
-    int n, i;
+    int n;
 
     if (target->len) {
         RaftRedisCommandArrayFree(target);
@@ -263,7 +263,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     /* Allocate array */
     target->len = target->size = commands_num;
     target->commands = RedisModule_Calloc(commands_num, sizeof(RaftRedisCommand*));
-    for (i = 0; i < commands_num; i++) {
+    for (size_t i = 0; i < commands_num; i++) {
         target->commands[i] = RedisModule_Calloc(1, sizeof(RaftRedisCommand));
         size_t len = RaftRedisCommandDeserialize(target->commands[i], p, buf_size);
         if (!len) {

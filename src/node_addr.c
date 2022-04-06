@@ -29,7 +29,7 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     }
 
     /* Get port */
-    int portlen = node_addr_len - (colon + 1 - node_addr);
+    size_t portlen = node_addr_len - (colon + 1 - node_addr);
     if (portlen >= sizeof(buf) || portlen < 1) {
         return false;
     }
@@ -42,7 +42,7 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     result->port = l;
 
     /* Get addr */
-    int addrlen = colon - node_addr;
+    size_t addrlen = colon - node_addr;
     if (addrlen >= sizeof(result->host)) {
         addrlen = sizeof(result->host)-1;
     }

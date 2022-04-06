@@ -1540,7 +1540,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
 
     char *nl = strchr(payload, '\n');
     char *endptr;
-    size_t num_payloads = strtoul(payload, &endptr, 10);
+    int num_payloads = (int) strtoul(payload, &endptr, 10);
     RedisModule_Assert(endptr == nl);
     payload = nl + 1;
 

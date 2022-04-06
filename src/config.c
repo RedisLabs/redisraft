@@ -387,7 +387,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
     } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val < 0)
+        if (*errptr != '\0')
             goto invalid_value;
         target->shardgroup_update_interval = (int) val;
     } else if (!strcmp(keyword, CONF_IGNORED_COMMANDS)) {
@@ -398,7 +398,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
     } else if (!strcmp(keyword, CONF_MAX_APPEND_REQ_IN_FLIGHT)) {
         char *errptr;
         unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val < 0)
+        if (*errptr != '\0')
             goto invalid_value;
         target->max_appendentries_inflight = (int) val;
     } else if (!strcmp(keyword, CONF_TLS_ENABLED)) {

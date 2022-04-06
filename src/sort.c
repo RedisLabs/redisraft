@@ -75,7 +75,7 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
     size_t count = 0;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     while((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
-        for (long i=0; i < val; i++) {
+        for (unsigned long i = 0; i < val; i++) {
             RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
             count++;
         }
