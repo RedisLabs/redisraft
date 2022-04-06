@@ -533,8 +533,10 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 }
 
 
-/* RAFT.AE [target_node_id] [src_node_id] [term]:[prev_log_idx]:[prev_log_term]:[leader_commit]
- *      [n_entries] [<term>:<id>:<type> <entry>]...
+/* RAFT.AE [target_node_id] [src_node_id]
+ *         [leader_id]:[term]:[prev_log_idx]:[prev_log_term]:[leader_commit]:[msg_id]
+ *         [n_entries] [<term>:<id>:<type> <entry>]...
+ *
  *   A leader request to append entries to the Raft log (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -543,15 +545,18 @@ static int cmdRaftInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  *   :<term>
  *   :<success> (0 or 1)
  *   :<current_idx>
- *   :<first_idx>
+ *   :<msg_id>
  */
-
 static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
     if (argc < 5) {
         RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
         return REDISMODULE_OK;
     }
 
@@ -572,28 +577,30 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_APPENDENTRIES);
-    if (RedisModuleStringToInt(argv[2], &req->r.appendentries.src_node_id) == REDISMODULE_ERR) {
+    raft_node_id_t src_node_id;
+    if (RedisModuleStringToInt(argv[2], &src_node_id) == REDISMODULE_ERR) {
         RedisModule_ReplyWithError(ctx, "invalid source node id");
-        goto error_cleanup;
+        return REDISMODULE_OK;
     }
+
+    raft_appendentries_req_t msg = {0};
 
     size_t tmplen;
     const char *tmpstr = RedisModule_StringPtrLen(argv[3], &tmplen);
     if (sscanf(tmpstr, "%d:%ld:%ld:%ld:%ld:%lu",
-                &req->r.appendentries.msg.leader_id,
-                &req->r.appendentries.msg.term,
-                &req->r.appendentries.msg.prev_log_idx,
-                &req->r.appendentries.msg.prev_log_term,
-                &req->r.appendentries.msg.leader_commit,
-                &req->r.appendentries.msg.msg_id) != 6) {
+               &msg.leader_id,
+               &msg.term,
+               &msg.prev_log_idx,
+               &msg.prev_log_term,
+               &msg.leader_commit,
+               &msg.msg_id) != 6) {
         RedisModule_ReplyWithError(ctx, "invalid message");
-        goto error_cleanup;
+        return REDISMODULE_OK;
     }
 
-    req->r.appendentries.msg.n_entries = (int)n_entries;
+    msg.n_entries = (int) n_entries;
     if (n_entries > 0) {
-        req->r.appendentries.msg.entries = RedisModule_Calloc(n_entries, sizeof(raft_entry_t));
+        msg.entries = RedisModule_Calloc(n_entries, sizeof(raft_entry_t));
     }
 
     for (int i = 0; i < n_entries; i++) {
@@ -604,23 +611,39 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
         /* Parse additional entry fields */
         tmpstr = RedisModule_StringPtrLen(argv[5 + 2*i], &tmplen);
-        if (sscanf(tmpstr, "%ld:%d:%hd",
-                    &e->term,
-                    &e->id,
-                    &e->type) != 3) {
+        if (sscanf(tmpstr, "%ld:%d:%hd", &e->term, &e->id, &e->type) != 3) {
             RedisModule_ReplyWithError(ctx, "invalid entry");
-            raft_entry_release(e);
-            goto error_cleanup;
+            goto out;
         }
 
-        req->r.appendentries.msg.entries[i] = e;
+        msg.entries[i] = e;
     }
 
-    handleAppendEntries(rr, req);
-    return REDISMODULE_OK;
+    raft_appendentries_resp_t resp = {0};
+    raft_node_t *node = raft_get_node(rr->raft, src_node_id);
 
-error_cleanup:
-    RaftReqFree(req);
+    if (raft_recv_appendentries(rr->raft, node, &msg, &resp) != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR operation failed");
+        goto out;
+    }
+
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithLongLong(ctx, resp.success);
+    RedisModule_ReplyWithLongLong(ctx, resp.current_idx);
+    RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
+
+out:
+    if (msg.n_entries > 0) {
+        for (int i = 0; i < msg.n_entries; i++) {
+            raft_entry_t *e = msg.entries[i];
+            if (e) {
+                raft_entry_release(e);
+            }
+        }
+        RedisModule_Free(msg.entries);
+    }
+
     return REDISMODULE_OK;
 }
 
