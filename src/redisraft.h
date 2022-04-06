@@ -449,7 +449,8 @@ typedef enum RRStatus {
 
 /* Request types. */
 enum RaftReqType {
-    RR_CLUSTER_JOIN = 1,
+    RR_GENERIC = 1,
+    RR_CLUSTER_JOIN,
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_REDISCOMMAND,

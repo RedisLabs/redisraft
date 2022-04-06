@@ -20,6 +20,7 @@
 
 const char *RaftReqTypeStr[] = {
     [0]                       = "<undef>",
+    [RR_GENERIC]              = "RR_GENERIC",
     [RR_CLUSTER_JOIN]         = "RR_CLUSTER_JOIN",
     [RR_CFGCHANGE_ADDNODE]    = "RR_CFGCHANGE_ADDNODE",
     [RR_CFGCHANGE_REMOVENODE] = "RR_CFGCHANGE_REMOVENODE",
