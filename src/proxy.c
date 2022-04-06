@@ -75,30 +75,33 @@ exit:
     RaftReqFree(req);
 }
 
-RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader)
+RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                      RaftRedisCommandArray *cmds, Node *leader)
 {
-    /* TODO: Fail if any key is watched. */
     redisAsyncContext *rc;
+
     if (!ConnIsConnected(leader->conn) || !(rc = ConnGetRedisCtx(leader->conn))) {
-        redis_raft.proxy_failed_reqs++;
+        rr->proxy_failed_reqs++;
         return RR_ERROR;
     }
 
+    RaftReq *req = RaftReqInit(ctx, RR_GENERIC);
     req->r.redis.proxy_node = leader;
-    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(cmds);
     int ret = redisAsyncCommand(rc, handleProxiedCommandResponse,
-        req, "RAFT.ENTRY %b", entry->data, entry->data_len);
+                                req, "RAFT.ENTRY %b", entry->data, entry->data_len);
     raft_entry_release(entry);
 
     if (ret != REDIS_OK) {
-        redis_raft.proxy_failed_reqs++;
+        RaftReqFree(req);
+        rr->proxy_failed_reqs++;
         return RR_ERROR;
     }
 
     NodeAddPendingResponse(leader, true);
     rr->proxy_reqs++;
     rr->proxy_outstanding_reqs++;
-
     return RR_OK;
 }
 
