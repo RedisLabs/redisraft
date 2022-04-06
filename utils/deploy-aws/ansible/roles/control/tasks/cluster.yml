@@ -4,3 +4,7 @@
     src: cluster.sh.j2
     dest: "{{ ansible_env.HOME }}/cluster.sh"
     mode: 0755
+
+- name: Run cluster init
+  shell: |
+    {{ ansible_env.HOME }}/cluster.sh init

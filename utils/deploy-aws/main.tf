@@ -1,5 +1,4 @@
 provider "aws" {
-  profile   = var.profile
   region    = var.region
 }
 
@@ -110,7 +109,11 @@ resource "aws_instance" "control" {
   }
 }
 
-# Ansible inventory
+####
+#### Ansible part.
+####
+
+# Create an inventory
 resource "local_file" "hosts_cfg" {
   content = templatefile("${path.module}/hosts.tpl",
     {
@@ -119,4 +122,19 @@ resource "local_file" "hosts_cfg" {
     }
   )
   filename = "ansible/inventory/hosts.cfg"
+}
+
+# Create instances.yml, used by Ansible to generate configuration.
+resource "null_resource" "instances_yml" {
+  provisioner "local-exec" {
+    command = "./create_instances.sh --shards ${var.shards} --nodes ${var.replicas} --base-port ${var.base_port}"
+  }
+}
+
+# Run Ansible to deploy cluster and control nodes
+resource "null_resource" "ansible" {
+  depends_on = ["aws_instance.control", "aws_instance.node"]
+  provisioner "local-exec" {
+    command = "ansible-playbook --extra-vars @ansible/instances.yml ansible/site.yml"
+  }
 }

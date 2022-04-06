@@ -7,11 +7,6 @@ variable "region" {
   description = "AWS Region to run in"
 }
 
-variable "profile" {
-  description = "AWS Profile to use"
-  default = "default"
-}
-
 variable "replicas" {
   description = "Number of instances to set up"
   default = 3
@@ -72,3 +67,14 @@ variable "user" {
   description = "OS user we use"
   default = "ubuntu"
 }
+
+variable "base_port" {
+  description = "Base port we use"
+  default = 5000
+}
+
+variable "shards" {
+  description = "Number of shards"
+  default = 9
+}
+

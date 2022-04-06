@@ -27,14 +27,7 @@ Copy `sample.tfvars` to `myfile.tfvars` and modify the configuration:
 Also, make sure your `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment
 variables are set with your AWS credentials.
 
-### Prepare Ansible configuration
-
-Run `./create_instances.sh` to create a `instances.yml` file that describes the
-shards (shard groups), hash slots and ports. For example:
-
-    ./create_instances.sh --shards 9 --nodes 3 --base-port 5000
-
-### Create AWS infrastructure with Terraform
+### Deploy
 
 Run:
 
@@ -44,35 +37,12 @@ Run:
 When completed, the outputs include the public IPs of the control and cluster
 nodes.
 
-In addition, the Ansible inventory file `ansible/inventory/hosts.cfg` is
-generated.
-
-### Install and configure everything
-
-Next, run Ansible to install and configure the nodes:
-
-    ansible-playbook --extra-vars "@instances.yml" ansible/site.yml
-
-It is also possible to deploy a custom version of RedisRaft:
-
-    ansible-playbook \
-        --extra-vars redisraft_url=https://github.com/yossigo/redisraft \
-        --extra-vars redisraft_version=test-branch \
-        --extra-vars "@instances.yml" ansible/site.yml
-
-### Login to control node, initialize the cluster and run a quick benchmark
+### Login to control node and run benchmarks
 
 To login to the control node, you will have to have the SSH private key
 available and run:
 
     ssh ubuntu@<control_node_public_addr>
-
-Next, initialize the cluster:
-
-    ./cluster.sh init
-
-If you need to explicitly control shard placement, it is possible to manipulate
-`cluster.sh` before running `init`.
 
 You can now run `memtier_benchmark`. In order to get information about
 endpoints, use:
