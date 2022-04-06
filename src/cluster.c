@@ -1007,7 +1007,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     argc--;
     int argv_idx = 1;
 
-    unsigned int i;
+    int i;
     for (i = 0; i < num_shards; i++) {
         ShardGroup *sg;
 
@@ -1034,7 +1034,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     ShardGroup *importing[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
     ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
 
-    for (unsigned int j = 0; j < num_shards; j++) {
+    for (int j = 0; j < num_shards; j++) {
         ShardGroup *sg = shards[j];
         for (unsigned int k = 0; k < sg->slot_ranges_num; k++) {
             ShardGroupSlotRange * sr = &sg->slot_ranges[k];
@@ -1089,7 +1089,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
 fail:
     *len = 0;
 
-    for (unsigned int j = 0; j <= i; j++) {
+    for (int j = 0; j <= i; j++) {
         ShardGroupFree(shards[j]);
     }
 
@@ -1661,7 +1661,7 @@ void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_ReplyWithCString(ctx, redis_raft.snapshot_info.dbid);
     RedisModule_ReplyWithArray(ctx, sg->slot_ranges_num);
 
-    for (int i = 0; i < sg->slot_ranges_num; i++) {
+    for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
         RedisModule_ReplyWithArray(ctx, 3);
         RedisModule_ReplyWithLongLong(ctx, sr->start_slot);

@@ -107,7 +107,7 @@ int raftGetSnapshotChunk(raft_server_t* raft, void *user_data,
 
 int raftStoreSnapshotChunk(raft_server_t* raft, void *user_data,
                            raft_index_t snapshot_index,
-                           unsigned long long offset,
+                           raft_size_t offset,
                            raft_snapshot_chunk_t* chunk)
 {
     RedisRaftCtx *rr = user_data;
@@ -135,7 +135,7 @@ int raftStoreSnapshotChunk(raft_server_t* raft, void *user_data,
     }
 
     off_t ret_offset = lseek(fd, offset, SEEK_CUR);
-    if (ret_offset != offset) {
+    if (ret_offset != (off_t) offset) {
         LOG_WARNING("lseek file:%s, error:%s \n", rr->incoming_snapshot_file,
                     strerror(errno));
         close(fd);

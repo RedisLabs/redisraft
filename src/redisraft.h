@@ -585,7 +585,7 @@ typedef struct RaftLog {
     uint32_t            version;                /* Log file format version */
     char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
     raft_node_id_t      node_id;                /* Node ID */
-    unsigned long int   num_entries;            /* Entries in log */
+    raft_index_t        num_entries;            /* Entries in log */
     raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
     raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
     raft_index_t        index;                  /* Index of last entry */
@@ -639,15 +639,15 @@ typedef struct {
 
 extern int redis_raft_in_rm_call;   /* defined in common.c */
 
-static void inline enterRedisModuleCall(void) {
+static inline void enterRedisModuleCall(void) {
     redis_raft_in_rm_call++;
 }
 
-static void inline exitRedisModuleCall(void) {
+static inline void exitRedisModuleCall(void) {
     redis_raft_in_rm_call--;
 }
 
-static int inline checkInRedisModuleCall(void) {
+static inline int checkInRedisModuleCall(void) {
     return redis_raft_in_rm_call;
 }
 
@@ -754,15 +754,15 @@ int RaftMetaRead(RaftMeta *meta, const char* filename);
 int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote);
 
 typedef struct EntryCache {
-    unsigned long int size;             /* Size of ptrs */
-    unsigned long int len;              /* Number of entries in cache */
-    unsigned long int start_idx;        /* Log index of first entry */
-    unsigned long int start;            /* ptrs array index of first entry */
+    raft_index_t size;                  /* Size of ptrs */
+    raft_index_t len;                   /* Number of entries in cache */
+    raft_index_t start_idx;             /* Log index of first entry */
+    raft_index_t start;                 /* ptrs array index of first entry */
     unsigned long int entries_memsize;  /* Total memory used by entries */
     raft_entry_t **ptrs;
 } EntryCache;
 
-EntryCache *EntryCacheNew(unsigned long initial_size);
+EntryCache *EntryCacheNew(raft_index_t initial_size);
 void EntryCacheFree(EntryCache *cache);
 void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx);
 raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);

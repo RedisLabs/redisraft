@@ -355,7 +355,7 @@ RRStatus parseMemorySize(const char *value, unsigned long *result)
     return RR_OK;
 }
 
-RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
+RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t size)
 {
     char suffix[4];
 
@@ -381,7 +381,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size)
         suffix[0] = '\0';
     }
 
-    if (snprintf(buf, buf_size - 1, "%lu%s", value, suffix) == buf_size - 1) {
+    if (snprintf(buf, size - 1, "%lu%s", value, suffix) == (int) (size - 1)) {
         /* Truncated... */
         return RR_ERROR;
     }
@@ -430,7 +430,7 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 
     char *saveptr = NULL;
     char *token = strtok_r(str, ",", &saveptr);
-    for (int i = 0; i < sg->slot_ranges_num; i++) {
+    for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         unsigned long val;
         if ((pos = strchr(token, ':'))) {
             *pos = '\0';

@@ -10,15 +10,13 @@
 
 static RRStatus hiredisReplyToModule(redisReply *reply, RedisModuleCtx *ctx)
 {
-    int i;
-
     switch (reply->type) {
         case REDIS_REPLY_STRING:
             RedisModule_ReplyWithStringBuffer(ctx, reply->str, reply->len);
             break;
         case REDIS_REPLY_ARRAY:
             RedisModule_ReplyWithArray(ctx, reply->elements);
-            for (i = 0 ; i < reply->elements; i++) {
+            for (size_t i = 0 ; i < reply->elements; i++) {
                 if (hiredisReplyToModule(reply->element[i], ctx) != RR_OK) {
                     RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
                 }

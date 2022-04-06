@@ -24,13 +24,10 @@
  * Entries Cache.
  */
 
-EntryCache *EntryCacheNew(unsigned long initial_size)
+EntryCache *EntryCacheNew(raft_index_t initial_size)
 {
     EntryCache *cache = RedisModule_Calloc(1, sizeof(EntryCache));
 
-    if (initial_size < 0) {
-        initial_size = ENTRY_CACHE_INIT_SIZE;
-    }
     cache->size = initial_size;
     cache->ptrs = RedisModule_Calloc(cache->size, sizeof(raft_entry_t *));
 
@@ -39,9 +36,7 @@ EntryCache *EntryCacheNew(unsigned long initial_size)
 
 void EntryCacheFree(EntryCache *cache)
 {
-    unsigned long i;
-
-    for (i = 0; i < cache->len; i++) {
+    for (raft_index_t i = 0; i < cache->len; i++) {
         raft_entry_release(cache->ptrs[(cache->start + i) % cache->size]);
     }
 
@@ -82,7 +77,7 @@ raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx)
         return NULL;
     }
 
-    unsigned long int relidx = idx - cache->start_idx;
+    raft_index_t relidx = idx - cache->start_idx;
     if (relidx >= cache->len) {
         return NULL;
     }
@@ -234,7 +229,7 @@ static int writeUnsignedInteger(FILE *logfile, unsigned long value, int pad)
 {
     char buf[25];
     int n;
-    assert(pad < sizeof(buf));
+    assert(pad < (int) sizeof(buf));
 
     if (pad) {
         snprintf(buf, sizeof(buf) - 1, "%0*lu", pad, value);
@@ -253,7 +248,7 @@ static int writeInteger(FILE *logfile, long value, int pad)
 {
     char buf[25];
     int n;
-    assert(pad < sizeof(buf));
+    assert(pad < (int) sizeof(buf));
 
     if (pad) {
         snprintf(buf, sizeof(buf) - 1, "%0*ld", pad, value);
@@ -328,8 +323,9 @@ static int readRawLogEntry(FILE *fp, RawLogEntry **entry)
     }
 
     *entry = RedisModule_Calloc(1, sizeof(RawLogEntry) + sizeof(RawElement) * num_elements);
-    (*entry)->num_elements = num_elements;
-    for (i = 0; i < num_elements; i++) {
+    (*entry)->num_elements = (int) num_elements;
+
+    for (i = 0; i < (int) num_elements; i++) {
         unsigned long len;
         char *ptr;
 
@@ -362,7 +358,7 @@ static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
     raft_index_t relidx = index - log->snapshot_last_idx - 1;
 
     /* skip fseek() call if not necessary */
-    if (log->idxoffset != sizeof(off_t) * (relidx)) {
+    if (log->idxoffset != (off_t) (sizeof(off_t) * (relidx))) {
         if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
             return -1;
         }
