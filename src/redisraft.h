@@ -706,13 +706,13 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
+void RaftExecuteCommandArray(RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry);
 void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
-void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);

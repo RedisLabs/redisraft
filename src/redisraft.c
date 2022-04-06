@@ -343,16 +343,17 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
  *   -MOVED <slot> <addr>:<port> ||
  *   Any standard Redis reply, depending on the command.
  */
-
 static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&req->r.redis.cmds);
+    RaftRedisCommandArray cmds = {0};
+    RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&cmds);
 
     cmd->argc = argc - 1;
     cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
@@ -360,9 +361,10 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     int i;
     for (i = 0; i < argc - 1; i++) {
         cmd->argv[i] =  argv[i + 1];
-        RedisModule_RetainString(req->ctx, cmd->argv[i]);
+        RedisModule_RetainString(ctx, cmd->argv[i]);
     }
-    handleRedisCommand(&redis_raft, req);
+    handleRedisCommand(rr, ctx, &cmds);
+    RaftRedisCommandArrayFree(&cmds);
 
     return REDISMODULE_OK;
 }
@@ -382,18 +384,17 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
-
     size_t data_len;
     const char *data = RedisModule_StringPtrLen(argv[1], &data_len);
 
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    if (RaftRedisCommandArrayDeserialize(&req->r.redis.cmds, data, data_len) != RR_OK) {
+    RaftRedisCommandArray cmds = {0};
+    if (RaftRedisCommandArrayDeserialize(&cmds, data, data_len) != RR_OK) {
         RedisModule_ReplyWithError(ctx, "ERR invalid argument");
-        RaftReqFree(req);
-    } else {
-        handleRedisCommand(&redis_raft, req);
+        return REDISMODULE_OK;
     }
 
+    handleRedisCommand(&redis_raft, ctx, &cmds);
+    RaftRedisCommandArrayFree(&cmds);
     return REDISMODULE_OK;
 }
 
