@@ -90,7 +90,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(cmds);
     int ret = redisAsyncCommand(rc, handleProxiedCommandResponse,
-                                req, "RAFT.ENTRY %b", entry->data, entry->data_len);
+        req, "RAFT.ENTRY %b", entry->data, entry->data_len);
     raft_entry_release(entry);
 
     if (ret != REDIS_OK) {
@@ -102,6 +102,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
     NodeAddPendingResponse(leader, true);
     rr->proxy_reqs++;
     rr->proxy_outstanding_reqs++;
+
     return RR_OK;
 }
 

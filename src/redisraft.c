@@ -332,6 +332,216 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
+static void handleReadOnlyCommand(void *arg, int can_read)
+{
+    RaftReq *req = arg;
+
+    if (!can_read) {
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
+        goto exit;
+    }
+
+    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
+
+exit:
+    RaftReqFree(req);
+}
+
+static void handleInfoCommand(RedisRaftCtx *rr,
+                              RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    RedisModuleCallReply *reply;
+
+    /* Skip "INFO" string */
+    int argc = cmd->argc - 1;
+    RedisModuleString **argv = cmd->argc == 1 ? NULL : &cmd->argv[1];
+
+    enterRedisModuleCall();
+    reply = RedisModule_Call(ctx, "INFO", "v", argv, argc);
+    exitRedisModuleCall();
+
+    size_t info_len;
+    const char *info = RedisModule_CallReplyStringPtr(reply, &info_len);
+
+    char *pos = strstr(info, "cluster_enabled:0");
+    if (pos) {
+        /* Always return cluster_enabled:1 */
+        *(pos + strlen("cluster_enabled:")) = '1';
+    }
+
+    RedisModule_ReplyWithStringBuffer(ctx, info, info_len);
+    RedisModule_FreeCallReply(reply);
+}
+
+/* Handle interception of Redis commands that have a different
+ * implementation in RedisRaft.
+ *
+ * This is logically similar to handleMultiExec but implemented
+ * separately for readability purposes.
+ *
+ * Currently intercepted commands:
+ * - CLUSTER
+ * - INFO
+ *
+ * Returns true if the command was intercepted, in which case the RaftReq has
+ * been replied to and freed.
+ */
+static bool handleInterceptedCommands(RedisRaftCtx *rr,
+                                      RedisModuleCtx *ctx,
+                                      RaftRedisCommandArray *cmds)
+{
+    RaftRedisCommand *cmd = cmds->commands[0];
+    size_t len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
+
+    if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
+        ShardingHandleClusterCommand(rr, ctx, cmd);
+        return true;
+    }
+
+    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
+        handleInfoCommand(rr, ctx, cmd);
+        return true;
+    }
+
+    return false;
+}
+
+/* When sharding is enabled, handle sharding aspects before processing
+ * the request:
+ *
+ * 1. Compute hash slot of all associated keys and validate there's no cross-slot
+ *    violation.
+ * 2. Update the request's hash_slot for future reference.
+ * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
+ * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
+ */
+static RRStatus handleSharding(RedisRaftCtx *rr,
+                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    int slot;
+
+    if (computeHashSlotOrReplyError(rr, ctx, cmds, &slot) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    /* If command has no keys, continue */
+    if (slot == -1) {
+        return RR_OK;
+    }
+
+    /* Make sure hash slot is mapped and handled locally. */
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
+    if (!sg) {
+        RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
+        return RR_ERROR;
+    }
+
+    /* If accessing a foreign shardgroup, issue a redirect. We use round-robin
+     * to all nodes to compensate for the fact we do not have an up-to-date knowledge
+     * of who the leader is and whether or not some configuration has changed since
+     * last refresh (when refresh is implemented, in the future).
+     */
+    if (!sg->local) {
+        if (sg->next_redir >= sg->nodes_num) {
+            sg->next_redir = 0;
+        }
+        replyRedirect(ctx, slot, &sg->nodes[sg->next_redir++].addr);
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
+static void handleRedisCommand(RedisRaftCtx *rr,
+                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    Node *leader_proxy = NULL;
+
+    /* Check if MULTI/EXEC bundling is required. */
+    if (MultiHandleCommand(rr, ctx, cmds)) {
+        return;
+    }
+
+    /* Handle intercepted commands. We do this also on non-leader nodes or if we
+     * don't have a leader, so it's up to the commands to check these conditions
+     * if they have to.
+     */
+    if (handleInterceptedCommands(rr, ctx, cmds)) {
+        return;
+    }
+
+    /* Check that we're part of a bootstrapped cluster and not in the middle of
+     * joining or loading data.
+     */
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
+    }
+
+    /* When we're in cluster mode, go through handleSharding. This will perform
+     * hash slot validation and return an error / redirection if necessary. We
+     * do this before checkLeader() to avoid multiple redirect hops.
+     */
+    if (rr->config->sharding && handleSharding(rr, ctx, cmds) != RR_OK) {
+        return;
+    }
+
+    /* Confirm that we're the leader and handle redirect or proxying if not. */
+    Node **ret = rr->config->follower_proxy ? &leader_proxy : NULL;
+    if (checkLeader(rr, ctx, ret) == RR_ERROR) {
+        return;
+    }
+
+    /* Proxy */
+    if (leader_proxy) {
+        if (ProxyCommand(rr, ctx, cmds, leader_proxy) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+        }
+        return;
+    }
+
+    /* Handle the special case of read-only commands here: if quorum reads
+     * are enabled schedule the request to be processed when we have a guarantee
+     * we're still a leader. Otherwise, just process the reads.
+     *
+     * Normally we can expect a single command in the request, unless it is a
+     * MULTI/EXEC transaction in which case all queued commands are handled at
+     * once.
+     */
+    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
+    if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
+        return;
+    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
+        if (rr->config->quorum_reads) {
+            RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+            RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+            raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+        } else {
+            RaftExecuteCommandArray(ctx, ctx, cmds);
+        }
+        return;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_NORMAL;
+    entryAttachRaftReq(rr, entry, req);
+    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+    if (e != 0) {
+        replyRaftError(ctx, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
+        RaftReqFree(req);
+        return;
+    }
+
+    raft_entry_release(entry);
+}
+
 /* RAFT [Redis command to execute]
  *   Submit a Redis command to be appended to the Raft log and applied.
  *   The command blocks until it has been committed to the log by the majority
@@ -384,6 +594,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
+
     size_t data_len;
     const char *data = RedisModule_StringPtrLen(argv[1], &data_len);
 
