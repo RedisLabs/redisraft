@@ -449,7 +449,8 @@ typedef enum RRStatus {
 
 /* Request types. */
 enum RaftReqType {
-    RR_CLUSTER_JOIN = 1,
+    RR_GENERIC = 1,
+    RR_CLUSTER_JOIN,
     RR_CFGCHANGE_ADDNODE,
     RR_CFGCHANGE_REMOVENODE,
     RR_REDISCOMMAND,
@@ -705,13 +706,13 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
+void RaftExecuteCommandArray(RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry);
 void shutdownAfterRemoval(RedisRaftCtx *rr);
 bool hasNodeIdBeenUsed(RedisRaftCtx *rr, raft_node_id_t node_id);
-void handleRedisCommand(RedisRaftCtx *rr,RaftReq *req);
 void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
@@ -797,7 +798,7 @@ int raftStoreSnapshotChunk(raft_server_t *raft, void *udata, raft_index_t idx, r
 void archiveSnapshot(RedisRaftCtx *rr);
 
 /* proxy.c */
-RRStatus ProxyCommand(RedisRaftCtx *rr, RaftReq *req, Node *leader);
+RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, Node *leader);
 
 /* connection.c */
 Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb);
@@ -821,7 +822,7 @@ void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
 RRStatus computeHashSlotOrReplyError(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
-void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req);
+void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
 RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);

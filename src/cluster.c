@@ -1485,39 +1485,28 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
  *   - SLOTS.
  *   - NODES.
  */
-void handleClusterCommand(RedisRaftCtx *rr, RaftReq *req)
+void ShardingHandleClusterCommand(RedisRaftCtx *rr,
+                                  RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    RaftRedisCommand *cmd = req->r.redis.cmds.commands[0];
-
-    if (cmd->argc < 2) {
-        /* Note: we can't use RM_WrongArity here because our req->ctx is a thread-safe context
-         * with a synthetic client that no longer has the original argv.
-         */
-        RedisModule_ReplyWithError(req->ctx, "ERR wrong number of arguments for 'cluster' command");
-        goto exit;
+    if (cmd->argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return;
     }
 
-    if (checkRaftState(rr, req->ctx) == RR_ERROR) {
-        goto exit;
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
-    if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5) && cmd->argc == 2) {
-        addClusterSlotsReply(rr, req->ctx);
-        goto exit;
-    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5) && cmd->argc == 2) {
-        addClusterNodesReply(rr, req->ctx);
-        goto exit;
+    if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5)) {
+        addClusterSlotsReply(rr, ctx);
+    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5)) {
+        addClusterNodesReply(rr, ctx);
     } else {
-        RedisModule_ReplyWithError(req->ctx,
-            "ERR Unknown subcommand or wrong number of arguments.");
-        goto exit;
+        RedisModule_ReplyWithError(ctx, "ERR Unknown subcommand.");
     }
-
-exit:
-    RaftReqFree(req);
 }
 
 /* -----------------------------------------------------------------------------
