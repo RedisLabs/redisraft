@@ -518,6 +518,16 @@ static void handleRedisCommand(RedisRaftCtx *rr,
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         } else {
+            /* Wait until the new leader applies an entry from the current term.
+             * Otherwise, we might process a request before replaying logs.
+             * The state machine will be in an older state. Reading from it
+             * might look like going backward in time. */
+            raft_term_t term = raft_get_current_term(rr->raft);
+            if (term != rr->snapshot_info.last_applied_term) {
+                RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+                return;
+            }
+
             RaftExecuteCommandArray(ctx, ctx, cmds);
         }
         return;
