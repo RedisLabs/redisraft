@@ -120,14 +120,28 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
  * If reply_ctx is non-NULL, replies are delivered to it.
  * Otherwise, no replies are delivered.
  */
-void RaftExecuteCommandArray(RedisModuleCtx *ctx,
+void RaftExecuteCommandArray(RedisRaftCtx *rr,
+                             RedisModuleCtx *ctx,
                              RedisModuleCtx *reply_ctx,
-                             RaftRedisCommandArray *array)
+                             RaftRedisCommandArray *cmds)
 {
     int i;
 
-    for (i = 0; i < array->len; i++) {
-        RaftRedisCommand *c = array->commands[i];
+    /* When we're in cluster mode, go through handleSharding. This will perform
+     * hash slot validation and return an error / redirection if necessary. We do this
+     * before checkLeader() to avoid multiple redirect hops.
+     */
+    if (rr->config->sharding && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
+        return;
+    }
+
+    if (cmds->slot != -1 && validateRaftRedisCommandArray(rr, reply_ctx, cmds) != RR_OK) {
+        return;
+    }
+
+
+    for (i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *c = cmds->commands[i];
 
         size_t cmdlen;
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
@@ -139,7 +153,7 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
 
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
             if (reply_ctx) {
-                RedisModule_ReplyWithArray(reply_ctx, array->len - 1);
+                RedisModule_ReplyWithArray(reply_ctx, cmds->len - 1);
             }
 
             continue;
@@ -330,17 +344,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     HandleAsking(cmds);
 
-    /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary. We do this
-     * before checkLeader() to avoid multiple redirect hops.
-     */
-    if (rr->config->sharding && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
-        goto exit;
-    }
-
-    if (cmds->slot == -1 || validateRaftRedisCommandArray(rr, reply_ctx, cmds) == RR_OK) {
-        RaftExecuteCommandArray(ctx, reply_ctx, cmds);
-    }
+    RaftExecuteCommandArray(rr, ctx, reply_ctx, cmds);
 
     /* Update snapshot info in Redis dataset. This must be done now so it's
      * always consistent with what we applied and we never end up applying
@@ -349,7 +353,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     rr->snapshot_info.last_applied_term = entry->term;
     rr->snapshot_info.last_applied_idx = entry_idx;
 
-exit:
     if (req) {
         entryDetachRaftReq(rr, entry);
         RaftReqFree(req);

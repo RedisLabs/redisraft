@@ -331,7 +331,6 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 static void handleReadOnlyCommand(void *arg, int can_read)
 {
-    RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = arg;
 
     if (!can_read) {
@@ -343,13 +342,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
 
     HandleAsking(cmds);
 
-    if (rr->config->sharding && handleSharding(rr, req->ctx, cmds) != RR_OK) {
-        goto exit;
-    }
-
-    if (cmds->slot == -1 || validateRaftRedisCommandArray(&redis_raft, req->ctx, cmds) == RR_OK) {
-        RaftExecuteCommandArray(req->ctx, req->ctx, cmds);
-    }
+    RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, cmds);
 
 exit:
     RaftReqFree(req);
@@ -559,7 +552,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
                 return;
             }
 
-            RaftExecuteCommandArray(ctx, ctx, cmds);
+            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
         }
         return;
     }
