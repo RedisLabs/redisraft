@@ -115,6 +115,28 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
 /* ------------------------------------ Log Execution ------------------------------------ */
 
+bool isSharding(RedisRaftCtx *rr) {
+    ShardingInfo *si = rr->sharding_info;
+    if (si->shard_groups_num != 1) {
+        return false;
+    }
+
+    size_t key_len;
+    ShardGroup *sg;
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+    RedisModule_DictNextC(iter, &key_len, (void **) &sg);
+    RedisModule_DictIteratorStop(iter);
+
+    if (!sg->local || sg->slot_ranges_num != 1 ||
+        sg->slot_ranges[0].start_slot != 0 || sg->slot_ranges[0].end_slot != 16383 ||
+        sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
+        return false;
+    }
+
+    return true;
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -131,7 +153,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
      * hash slot validation and return an error / redirection if necessary. We do this
      * before checkLeader() to avoid multiple redirect hops.
      */
-    if (rr->config->sharding && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
+    if (isSharding(rr) && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
         return;
     }
 
