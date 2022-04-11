@@ -340,8 +340,6 @@ static void handleReadOnlyCommand(void *arg, int can_read)
 
     RaftRedisCommandArray * cmds = &req->r.redis.cmds;
 
-    HandleAsking(cmds);
-
     RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, cmds);
 
 exit:

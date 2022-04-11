@@ -149,6 +149,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 {
     int i;
 
+    HandleAsking(cmds);
+
     /* When we're in cluster mode, go through handleSharding. This will perform
      * hash slot validation and return an error / redirection if necessary. We do this
      * before checkLeader() to avoid multiple redirect hops.
@@ -363,8 +365,6 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         ctx = redis_raft.ctx;
         reply_ctx = NULL;
     }
-
-    HandleAsking(cmds);
 
     RaftExecuteCommandArray(rr, ctx, reply_ctx, cmds);
 
