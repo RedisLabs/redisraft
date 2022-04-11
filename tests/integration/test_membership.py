@@ -288,6 +288,11 @@ def test_transfer_succeed(cluster):
     cluster.leader_node().transfer_leader(2)
 
 
+def test_transfer_to_any_other(cluster):
+    cluster.create(2, raft_args={'election-timeout': '3000'})
+    cluster.leader_node().transfer_leader()
+
+
 def test_transfer_timeout(cluster):
     cluster.create(3, raft_args={'election-timeout': '3000'})
     cluster.node(2).pause()

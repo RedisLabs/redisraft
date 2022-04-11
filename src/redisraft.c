@@ -207,28 +207,25 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
+    raft_node_id_t target = RAFT_NODE_ID_NONE;
 
-    if (argc != 2) {
+    if (argc > 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
+    }
+
+    if (argc == 2) {
+        if (RedisModuleStringToInt(argv[1], &target) == REDISMODULE_ERR) {
+            RedisModule_ReplyWithError(ctx, "invalid target node id");
+            return REDISMODULE_OK;
+        }
     }
 
     if (checkRaftState(rr, ctx) == RR_ERROR) {
         return REDISMODULE_OK;
     }
 
-    int target_node_id;
-    if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "invalid target node id");
-        return REDISMODULE_OK;
-    }
-
-    if (target_node_id == rr->config->id) {
-        RedisModule_ReplyWithError(ctx, "can't transfer to self");
-        return REDISMODULE_OK;
-    }
-
-    int err = raft_transfer_leader(rr->raft, target_node_id, 0);
+    int err = raft_transfer_leader(rr->raft, target, 0);
     if (err != 0) {
         replyRaftError(ctx, err);
         return REDISMODULE_OK;
