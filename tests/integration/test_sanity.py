@@ -191,33 +191,26 @@ def test_nonquorum_reads(cluster):
     Test non-quorum reads, requests are not processed until an entry from the
     current term is applied.
     """
-    cluster.create(2, raft_args={'max-append-req-in-flight' : '1',
-                                 'quorum-reads':'no'})
+    cluster.create(2, raft_args={'election-timeout': '8000',
+                                 'max-append-req-in-flight': '1',
+                                 'quorum-reads': 'no'})
 
-    # Make node-1 to have more entries.
-    cluster.node(2).pause()
-    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
-    conn.send_command('INCR', 'key')
-    cluster.node(1).pause()
+    # Delay processing appendrequests on node-1
+    cluster.node(1).client.execute_command('raft.debug',
+                                           'delayappend', '4000000')
 
-    # Resume node-2 with append delay of 1 second
-    cluster.node(2).resume()
-    cluster.node(2).client.execute_command('raft.debug',
-                                           'delayappend', '1000000')
+    # Switch leadership to node-2
+    cluster.node(2).timeout_now()
+    cluster.node(2).wait_for_info_param('leader_id', 2)
 
-    # As node-1 has more entries, it will be elected as leader.
-    cluster.node(1).restart()
-    cluster.node(1).wait_for_election()
-
-    # Read before log replay is rejected.
+    # Read requests are rejected before noop entry is applied
     with raises(ResponseError, match='CLUSTERDOWN'):
-        cluster.node(1).client.get('x')
+        cluster.node(2).client.get('x')
 
-    # Wait until delayed appendreq is processed
-    time.sleep(2)
-
-    # Read is allowed after replaying logs.
-    cluster.node(1).client.get('x')
+    # Disable delay. The new leader can commit an entry and verify it can
+    # process read requests.
+    cluster.node(1).client.execute_command('raft.debug', 'delayappend', '0')
+    cluster.node(2).client.get('x')
 
 
 def test_auto_ids(cluster):
