@@ -186,6 +186,33 @@ def test_readonly_commands(cluster):
     assert cluster.node(1).client.get('key') == b'value'
 
 
+def test_nonquorum_reads(cluster):
+    """
+    Test non-quorum reads, requests are not processed until an entry from the
+    current term is applied.
+    """
+    cluster.create(2, raft_args={'election-timeout': '8000',
+                                 'max-append-req-in-flight': '1',
+                                 'quorum-reads': 'no'})
+
+    # Delay processing appendrequests on node-1
+    cluster.node(1).client.execute_command('raft.debug',
+                                           'delayappend', '4000000')
+
+    # Switch leadership to node-2
+    cluster.node(2).timeout_now()
+    cluster.node(2).wait_for_info_param('leader_id', 2)
+
+    # Read requests are rejected before noop entry is applied
+    with raises(ResponseError, match='CLUSTERDOWN'):
+        cluster.node(2).client.get('x')
+
+    # Disable delay. The new leader can commit an entry and verify it can
+    # process read requests.
+    cluster.node(1).client.execute_command('raft.debug', 'delayappend', '0')
+    cluster.node(2).client.get('x')
+
+
 def test_auto_ids(cluster):
     """
     Test automatic assignment of ids.

@@ -515,6 +515,16 @@ static void handleRedisCommand(RedisRaftCtx *rr,
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         } else {
+            /* Wait until the new leader applies an entry from the current term.
+             * Otherwise, we might process a request before replaying logs.
+             * The state machine will be in an older state. Reading from it
+             * might look like going backward in time. */
+            raft_term_t term = raft_get_current_term(rr->raft);
+            if (term != rr->snapshot_info.last_applied_term) {
+                RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+                return;
+            }
+
             RaftExecuteCommandArray(ctx, ctx, cmds);
         }
         return;
@@ -767,6 +777,10 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     if (checkRaftState(rr, ctx) == RR_ERROR) {
         return REDISMODULE_OK;
+    }
+
+    if (rr->debug_appendreq_delay) {
+        usleep(rr->debug_appendreq_delay);
     }
 
     int target_node_id;
@@ -1351,6 +1365,14 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
         }
+    } else if (!strncasecmp(cmd, "delayappend", cmdlen) && argc == 3) {
+        long long delay;
+        if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid append delay value");
+            return REDISMODULE_OK;
+        }
+        rr->debug_appendreq_delay = delay;
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
