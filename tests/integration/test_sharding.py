@@ -52,13 +52,6 @@ def test_shard_group_sanity(cluster):
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
 
-    # Follower redirect straight to remote shardgroup to
-    # avoid another redirect hop.
-    cluster.wait_for_unanimity()
-    cluster.node(2).wait_for_log_applied()  # to get shardgroup
-    with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
-        cluster.node(2).client.set('key', 'value')
-
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
     # Test by adding another fake shardgroup with same shardgroup id, should fail
@@ -403,3 +396,81 @@ def test_shard_group_no_slots(cluster):
     splits = results[0].split(b" ")
     assert len(splits) == 9
     assert splits[8] == b""
+
+
+def test_shard_group_reshard_to_migrate(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.leader_node().client.set("key", "value");
+
+    assert cluster.leader_node().client.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().raft_info()['dbid'],
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    assert cluster.leader_node().client.get("key") == b'value'
+
+    with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
+        cluster.leader_node().client.set("key1", "value1")
+
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('set', 'key', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('set', '{key}key1', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('EXEC')
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
+    assert cluster.leader_node().client.execute_command("del", "key") == 1
+
+    with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
+        cluster.leader_node().client.get("key")
+
+
+def test_shard_group_reshard_to_import(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.leader_node().client.set("key", "value");
+
+    assert cluster.leader_node().client.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().raft_info()['dbid'],
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
+        cluster.leader_node().client.get("key")
+
+    assert cluster.leader_node().client.execute_command("asking", "get", "key") == b'value'
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.leader_node().client.execute_command("asking", "get", "key1")
+
+    assert cluster.leader_node().client.execute_command("asking", "del", "key") == 1
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.leader_node().client.execute_command("asking", "get", "key1")
