@@ -419,7 +419,6 @@ def test_shard_group_reshard_to_migrate(cluster):
 
     cluster.execute("set", "key", "value");
 
-    assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
         '12345678901234567890123456789013',
