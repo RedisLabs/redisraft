@@ -250,35 +250,45 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
     return (total_keys == 0) ? NoKeys : AllExist;
 }
 
+/* figure out the "owner shardgroup (osg)" and "importing shard group (isg)"
+ * 'osg' the stable/migrating cluster, while 'isg' will always be the importer cluster if it exists
+ *
+ * we care about finding the correct local one.  if it's an asking, it will be isg, otherwise it will be osg
+ *
+ * first we get the right shardgroup for the request (stable/migrating/importing if asking)
+ *
+ * if the selected shardgroup doesn't exist, that's an error.  if it does, we verify that its the local cluster,
+ * otherwise we redirect to the owning shardgroup.
+ *
+ * After this, we determine the "key status" (do they all exist/none exist/some exist). as can only process
+ * if all keys exist locally.
+ */
+
+ShardGroup * GetCommandShardGroup(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
+    ShardGroup *osg = rr->sharding_info->stable_slots_map[cmds->slot];
+    if (osg != NULL) {
+        return osg;
+    }
+
+    osg = rr->sharding_info->migrating_slots_map[cmds->slot];
+    if (osg && osg->local) {
+        return osg;
+    }
+
+    if (cmds->asking) {
+        ShardGroup *isg = rr->sharding_info->importing_slots_map[cmds->slot];
+        if (isg && isg->local) {
+            return isg;
+        }
+    }
+
+    return osg;
+}
+
 RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *cmds) {
     /* Make sure hash slot is mapped and handled locally. */
-    /* figure out the "owner shardgroup (osg)" and "importing shard group (isg)"
-     * 'osg' the stable/migrating cluster, while 'isg' will always be the importer cluster if it exists
-     *
-     * we care about finding the correct local one.  if it's an asking, it will be isg, otherwise it will be osg
-     *
-     * first we get the right shardgroup for the request (stable/migrating/importing if asking)
-     *
-     * if the selected shardgroup doesn't exist, that's an error.  if it does, we verify that its the local cluster,
-     * otherwise we redirect to the owning shardgroup.
-     *
-     * After this, we determine the "key status" (do they all exist/none exist/some exist). as can only process
-     * if all keys exist locally.
-     */
-    SlotRangeType slot_type = SLOTRANGE_TYPE_STABLE;
-    ShardGroup *osg = rr->sharding_info->stable_slots_map[cmds->slot];
-    if (!osg) {
-        slot_type = SLOTRANGE_TYPE_MIGRATING;
-        osg = rr->sharding_info->migrating_slots_map[cmds->slot];
-    }
-    ShardGroup *isg = rr->sharding_info->importing_slots_map[cmds->slot];
-
-    ShardGroup *sg = osg;
-    if (cmds->asking) {
-        slot_type = SLOTRANGE_TYPE_IMPORTING;
-        sg = isg;
-    }
-
+    ShardGroup *sg = GetCommandShardGroup(rr, cmds);
     if (!sg) {
         if (reply_ctx) {
             RedisModule_ReplyWithError(reply_ctx, "CLUSTERDOWN Hash slot is not served");
@@ -286,14 +296,19 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
         return RR_ERROR;
     }
 
+    /* this is slightly questionable.
+     * I'm keen to argue that all slots belongingto a single shardgroup have to have the same slot type
+     * but, we don't eforce that at this moment.
+     */
+    SlotRangeType slot_type = sg->slot_ranges[0].type;
+
     if (!sg->local) {
         if (reply_ctx) {
-            if (osg->next_redir >= osg->nodes_num) {
-                osg->next_redir = 0;
+            if (sg->next_redir >= sg->nodes_num) {
+                sg->next_redir = 0;
             }
 
-            LOG_DEBUG("replyRedirect from validateRaftRedisCommandArray");
-            replyRedirect(reply_ctx, cmds->slot, &osg->nodes[0].addr);
+            replyRedirect(reply_ctx, cmds->slot, &sg->nodes[0].addr);
         }
         return RR_ERROR;
     }
@@ -308,7 +323,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
                 return RR_ERROR;
             case NoneExist:
                 if (reply_ctx) {
-                    replyAsk(reply_ctx, cmds->slot, &isg->nodes[0].addr);
+                    replyAsk(rr, reply_ctx, cmds->slot);
                 }
                 return RR_ERROR;
             case AllExist:

@@ -680,7 +680,7 @@ RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
-void replyAsk(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 
 /* node_addr.c */
