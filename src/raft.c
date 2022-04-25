@@ -122,12 +122,14 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
  */
 void RaftExecuteCommandArray(RedisModuleCtx *ctx,
                              RedisModuleCtx *reply_ctx,
-                             RaftRedisCommandArray *array)
+                             RaftRedisCommandArray *cmds)
 {
     int i;
 
-    for (i = 0; i < array->len; i++) {
-        RaftRedisCommand *c = array->commands[i];
+    HandleAsking(cmds);
+
+    for (i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *c = cmds->commands[i];
 
         size_t cmdlen;
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
@@ -139,7 +141,7 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
 
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
             if (reply_ctx) {
-                RedisModule_ReplyWithArray(reply_ctx, array->len - 1);
+                RedisModule_ReplyWithArray(reply_ctx, cmds->len - 1);
             }
 
             continue;
