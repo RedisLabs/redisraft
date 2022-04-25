@@ -117,8 +117,9 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
 bool isSharding(RedisRaftCtx *rr) {
     ShardingInfo *si = rr->sharding_info;
+
     if (si->shard_groups_num != 1) {
-        return false;
+        return true;
     }
 
     size_t key_len;
@@ -131,10 +132,10 @@ bool isSharding(RedisRaftCtx *rr) {
     if (!sg->local || sg->slot_ranges_num != 1 ||
         sg->slot_ranges[0].start_slot != 0 || sg->slot_ranges[0].end_slot != 16383 ||
         sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
-        return false;
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 /* Execute all commands in a specified RaftRedisCommandArray.
