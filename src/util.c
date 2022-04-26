@@ -383,3 +383,19 @@ void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
     RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
     RedisModule_Assert(ret == RR_OK);
 }
+
+void HandleAsking(RaftRedisCommandArray *cmds)
+{
+    RaftRedisCommand *cmd = cmds->commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+
+    if (cmd_len == 6 && !strncasecmp(cmd_str, "ASKING", 6)) {
+        cmds->asking = true;
+        RedisModule_FreeString(NULL, cmds->commands[0]->argv[0]);
+        for (int i = 1; i < cmds->commands[0]->argc; i++) {
+            cmds->commands[0]->argv[i-1] = cmds->commands[0]->argv[i];
+        }
+        cmds->commands[0]->argc--;
+    }
+}
