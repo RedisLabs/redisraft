@@ -253,6 +253,18 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
             case NoKeys:
                 return RR_OK;
         }
+    } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
+        switch (validateKeyExistence(rr, cmds)) {
+            case SomeExist:
+            case NoneExist:
+                if (reply_ctx) {
+                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
+                }
+                break;
+            case AllExist:
+            case NoKeys:
+                return RR_OK;
+        }
     }
 
     return RR_OK;
