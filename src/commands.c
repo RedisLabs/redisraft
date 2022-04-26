@@ -226,7 +226,7 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
             if (array->commands[i]->argc > 1) {
                 cmd = array->commands[i]->argv[1];
             } else {
-                /* TODO: Is this protection necessary? */
+                /* necessary to protect/ignore a bare "asking" command */
                 continue;
             }
         }
