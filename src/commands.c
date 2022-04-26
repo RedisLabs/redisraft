@@ -215,7 +215,22 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
 {
     unsigned int flags = 0;
     for (int i = 0; i < array->len; i++) {
-        const CommandSpec *cs = CommandSpecGet(array->commands[i]->argv[0]);
+        /* we get the flag for the command that is asking, not the asking */
+        RedisModuleString * cmd = array->commands[i]->argv[0];
+        size_t cmd_len;
+        const char * cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
+
+        if (!strncasecmp("asking", cmd_str, cmd_len)) {
+            /* TODO: when asking <magic> support is added, need to adjust to argv[2] */
+            if (array->commands[i]->argc > 1) {
+                cmd = array->commands[i]->argv[1];
+            } else {
+                /* necessary to protect/ignore a bare "asking" command */
+                continue;
+            }
+        }
+
+        const CommandSpec *cs = CommandSpecGet(cmd);
         if (cs) {
             flags |= cs->flags;
         } else {
