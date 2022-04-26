@@ -49,17 +49,13 @@ struct raft_server {
     raft_index_t last_applied_idx;
 
     /* follower/leader/candidate indicator */
-    int state;
+    raft_state_e state;
 
     /* amount of time left till timeout */
     int timeout_elapsed;
 
     raft_node_t** nodes;
     int num_nodes;
-
-    int election_timeout;
-    int election_timeout_rand;
-    int request_timeout;
 
     /* timer interval to check if we still have quorum */
     long quorum_timeout;
@@ -82,7 +78,6 @@ struct raft_server {
     raft_index_t voting_cfg_change_log_idx;
 
     int snapshot_in_progress;
-    int snapshot_flags;
 
     /* Last compacted snapshot */
     raft_index_t snapshot_last_idx;
@@ -110,18 +105,21 @@ struct raft_server {
     long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
     int sent_timeout_now; // if we've already sent a leadership transfer signal
 
-    /* If this config is off (equals zero), user must call raft_flush()
-     * manually. It will trigger sending appendreqs, applying entries etc.
-     * Useful for batching, e.g after many raft_recv_entry() calls,
-     * one raft_flush() call will trigger sending appendreq for the latest
-     * entries. */
-    int auto_flush;
 
     /* Index of the log entry that need to be written to the disk. Only useful
      * when auto flush is disabled. */
     raft_index_t next_sync_index;
 
-    int log_enabled;
+    int election_timeout_rand;
+
+    /* Configuration parameters */
+
+    int election_timeout;  /* Timeout for a follower to start an election   */
+    int request_timeout;   /* Heartbeat timeout */
+    int nonblocking_apply; /* Apply entries even when snapshot is in progress */
+    int auto_flush;        /* Automatically call raft_flush() */
+    int log_enabled;       /* Enable library logs */
+    int disable_apply;     /* Do not apply entries, useful for testing */
 };
 
 int raft_election_start(raft_server_t* me, int skip_precandidate);

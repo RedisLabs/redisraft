@@ -13,17 +13,17 @@
 #include "raft_types.h"
 
 typedef enum {
-    RAFT_ERR_NOT_LEADER=-2,
-    RAFT_ERR_ONE_VOTING_CHANGE_ONLY=-3,
-    RAFT_ERR_SHUTDOWN=-4,
-    RAFT_ERR_NOMEM=-5,
-    RAFT_ERR_SNAPSHOT_IN_PROGRESS=-6,
-    RAFT_ERR_SNAPSHOT_ALREADY_LOADED=-7,
-    RAFT_ERR_INVALID_NODEID=-8,
-    RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS=-9,
-    RAFT_ERR_DONE=-10,
-    RAFT_ERR_STALE_TERM=-11,
-    RAFT_ERR_LAST=-100,
+    RAFT_ERR_NOT_LEADER                  = -2,
+    RAFT_ERR_ONE_VOTING_CHANGE_ONLY      = -3,
+    RAFT_ERR_SHUTDOWN                    = -4,
+    RAFT_ERR_NOMEM                       = -5,
+    RAFT_ERR_SNAPSHOT_IN_PROGRESS        = -6,
+    RAFT_ERR_SNAPSHOT_ALREADY_LOADED     = -7,
+    RAFT_ERR_INVALID_NODEID              = -8,
+    RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS = -9,
+    RAFT_ERR_DONE                        = -10,
+    RAFT_ERR_STALE_TERM                  = -11,
+    RAFT_ERR_NOTFOUND                    = -12
 } raft_error_e;
 
 typedef enum {
@@ -32,8 +32,7 @@ typedef enum {
 } raft_membership_e;
 
 typedef enum {
-    RAFT_STATE_NONE,
-    RAFT_STATE_FOLLOWER,
+    RAFT_STATE_FOLLOWER = 1,
     RAFT_STATE_PRECANDIDATE,
     RAFT_STATE_CANDIDATE,
     RAFT_STATE_LEADER,
@@ -45,8 +44,15 @@ typedef enum {
     RAFT_LEADER_TRANSFER_EXPECTED_LEADER,
 } raft_leader_transfer_e;
 
-/** Allow entries to apply while taking a snapshot */
-#define RAFT_SNAPSHOT_NONBLOCKING_APPLY     1
+typedef enum {
+    RAFT_CONFIG_ELECTION_TIMEOUT = 1,
+    RAFT_CONFIG_REQUEST_TIMEOUT,
+    RAFT_CONFIG_AUTO_FLUSH,
+    RAFT_CONFIG_LOG_ENABLED,
+    RAFT_CONFIG_NONBLOCKING_APPLY,
+    RAFT_CONFIG_DISABLE_APPLY,
+} raft_config_e;
+
 #define RAFT_NODE_ID_NONE                   (-1)
 
 typedef enum {
@@ -947,20 +953,6 @@ raft_node_t* raft_add_non_voting_node(raft_server_t* me, void* udata, raft_node_
  * @param node The node to be removed. */
 void raft_remove_node(raft_server_t* me, raft_node_t* node);
 
-/** Set election timeout.
- * The amount of time that needs to elapse before we assume the leader is down
- * @param[in] msec Election timeout in milliseconds */
-void raft_set_election_timeout(raft_server_t* me, int msec);
-
-/** Set request timeout in milliseconds.
- * The amount of time before we resend an appendentries message
- * @param[in] msec Request timeout in milliseconds */
-void raft_set_request_timeout(raft_server_t* me, int msec);
-
-/** Enable/disable library log.
- * @param enable 0 to disable*/
-void raft_set_log_enabled(raft_server_t* me, int enable);
-
 /** Process events that are dependent on time passing.
  * @param[in] msec_elapsed Time in milliseconds since the last call
  * @return
@@ -1077,10 +1069,6 @@ int raft_get_nodeid(raft_server_t* me);
 raft_node_t* raft_get_my_node(raft_server_t *me);
 
 /**
- * @return currently configured election timeout in milliseconds */
-int raft_get_election_timeout(raft_server_t* me);
-
-/**
  * @return number of nodes that this server has */
 int raft_get_num_nodes(raft_server_t* me);
 
@@ -1123,10 +1111,6 @@ int raft_is_candidate(raft_server_t* me);
 /**
  * @return currently elapsed timeout in milliseconds */
 int raft_get_timeout_elapsed(raft_server_t* me);
-
-/**
- * @return request timeout in milliseconds */
-int raft_get_request_timeout(raft_server_t* me);
 
 /**
  * @return index of last applied entry */
@@ -1249,6 +1233,9 @@ raft_node_id_t raft_node_get_id(raft_node_t* me);
  * @return get state of type raft_state_e. */
 int raft_get_state(raft_server_t* me);
 
+/* @return state string */
+const char *raft_get_state_str(raft_server_t* me);
+
 /** Get the most recent log's term
  * @return the last log term */
 raft_term_t raft_get_last_log_term(raft_server_t* me);
@@ -1297,14 +1284,14 @@ int raft_entry_is_cfg_change(raft_entry_t* ety);
  *  - not apply log entries
  *  - not start elections
  *
- * If the RAFT_SNAPSHOT_NONBLOCKING_APPLY flag is specified, log entries will
- * be applied during snapshot.  The FSM must isolate the snapshot state and
+ * If RAFT_CONFIG_NONBLOCKING_APPLY config is set via raft_config(), log entries
+ * will be applied during snapshot. The FSM must isolate the snapshot state and
  * guarantee these changes do not affect it.
  *
  * @return 0 on success
  *
  **/
-int raft_begin_snapshot(raft_server_t *me, int flags);
+int raft_begin_snapshot(raft_server_t *me);
 
 /** Stop snapshotting.
  *
@@ -1536,20 +1523,28 @@ int raft_timeout_now(raft_server_t* me);
 
 raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me);
 
-/** Disable auto flush mode. Default is enabled.
+/**
+ *  Library can be used in two modes:
  *
- * In auto flush mode, after each raft_recv_entry() call, raft_log_impl_t's
- * sync() is called to verify entry is persisted. Also, appendentries messages
- * are sent for the entry immediately. It's easy to use library in this mode but
- * to achieve better performance, we need batching. We can write entries to disk
- * in another thread and send a single appendentries message for multiple
- * entries. To do that, we disable auto flush mode. Once we do that, library
- * user must check the newest log index by calling raft_get_index_to_sync() and
- * verify new entries upto that index is written to the disk, probably in
- * another thread. Also, users should call raft_flush() often to update
- * persisted log index and to send new appendentries messages.
+ * - Auto flush enabled: This is the default mode. In auto flush mode, after
+ * each raft_recv_entry() call, raft_log_impl_t's sync() is called to verify
+ * entry is persisted. Also, appendentries messages are sent for the new entry
+ * immediately. Easier to use the library in this mode but performance will be
+ * limited as there is no batching.
+ *
+ * - Auto flush disabled: To achieve better performance, we need batching.
+ * We can write entries to disk in another thread and send a single
+ * appendentries message for multiple entries. To do that, we disable auto flush
+ * mode. Once we do that, the library user must check the newest log index by
+ * calling raft_get_index_to_sync() and verify new entries up to that index are
+ * written to the disk, probably in another thread. Also, users should call
+ * raft_flush() often to update persisted log index and send new appendentries
+ * messages.
  *
  * Example:
+ *
+ * To disable auto flush mode:
+ *      raft_config(raft, 1, RAFT_CONFIG_AUTO_FLUSH, 0);
  *
  * void server_loop() {
  *    while (1) {
@@ -1573,13 +1568,17 @@ raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me);
  *    }
  * }
  *
- * raft_flush() is no-op if node is follower.
+ * -------------------------------------------------------------------------
+ * raft_flush():
+ *  - Updates persisted index and commit index.
+ *  - Applies entries.
+ *  - Sends messages(e.g appendentries) to the followers.
  *
- * @param[in] raft The Raft server
- * @param[in] flush 1 to enable, 0 to disable
- * @return          0 on success
+ * @param[in] sync_index Entry index of the last persisted entry. '0' to skip
+ *                       updating persisted index.
+ * @return    0 on success
  */
-int raft_set_auto_flush(raft_server_t* me, int flush);
+int raft_flush(raft_server_t* me, raft_index_t sync_index);
 
 /** Returns the latest entry index that needs to be written to the disk.
  *
@@ -1596,15 +1595,41 @@ int raft_set_auto_flush(raft_server_t* me, int flush);
  */
 raft_index_t raft_get_index_to_sync(raft_server_t *me);
 
-/** Update persisted index, send messages(e.g appendentries) to the followers.
+/** Set or get config
  *
- * raft_flush() is no-op if node is follower.
+ * Valid configurations:
  *
- * @param[in] raft The Raft server
- * @param[in] sync_index Entry index of the last persisted entry. '0' to skip
- *                       updating persisted index.
- * @return    0 on success
+ * election-timeout   : Amount of time before node assumes leader is down.
+ * request-timeout    : Heartbeat interval.
+ * auto-flush         : See raft_flush().
+ * log-enabled        : Enable / disable library logs.
+ * non-blocking-apply : See raft_begin_snapshot().
+ * disable-apply      : Skip applying entries. Useful for testing.
+ *
+ *
+ * | Enum                          | Type | Valid values     | Default value   |
+ * | ----------------------------- | ---- | ---------------- | --------------- |
+ * | RAFT_CONFIG_ELECTION_TIMEOUT  | int  | Positive integer | 1000 millis     |
+ * | RAFT_CONFIG_REQUEST_TIMEOUT   | int  | Positive integer | 200 millis      |
+ * | RAFT_CONFIG_AUTO_FLUSH        | int  | 0 or 1           | 0               |
+ * | RAFT_CONFIG_LOG_ENABLED       | int  | 0 or 1           | 0               |
+ * | RAFT_CONFIG_NONBLOCKING_APPLY | int  | 0 or 1           | 0               |
+ * | RAFT_CONFIG_DISABLE_APPLY     | int  | 0 or 1           | 0               |
+ *
+ * Example:
+ *
+ * - Set
+ *      raft_config(raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, 4000);
+ *
+ * - Get
+ *      int election_timeout;
+ *      raft_config(raft, 0, RAFT_CONFIG_ELECTION_TIMEOUT, &election_timeout);
+ *
+ * @param set     1 to set the value, 0 to get the current value.
+ * @param config  Config enum.
+ * @param ...     Value to set or destination variable to get the config.
+ * @return        0 on success, RAFT_ERR_NOTFOUND if config is missing.
  */
-int raft_flush(raft_server_t* me, raft_index_t sync_index);
+int raft_config(raft_server_t *me, int set, raft_config_e config, ...);
 
 #endif /* RAFT_H_ */
