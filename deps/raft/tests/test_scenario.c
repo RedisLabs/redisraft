@@ -45,7 +45,7 @@ void TestRaft_scenario_leader_appears(CuTest * tc)
     {
         r[j] = raft_new();
         sender_set_raft(sender[j], r[j]);
-        raft_set_election_timeout(r[j], 500);
+        raft_config(r[j], 1, RAFT_CONFIG_ELECTION_TIMEOUT, 500);
         raft_add_node(r[j], sender[0], 1, j==0);
         raft_add_node(r[j], sender[1], 2, j==1);
         raft_add_node(r[j], sender[2], 3, j==2);
