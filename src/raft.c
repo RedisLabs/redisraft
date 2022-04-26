@@ -1054,16 +1054,17 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
         PANIC("Failed to initialize Raft library");
     }
 
-    raft_set_election_timeout(rr->raft, rr->config->election_timeout);
-    raft_set_request_timeout(rr->raft, rr->config->request_timeout);
+    int eltimeo = rr->config->election_timeout;
+    int reqtimeo = rr->config->request_timeout;
 
-    // To avoid performance hit, get library logs only if log level is debug
-    if (redis_raft_loglevel != LOG_LEVEL_DEBUG) {
-        redis_raft_callbacks.log = NULL;
+    if (raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, eltimeo) != 0 ||
+        raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, reqtimeo) != 0 ||
+        raft_config(rr->raft, 1, RAFT_CONFIG_AUTO_FLUSH, 0) != 0 ||
+        raft_config(rr->raft, 1, RAFT_CONFIG_NONBLOCKING_APPLY, 1) != 0) {
+        PANIC("Failed to configure libraft");
     }
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
-    raft_set_auto_flush(rr->raft, 0);
 
     node = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
     if (!node) {
