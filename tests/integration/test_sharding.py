@@ -403,7 +403,6 @@ def test_shard_group_refresh(cluster_factory):
     assert_after(check_slots, 10)
 
 
-
 def test_shard_group_no_slots(cluster):
     cluster.create(3, raft_args={
         'sharding': 'yes',
@@ -426,6 +425,7 @@ def test_shard_group_reshard_to_migrate(cluster):
 
     cluster.execute("set", "key", "value");
 
+    assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
         '12345678901234567890123456789013',
@@ -493,4 +493,4 @@ def test_shard_group_reshard_to_import(cluster):
     assert cluster.execute("asking", "del", "key") == 1
 
     with raises(ResponseError, match="TRYAGAIN"):
-        cluster.execute("asking", "get", "key")
+        cluster.execute("asking", "get", "key1")
