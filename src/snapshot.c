@@ -367,7 +367,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         LOG_DEBUG("Initiating snapshot.");
     }
 
-    if (raft_begin_snapshot(rr->raft, RAFT_SNAPSHOT_NONBLOCKING_APPLY) < 0) {
+    if (raft_begin_snapshot(rr->raft) < 0) {
         LOG_DEBUG("Failed to initiate snapshot, raft_begin_snapshot() failed.");
         return RR_ERROR;
     }

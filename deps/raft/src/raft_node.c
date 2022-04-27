@@ -195,7 +195,7 @@ int raft_node_is_voting_committed(raft_node_t* me)
 
 raft_node_id_t raft_node_get_id(raft_node_t* me)
 {
-    return me != NULL ? me->id : -1;
+    return me != NULL ? me->id : RAFT_NODE_ID_NONE;
 }
 
 void raft_node_set_addition_committed(raft_node_t* me, int committed)

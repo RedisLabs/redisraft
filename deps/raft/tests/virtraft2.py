@@ -848,9 +848,13 @@ class RaftServer(object):
 
         lib.raft_set_callbacks(self.raft, cbs, self.udata)
         lib.raft_log_set_callbacks(lib.raft_get_log(self.raft), log_cbs, self.raft)
-        lib.raft_set_election_timeout(self.raft, 500)
-        lib.raft_set_auto_flush(self.raft, network.auto_flush)
-        lib.raft_set_log_enabled(self.raft, 1)
+
+        lib.raft_config(self.raft, 1, lib.RAFT_CONFIG_ELECTION_TIMEOUT,
+                        ffi.cast("int", 500))
+        lib.raft_config(self.raft, 1, lib.RAFT_CONFIG_LOG_ENABLED,
+                        ffi.cast("int", 1))
+        lib.raft_config(self.raft, 1, lib.RAFT_CONFIG_AUTO_FLUSH,
+                        ffi.cast("int", network.auto_flush))
 
         self.fsm_dict = {}
         self.fsm_log = []
@@ -891,7 +895,7 @@ class RaftServer(object):
         # logger.warning('{} snapshotting'.format(self))
         # entries_before = lib.raft_get_log_count(self.raft)
 
-        e = lib.raft_begin_snapshot(self.raft, 0)
+        e = lib.raft_begin_snapshot(self.raft)
         if e != 0:
             return
 

@@ -13,39 +13,9 @@
 #include "raft.h"
 #include "raft_private.h"
 
-void raft_set_election_timeout(raft_server_t* me, int millisec)
-{
-    me->election_timeout = millisec;
-
-    raft_update_quorum_meta(me, me->last_acked_msg_id);
-    raft_randomize_election_timeout(me);
-}
-
-void raft_set_request_timeout(raft_server_t* me, int millisec)
-{
-    me->request_timeout = millisec;
-}
-
-void raft_set_log_enabled(raft_server_t* me, int enable)
-{
-    me->log_enabled = enable;
-}
-
 raft_node_id_t raft_get_nodeid(raft_server_t* me)
 {
-    if (!me->node)
-        return -1;
     return raft_node_get_id(me->node);
-}
-
-int raft_get_election_timeout(raft_server_t* me)
-{
-    return me->election_timeout;
-}
-
-int raft_get_request_timeout(raft_server_t* me)
-{
-    return me->request_timeout;
 }
 
 int raft_get_num_nodes(raft_server_t* me)
@@ -81,15 +51,14 @@ int raft_set_current_term(raft_server_t* me, const raft_term_t term)
 {
     if (me->current_term < term)
     {
-        int voted_for = -1;
         if (me->cb.persist_term)
         {
-            int e = me->cb.persist_term(me, me->udata, term, voted_for);
+            int e = me->cb.persist_term(me, me->udata, term, RAFT_NODE_ID_NONE);
             if (0 != e)
                 return e;
         }
         me->current_term = term;
-        me->voted_for = voted_for;
+        me->voted_for = RAFT_NODE_ID_NONE;
     }
     return 0;
 }
@@ -137,6 +106,22 @@ void raft_set_state(raft_server_t* me, int state)
 int raft_get_state(raft_server_t* me)
 {
     return me->state;
+}
+
+const char *raft_get_state_str(raft_server_t* me)
+{
+    switch (me->state) {
+        case RAFT_STATE_FOLLOWER:
+            return "follower";
+        case RAFT_STATE_PRECANDIDATE:
+            return "pre-candidate";
+        case RAFT_STATE_CANDIDATE:
+            return "candidate";
+        case RAFT_STATE_LEADER:
+            return "leader";
+        default:
+            return "unknown";
+    }
 }
 
 raft_node_t* raft_get_node(raft_server_t *me, raft_node_id_t nodeid)
@@ -226,8 +211,8 @@ int raft_snapshot_is_in_progress(raft_server_t *me)
 
 int raft_is_apply_allowed(raft_server_t* me)
 {
-    return (!raft_snapshot_is_in_progress(me) ||
-            (me->snapshot_flags & RAFT_SNAPSHOT_NONBLOCKING_APPLY));
+    return !me->disable_apply &&
+           (!raft_snapshot_is_in_progress(me) || me->nonblocking_apply);
 }
 
 raft_entry_t *raft_get_last_applied_entry(raft_server_t *me)
