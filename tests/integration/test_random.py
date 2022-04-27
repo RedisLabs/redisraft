@@ -46,16 +46,16 @@ for i = 65,  90 do table.insert(charset, string.char(i)) end
 for i = 97, 122 do table.insert(charset, string.char(i)) end
 
 -- 2. recursive function to generate random string of length
-function string.random(length)
+local function randomstr(length)
   if length > 0 then
-    return string.random(length - 1) .. charset[math.random(1, #charset)]
+    return randomstr(length - 1) .. charset[math.random(1, #charset)]
   else
     return ""
   end
 end
 
 while (i > 0) do
-    redis.call('HSET', key1, 'field:' .. i, string.random(6))
+    redis.call('HSET', key1, 'field:' .. i, randomstr(6))
     i = i - 1
 end
 
@@ -135,16 +135,16 @@ for i = 65,  90 do table.insert(charset, string.char(i)) end
 for i = 97, 122 do table.insert(charset, string.char(i)) end
 
 -- 2. recursive function to generate random string of length
-function string.random(length)
+local function randomstr(length)
   if length > 0 then
-    return string.random(length - 1) .. charset[math.random(1, #charset)]
+    return randomstr(length - 1) .. charset[math.random(1, #charset)]
   else
     return ""
   end
 end
 
 while (i > 0) do
-    local str = string.random(6)
+    local str = randomstr(6)
     redis.call('sadd', key1, str)
     if i % 2 == 0 then
         redis.call('sadd', key2, str)
@@ -231,16 +231,16 @@ for i = 97, 122 do table.insert(charset, string.char(i)) end
 
 math.randomseed(123456)
 
-function string.random(length)
+local function randomstr(length)
   if length > 0 then
-    return string.random(length - 1) .. charset[math.random(1, #charset)]
+    return randomstr(length - 1) .. charset[math.random(1, #charset)]
   else
     return ""
   end
 end
 
 while (i > 0) do
-    local str = string.random(6)
+    local str = randomstr(6)
     redis.call('set', str, 123)
     i = i - 1
 end
