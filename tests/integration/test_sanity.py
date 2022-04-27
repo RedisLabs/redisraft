@@ -191,15 +191,13 @@ def test_nonquorum_reads(cluster):
     Test non-quorum reads, requests are not processed until an entry from the
     current term is applied.
     """
-    cluster.create(2, raft_args={'election-timeout': '8000',
-                                 'max-append-req-in-flight': '1',
-                                 'quorum-reads': 'no'})
+    cluster.create(2, raft_args={'quorum-reads': 'no'})
 
-    # Delay processing appendrequests on node-1
-    cluster.node(1).client.execute_command('raft.debug',
-                                           'delayappend', '4000000')
+    assert cluster.leader == 1
 
-    # Switch leadership to node-2
+    # Disable apply on node-2 and make it leader. Node-2 will not be able to
+    # apply NOOP entry and read requests should fail.
+    cluster.node(2).client.execute_command('raft.debug', 'disable_apply', '1')
     cluster.node(2).timeout_now()
     cluster.node(2).wait_for_info_param('leader_id', 2)
 
@@ -207,9 +205,9 @@ def test_nonquorum_reads(cluster):
     with raises(ResponseError, match='CLUSTERDOWN'):
         cluster.node(2).client.get('x')
 
-    # Disable delay. The new leader can commit an entry and verify it can
+    # Disable delay. The new leader can apply NOOP entry and verify it can
     # process read requests.
-    cluster.node(1).client.execute_command('raft.debug', 'delayappend', '0')
+    cluster.node(2).client.execute_command('raft.debug', 'disable_apply', '0')
     cluster.node(2).client.get('x')
 
 
