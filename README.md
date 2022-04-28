@@ -75,9 +75,9 @@ Now add the third node in the same way:
 
     redis-cli -p 5003 RAFT.CLUSTER JOIN localhost:5001
 
-To query the cluster state, run the `RAFT.INFO` command:
+To query the cluster state, run the `INFO raft` command:
 
-    redis-cli --raw -p 5001 RAFT.INFO
+    redis-cli -p 5001 INFO raft
 
 Now you can start using this RedisRaft cluster. All [supported Redis commands](docs/Using.md) will be executed in a strongly-consistent manner using the Raft protocol.
 

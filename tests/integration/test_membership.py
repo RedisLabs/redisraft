@@ -78,7 +78,7 @@ def test_single_voting_change_enforced(cluster):
     with raises(ResponseError, match='a voting change is already in progress'):
         cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4')
 
-    assert cluster.node(1).raft_info()['num_nodes'] == 5
+    assert cluster.node(1).info()['raft_num_nodes'] == 5
 
 
 def test_removed_node_remains_dead(cluster):
@@ -149,7 +149,8 @@ def test_full_cluster_remove(cluster):
         cluster.node(node_id).start()
 
     for node_id in (1, 2, 3, 4, 5):
-        assert cluster.node(node_id).raft_info()['state'] == 'uninitialized'
+        state = cluster.node(node_id).info()['raft_state']
+        assert state == 'uninitialized'
 
 
 @pytest.mark.parametrize("use_snapshot", [False, True])
@@ -160,7 +161,7 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
     if use_snapshot:
         n = cluster.node(1)
         assert n.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-        assert n.raft_info()['log_entries'] == 0
+        assert n.info()['raft_log_entries'] == 0
 
         logger.info("Restarting node from snapshot")
         n.restart()
@@ -234,12 +235,12 @@ def test_update_self_voting_state_from_snapshot(cluster):
     cluster.create(3)
 
     assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'NODECFG', '2', '-voting') == b'OK'
-    assert cluster.node(2).raft_info()['is_voting'] == 'yes'
+    assert cluster.node(2).info()['raft_is_voting'] == 'yes'
     assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
 
     cluster.node(1).client.execute_command('RAFT.DEBUG', 'SENDSNAPSHOT', '2')
-    cluster.node(2).wait_for_info_param('snapshots_loaded', 1)
-    assert cluster.node(2).raft_info()['is_voting'] == 'no'
+    cluster.node(2).wait_for_info_param('raft_snapshots_loaded', 1)
+    assert cluster.node(2).info()['raft_is_voting'] == 'no'
 
 
 def test_join_while_cluster_is_down(cluster):

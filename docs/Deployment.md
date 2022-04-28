@@ -105,10 +105,10 @@ Before creating the cluster, the first node must be launched. Initially, a node 
 
 We can validate our node is indeed `uninitialized` as follows:
 
-    $ redis-cli --raw -p 5001 RAFT.INFO
+    $ redis-cli -p 5001 INFO raft
     # Raft
-    node_id:0
-    state:uninitialized
+    raft_node_id:0
+    raft_state:uninitialized
     [...]
 
 You can see the `state` indicates the node is uninitialized. Notice also that its `node_id` is `0`.
@@ -142,19 +142,19 @@ Since the cluster already exists, we don't need to run `RAFT.CLUSTER INIT`. Inst
 
 > :bulb: Notice we use `redis-cli` to communicate with the new node, but we specify the host and port of the existing leader node as the argument to the `RAFT.CLUSTER JOIN` command.
 
-At this point we can run `RAFT.INFO` again to query the status of our cluster. Querying the second node should result in a response similar to this:
+At this point we can run `INFO raft` again to query the status of our cluster. Querying the second node should result in a response similar to this:
 
-    $ redis-cli -p 5002 --raw RAFT.INFO
+    $ redis-cli -p 5002 INFO raft
     # Raft
-    node_id:595100767
-    state:up
-    role:follower
-    is_voting:yes
-    leader_id:1733428433
-    current_term:1
-    num_nodes:2
-    num_voting_nodes:2
-    node1:id=1733428433,state=connected,voting=yes,addr=localhost,port=5001,last_conn_secs=5,conn_errors=0,conn_oks=1
+    raft_node_id:595100767
+    raft_state:up
+    raft_role:follower
+    raft_is_voting:yes
+    raft_leader_id:1733428433
+    raft_current_term:1
+    raft_num_nodes:2
+    raft_num_voting_nodes:2
+    raft_node1:id=1733428433,state=connected,voting=yes,addr=localhost,port=5001,last_conn_secs=5,conn_errors=0,conn_oks=1
 
 Some things to notice:
 * When joining the cluster, our node has been assigned a unique `node_id`.
@@ -168,7 +168,7 @@ Cluster Management
 
 ### Monitoring
 
-The primary tool for monitoring the status and health of a RedisRaft cluster is the `RAFT.INFO` command.
+The primary tool for monitoring the status and health of a RedisRaft cluster is the `INFO raft` command.
 
 RedisRaft nodes communicate with each other over the Redis port, using dedicated commands for the implementation of the Raft RPC. It is important to verify the network configuration is correct. In particular:
 

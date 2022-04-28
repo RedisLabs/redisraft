@@ -17,8 +17,8 @@ from .sandbox import RedisRaft, RedisRaftFailedToStart
 def test_info_before_cluster_init(cluster):
     node = RedisRaft(1, cluster.base_port, cluster.config)
     node.start()
-    assert node.raft_info()["state"] == "uninitialized"
-    assert node.client.execute_command("info")["module"]["name"] == "redisraft"
+    assert node.info()["raft_state"] == "uninitialized"
+    assert node.client.execute_command("info")["module"]["name"] == "raft"
 
 
 def test_info(cluster):
@@ -30,14 +30,14 @@ def test_info(cluster):
 def test_set_cluster_id(cluster):
     id = "12345678901234567890123456789012"
     cluster.create(3, cluster_id=id)
-    assert str(cluster.leader_node().raft_info()["dbid"]) == id
+    assert str(cluster.leader_node().info()["raft_dbid"]) == id
 
 
 def test_set_cluster_password(cluster):
     password = "foobar"
     id = "12345678901234567890123456789012"
     cluster.create(3, password=password, cluster_id=id)
-    assert str(cluster.leader_node().raft_info()["dbid"]) == id
+    assert str(cluster.leader_node().info()["raft_dbid"]) == id
 
 
 def test_set_cluster_id_too_short(cluster):
@@ -64,7 +64,7 @@ def test_add_node_as_a_single_leader(cluster):
     # Do some basic sanity
     r1 = cluster.add_node()
     assert r1.client.set('key', 'value')
-    assert r1.raft_info()['current_index'] == 2
+    assert r1.info()['raft_current_index'] == 2
 
 
 def test_node_joins_and_gets_data(cluster):
@@ -75,7 +75,7 @@ def test_node_joins_and_gets_data(cluster):
     assert r1.client.set('key', 'value')
     r2 = cluster.add_node()
     r2.wait_for_election()
-    assert r2.raft_info().get('leader_id') == 1
+    assert r2.info().get('raft_leader_id') == 1
     commit_idx = cluster.leader_node().commit_index()
     r2.wait_for_commit_index(commit_idx, gt_ok=True)
     r2.wait_for_log_applied()
@@ -92,7 +92,7 @@ def test_single_node_log_is_reapplied(cluster):
     assert r1.client.set('key', 'value')
     r1.restart()
     r1.wait_for_election()
-    assert r1.raft_info().get('leader_id') == 1
+    assert r1.info().get('raft_leader_id') == 1
     r1.wait_for_log_applied()
     assert r1.client.get('key') == b'value'
 
@@ -201,7 +201,7 @@ def test_nonquorum_reads(cluster):
 
     # Switch leadership to node-2
     cluster.node(2).timeout_now()
-    cluster.node(2).wait_for_info_param('leader_id', 2)
+    cluster.node(2).wait_for_info_param('raft_leader_id', 2)
 
     # Read requests are rejected before noop entry is applied
     with raises(ResponseError, match='CLUSTERDOWN'):
@@ -223,26 +223,26 @@ def test_auto_ids(cluster):
     node1.start()
 
     # No id initially
-    assert node1.raft_info()['node_id'] == 0
+    assert node1.info()['raft_node_id'] == 0
 
     # Create cluster, id should be generated
     node1.cluster('init')
-    assert node1.raft_info()['node_id'] != 0
+    assert node1.info()['raft_node_id'] != 0
 
     # -- Test auto id on join --
     node2 = cluster.add_node(cluster_setup=False, use_id_arg=False)
     node2.start()
 
-    assert node2.raft_info()['node_id'] == 0
+    assert node2.info()['raft_node_id'] == 0
     node2.cluster('join', '127.0.0.1:5001')
     node2.wait_for_node_voting()
-    assert node2.raft_info()['node_id'] != 0
+    assert node2.info()['raft_node_id'] != 0
 
     # -- Test recovery of id from log after restart --
-    _id = node2.raft_info()['node_id']
+    _id = node2.info()['raft_node_id']
     node2.restart()
     node2.wait_for_election()
-    assert _id == node2.raft_info()['node_id']
+    assert _id == node2.info()['raft_node_id']
 
 
 def test_interception_does_not_affect_lua(cluster):
@@ -251,13 +251,13 @@ def test_interception_does_not_affect_lua(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.raft_info()['current_index'] == 1
+    assert r1.info()['raft_current_index'] == 1
     assert r1.client.execute_command('EVAL', """
 redis.call('SET','key1','value1');
 redis.call('SET','key2','value2');
 redis.call('SET','key3','value3');
 return 1234;""", '0') == 1234
-    assert r1.raft_info()['current_index'] == 2
+    assert r1.info()['raft_current_index'] == 2
     assert r1.client.get('key1') == b'value1'
     assert r1.client.get('key2') == b'value2'
     assert r1.client.get('key3') == b'value3'
@@ -286,7 +286,7 @@ def test_proxying_with_interception(cluster):
     assert cluster.node(1).client.rpush('list-a', 'x') == 3
 
     time.sleep(1)
-    assert cluster.node(1).raft_info()['current_index'] == 8
+    assert cluster.node(1).info()['raft_current_index'] == 8
 
 
 def test_rolled_back_reply(cluster):
@@ -421,7 +421,7 @@ def test_tls_reconfig(cluster):
     cluster.node(2).restart()
     cluster.node(3).restart()
     cluster.node(3).wait_for_election()
-    assert cluster.node(3).raft_info().get('leader_id') == 1
+    assert cluster.node(3).info().get('raft_leader_id') == 1
     commit_idx = cluster.leader_node().commit_index()
     cluster.node(3).wait_for_commit_index(commit_idx, gt_ok=True)
     cluster.node(3).wait_for_log_applied()

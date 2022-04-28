@@ -92,7 +92,7 @@ def test_shard_group_replace(cluster):
         '1', '1',
         '8', '16383', '1',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
-        cluster.leader_node().raft_info()['dbid'],
+        cluster.leader_node().info()['raft_dbid'],
         '1', '1',
         '0', '5', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
@@ -105,7 +105,8 @@ def test_shard_group_replace(cluster):
     def validate_slots(cluster_slots):
         assert len(cluster_slots) == 3
         for i in range(len(cluster_slots)):
-            if cluster_slots[i][2][2] == "{}00000001".format(cluster.leader_node().raft_info()['dbid']).encode():
+            if cluster_slots[i][2][2] == "{}00000001".format(
+                    cluster.leader_node().info()['raft_dbid']).encode():
                 assert cluster_slots[i][0] == 0, cluster_slots
                 assert cluster_slots[i][1] == 5, cluster_slots
             elif cluster_slots[i][2][2] == b"1234567890123456789012345678901234567890":
@@ -209,7 +210,8 @@ def test_shard_group_persistence(cluster):
     # Make sure received cluster slots is sane
     def validate_slots(cluster_slots):
         assert len(cluster_slots) == 2
-        local_id = "{}00000001".format(cluster.leader_node().raft_info()['dbid']).encode()
+        local_id = "{}00000001".format(
+            cluster.leader_node().info()['raft_dbid']).encode()
         for i in range(len(cluster_slots)):
             if cluster_slots[i][2][2] == local_id:
                 assert cluster_slots[i][0] == 0, cluster_slots
@@ -286,19 +288,23 @@ def test_shard_group_linking(cluster_factory):
         assert len(cluster_nodes) == 7  # blank entry at the end
         for i in [0, 1, 3, 4]:
             node = cluster_nodes[i].split(b' ')
-            if node[0] == "{}00000001".format(cluster1.leader_node().raft_info()['dbid']).encode():
+            if node[0] == "{}00000001".format(
+                    cluster1.leader_node().info()['raft_dbid']).encode():
                 assert node[2] == b"myself"
                 assert node[3] == b"master"
                 assert node[8] == b"0-1"
-            elif node[0] == "{}00000002".format(cluster1.leader_node().raft_info()['dbid']).encode():
+            elif node[0] == "{}00000002".format(
+                    cluster1.leader_node().info()['raft_dbid']).encode():
                 assert node[2] == b"noflags"
                 assert node[3] == b"slave"
                 assert node[8] == b"0-1"
-            elif node[0] == "{}00000001".format(cluster2.leader_node().raft_info()['dbid']).encode():
+            elif node[0] == "{}00000001".format(
+                    cluster2.leader_node().info()['raft_dbid']).encode():
                 assert node[2] == b"noflags"
                 assert node[3] == b"master"
                 assert node[8] == b"2-16383"
-            elif node[0] == "{}00000002".format(cluster2.leader_node().raft_info()['dbid']).encode():
+            elif node[0] == "{}00000002".format(
+                    cluster2.leader_node().info()['raft_dbid']).encode():
                 assert node[2] == b"noflags"
                 assert node[3] == b"slave"
                 assert node[8] == b"2-16383"

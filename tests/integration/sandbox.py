@@ -125,7 +125,7 @@ class RedisRaft(object):
 
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
-        self.client.set_response_callback('raft.info', redis.client.parse_info)
+        self.client.set_response_callback('info raft', redis.client.parse_info)
         self.client.set_response_callback('raft.config get',
                                           redis.client.parse_config_get)
         self.stdout = None
@@ -306,8 +306,8 @@ class RedisRaft(object):
     def raft_config_get(self, key):
         return self.client.execute_command('raft.config get', key)
 
-    def raft_info(self):
-        return self.client.execute_command('raft.info')
+    def info(self):
+        return self.client.execute_command('info raft')
 
     def raft_debug_exec(self, *cmd):
         """
@@ -318,10 +318,10 @@ class RedisRaft(object):
         return self.client.execute_command('raft.debug', 'exec', *cmd)
 
     def commit_index(self):
-        return self.raft_info()['commit_index']
+        return self.info()['raft_commit_index']
 
     def current_index(self):
-        return self.raft_info()['current_index']
+        return self.info()['raft_current_index']
 
     def transfer_leader(self, *args, **kwargs):
         return self.client.execute_command('raft.transfer_leader',
@@ -346,7 +346,7 @@ class RedisRaft(object):
 
     def wait_for_election(self, timeout=10):
         def has_leader():
-            return bool(self.raft_info()['leader_id'] != -1)
+            return bool(self.info()['raft_leader_id'] != -1)
 
         def raise_no_master_error():
             raise RedisRaftTimeout('No master elected')
@@ -354,8 +354,8 @@ class RedisRaft(object):
 
     def wait_for_log_committed(self, timeout=10):
         def current_idx_committed():
-            info = self.raft_info()
-            return bool(info['commit_index'] == info['current_index'])
+            info = self.info()
+            return bool(info['raft_commit_index'] == info['raft_current_index'])
 
         def raise_not_committed():
             raise RedisRaftTimeout('Last log entry not yet committed')
@@ -365,8 +365,10 @@ class RedisRaft(object):
 
     def wait_for_log_applied(self, timeout=10):
         def commit_idx_applied():
-            info = self.raft_info()
-            return bool(info['commit_index'] == info['last_applied_index'])
+            info = self.info()
+            commit = info['raft_commit_index']
+            last_applied = info['raft_last_applied_index']
+            return bool(commit == last_applied)
 
         def raise_not_applied():
             raise RedisRaftTimeout('Last committed entry not yet applied')
@@ -376,11 +378,11 @@ class RedisRaft(object):
 
     def wait_for_current_index(self, idx, timeout=10):
         def current_idx_reached():
-            info = self.raft_info()
-            return bool(info['current_index'] == idx)
+            info = self.info()
+            return bool(info['raft_current_index'] == idx)
 
         def raise_not_reached():
-            info = self.raft_info()
+            info = self.info()
             LOG.debug("------- last info before bail out: %s\n", info)
 
             raise RedisRaftTimeout(
@@ -390,13 +392,13 @@ class RedisRaft(object):
 
     def wait_for_commit_index(self, idx, gt_ok=False, timeout=10):
         def commit_idx_reached():
-            info = self.raft_info()
+            info = self.info()
             if gt_ok:
-                return bool(info['commit_index'] >= idx)
-            return bool(info['commit_index'] == idx)
+                return bool(info['raft_commit_index'] >= idx)
+            return bool(info['raft_commit_index'] == idx)
 
         def raise_not_reached():
-            info = self.raft_info()
+            info = self.info()
             LOG.debug("------- last info before bail out: %s\n", info)
 
             raise RedisRaftTimeout(
@@ -406,8 +408,8 @@ class RedisRaft(object):
 
     def wait_for_num_voting_nodes(self, count, timeout=10):
         def num_voting_nodes_match():
-            info = self.raft_info()
-            return bool(info['num_voting_nodes'] == count)
+            info = self.info()
+            return bool(info['raft_num_voting_nodes'] == count)
 
         def raise_not_added():
             raise RedisRaftTimeout('Nodes not added')
@@ -418,8 +420,8 @@ class RedisRaft(object):
 
     def wait_for_num_nodes(self, count, timeout=10):
         def num_nodes_match():
-            info = self.raft_info()
-            return bool(info['num_nodes'] == count)
+            info = self.info()
+            return bool(info['raft_num_nodes'] == count)
 
         def raise_not_added():
             raise RedisRaftTimeout('Nodes count did not modify')
@@ -429,11 +431,11 @@ class RedisRaft(object):
 
     def wait_for_node_voting(self, value='yes', timeout=10):
         def check_voting():
-            info = self.raft_info()
-            return bool(info['is_voting'] == value)
+            info = self.info()
+            return bool(info['raft_is_voting'] == value)
 
         def raise_not_voting():
-            info = self.raft_info()
+            info = self.info()
             LOG.debug("Non voting node: %s", str(info))
             raise RedisRaftTimeout('Node voting != %s' % value)
 
@@ -441,11 +443,11 @@ class RedisRaft(object):
 
     def wait_for_info_param(self, name, value, timeout=10):
         def check_param():
-            info = self.raft_info()
+            info = self.info()
             return bool(info.get(name) == value)
 
         def raise_not_matched():
-            raise RedisRaftTimeout('RAFT.INFO "%s" did not reach "%s"' %
+            raise RedisRaftTimeout('INFO "%s" did not reach "%s"' %
                                    (name, value))
 
         self._wait_for_condition(check_param, raise_not_matched, timeout)
