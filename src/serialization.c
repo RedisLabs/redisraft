@@ -311,3 +311,69 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
 
     return ety;
 }
+
+/* serialize out keys in a RaftRedisCommand for locking */
+raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc)
+{
+    RedisModuleDict * keys = RedisModule_CreateDict(redis_raft.ctx);
+    size_t total_key_size = 0;
+    int num_keys = 0;
+
+    for (size_t idx = 0; idx < argc; idx++) {
+        size_t str_len;
+        RedisModule_StringPtrLen(argv[idx], &str_len);
+
+        if (RedisModule_DictSet(keys, argv[idx], NULL) == REDISMODULE_OK) {
+            total_key_size += str_len + 1;
+            num_keys++;
+        }
+    }
+
+    raft_entry_t *ety = raft_entry_new(calcIntSerializedLen(num_keys) + total_key_size);
+    char *p = ety->data;
+
+    /* Encode number of keys */
+    int n = encodeInteger('*', p, total_key_size, num_keys);
+    RedisModule_Assert(n != -1);
+    p += n;
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(keys, "^", NULL, 0);
+    char *key;
+    size_t key_len;
+    while ((key = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
+        RedisModule_Assert(total_key_size >= (key_len + 1));
+        memcpy(p, key, key_len);
+        p += key_len;
+        *p = '\0';
+        p++;
+        total_key_size -= (key_len + 1);
+    }
+    RedisModule_DictIteratorStop(iter);
+
+    RedisModule_Assert(total_key_size == 0);
+    RedisModule_FreeDict(redis_raft.ctx, keys);
+
+    return ety;
+}
+
+RedisModuleString ** RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys)
+{
+    RedisModuleString **ret;
+
+    const char *p = buf;
+    int n;
+    /* Read number of keys */
+    if ((n = decodeInteger(p, buf_size, '*', num_keys)) < 0 || !num_keys) {
+        return NULL;
+    }
+    p += n;
+
+    ret = RedisModule_Alloc(sizeof(RedisModuleString *) * *num_keys);
+    for (size_t i = 0; i < *num_keys; i++) {
+        size_t str_len = strlen(p);
+        ret[i] = RedisModule_CreateString(redis_raft.ctx, p, str_len);
+        p += str_len + 1;
+    }
+
+    return ret;
+}

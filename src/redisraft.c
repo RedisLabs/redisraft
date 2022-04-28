@@ -370,6 +370,161 @@ static void handleInfoCommand(RedisRaftCtx *rr,
     RedisModule_FreeCallReply(reply);
 }
 
+typedef struct MigrationInfo {
+    char shard_group_id[RAFT_DBID_LEN+1];
+    char username[256];
+    char password[256];
+} MigrationInfo;
+
+static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *cmd)
+{
+    MigrationInfo * ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
+    size_t str_len;
+    const char * str = RedisModule_StringPtrLen(cmd->argv[1], &str_len);
+    if (str_len > RAFT_DBID_LEN) {
+        LOG_WARNING("shardgroup id is too long");
+        goto fail;
+    }
+    if (getShardGroupById(rr, str) == NULL) {
+        LOG_WARNING("shardgroup id is invalid: %s", str);
+        goto fail;
+    }
+    strncpy(ret->shard_group_id, str, str_len);
+
+    int idx;
+    for (idx = 6; idx < cmd->argc; idx++) {
+        size_t auth_str_len;
+        const char * auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
+        if (auth_str_len == 5 && !strncasecmp("AUTH2", auth_str, 5)) {
+            if (idx + 2 > cmd->argc) {
+                LOG_WARNING("couldn't parse username/password");
+                goto fail;
+            }
+
+            size_t username_len;
+            const char * username = RedisModule_StringPtrLen(cmd->argv[idx+1], &username_len);
+            if (username_len > 255) {
+                LOG_WARNING("username is too long: limited to 255 characters");
+                goto fail;
+            }
+            strncpy(ret->username, username, username_len);
+
+            size_t password_len;
+            const char *password = RedisModule_StringPtrLen(cmd->argv[idx+2], &password_len);
+            if (password_len > 255) {
+                LOG_WARNING("password is too long: limited to 255 characters");
+                goto fail;
+            }
+            strncpy(ret->password, password, password_len);
+            break;
+        } else if (auth_str_len == 4 && !strncasecmp("AUTH", auth_str, 4)) {
+            if (idx + 1 > cmd->argc) {
+                LOG_WARNING("couldn't parse username");
+                goto fail;
+            }
+
+            size_t username_len;
+            const char * username = RedisModule_StringPtrLen(cmd->argv[idx+1], &username_len);
+            if (username_len > 255) {
+                LOG_WARNING("username is too long: limited to 255 characters");
+                goto fail;
+            }
+            strncpy(ret->username, username, username_len);
+            break;
+        }
+    }
+
+    return ret;
+
+fail:
+    RedisModule_Free(ret);
+    return NULL;
+}
+
+static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisCommand *cmd)
+{
+    RaftReq *req = NULL;
+
+    // 0. assert minimum size here
+    if (cmd->argc < 8) {
+        RedisModule_WrongArity(ctx);
+        return NULL;
+    }
+
+    // 1. Extract migration info and store it in a dict rr->migrate_info
+    MigrationInfo * migrationInfo = extractMigrationInfo(rr, cmd);
+    if (migrationInfo == NULL) {
+        RedisModule_ReplyWithError(ctx, "ERR check logs");
+        return NULL;
+    }
+
+    // 2. assert single key is empty
+    size_t key_len;
+    RedisModule_StringPtrLen(cmd->argv[3], &key_len);
+    if (key_len != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR RedisRaft doesn't support old style single key migration");
+        return NULL;
+    }
+
+    /* find "keys" for parsing out keys */
+    int idx = 6;
+    for(; idx < cmd->argc; idx++) {
+        size_t str_len;
+        const char * str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
+        if (str_len == 4 && !strcasecmp("keys", str)) {
+            break;
+        }
+    }
+
+    /* move idx past "keys" argv */
+    idx++;
+
+    if (idx >= cmd->argc) {
+        RedisModule_ReplyWithError(ctx, "ERR Didn't provide any keys to migrate");
+        return NULL;
+    }
+
+    RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * cmd->argc - idx);
+    int num_keys = cmd->argc - idx;
+    for (int i = 0; i < num_keys; i++) {
+        keys[i] = RedisModule_CreateStringFromString(ctx, cmd->argv[idx + i]);
+    }
+
+    req = RaftReqInit(ctx, RR_MIGRATE_KEYS);
+
+    /* Overwrite with new data */
+    req->r.migrate_keys.num_keys = num_keys;
+    req->r.migrate_keys.keys = keys;
+    memcpy(req->r.migrate_keys.shardGroupId, migrationInfo->shard_group_id, RAFT_DBID_LEN);
+    memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, 255);
+    memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, 255);
+
+    RedisModule_Free(migrationInfo);
+
+    return req;
+}
+
+static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    RaftReq * req;
+    if ((req = cmdToMigrate(rr, ctx, cmd)) == NULL) {
+        return;
+    }
+
+    raft_entry_resp_t response;
+    raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_LOCK_KEYS;
+    entryAttachRaftReq(rr, entry, req);
+    int e = raft_recv_entry(rr->raft, entry, &response);
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
+        entryDetachRaftReq(rr, entry);
+    }
+
+    raft_entry_release(entry);
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -379,6 +534,7 @@ static void handleInfoCommand(RedisRaftCtx *rr,
  * Currently intercepted commands:
  * - CLUSTER
  * - INFO
+ * - MIGRATE
  *
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
@@ -398,6 +554,11 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
 
     if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
         handleInfoCommand(rr, ctx, cmd);
+        return true;
+    }
+
+    if (len == strlen("MIGRATE") && strncasecmp(cmd_str, "MIGRATE", len) == 0) {
+        handleMigrateCommand(rr, ctx, cmd);
         return true;
     }
 

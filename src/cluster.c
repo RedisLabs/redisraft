@@ -785,11 +785,11 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     return RR_OK;
 }
 
-static ShardGroup *getShardGroupById(RedisRaftCtx *rr, char *id)
+ShardGroup *getShardGroupById(RedisRaftCtx *rr, const char *id)
 {
     ShardingInfo *si = rr->sharding_info;
 
-    return RedisModule_DictGetC(si->shard_group_map, id, strlen(id), NULL);
+    return RedisModule_DictGetC(si->shard_group_map, (char *) id, strlen(id), NULL);
 }
 
 /* Update an existing ShardGroup in the active ShardingInfo.
