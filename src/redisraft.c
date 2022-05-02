@@ -779,10 +779,6 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         return REDISMODULE_OK;
     }
 
-    if (rr->debug_appendreq_delay) {
-        usleep(rr->debug_appendreq_delay);
-    }
-
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
         target_node_id != rr->config->id) {
@@ -1365,13 +1361,22 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
         }
-    } else if (!strncasecmp(cmd, "delayappend", cmdlen) && argc == 3) {
-        long long delay;
-        if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
+    } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
+        long long val;
+        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
             RedisModule_ReplyWithError(ctx, "ERR invalid append delay value");
             return REDISMODULE_OK;
         }
-        rr->debug_appendreq_delay = delay;
+
+        if (checkRaftState(rr, ctx) != RR_OK) {
+            return REDISMODULE_OK;
+        }
+
+        if (raft_config(rr->raft, 1, RAFT_CONFIG_DISABLE_APPLY, val) != 0) {
+            RedisModule_ReplyWithError(ctx, "ERR failed to configure libraft");
+            return REDISMODULE_OK;
+        }
+
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
