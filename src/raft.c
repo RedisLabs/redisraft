@@ -848,12 +848,15 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 /* Check if Redis is loading an RDB file */
 static bool checkRedisLoading(RedisRaftCtx *rr)
 {
-    char *val = RedisInfoGetParam(rr, "persistence", "loading");
-    assert(val != NULL);
-    bool loading = (!strcmp(val, "1"));
+    int err;
+    RedisModuleServerInfoData *in;
 
-    RedisModule_Free(val);
-    return loading;
+    in = RedisModule_GetServerInfo(rr->ctx, "persistence");
+    int val = (int) RedisModule_ServerInfoGetFieldSigned(in, "loading", &err);
+    RedisModule_Assert(err == REDISMODULE_OK);
+    RedisModule_FreeServerInfo(rr->ctx, in);
+
+    return val;
 }
 
 RRStatus loadRaftLog(RedisRaftCtx *rr);

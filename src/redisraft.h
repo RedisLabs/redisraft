@@ -726,8 +726,6 @@ char *StrCreate(const void *buf, size_t len);
 char *StrCreateFromString(RedisModuleString *str);
 int stringmatchlen(const char *pattern, int patternLen, const char *string, int stringLen, int nocase);
 int stringmatch(const char *pattern, const char *string, int nocase);
-int RedisInfoIterate(const char **info_ptr, size_t *info_len, const char **key, size_t *keylen, const char **value, size_t *valuelen);
-char *RedisInfoGetParam(RedisRaftCtx *rr, const char *section, const char *param);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
