@@ -854,6 +854,7 @@ static bool checkRedisLoading(RedisRaftCtx *rr)
     in = RedisModule_GetServerInfo(rr->ctx, "persistence");
     int val = (int) RedisModule_ServerInfoGetFieldSigned(in, "loading", &err);
     RedisModule_Assert(err == REDISMODULE_OK);
+    RedisModule_FreeServerInfo(rr->ctx, in);
 
     return val;
 }
