@@ -384,8 +384,7 @@ void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
     RedisModule_Assert(ret == RR_OK);
 }
 
-void HandleAsking(RaftRedisCommandArray *cmds)
-{
+void HandleAsking(RaftRedisCommandArray *cmds) {
     RaftRedisCommand *cmd = cmds->commands[0];
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
@@ -394,8 +393,44 @@ void HandleAsking(RaftRedisCommandArray *cmds)
         cmds->asking = true;
         RedisModule_FreeString(NULL, cmds->commands[0]->argv[0]);
         for (int i = 1; i < cmds->commands[0]->argc; i++) {
-            cmds->commands[0]->argv[i-1] = cmds->commands[0]->argv[i];
+            cmds->commands[0]->argv[i - 1] = cmds->commands[0]->argv[i];
         }
         cmds->commands[0]->argc--;
+    }
+}
+
+static void handleReadOnlyCommand(void *arg, int can_read)
+{
+    RaftReq *req = arg;
+
+    if (!can_read) {
+        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
+        goto exit;
+    }
+
+    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
+
+    exit:
+    RaftReqFree(req);
+}
+
+void ReadOnlyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    if (rr->config->quorum_reads) {
+        RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+        RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+        raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+    } else {
+        /* Wait until the new leader applies an entry from the current term.
+         * Otherwise, we might process a request before replaying logs.
+         * The state machine will be in an older state. Reading from it
+         * might look like going backward in time. */
+        raft_term_t term = raft_get_current_term(rr->raft);
+        if (term != rr->snapshot_info.last_applied_term) {
+            RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+            return;
+        }
+
+        RaftExecuteCommandArray(ctx, ctx, cmds);
     }
 }

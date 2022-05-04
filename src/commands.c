@@ -130,6 +130,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
             { "pubsub",                 CMD_SPEC_DONT_INTERCEPT },
             { "slowlog",                CMD_SPEC_DONT_INTERCEPT },
             { "acl",                    CMD_SPEC_DONT_INTERCEPT },
+            { "info",                   CMD_SPEC_DONT_INTERCEPT },
 
             /* RedisRaft Commands */
             { "raft",                         CMD_SPEC_DONT_INTERCEPT },

@@ -329,27 +329,12 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
-static void handleReadOnlyCommand(void *arg, int can_read)
-{
-    RaftReq *req = arg;
-
-    if (!can_read) {
-        RedisModule_ReplyWithError(req->ctx, "TIMEOUT no quorum for read");
-        goto exit;
-    }
-
-    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
-
-exit:
-    RaftReqFree(req);
-}
-
-static void handleInfoCommand(RedisRaftCtx *rr,
+/* static void handleInfoCommand(RedisRaftCtx *rr,
                               RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
     RedisModuleCallReply *reply;
 
-    /* Skip "INFO" string */
+    // Skip "INFO" string
     int argc = cmd->argc - 1;
     RedisModuleString **argv = cmd->argc == 1 ? NULL : &cmd->argv[1];
 
@@ -362,13 +347,14 @@ static void handleInfoCommand(RedisRaftCtx *rr,
 
     char *pos = strstr(info, "cluster_enabled:0");
     if (pos) {
-        /* Always return cluster_enabled:1 */
+        // Always return cluster_enabled:1
         *(pos + strlen("cluster_enabled:")) = '1';
     }
 
     RedisModule_ReplyWithStringBuffer(ctx, info, info_len);
     RedisModule_FreeCallReply(reply);
 }
+*/
 
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
@@ -378,7 +364,6 @@ static void handleInfoCommand(RedisRaftCtx *rr,
  *
  * Currently intercepted commands:
  * - CLUSTER
- * - INFO
  *
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
@@ -392,14 +377,15 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &len);
 
     if (len == strlen("CLUSTER") && strncasecmp(cmd_str, "CLUSTER", len) == 0) {
-        ShardingHandleClusterCommand(rr, ctx, cmd);
+        ShardingHandleClusterCommand(rr, ctx, cmds);
         return true;
     }
 
-    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
+/*    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
         handleInfoCommand(rr, ctx, cmd);
         return true;
     }
+*/
 
     return false;
 }
@@ -510,23 +496,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
     } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
-        if (rr->config->quorum_reads) {
-            RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-            RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-            raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
-        } else {
-            /* Wait until the new leader applies an entry from the current term.
-             * Otherwise, we might process a request before replaying logs.
-             * The state machine will be in an older state. Reading from it
-             * might look like going backward in time. */
-            raft_term_t term = raft_get_current_term(rr->raft);
-            if (term != rr->snapshot_info.last_applied_term) {
-                RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
-                return;
-            }
-
-            RaftExecuteCommandArray(ctx, ctx, cmds);
-        }
+        ReadOnlyCommand(rr, ctx, cmds);
         return;
     }
 
@@ -1679,13 +1649,14 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     RedisModule_RegisterInfoFunc(ctx, handleInfo);
 
     /* Sanity check that not running with cluster_enabled */
-    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
+/*    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
     int cluster_enabled = (int) RedisModule_ServerInfoGetFieldSigned(info, "cluster_enabled", NULL);
     RedisModule_FreeServerInfo(ctx, info);
     if (cluster_enabled) {
         LOG_WARNING("Redis Raft requires Redis not be started with cluster_enabled!");
         return REDISMODULE_ERR;
     }
+*/
 
     /* Report arguments */
     size_t str_len = 1024;

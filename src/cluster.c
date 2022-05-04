@@ -1479,6 +1479,18 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_DictIteratorStop(iter);
 }
 
+static void handleGetKeysInSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    RaftRedisCommand *cmd = cmds->commands[0];
+
+    if (cmd->argc != 4) {
+        RedisModule_WrongArity(ctx);
+        return;
+    }
+
+    ReadOnlyCommand(rr, ctx, cmds);
+}
+
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
  *
  * Currently only supports:
@@ -1486,9 +1498,11 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
  *   - NODES.
  */
 void ShardingHandleClusterCommand(RedisRaftCtx *rr,
-                                  RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+                                  RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    if (cmd->argc != 2) {
+    RaftRedisCommand *cmd = cmds->commands[0];
+
+    if (cmd->argc < 2) {
         RedisModule_WrongArity(ctx);
         return;
     }
@@ -1500,7 +1514,9 @@ void ShardingHandleClusterCommand(RedisRaftCtx *rr,
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
 
-    if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5)) {
+    if (cmd_len == strlen("GETKEYSINSLOT") && strncasecmp("GETKEYSINSLOT", cmd_str, cmd_len) == 0) {
+        handleGetKeysInSlot(rr, ctx, cmds);
+    } else if (cmd_len == 5 && !strncasecmp(cmd_str, "SLOTS", 5)) {
         addClusterSlotsReply(rr, ctx);
     } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5)) {
         addClusterNodesReply(rr, ctx);
