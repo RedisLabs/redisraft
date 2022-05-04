@@ -90,8 +90,8 @@ then
     PORT=$((PORT+INSTANCE))
     while [ 1 ]; do
         clear
-        echo "`date` | $HOST:$PORT | RAFT.INFO"
-        ${REDIS_CLI_BINARY} -p $PORT --raw raft.info
+        echo "`date` | $HOST:$PORT | INFO raft"
+        ${REDIS_CLI_BINARY} -p $PORT info raft
         sleep 1
     done
     exit 0
@@ -164,12 +164,12 @@ echo "Usage: $0 [start|create|stop|watch|tail|clean|call|call-instance|stop-inst
 echo "start                     -- Launch RedisRaft Redis instances."
 echo "create                    -- Create a RedisRaft cluster."
 echo "stop                      -- Stop RedisRaft instances."
-echo "watch <id>                -- Show RAFT.INFO output first (default) or specified instance."
+echo "watch <id>                -- Show 'INFO raft' output first (default) or specified instance."
 echo "tail <id>                 -- Run tail -f of instance at base port + ID."
 echo "tailall                   -- Run tail -f for all the log files at once."
 echo "clean                     -- Remove all instances data, logs, configs."
 echo "clean-logs                -- Remove just instances logs."
 echo "call <cmd>                -- Call a command on all instances."
 echo "call-instance <id> <cmd>  -- Call a command on a specific instance."
-echo "start-instance <id>   -- Start a RedisRaft instance that has been stopped."
-echo "stop-instance <id>    -- Stop a RedisRaft instance."
+echo "start-instance <id>       -- Start a RedisRaft instance that has been stopped."
+echo "stop-instance <id>        -- Stop a RedisRaft instance."

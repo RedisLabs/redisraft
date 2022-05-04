@@ -65,13 +65,13 @@ def test_raft_log_max_file_size(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.raft_info()['log_entries'] == 1
+    assert r1.info()['raft_log_entries'] == 1
     assert r1.raft_config_set('raft-log-max-file-size', '1kb')
     for _ in range(10):
         assert r1.client.set('testkey', 'x'*500)
 
-    r1.wait_for_info_param('snapshots_created', 1)
-    assert r1.raft_info()['log_entries'] < 10
+    r1.wait_for_info_param('raft_snapshots_created', 1)
+    assert r1.info()['raft_log_entries'] < 10
 
 
 def test_raft_log_max_cache_size(cluster):
@@ -80,22 +80,22 @@ def test_raft_log_max_cache_size(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.raft_info()['cache_entries'] == 1
+    assert r1.info()['raft_cache_entries'] == 1
 
     assert r1.raft_config_set('raft-log-max-cache-size', '1kb')
     assert r1.client.set('testkey', 'testvalue')
 
-    info = r1.raft_info()
-    assert info['cache_entries'] == 2
-    assert info['cache_memory_size'] > 0
+    info = r1.info()
+    assert info['raft_cache_entries'] == 2
+    assert info['raft_cache_memory_size'] > 0
 
     for _ in range(10):
         assert r1.client.set('testkey', 'x' * 500)
 
     time.sleep(1)
-    info = r1.raft_info()
-    assert info['log_entries'] == 12
-    assert info['cache_entries'] < 5
+    info = r1.info()
+    assert info['raft_log_entries'] == 12
+    assert info['raft_cache_entries'] < 5
 
 
 def test_reply_to_cache_invalidated_entry(cluster):
@@ -126,9 +126,9 @@ def test_reply_to_cache_invalidated_entry(cluster):
 
     # confirm all raft entries were created but some have been evicted
     # from cache already.
-    info = cluster.node(1).raft_info()
-    assert info['log_entries'] == 15
-    assert info['cache_entries'] < 10
+    info = cluster.node(1).info()
+    assert info['raft_log_entries'] == 15
+    assert info['raft_cache_entries'] < 10
 
     # Repair cluster and wait
     cluster.node(2).start()

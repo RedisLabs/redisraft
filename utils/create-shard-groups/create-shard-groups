@@ -1,6 +1,7 @@
 #!/bin/bash
 
-REDIS_PATH="${PWD}/../../../redis/src"
+REDIS_SERVER_BINARY="${PWD}/../../../redis/src/redis-server"
+REDIS_CLI_BINARY="${PWD}/../../../redis/src/redis-cli"
 REDISRAFT="${PWD}/../../redisraft.so"
 CREATE_CLUSTER_SCRIPT="${PWD}/../create-cluster/create-cluster"
 NUM_GROUPS=3
@@ -36,7 +37,8 @@ setup() {
         mkdir -p $dirname
 
         cat > $dirname/config.sh <<_END_
-REDIS_PATH=${REDIS_PATH}
+REDIS_SERVER_BINARY=${REDIS_SERVER_BINARY}
+REDIS_CLI_BINARY=${REDIS_CLI_BINARY}
 REDISRAFT=${REDISRAFT}
 PORT=5${group}00
 SHARDING=yes
@@ -92,7 +94,7 @@ watch() {
         while [ $((group <= NUM_GROUPS)) != "0" ]; do
             echo "------ shard-group $group ------"
             ( cd shard-group-$group && \
-                $CREATE_CLUSTER_SCRIPT call-instance 1 --raw RAFT.INFO ) | egrep '^node_id|^role|^current_term|^num_|^node|^log_entries|^current_index|^commit_index|^last_applied_index'
+                $CREATE_CLUSTER_SCRIPT call-instance 1 INFO raft_general )
             echo ""
             group=$((group + 1))
         done
@@ -142,7 +144,7 @@ case "$1" in
         echo "create                -- Create all clusters and configure as shard groups"
         echo "stop                  -- Stop all shard group clusters"
         echo "clean                 -- Remove all shard groups, instances data, logs, configs."
-        echo "watch                 -- Show abbreviated RAFT.INFO output from all groups."
+        echo "watch                 -- Show abbreviated 'INFO raft' output from all groups."
         echo "group <id> <cmd...>   -- Execute a create-cluster command on a specific group."
         exit 2
         ;;
