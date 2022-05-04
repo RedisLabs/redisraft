@@ -1648,15 +1648,14 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     RedisModule_RegisterInfoFunc(ctx, handleInfo);
 
-    /* Sanity check that not running with cluster_enabled */
-/*    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
+    /* Sanity check that we are running with cluster_enabled */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
     int cluster_enabled = (int) RedisModule_ServerInfoGetFieldSigned(info, "cluster_enabled", NULL);
     RedisModule_FreeServerInfo(ctx, info);
-    if (cluster_enabled) {
-        LOG_WARNING("Redis Raft requires Redis not be started with cluster_enabled!");
+    if (!cluster_enabled) {
+        LOG_WARNING("Redis Raft requires Redis be started with cluster_enabled!");
         return REDISMODULE_ERR;
     }
-*/
 
     /* Report arguments */
     size_t str_len = 1024;
