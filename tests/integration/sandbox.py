@@ -71,7 +71,8 @@ class RedisRaft(object):
         self.keepfiles = config.keepfiles
         self.args = config.args.copy() if config.args else []
 
-        self.args += ['--port', str(0) if config.tls else str(port),
+        self.args += ['--cluster-enabled', 'yes',
+                      '--port', str(0) if config.tls else str(port),
                       '--bind', '0.0.0.0',
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename,
