@@ -732,7 +732,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void HandleAsking(RaftRedisCommandArray *cmds);
-void ReadOnlyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
+void ReadOnlyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, bool quorum_reads);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -779,6 +779,7 @@ void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
+RRStatus ConfigureRedisCluster(RedisModuleCtx *ctx);
 void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config);
 
 /* snapshot.c */

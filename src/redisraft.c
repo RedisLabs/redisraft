@@ -329,33 +329,6 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return REDISMODULE_OK;
 }
 
-/* static void handleInfoCommand(RedisRaftCtx *rr,
-                              RedisModuleCtx *ctx, RaftRedisCommand *cmd)
-{
-    RedisModuleCallReply *reply;
-
-    // Skip "INFO" string
-    int argc = cmd->argc - 1;
-    RedisModuleString **argv = cmd->argc == 1 ? NULL : &cmd->argv[1];
-
-    enterRedisModuleCall();
-    reply = RedisModule_Call(ctx, "INFO", "v", argv, argc);
-    exitRedisModuleCall();
-
-    size_t info_len;
-    const char *info = RedisModule_CallReplyStringPtr(reply, &info_len);
-
-    char *pos = strstr(info, "cluster_enabled:0");
-    if (pos) {
-        // Always return cluster_enabled:1
-        *(pos + strlen("cluster_enabled:")) = '1';
-    }
-
-    RedisModule_ReplyWithStringBuffer(ctx, info, info_len);
-    RedisModule_FreeCallReply(reply);
-}
-*/
-
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -380,12 +353,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
         ShardingHandleClusterCommand(rr, ctx, cmds);
         return true;
     }
-
-/*    if (len == strlen("INFO") && strncasecmp(cmd_str, "INFO", len) == 0) {
-        handleInfoCommand(rr, ctx, cmd);
-        return true;
-    }
-*/
 
     return false;
 }
@@ -496,7 +463,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
     } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
-        ReadOnlyCommand(rr, ctx, cmds);
+        ReadOnlyCommand(rr, ctx, cmds, rr->config->quorum_reads);
         return;
     }
 
@@ -1679,6 +1646,11 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     /* Configure Redis */
     if (ConfigureRedis(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to set Redis configuration!");
+        return REDISMODULE_ERR;
+    }
+
+    if (ConfigureRedisCluster(ctx) == RR_ERROR) {
+        LOG_WARNING("Couldn't setup redis cluster state correctly");
         return REDISMODULE_ERR;
     }
 

@@ -1488,7 +1488,14 @@ static void handleGetKeysInSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
         return;
     }
 
-    ReadOnlyCommand(rr, ctx, cmds);
+    /* Check that we're part of a bootstrapped cluster and not in the middle of
+     * joining or loading data.
+     */
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
+    }
+
+    ReadOnlyCommand(rr, ctx, cmds, true);
 }
 
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.

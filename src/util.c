@@ -414,9 +414,9 @@ static void handleReadOnlyCommand(void *arg, int can_read)
     RaftReqFree(req);
 }
 
-void ReadOnlyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+void ReadOnlyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, bool quorum_reads)
 {
-    if (rr->config->quorum_reads) {
+    if (quorum_reads) {
         RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
         raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);

@@ -75,7 +75,7 @@ static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const cha
         goto exit;
     }
 
-    exit:
+exit:
     exitRedisModuleCall();
     if (reply) {
         RedisModule_FreeCallReply(reply);
@@ -749,8 +749,189 @@ RRStatus ConfigureRedis(RedisModuleCtx *ctx)
     if (setRedisConfig(ctx, "save", "") != RR_OK) {
         return RR_ERROR;
     }
-
     return RR_OK;
+}
+
+static RRStatus SetRedisClusterConfig(RedisModuleCtx *ctx)
+{
+    RedisModuleCallReply *reply = NULL;
+    RRStatus ret = RR_OK;
+    const char *str;
+    size_t len;
+
+    /* set redis cluster slots */
+    enterRedisModuleCall();
+    if (!(reply = RedisModule_Call(ctx, "cluster", "ccc", "addslotsrange", "0", "16383"))) {
+        LOG_WARNING("cluster addslotrange failed to execute");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        char *val = getRedisConfig(ctx, "cluster-config-file");
+        LOG_WARNING("failed to set cluster mode, try deleting %s", val);
+        RedisModule_Free(val);
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        LOG_WARNING("cluster addslotrange returned unexpected result type");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    str = RedisModule_CallReplyStringPtr(reply, &len);
+    if (len != 2 || memcmp(str, "OK", 2) != 0) {
+        LOG_WARNING("cluster addslotsrange unexpected response: %s", str);
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+exit:
+    exitRedisModuleCall();
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return ret;
+}
+
+RRStatus ConfigureRedisCluster(RedisModuleCtx *ctx)
+{
+    RedisModuleCallReply *reply = NULL;
+    RedisModuleCallReply *element = NULL;
+    RRStatus ret = RR_OK;
+    const char *str;
+    size_t len;
+
+    /* check if "slots" have been added to this node to be a single node cluster and validate, if they exist as expected */
+    enterRedisModuleCall();
+    /* 1. run cluster shards */
+    if (!(reply = RedisModule_Call(ctx, "cluster", "c", "shards"))) {
+        LOG_WARNING("cluster shards failed to execute");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* ensure result wasn't an error */
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        str = RedisModule_CallReplyStringPtr(reply, &len);
+        LOG_WARNING("failed to execute cluster shards %.*s", (int) len, str);
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* ensure that the result is an array */
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
+        LOG_WARNING("cluster shards returned unexpected result type");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* ensure that the array only has 1 element, as a single node cluster */
+    if (RedisModule_CallReplyLength(reply) != 1) {
+        LOG_WARNING("cluster shards returned unexpected number of nodes %lu", RedisModule_CallReplyLength(reply));
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* get the CallReply element that corresponds to the single array element */
+    element = RedisModule_CallReplyArrayElement(reply, 0);
+
+    /*  validate that this element is also an array */
+    if (RedisModule_CallReplyType(element) != REDISMODULE_REPLY_ARRAY) {
+        LOG_WARNING("cluster shards reply didn't include a subarray %d", RedisModule_CallReplyType(element));
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* validate that it has 4 elements corresponding to a cluster shards response */
+    if (RedisModule_CallReplyLength(element) != 4) {
+        LOG_WARNING("cluster shards reply subarray unexpected length %lu", RedisModule_CallReplyLength(element));
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* get the CallReply element corresponding to the slots value */
+    element = RedisModule_CallReplyArrayElement(element, 1);
+    if (RedisModule_CallReplyType(element) != REDISMODULE_REPLY_ARRAY) {
+        LOG_WARNING("cluster shards slots element is not an array");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* if it's empty, it means we haven't set this node up yet, so set it up */
+    if (RedisModule_CallReplyLength(element) == 0) {
+        /* no slot ranges added, therefore go and create it */
+        return SetRedisClusterConfig(ctx);
+    }
+
+    /* if it doesn't have 2 elements, its incorrectly defined */
+    if (RedisModule_CallReplyLength(element) != 2) {
+        LOG_WARNING("cluster shards slots array is not expected size %lu", RedisModule_CallReplyLength(element));
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* validate that the 2 elements are 0 and 16383 */
+    RedisModuleCallReply * slot_val;
+    slot_val = RedisModule_CallReplyArrayElement(element, 0);
+    if (RedisModule_CallReplyType(slot_val) != REDISMODULE_REPLY_STRING) {
+        LOG_WARNING("cluster shards slots start index is not a string: %d", RedisModule_CallReplyType(slot_val));
+    }
+    str = RedisModule_CallReplyStringPtr(slot_val, &len);
+    if (len != 1 || strncmp(str, "0", 1) != 0) {
+        LOG_WARNING("cluster shards slots start index is not 0");
+        ret = RR_ERROR;
+        goto exit;
+    }
+    slot_val = RedisModule_CallReplyArrayElement(element, 1);
+    if (RedisModule_CallReplyType(slot_val) != REDISMODULE_REPLY_STRING) {
+        LOG_WARNING("cluster shards slots end index is not a string: %d", RedisModule_CallReplyType(slot_val));
+    }
+    str = RedisModule_CallReplyStringPtr(slot_val, &len);
+    if (len != 5 || strncmp(str, "16383", 5) != 0) {
+        LOG_WARNING("cluster shards slots end index is not 16383");
+        ret = RR_ERROR;
+        goto exit;
+    }
+
+    /* simplification for above if slot_val's get replaced with integer values as they should be
+     see: https://github.com/redis/redis/issues/10680
+     */
+    /*
+    if (RedisModule_CallReplyType(slot_val) != REDISMODULE_REPLY_INTEGER) {
+        LOG_WARNING("cluster shards slots start index is not an integer: %d", RedisModule_CallReplyType(slot_val));
+        ret = RR_ERROR;
+        goto exit;
+    }
+    if (RedisModule_CallReplyInteger(slot_val) != 0) {
+        LOG_WARNING("cluster shards slots start index is not 0");
+        ret = RR_ERROR;
+        goto exit;
+    }
+    slot_val = RedisModule_CallReplyArrayElement(element, 1);
+    if (RedisModule_CallReplyType(slot_val) != REDISMODULE_REPLY_INTEGER) {
+        LOG_WARNING("cluster shards slots end index is not an integer");
+        ret = RR_ERROR;
+        goto exit;
+    }
+    if (RedisModule_CallReplyInteger(slot_val) != 16383) {
+        LOG_WARNING("cluster shards slots end index is not 16383");
+        ret = RR_ERROR;
+        goto exit;
+    }
+    */
+
+    /* made it here, means we are valid configuration, no need to create */
+exit:
+    exitRedisModuleCall();
+    if (reply) {
+        RedisModule_FreeCallReply(reply);
+    }
+
+    return ret;
 }
 
 RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
@@ -781,4 +962,3 @@ RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     return RR_OK;
 }
-
