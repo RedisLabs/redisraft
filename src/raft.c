@@ -29,7 +29,8 @@ const char *RaftReqTypeStr[] = {
     [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
     [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
     [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
-    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER",
+    [RR_IMPORT_KEYS]          = "RR_IMPORT_KEYS",
 };
 
 /* Forward declarations */
