@@ -306,6 +306,22 @@ void fsyncThreadStart(FsyncThread *th, void (*on_complete)(void *result));
 void fsyncThreadAddTask(FsyncThread *th, int fd, raft_index_t requested_index);
 void fsyncThreadWaitUntilCompleted(FsyncThread *th);
 
+#define REDIS_RAFT_DEFAULT_LOG_FILENAME               "redisraft.db"
+#define REDIS_RAFT_DEFAULT_INTERVAL                   100  /* milliseconds */
+#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT            200  /* milliseconds */
+#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT           1000 /* usec */
+#define REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT         3000 /* usec */
+#define REDIS_RAFT_DEFAULT_JOIN_TIMEOUT               120  /* seconds */
+#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL         100
+#define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT     10000
+#define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT      1000
+#define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE         (8*1000*1000)
+#define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE          (64*1000*1000)
+#define REDIS_RAFT_HASH_SLOTS                         16384
+#define REDIS_RAFT_HASH_MIN_SLOT                      0
+#define REDIS_RAFT_HASH_MAX_SLOT                      16383
+#define REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL 5000
+#define REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES          4
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
@@ -345,6 +361,8 @@ typedef struct RedisRaftCtx {
     unsigned long snapshots_created;             /* Number of snapshots created */
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
+
+    RedisModuleDict *key_slot_map[REDIS_RAFT_HASH_SLOTS]; /* track keys belonging to slots */
 #ifdef HAVE_TLS
     SSL_CTX *ssl;                                /* OpenSSL context for use by hiredis */
 #endif
@@ -354,23 +372,6 @@ typedef struct RedisRaftCtx {
 extern RedisRaftCtx redis_raft;
 
 extern raft_log_impl_t RaftLogImpl;
-
-#define REDIS_RAFT_DEFAULT_LOG_FILENAME               "redisraft.db"
-#define REDIS_RAFT_DEFAULT_INTERVAL                   100  /* milliseconds */
-#define REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT            200  /* milliseconds */
-#define REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT           1000 /* usec */
-#define REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT         3000 /* usec */
-#define REDIS_RAFT_DEFAULT_JOIN_TIMEOUT               120  /* seconds */
-#define REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL         100
-#define REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT     10000
-#define REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT      1000
-#define REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE         (8*1000*1000)
-#define REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE          (64*1000*1000)
-#define REDIS_RAFT_HASH_SLOTS                         16384
-#define REDIS_RAFT_HASH_MIN_SLOT                      0
-#define REDIS_RAFT_HASH_MAX_SLOT                      16383
-#define REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL 5000
-#define REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES          4
 
 static inline bool HashSlotValid(long slot)
 {
@@ -732,6 +733,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void HandleAsking(RaftRedisCommandArray *cmds);
+unsigned int keyHashSlot(const char *key, int keylen);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);

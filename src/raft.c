@@ -1148,6 +1148,9 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
     /* Cluster configuration */
     ShardingInfoInit(rr);
+    for (size_t i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        rr->key_slot_map[i] = RedisModule_CreateDict(ctx);
+    }
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *

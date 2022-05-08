@@ -960,7 +960,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         clusterInit(cluster_id);
 
         char reply[RAFT_DBID_LEN + 256];
-        snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
+        snprintf(reply, sizeof(reply) - 1, "OK %.*s", RAFT_DBID_LEN, rr->snapshot_info.dbid);
 
         RedisModule_ReplyWithSimpleString(ctx, reply);
     } else if (!strncasecmp(cmd, "JOIN", cmd_len)) {
@@ -1402,6 +1402,41 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
 #endif
 }
 
+int handleGenericKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key)
+{
+    size_t str_len;
+    const char * str = RedisModule_StringPtrLen(key, &str_len);
+    LOG_WARNING("handleGenericKeyspaceEvent: %s = %.*s", event, (int) str_len, str);
+    if (strcmp(event, "new") == 0) {
+        /* insert key into proper dict */
+        LOG_WARNING("adding key = %.*s", (int) str_len, str);
+        int thisslot = (int) keyHashSlot(str, (int) str_len);
+        RedisModule_Assert(RedisModule_DictSet(redis_raft.key_slot_map[thisslot], key, NULL) == REDISMODULE_OK);
+    } else if (strcmp(event, "del") == 0) {
+        /* delete key from proper dict */
+        LOG_WARNING("deleting key = %.*s", (int) str_len, str);
+        int thisslot = (int) keyHashSlot(str, (int) str_len);
+        RedisModule_Assert(RedisModule_DictDel(redis_raft.key_slot_map[thisslot], key, NULL) == REDISMODULE_OK);
+    } else if (strcmp(event, "rename_from") == 0) {
+        /* delete key from proper dict */
+        LOG_WARNING("renaming key (from) = %.*s", (int) str_len, str);
+        int thisslot = (int) keyHashSlot(str, (int) str_len);
+        RedisModule_Assert(RedisModule_DictDel(redis_raft.key_slot_map[thisslot], key, NULL) == REDISMODULE_OK);
+    } else if (strcmp(event, "rename_to") == 0) {
+        /* insert key into proper dict */
+        LOG_WARNING("renaming key (to) = %.*s", (int) str_len, str);
+        int thisslot = (int) keyHashSlot(str, (int) str_len);
+        RedisModule_Assert(RedisModule_DictSet(redis_raft.key_slot_map[thisslot], key, NULL) == REDISMODULE_OK);
+    } else if (strcmp(event, "loaded") == 0) {
+        /* insert key into proper dict */
+        LOG_WARNING("loaded key = %.*s", (int) str_len, str);
+        int thisslot = (int) keyHashSlot(str, (int) str_len);
+        RedisModule_Assert(RedisModule_DictSet(redis_raft.key_slot_map[thisslot], key, NULL) == REDISMODULE_OK);
+    }
+
+    return REDISMODULE_OK;
+}
+
 void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
@@ -1749,6 +1784,13 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config,
                                            handleConfigChangeEvent) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx,
+                                              REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW | REDISMODULE_NOTIFY_LOADED,
+                                              handleGenericKeyspaceEvent) != REDISMODULE_OK) {
+        LOG_WARNING("Failed to subscribe to keyspace events.");
         return REDISMODULE_ERR;
     }
 

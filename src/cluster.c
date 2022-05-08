@@ -11,38 +11,6 @@
 #include <stdlib.h>
 
 #include "redisraft.h"
-#include "crc16.h"
-
-/* -----------------------------------------------------------------------------
- * Hashing code - copied directly from Redis.
- * -------------------------------------------------------------------------- */
-
-/* We have 16384 hash slots. The hash slot of a given key is obtained
- * as the least significant 14 bits of the crc16 of the key.
- *
- * However if the key contains the {...} pattern, only the part between
- * { and } is hashed. This may be useful in the future to force certain
- * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(const char *key, int keylen) {
-    int s, e; /* start-end indexes of { and } */
-
-    for (s = 0; s < keylen; s++)
-        if (key[s] == '{') break;
-
-    /* No '{' ? Hash the whole key. This is the base case. */
-    if (s == keylen) return crc16_ccitt(key,keylen) & 0x3FFF;
-
-    /* '{' found? Check if we have the corresponding '}'. */
-    for (e = s+1; e < keylen; e++)
-        if (key[e] == '}') break;
-
-    /* No '}' or nothing between {} ? Hash the whole key. */
-    if (e == keylen || e == s+1) return crc16_ccitt(key,keylen) & 0x3FFF;
-
-    /* If we are here there is both a { and a } on its right. Hash
-     * what is in the middle between { and }. */
-    return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
-}
 
 /* -----------------------------------------------------------------------------
  * ShardGroup Handling
@@ -1479,16 +1447,51 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_DictIteratorStop(iter);
 }
 
+static void addGetKeysInSlotReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString * a2, RedisModuleString * a3)
+{
+    long long slot;
+    long long num;
+
+    if (RedisModule_StringToLongLong(a2, &slot) != REDISMODULE_OK) {
+        // FIXME proper error message
+        RedisModule_ReplyWithError(ctx, "ERR failed to parse slot");
+        return;
+    }
+
+    if (RedisModule_StringToLongLong(a3, &num) != REDISMODULE_OK) {
+        // FIXME proper error message
+        RedisModule_ReplyWithError(ctx, "ERR failed to parse number of keys");
+        return;
+    }
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    int count = 0;
+    char * key;
+    size_t key_len;
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->key_slot_map[slot], "^", NULL, 0);
+    while ((key = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
+        count++;
+        RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
+        if (count == num) {
+            break;
+        }
+    }
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_ReplySetArrayLength(ctx, count);
+}
+
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
  *
  * Currently only supports:
  *   - SLOTS.
  *   - NODES.
+ *   - GETKEYSINSLOT.
  */
 void ShardingHandleClusterCommand(RedisRaftCtx *rr,
                                   RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    if (cmd->argc != 2) {
+    if (cmd->argc < 2) {
         RedisModule_WrongArity(ctx);
         return;
     }
@@ -1504,6 +1507,12 @@ void ShardingHandleClusterCommand(RedisRaftCtx *rr,
         addClusterSlotsReply(rr, ctx);
     } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5)) {
         addClusterNodesReply(rr, ctx);
+    } else if (cmd_len == strlen("GETKEYSINSLOT") && !strcasecmp(cmd_str, "GETKEYSINSLOT")) {
+        if (cmd->argc != 4) {
+            RedisModule_WrongArity(ctx);
+            return;
+        }
+        addGetKeysInSlotReply(rr, ctx, cmd->argv[2], cmd->argv[3]);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown subcommand.");
     }
