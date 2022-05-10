@@ -80,8 +80,53 @@ static void test_memory_conversion(void **state)
     assert_int_equal(formatExactMemorySize(1000*1000, buf, 4), RR_ERROR);
 }
 
+static void test_parse_slots(void **state)
+{
+    char slots[REDIS_RAFT_HASH_SLOTS] = {0};
+    parseHashSlots(slots, "0");
+    assert_int_equal(slots[0], 1);
+    for (size_t i = 1; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    bzero(slots, REDIS_RAFT_HASH_SLOTS);
+    parseHashSlots(slots, "0-10");
+    for (size_t i = 0; i < 11; i++) {
+        assert_int_equal(slots[i], 1);
+    }
+    for (size_t i = 11; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    bzero(slots, REDIS_RAFT_HASH_SLOTS);
+    parseHashSlots(slots, "0,5-10,16,58-62,100");
+    assert_int_equal(slots[0], 1);
+    for (size_t i = 1; i < 5; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    for (size_t i = 5; i < 11; i++) {
+        assert_int_equal(slots[i], 1);
+    }
+    for (size_t i = 11; i < 16; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    assert_int_equal(slots[16], 1);
+    for (size_t i = 17; i < 58 ; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    for (size_t i = 58; i < 63 ; i++) {
+        assert_int_equal(slots[i], 1);
+    }
+    for (size_t i = 63; i < 100 ; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+    assert_int_equal(slots[100], 1);
+    for (size_t i = 101; i < REDIS_RAFT_HASH_SLOTS ; i++) {
+        assert_int_equal(slots[i], 0);
+    }
+}
+
 const struct CMUnitTest util_tests[] = {
     cmocka_unit_test(test_raftreq_str),
     cmocka_unit_test(test_memory_conversion),
+    cmocka_unit_test(test_parse_slots),
     { .test_func = NULL }
 };
