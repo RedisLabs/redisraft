@@ -603,6 +603,9 @@ typedef struct RaftReq {
             char auth_password[256];
             size_t num_keys;
             RedisModuleString **keys;
+            RedisModuleString **keys_serialized;
+            size_t num_serialized_keys;
+            raft_term_t migrate_term;
         } migrate_keys;
     } r;
 } RaftReq;

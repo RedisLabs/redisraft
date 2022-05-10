@@ -1462,6 +1462,15 @@ void RaftReqFree(RaftReq *req)
             RedisModule_Free(req->r.migrate_keys.keys);
             req->r.migrate_keys.keys = NULL;
         }
+        if (req->r.migrate_keys.keys_serialized) {
+            for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
+                if (req->r.migrate_keys.keys_serialized[i] != NULL) {
+                    RedisModule_FreeString(req->ctx, req->r.migrate_keys.keys_serialized[i]);
+                }
+            }
+            RedisModule_Free(req->r.migrate_keys.keys_serialized);
+            req->r.migrate_keys.keys_serialized = NULL;
+        }
     }
 
     if (req->ctx) {

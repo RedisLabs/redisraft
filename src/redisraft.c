@@ -448,14 +448,14 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     // 0. assert minimum size here
     if (cmd->argc < 8) {
         RedisModule_WrongArity(ctx);
-        return NULL;
+        return req;
     }
 
     // 1. Extract migration info and store it in a dict rr->migrate_info
     MigrationInfo * migrationInfo = extractMigrationInfo(rr, cmd);
     if (migrationInfo == NULL) {
         RedisModule_ReplyWithError(ctx, "ERR check logs");
-        return NULL;
+        goto exit;
     }
 
     // 2. assert single key is empty
@@ -463,7 +463,7 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     RedisModule_StringPtrLen(cmd->argv[3], &key_len);
     if (key_len != 0) {
         RedisModule_ReplyWithError(ctx, "ERR RedisRaft doesn't support old style single key migration");
-        return NULL;
+        goto exit;
     }
 
     /* find "keys" for parsing out keys */
@@ -481,10 +481,10 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
 
     if (idx >= cmd->argc) {
         RedisModule_ReplyWithError(ctx, "ERR Didn't provide any keys to migrate");
-        return NULL;
+        goto exit;
     }
 
-    RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * cmd->argc - idx);
+    RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * (cmd->argc - idx));
     int num_keys = cmd->argc - idx;
     for (int i = 0; i < num_keys; i++) {
         keys[i] = RedisModule_CreateStringFromString(ctx, cmd->argv[idx + i]);
@@ -495,12 +495,13 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     /* Overwrite with new data */
     req->r.migrate_keys.num_keys = num_keys;
     req->r.migrate_keys.keys = keys;
+    req->r.migrate_keys.keys_serialized = RedisModule_Calloc(cmd->argc - idx, sizeof(RedisModuleString *));
     memcpy(req->r.migrate_keys.shardGroupId, migrationInfo->shard_group_id, RAFT_DBID_LEN);
     memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, 255);
     memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, 255);
 
+exit:
     RedisModule_Free(migrationInfo);
-
     return req;
 }
 
