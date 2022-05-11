@@ -360,6 +360,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 }
 
+unsigned int keyHashSlot(RedisModuleString * str);
+
 static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
@@ -370,21 +372,71 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     size_t num_keys;
     RedisModuleString ** keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
 
+    /* sanity check keys all belong to same slot */
+    int slot = -1;
     for (size_t i = 0; i < num_keys; i++) {
-        size_t str_len;
-        const char * str = RedisModule_StringPtrLen(keys[i], &str_len);
-        LOG_WARNING("locking %.*s", (int) str_len, str);
-        RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
-        RedisModule_FreeString(rr->ctx, keys[i]);
+        RedisModuleString * key = keys[i];
+
+        unsigned int thisslot = keyHashSlot(key);
+        if (slot == -1) {
+            slot = (int) thisslot;
+        } else {
+            if (slot != (int) thisslot) {
+                if (req) {
+                    RedisModule_ReplyWithError(req->ctx, "ERR keys don't all belong to same slot");
+                }
+                goto exit;
+            }
+        }
     }
 
+    if (slot == -1) { /* should be impossible, as keys should be listed up front */
+        if (req) {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+        goto exit;
+    }
+
+    ShardingInfo *si = rr->sharding_info;
+    if (!si->migrating_slots_map[slot] || !si->migrating_slots_map[slot]->local) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR not migratable keys");
+        }
+        goto exit;
+    }
+
+    if (!si->importing_slots_map[slot] || si->migrating_slots_map[slot]->local) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR not importable keys");
+        }
+        goto exit;
+    }
+
+    for (size_t i = 0; i < num_keys; i++) {
+        if (RedisModule_KeyExists(rr->ctx, keys[i])) {
+/*            size_t str_len;
+            const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
+            LOG_WARNING("locking %.*s", (int) str_len, str);
+*/
+            RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
+        }
+    }
+
+    if (req) {
+        memcpy(req->r.migrate_keys.shardGroupId, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
+        /* currently, we just return, but eventually this is where should kick off migration of the keys */
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+//        MigrateKeys(rr, req);
+    }
+
+exit:
+    for (size_t i = 0; i < num_keys; i++) {
+        RedisModule_FreeString(rr->ctx, keys[i]);
+    }
     RedisModule_Free(keys);
 
     if (req) {
-        /* currently, we just return, but eventually this is where should kick off migration of the keys */
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
-//        MigrateKeys(rr, req);
     }
 }
 

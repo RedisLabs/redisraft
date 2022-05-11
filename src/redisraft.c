@@ -371,7 +371,6 @@ static void handleInfoCommand(RedisRaftCtx *rr,
 }
 
 typedef struct MigrationInfo {
-    char shard_group_id[RAFT_DBID_LEN+1];
     char username[256];
     char password[256];
 } MigrationInfo;
@@ -379,17 +378,9 @@ typedef struct MigrationInfo {
 static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *cmd)
 {
     MigrationInfo * ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
-    size_t str_len;
-    const char * str = RedisModule_StringPtrLen(cmd->argv[1], &str_len);
-    if (str_len > RAFT_DBID_LEN) {
-        LOG_WARNING("shardgroup id is too long");
-        goto fail;
-    }
-    if (getShardGroupById(rr, str) == NULL) {
-        LOG_WARNING("shardgroup id is invalid: %s", str);
-        goto fail;
-    }
-    strncpy(ret->shard_group_id, str, str_len);
+
+    /* default values if auth isn't specified */
+    strncpy(ret->username, "default", sizeof(ret->username));
 
     int idx;
     for (idx = 6; idx < cmd->argc; idx++) {
@@ -419,17 +410,17 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
             break;
         } else if (auth_str_len == 4 && !strncasecmp("AUTH", auth_str, 4)) {
             if (idx + 1 > cmd->argc) {
-                LOG_WARNING("couldn't parse username");
+                LOG_WARNING("couldn't parse password");
                 goto fail;
             }
 
-            size_t username_len;
-            const char * username = RedisModule_StringPtrLen(cmd->argv[idx+1], &username_len);
-            if (username_len > 255) {
+            size_t password_len;
+            const char * password = RedisModule_StringPtrLen(cmd->argv[idx+1], &password_len);
+            if (password_len > 255) {
                 LOG_WARNING("username is too long: limited to 255 characters");
                 goto fail;
             }
-            strncpy(ret->username, username, username_len);
+            strncpy(ret->password, password, password_len);
             break;
         }
     }
@@ -496,7 +487,6 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     req->r.migrate_keys.num_keys = num_keys;
     req->r.migrate_keys.keys = keys;
     req->r.migrate_keys.keys_serialized = RedisModule_Calloc(cmd->argc - idx, sizeof(RedisModuleString *));
-    memcpy(req->r.migrate_keys.shardGroupId, migrationInfo->shard_group_id, RAFT_DBID_LEN);
     memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, 255);
     memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, 255);
 

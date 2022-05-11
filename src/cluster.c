@@ -23,8 +23,11 @@
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(const char *key, int keylen) {
-    int s, e; /* start-end indexes of { and } */
+unsigned int keyHashSlot(RedisModuleString * str) {
+    size_t keylen;
+    const char * key = RedisModule_StringPtrLen(str, &keylen);
+
+    size_t s, e; /* start-end indexes of { and } */
 
     for (s = 0; s < keylen; s++)
         if (key[s] == '{') break;
@@ -1200,9 +1203,9 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
         int num_keys = 0;
         int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
         for (int j = 0; j < num_keys; j++) {
-            size_t key_len;
-            const char *key = RedisModule_StringPtrLen(cmd->argv[keyindex[j]], &key_len);
-            int thisslot = (int) keyHashSlot(key, (int) key_len);
+            RedisModuleString *key = cmd->argv[keyindex[j]];
+
+            int thisslot = (int) keyHashSlot(key);
 
             if (*slot == -1) {
                 /* First key */
