@@ -452,7 +452,8 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
 
     enterRedisModuleCall();
-    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys);
+    RedisModuleCallReply *reply;
+    RedisModule_Assert((reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys)) != NULL);
     exitRedisModuleCall();
     RedisModule_FreeCallReply(reply);
 
