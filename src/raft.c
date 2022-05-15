@@ -241,7 +241,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
                 }
-                break;
+                return RR_ERROR;
             case AllExist:
             case NoKeys:
                 return RR_OK;
