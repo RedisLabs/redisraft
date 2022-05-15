@@ -84,10 +84,14 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         temp[1] = zero;
         temp[2] = import_keys.key_serialized[i];
 
-        enterRedisModuleCall();
-        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3);
-        exitRedisModuleCall();
-        RedisModule_FreeCallReply(reply);
+        if (!RedisModule_KeyExists(rr->ctx, temp[0])) {
+            enterRedisModuleCall();
+            RedisModuleCallReply *reply;
+            RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
+            exitRedisModuleCall();
+            RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+            RedisModule_FreeCallReply(reply);
+        }
     }
 
     RedisModule_FreeString(rr->ctx, zero);
@@ -112,15 +116,21 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_IMPORT_KEYS);
-
     long long term;
-    RedisModule_StringToLongLong(argv[1], &term);
-    req->r.import_keys.term = (raft_term_t) term;
+    if (RedisModule_StringToLongLong(argv[1], &term) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "ERR failed to parse raft term");
+        return REDISMODULE_OK;
+    }
 
     long long magic;
-    RedisModule_StringToLongLong(argv[2], &magic);
-    req->r.import_keys.magic = (int) magic;
+    if (RedisModule_StringToLongLong(argv[2], &magic) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "ERR failed to parse import magic");
+        return REDISMODULE_OK;
+    }
+
+    RaftReq *req = RaftReqInit(ctx, RR_IMPORT_KEYS);
+    req->r.import_keys.term = (raft_term_t) term;
+    req->r.import_keys.magic = magic;
 
     int num_keys = (argc -3) / 2;
     req->r.import_keys.num_keys = num_keys;

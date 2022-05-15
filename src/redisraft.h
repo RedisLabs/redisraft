@@ -515,7 +515,7 @@ typedef struct ShardGroupSlotRange {
     unsigned int start_slot; /* First slot, inclusive */
     unsigned int end_slot;   /* Last slot, inclusive */
     enum SlotRangeType type; /* type of slot range, normal, importing, exporting */
-    int magic;               /* used for validating imports are consistent */
+    long long magic;               /* used for validating imports are consistent */
 } ShardGroupSlotRange;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
@@ -570,7 +570,7 @@ typedef struct ShardingInfo {
 
 typedef struct {
     raft_term_t term;
-    int magic;
+    long long magic;
     size_t num_keys;
     RedisModuleString **key_names;
     RedisModuleString **key_serialized;
