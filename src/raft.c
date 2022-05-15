@@ -116,26 +116,7 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 /* ------------------------------------ Log Execution ------------------------------------ */
 
 bool isSharding(RedisRaftCtx *rr) {
-    ShardingInfo *si = rr->sharding_info;
-
-    if (si->shard_groups_num != 1) {
-        return true;
-    }
-
-    size_t key_len;
-    ShardGroup *sg;
-
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
-    RedisModule_DictNextC(iter, &key_len, (void **) &sg);
-    RedisModule_DictIteratorStop(iter);
-
-    if (!sg->local || sg->slot_ranges_num != 1 ||
-        sg->slot_ranges[0].start_slot != 0 || sg->slot_ranges[0].end_slot != 16383 ||
-        sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
-        return true;
-    }
-
-    return false;
+    return rr->sharding_info->is_sharding;
 }
 
 typedef enum KeysStatus{

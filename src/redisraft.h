@@ -551,6 +551,7 @@ typedef struct ShardGroup {
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
     RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
+    bool is_sharding;                    /* set when we are in a sharding mode */
 
     /* Maps hash slots to ShardGroups indexes.
      *
