@@ -659,6 +659,12 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
+    /* write command, check maxmemory */
+    if (RedisModule_GetUsedMemoryRatio() > 1) {
+        RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
+        return;
+    }
+
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
