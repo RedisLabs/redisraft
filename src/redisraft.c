@@ -510,6 +510,7 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     int e = raft_recv_entry(rr->raft, entry, &response);
     if (e != 0) {
         replyRaftError(req->ctx, e);
+        RaftReqFree(req);
         entryDetachRaftReq(rr, entry);
     }
 
