@@ -502,9 +502,10 @@ class Cluster(object):
             else:
                 logging.info("{} joining".format(_id))
                 node.join(['localhost:{}'.format(self.base_port + 1)])
+
         self.leader = 1
         self.node(1).wait_for_num_voting_nodes(len(self.nodes))
-        self.node(1).wait_for_log_applied()
+        self.wait_for_unanimity()
 
         # Pre-populate if asked
         for _ in range(prepopulate_log):
