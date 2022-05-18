@@ -875,7 +875,7 @@ void ShardGroupLink(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **a
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void ShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void ShardGroupReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-unsigned int KeyHashSlotRedisString(RedisModuleString *s);
+unsigned int keyHashSlot(RedisModuleString *s);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, const char *id);
 
 /* join.c */
@@ -884,7 +884,7 @@ void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req, void (
 /* migrate.c */
 void importKeys(RedisRaftCtx *rr, raft_entry_t *entry);
 int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
+void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 
 /* commands.c */
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);

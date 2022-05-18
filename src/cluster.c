@@ -47,14 +47,6 @@ unsigned int keyHashSlot(RedisModuleString * str) {
     return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
 }
 
-unsigned int KeyHashSlotRedisString(RedisModuleString *s)
-{
-    size_t key_len;
-    const char *key_str = RedisModule_StringPtrLen(s, &key_len);
-    return keyHashSlot(key_str, (int) key_len);
-}
-
-
 /* -----------------------------------------------------------------------------
  * ShardGroup Handling
  * -------------------------------------------------------------------------- */

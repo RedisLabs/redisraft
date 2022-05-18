@@ -486,7 +486,7 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     /* Overwrite with new data */
     req->r.migrate_keys.num_keys = num_keys;
     req->r.migrate_keys.keys = keys;
-    req->r.migrate_keys.keys_serialized = RedisModule_Calloc(cmd->argc - idx, sizeof(RedisModuleString *));
+    req->r.migrate_keys.keys_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
     memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, 255);
     memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, 255);
 

@@ -51,7 +51,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(import_keys.num_keys > 0);
 
     // FIXME: validate no cross slot migration at append time
-    int slot = KeyHashSlotRedisString(import_keys.key_names[0]);
+    int slot = keyHashSlot(import_keys.key_names[0]);
 
     if (!validSlot(rr, slot)) {
         if (req) {
@@ -263,9 +263,12 @@ static void transferKeys(Connection *conn)
     argv[0] = RedisModule_Strdup("RAFT.IMPORT");
     argv_len[0] = strlen("RAFT.IMPORT");
     argv[1] = RedisModule_Alloc(32);
-    int n = snprintf(argv[1], 64, "%ld", req->r.migrate_keys.migrate_term);
+    int n = snprintf(argv[1], 32, "%ld", req->r.migrate_keys.migrate_term);
     argv_len[1] = n;
     argv[2] = RedisModule_Alloc(32);
+    // FIXME needs to be taken from sg (in raft.import pr))
+    n = snprintf(argv[1], 32, "%u", 0);
+    argv_len[2] = n;
 
     for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
         if (req->r.migrate_keys.keys_serialized[i] == NULL) {
@@ -316,7 +319,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
             req->r.migrate_keys.num_serialized_keys++;
 
             enterRedisModuleCall();
-            RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "DUMP", "c", key);
+            RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "DUMP", "s", key);
             exitRedisModuleCall();
 
             if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING) {
