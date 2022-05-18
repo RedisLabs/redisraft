@@ -411,6 +411,8 @@ typedef struct RedisRaftCtx {
     int entered_eval;             /* handling a lua script */
     RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
 
+    RedisModuleDict * command_deny_oom_dict;     /* track commands if they are oom or not */
+
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -497,9 +499,10 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    bool asking; /* if this command array is in an asking mode */
-    int size;    /* Size of allocated array */
-    int len;     /* Number of elements in array */
+    bool asking;        /* if this command array is in an asking mode */
+    bool deny_oom;      /* if we should prevent these commands from executing if in an oom situation */
+    int size;           /* Size of allocated array */
+    int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
 } RaftRedisCommandArray;
 
