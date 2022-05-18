@@ -858,14 +858,18 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
                  * value
                  */
                 case SLOTRANGE_TYPE_STABLE:
-                    si->max_importing_term[j] = 0;
+                    if (sg->local) {
+                        si->max_importing_term[j] = 0;
+                    }
                     si->stable_slots_map[j] = sg;
                     break;
                 case SLOTRANGE_TYPE_IMPORTING:
                     si->importing_slots_map[j] = sg;
                     break;
                 case SLOTRANGE_TYPE_MIGRATING:
-                    si->max_importing_term[j] = 0;
+                    if (sg->local) {
+                        si->max_importing_term[j] = 0;
+                    }
                     si->migrating_slots_map[j] = sg;
                     break;
                 default:
