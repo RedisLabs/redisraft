@@ -405,7 +405,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto exit;
     }
 
-    if (!si->importing_slots_map[slot] || si->migrating_slots_map[slot]->local) {
+    if (!si->importing_slots_map[slot] || si->importing_slots_map[slot]->local) {
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR not importable keys");
         }
