@@ -422,12 +422,12 @@ RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandA
         return RR_ERROR;
     }
 
+    cmds->slot = slot;
+
     /* If command has no keys, continue */
     if (slot == -1) {
         return RR_OK;
     }
-
-    cmds->slot = slot;
 
     /* Make sure hash slot is mapped and handled locally. */
     ShardGroup *sg = GetCommandShardGroup(rr, cmds);
