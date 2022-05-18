@@ -329,13 +329,15 @@ raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc)
         }
     }
 
-    raft_entry_t *ety = raft_entry_new(calcIntSerializedLen(num_keys) + total_key_size);
+    size_t data_len = calcIntSerializedLen(num_keys) + total_key_size;
+    raft_entry_t *ety = raft_entry_new(data_len);
     char *p = ety->data;
 
     /* Encode number of keys */
     int n = encodeInteger('*', p, total_key_size, num_keys);
     RedisModule_Assert(n != -1);
     p += n;
+    data_len -= n;
 
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(keys, "^", NULL, 0);
     char *key;
@@ -346,11 +348,11 @@ raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc)
         p += key_len;
         *p = '\0';
         p++;
-        total_key_size -= (key_len + 1);
+        data_len -= (key_len + 1);
     }
     RedisModule_DictIteratorStop(iter);
 
-    RedisModule_Assert(total_key_size == 0);
+    RedisModule_Assert(data_len == 0);
     RedisModule_FreeDict(redis_raft.ctx, keys);
 
     return ety;
