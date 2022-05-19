@@ -2,7 +2,7 @@
 
 #include "redisraft.h"
 
-int validSlotMagic(RedisRaftCtx *rr, unsigned int slot, int magic)
+static int validSlotMagic(RedisRaftCtx *rr, unsigned int slot, int magic)
 {
     /* validSlot will have already validated that slot is importing */
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
@@ -17,7 +17,7 @@ int validSlotMagic(RedisRaftCtx *rr, unsigned int slot, int magic)
     return 0;
 }
 
-int validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
+static int validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
 {
     ShardingInfo *si = rr->sharding_info;
 
@@ -29,7 +29,7 @@ int validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
     return 0;
 }
 
-int validSlot(RedisRaftCtx *rr, int slot)
+static int validSlot(RedisRaftCtx *rr, int slot)
 {
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
 
@@ -138,8 +138,8 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     req->r.import_keys.key_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
 
     for (int i = 0; i < num_keys; i++) {
-        req->r.import_keys.key_names[i] = RedisModule_CreateStringFromString(rr->ctx, argv[3 + (i*2)]);
-        req->r.import_keys.key_serialized[i] = RedisModule_CreateStringFromString(rr->ctx, argv[3 + (i*2) + 1]);
+        req->r.import_keys.key_names[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i*2)]);
+        req->r.import_keys.key_serialized[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i*2) + 1]);
     }
 
     raft_entry_t *entry = RaftRedisSerializeImport(&req->r.import_keys);
