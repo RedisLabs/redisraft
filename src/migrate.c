@@ -267,7 +267,7 @@ static void transferKeys(Connection *conn)
     argv_len[1] = n;
     argv[2] = RedisModule_Alloc(32);
     // FIXME needs to be taken from sg (in raft.import pr))
-    n = snprintf(argv[1], 32, "%u", 0);
+    n = snprintf(argv[1], 32, "%llu", (long long unsigned) 0);
     argv_len[2] = n;
 
     for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
