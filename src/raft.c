@@ -199,11 +199,22 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
         return RR_ERROR;
     }
 
-    /* this is slightly questionable.
-     * I'm keen to argue that all slots belongingto a single shardgroup have to have the same slot type
-     * but, we don't eforce that at this moment.
-     */
-    SlotRangeType slot_type = sg->slot_ranges[0].type;
+
+    SlotRangeType slot_type = SLOTRANGE_TYPE_UNDEF;
+
+    for (size_t i = 0; i < sg->slot_ranges_num; i++) {
+        if (sg->slot_ranges[i].start_slot <= cmds->slot && cmds->slot <= sg->slot_ranges[i].end_slot) {
+            slot_type = sg->slot_ranges[i].type;
+            break;
+        }
+    }
+
+    if (slot_type == SLOTRANGE_TYPE_UNDEF) {
+        if (reply_ctx) {
+            RedisModule_ReplyWithError(reply_ctx, "ERR internal error, couldn't associate a shardgroup slot to this request");
+        }
+        return RR_ERROR;
+    }
 
     if (!sg->local) {
         if (reply_ctx) {
