@@ -199,11 +199,17 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
         return RR_ERROR;
     }
 
+     if (cmds->slot < 0) {
+        if (reply_ctx) {
+            RedisModule_ReplyWithError(reply_ctx, "CLUSTERERROR should not have a negative slot here");
+        }
+        return RR_ERROR;
+    }
+    unsigned int slot = (unsigned int) cmds->slot;
 
     SlotRangeType slot_type = SLOTRANGE_TYPE_UNDEF;
-
     for (size_t i = 0; i < sg->slot_ranges_num; i++) {
-        if (sg->slot_ranges[i].start_slot <= cmds->slot && cmds->slot <= sg->slot_ranges[i].end_slot) {
+        if (sg->slot_ranges[i].start_slot <= slot && slot <= sg->slot_ranges[i].end_slot) {
             slot_type = sg->slot_ranges[i].type;
             break;
         }
