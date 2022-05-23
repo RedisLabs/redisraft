@@ -549,14 +549,56 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
+static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    if (cmds->len != 1) {
+        return false;
+    }
+
+    /* TODO: will have to be == 2 in future with magic value in asking for argv[2] */
+    if (cmds->commands[0]->argc != 1) {
+        return false;
+    }
+
+    /* Is this a ASKING command? */
+    RaftRedisCommand *cmd = cmds->commands[0];
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+
+    if (cmd_len != 6 || strncasecmp(cmd_str, "ASKING", 6) != 0) {
+        return false;
+    }
+
+    unsigned long long client_id = RedisModule_GetClientId(ctx);
+    RedisModule_DictSetC(rr->asking_client_state, &client_id, sizeof(client_id), (void *) 1);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+    return true;
+}
+
+static bool GetAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    unsigned long long client_id = RedisModule_GetClientId(ctx);
+    return RedisModule_DictGetC(rr->asking_client_state, &client_id, sizeof(client_id), NULL);
+}
+
 static void handleRedisCommand(RedisRaftCtx *rr,
                                RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     Node *leader_proxy = NULL;
 
+    if (AskingHandleCommand(rr, ctx, cmds)) {
+        return;
+    }
+
     /* Check if MULTI/EXEC bundling is required. */
     if (MultiHandleCommand(rr, ctx, cmds)) {
         return;
+    }
+
+    if (GetAskingState(rr, ctx)) {
+        cmds->asking = true;
     }
 
     /* Handle intercepted commands. We do this also on non-leader nodes or if we
@@ -1591,6 +1633,7 @@ void handleClientDisconnectEvent(RedisModuleCtx *ctx,
         subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
 
         MultiFreeClientState(rr, ci->id);
+        RedisModule_DictDelC(rr->asking_client_state, &(ci->id), sizeof(ci->id), NULL);
     }
 }
 

@@ -86,13 +86,6 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
 
-    if (cmd_len == 6 && !strncasecmp(cmd_str, "ASKING", 6)) {
-        /* TODO: will have to be > 2 in future with magic value in asking for argv[2] */
-        if (cmd->argc > 1) {
-            cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
-        }
-    }
-
     if (cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
         if (multiState) {
             RedisModule_ReplyWithError(ctx, "ERR MULTI calls can not be nested");
