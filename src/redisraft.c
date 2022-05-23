@@ -646,6 +646,8 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         if (rr->config->quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+            /* need to save asking flag when we move the cmds */
+            req->r.redis.cmds.asking = cmds->asking;
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
         } else {
             /* Wait until the new leader applies an entry from the current term.
@@ -665,6 +667,8 @@ static void handleRedisCommand(RedisRaftCtx *rr,
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+    /* need to save asking flag when we move the cmds */
+    req->r.redis.cmds.asking = cmds->asking;
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
