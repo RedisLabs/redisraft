@@ -44,7 +44,9 @@ static LIST_HEAD(conn_list, Connection) conn_list = LIST_HEAD_INITIALIZER(conn_l
  * callback it should be called shortly after.
  */
 
-Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb)
+Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
+                       ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb,
+                       char * username, char * password)
 {
     static unsigned long id = 0;
 
@@ -56,6 +58,12 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc 
     conn->idle_callback = idle_cb;
     conn->free_callback = free_cb;
     conn->id = ++id;
+    if (username) {
+        conn->username = RedisModule_Strdup(username);
+    }
+    if (password) {
+        conn->password = RedisModule_Strdup(password);
+    }
 
     conn->timeout.tv_usec = rr->config->connection_timeout;
 
@@ -74,6 +82,15 @@ static void ConnFree(Connection *conn)
 
     if (conn->free_callback) {
         conn->free_callback(conn->privdata);
+    }
+
+    if (conn->username) {
+        RedisModule_Free(conn->username);
+        conn->username = NULL;
+    }
+    if (conn->password) {
+        RedisModule_Free(conn->password);
+        conn->password = NULL;
     }
 
     CONN_TRACE(conn, "Connection freed.");
@@ -201,8 +218,8 @@ static void handleConnectedWithAuth(Connection *conn, int status)
 
         if (redisAsyncCommand(ConnGetRedisCtx(conn), handleAuth, conn,
                               "AUTH %s %s",
-                              conn->rr->config->cluster_user,
-                              conn->rr->config->cluster_password) != REDIS_OK) {
+                              conn->username,
+                              conn->password) != REDIS_OK) {
             redisAsyncDisconnect(ConnGetRedisCtx(conn));
             ConnMarkDisconnected(conn);
             goto fail;
@@ -240,7 +257,7 @@ static void handleConnected(const redisAsyncContext *c, int status)
     Connection *conn = c->data;
     CONN_TRACE(conn, "handleConnected: status=%d", status);
 
-    if (conn->rr->config->cluster_user && conn->rr->config->cluster_password) {
+    if (conn->username && conn->password) {
         handleConnectedWithAuth(conn, status);
     } else {
         handleConnectedWithoutAuth(conn, status);

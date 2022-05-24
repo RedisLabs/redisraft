@@ -125,5 +125,7 @@ void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req,
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
      */
-    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback);
+    char *username = rr->config->cluster_user;
+    char *password = rr->config->cluster_password;
+    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback, username, password);
 }
