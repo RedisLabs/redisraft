@@ -6,7 +6,6 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <assert.h>
 #include <string.h>
 #include "redisraft.h"
 
@@ -229,7 +228,7 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode count */
     n = encodeInteger('*', p, sz, source->len);
-    assert (n != -1);
+    RedisModule_Assert(n != -1);
     p += n; sz -= n;
 
     /* Encode entries */
@@ -237,15 +236,15 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
         RaftRedisCommand *src = source->commands[i];
 
         n = encodeInteger('*', p, sz, src->argc);
-        assert(n != -1);
+        RedisModule_Assert(n != -1);
         p += n; sz -= n;
 
         for (j = 0; j < src->argc; j++) {
             const char *e = RedisModule_StringPtrLen(src->argv[j], &len);
-            assert(sz > len);
+            RedisModule_Assert(sz > len);
 
             n = encodeInteger('$', p, sz, len);
-            assert(n != -1);
+            RedisModule_Assert(n != -1);
             p += n; sz -= n;
 
             memcpy(p, e, len);
@@ -397,25 +396,25 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
 
     /* Encode term */
     n = encodeInteger('*', p, sz, import_keys->term);
-    assert (n != -1);
+    RedisModule_Assert(n != -1);
     p += n; sz -= n;
 
     /* encode magic */
     n = encodeInteger('*', p, sz, import_keys->magic);
-    assert (n != -1);
+    RedisModule_Assert(n != -1);
     p += n; sz -= n;
 
     /* encode num_keys */
     n = encodeInteger('*', p, sz, import_keys->num_keys);
-    assert (n != -1);
+    RedisModule_Assert(n != -1);
     p += n; sz -= n;
 
     for (size_t i = 0; i < import_keys->num_keys; i++) {
         n = encodeString(p, sz, import_keys->key_names[i]);
-        assert (n != -1);
+        RedisModule_Assert(n != -1);
         p += n; sz -= n;
         n = encodeString(p, sz, import_keys->key_serialized[i]);
-        assert (n != -1);
+        RedisModule_Assert(n != -1);
         p += n; sz -= n;
     }
 
