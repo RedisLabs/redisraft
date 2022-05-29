@@ -671,6 +671,7 @@ void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 void replyRaftError(RedisModuleCtx *ctx, int error);
+void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len);
 raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
@@ -728,7 +729,6 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
 int stringmatch(const char *pattern, const char *string, int nocase);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
-void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 
 /* log.c */

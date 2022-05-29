@@ -165,7 +165,7 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
+                replyRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 

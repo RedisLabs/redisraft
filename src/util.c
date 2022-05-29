@@ -307,28 +307,6 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t size)
     return RR_OK;
 }
 
-/* Try to produce an error message which is similar to Redis */
-void handleRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len)
-{
-    char buf[1024];
-    const char *fmt;
-
-    switch (err) {
-        case ENOENT:
-            fmt = "ERR unknown command `%.*s`";
-            break;
-        case EINVAL:
-            fmt = "ERR wrong number of arguments for '%.*s' command";
-            break;
-        default:
-            fmt = "ERR failed to execute command '%.*s'";
-            break;
-    }
-
-    snprintf(buf, sizeof(buf), fmt, (int) len, cmd);
-    RedisModule_ReplyWithError(ctx, buf);
-}
-
 /* This function assumes that the rr->config->slot_config has already been validated as valid */
 ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
 {
