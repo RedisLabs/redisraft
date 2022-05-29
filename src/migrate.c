@@ -60,6 +60,13 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto exit;
     }
 
+    if (!validSlotMagic(rr, slot, import_keys.magic)) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR invalid magic");
+        }
+        goto exit;
+    }
+
     if (!validSlotTerm(rr, slot, import_keys.term)) {
         // this is acceptable (suspended old leader
         LOG_WARNING("ignoring import keys as old term");
@@ -69,38 +76,33 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto exit;
     }
 
-    if (!validSlotMagic(rr, slot, import_keys.magic)) {
-        if (req) {
-            RedisModule_ReplyWithError(req->ctx, "ERR invalid magic");
-        }
-        goto exit;
-    }
-
-    RedisModuleString * zero = RedisModule_CreateString(rr->ctx, "0", 1);
+    /* 2  'static' strings need for restore command */
+    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", 1); /* ttl of zero */
+    RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", 1); /* overwrite on import */
 
     for (size_t i = 0; i < import_keys.num_keys; i++) {
-        RedisModuleString * temp[3];
+        RedisModuleString * temp[4];
         temp[0] = import_keys.key_names[i];
         temp[1] = zero;
         temp[2] = import_keys.key_serialized[i];
+        temp[3] = replace;
 
-        if (!RedisModule_KeyExists(rr->ctx, temp[0])) {
-            enterRedisModuleCall();
-            RedisModuleCallReply *reply;
-            RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
-            exitRedisModuleCall();
-            RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
-            RedisModule_FreeCallReply(reply);
-        }
+        enterRedisModuleCall();
+        RedisModuleCallReply *reply;
+        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
+        exitRedisModuleCall();
+        RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+        RedisModule_FreeCallReply(reply);
     }
 
     RedisModule_FreeString(rr->ctx, zero);
+    RedisModule_FreeString(rr->ctx, replace);
 
     if (req) {
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     }
 
-    exit:
+exit:
     if (req) {
         RaftReqFree(req);
     }
@@ -111,7 +113,10 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    if (argc < 3 || ((argc -3)) % 2 != 0) {
+    /* argc must be at least 5, for 3 static args (cmd/magic/term) + 2 for 1 key
+     * and must be odd, due to 2 args needed for each key
+     */
+    if (argc < 5 || (argc % 2) == 0) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
