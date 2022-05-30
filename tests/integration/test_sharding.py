@@ -416,9 +416,9 @@ def test_shard_group_reshard_to_migrate(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.leader_node().client.set("key", "value");
+    cluster.execute("set", "key", "value");
 
-    assert cluster.leader_node().client.execute_command(
+    assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
         '12345678901234567890123456789013',
@@ -431,10 +431,10 @@ def test_shard_group_reshard_to_migrate(cluster):
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
-    assert cluster.leader_node().client.get("key") == b'value'
+    assert cluster.execute("get", "key") == b'value'
 
     with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
-        cluster.leader_node().client.set("key1", "value1")
+        cluster.execute("set", "key1", "value1")
 
     conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
     conn.send_command('MULTI')
@@ -447,10 +447,10 @@ def test_shard_group_reshard_to_migrate(cluster):
     with raises(ResponseError, match="TRYAGAIN"):
         conn.read_response()
 
-    assert cluster.leader_node().client.execute_command("del", "key") == 1
+    assert cluster.execute("del", "key") == 1
 
     with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
-        cluster.leader_node().client.get("key")
+        cluster.execute("get", "key")
 
 
 def test_shard_group_reshard_to_import(cluster):
@@ -459,9 +459,9 @@ def test_shard_group_reshard_to_import(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.leader_node().client.set("key", "value");
+    cluster.execute("set", "key", "value");
 
-    assert cluster.leader_node().client.execute_command(
+    assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
         '12345678901234567890123456789013',
@@ -477,12 +477,12 @@ def test_shard_group_reshard_to_import(cluster):
     with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
         cluster.leader_node().client.get("key")
 
-    assert cluster.leader_node().client.execute_command("asking", "get", "key") == b'value'
+    assert cluster.execute("asking", "get", "key") == b'value'
 
     with raises(ResponseError, match="TRYAGAIN"):
-        cluster.leader_node().client.execute_command("asking", "get", "key1")
+        cluster.execute("asking", "get", "key1")
 
-    assert cluster.leader_node().client.execute_command("asking", "del", "key") == 1
+    assert cluster.execute("asking", "del", "key") == 1
 
     with raises(ResponseError, match="TRYAGAIN"):
-        cluster.leader_node().client.execute_command("asking", "get", "key1")
+        cluster.execute("asking", "get", "key")
