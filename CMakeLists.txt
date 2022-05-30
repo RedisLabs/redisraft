@@ -119,7 +119,7 @@ set_target_properties(hiredis_static PROPERTIES COMPILE_FLAGS "-w")
 add_custom_command(OUTPUT buildinfo
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/src
         COMMAND export GIT_SHA1=` (git show-ref --head --hash=8 2>/dev/null || echo 00000000) | head -n1`
-        && echo "\"\#define\$ REDISRAFT_GIT_SHA1\$ \\\"$$GIT_SHA1\\\"\"" > buildinfo.h)
+        && echo "\"\#define" "REDISRAFT_GIT_SHA1" "\\\"$$GIT_SHA1\\\"\"" > buildinfo.h)
 
 add_custom_target(info ALL DEPENDS buildinfo)
 
