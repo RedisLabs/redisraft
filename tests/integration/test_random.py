@@ -5,6 +5,7 @@ Copyright (c) 2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
+import random
 
 def test_hash_deterministic_order(cluster):
     """
@@ -258,9 +259,12 @@ return 1
 
 def test_raft_sort_hashes(cluster):
     cluster.create(3)
-    for i in range(1000):
-        cluster.execute("hset", "test", i, i)
-        cluster.execute("hset", "test", str(i) + "x", i)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("hset", "test", nums[i], i)
+        cluster.execute("hset", "test", nums[i] + 20000, i)
 
     hgetall = cluster.execute("raft._sort_reply", "hgetall", "test")
     hkeys = cluster.execute("raft._sort_reply", "hkeys", "test")
@@ -300,10 +304,13 @@ def test_raft_sort_hashes(cluster):
 
 def test_raft_sort_sets(cluster):
     cluster.create(3)
-    for i in range(1000):
-        cluster.execute("sadd", "test", i)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("sadd", "test", nums[i])
         if i % 2 == 0:
-            cluster.execute("sadd", "test1", i)
+            cluster.execute("sadd", "test1", nums[i])
 
     sinter = cluster.execute("raft._sort_reply", "sinter", "test", "test1")
     sunion = cluster.execute("raft._sort_reply", "sunion", "test", "test1")
@@ -356,8 +363,11 @@ def test_raft_sort_sets(cluster):
 
 def test_raft_sort_keys(cluster):
     cluster.create(3)
-    for i in range(1000):
-        cluster.execute("set", i, i)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("set", nums[i], i)
 
     keys = cluster.execute("raft._sort_reply", "keys", "*")
 
