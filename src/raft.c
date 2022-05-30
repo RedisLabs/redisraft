@@ -120,7 +120,6 @@ bool isSharding(RedisRaftCtx *rr) {
 }
 
 typedef enum KeysStatus{
-    NoKeys,
     AllExist,
     SomeExist,
     NoneExist,
@@ -142,18 +141,13 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
             found += RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]]);
         }
         RedisModule_Free(keyindex);
-
-        /* shortcut as we know the result is now SomeExist */
-        if (found != 0 && found != total_keys) {
-            return SomeExist;
-        }
     }
 
     if (found != total_keys) {
         return (found == 0) ? NoneExist : SomeExist;
     }
 
-    return (total_keys == 0) ? NoKeys : AllExist;
+    return AllExist;
 }
 
 /* figure out the "owner shardgroup"
@@ -248,7 +242,6 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
                 }
                 return RR_ERROR;
             case AllExist:
-            case NoKeys:
                 return RR_OK;
         }
     } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
@@ -260,7 +253,6 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
                 }
                 return RR_ERROR;
             case AllExist:
-            case NoKeys:
                 return RR_OK;
         }
     }
