@@ -46,7 +46,7 @@ static LIST_HEAD(conn_list, Connection) conn_list = LIST_HEAD_INITIALIZER(conn_l
 
 Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
                        ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb,
-                       char * username, char * password)
+                       char *username, char *password)
 {
     static unsigned long id = 0;
 
@@ -84,14 +84,11 @@ static void ConnFree(Connection *conn)
         conn->free_callback(conn->privdata);
     }
 
-    if (conn->username) {
-        RedisModule_Free(conn->username);
-        conn->username = NULL;
-    }
-    if (conn->password) {
-        RedisModule_Free(conn->password);
-        conn->password = NULL;
-    }
+    RedisModule_Free(conn->username);
+    conn->username = NULL;
+
+    RedisModule_Free(conn->password);
+    conn->password = NULL;
 
     CONN_TRACE(conn, "Connection freed.");
 

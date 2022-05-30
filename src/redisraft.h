@@ -173,8 +173,8 @@ typedef struct Connection {
     unsigned long int connect_oks;      /* Successful connects */
     unsigned long int connect_errors;   /* Connection errors since last connection */
     struct timeval timeout;             /* Timeout to use if not null */
-    char * username;                    /* username to use if specified */
-    char * password;                    /* password to use if specified */
+    char *username;                    /* username to use if specified */
+    char *password;                    /* password to use if specified */
     void *privdata;                     /* User provided pointer */
 
     struct AddrinfoResult {
@@ -801,7 +801,7 @@ void archiveSnapshot(RedisRaftCtx *rr);
 RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, Node *leader);
 
 /* connection.c */
-Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb, char * username, char *password);
+Connection *ConnCreate(RedisRaftCtx *rr, void *privdata, ConnectionCallbackFunc idle_cb, ConnectionFreeFunc free_cb, char *username, char *password);
 RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackFunc connect_callback);
 void ConnAsyncTerminate(Connection *conn);
 void ConnMarkDisconnected(Connection *conn);
