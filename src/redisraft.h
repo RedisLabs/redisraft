@@ -478,7 +478,6 @@ typedef struct {
 
 typedef struct {
     bool asking;        /* if this command array is an asking */
-    int slot;           /* key slot for cluster mode, so doesn't have to be recalculated */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
@@ -723,7 +722,6 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
-ShardGroup * GetCommandShardGroup(RedisRaftCtx *rr, RaftRedisCommandArray *cmds);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
@@ -861,6 +859,3 @@ uint64_t MultiClientStateCount(RedisRaftCtx *rr);
 void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
-
-/* redisraft.c */
-RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);

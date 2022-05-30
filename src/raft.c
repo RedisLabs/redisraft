@@ -125,7 +125,7 @@ typedef enum KeysStatus{
     NoneExist,
 } KeysStatus;
 
-KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
     int total_keys = 0;
     int found = 0;
 
@@ -161,20 +161,20 @@ KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
  *    has a RaftRedisCommandArray marked as asking
  */
 
-ShardGroup * GetCommandShardGroup(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+static ShardGroup * GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
 {
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[cmds->slot];
+    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
         return sg;
     }
 
-    sg = rr->sharding_info->migrating_slots_map[cmds->slot];
+    sg = rr->sharding_info->migrating_slots_map[slot];
     if (sg && sg->local) {
         return sg;
     }
 
-    if (cmds->asking) {
-        ShardGroup *isg = rr->sharding_info->importing_slots_map[cmds->slot];
+    if (asking) {
+        ShardGroup *isg = rr->sharding_info->importing_slots_map[slot];
         if (isg && isg->local) {
             return isg;
         }
@@ -183,23 +183,19 @@ ShardGroup * GetCommandShardGroup(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
     return sg;
 }
 
-RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *cmds) {
+static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx,
+                                              RaftRedisCommandArray *cmds, unsigned int slot)
+{
+    RedisModule_Assert(slot <= REDIS_RAFT_HASH_MAX_SLOT);
+
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = GetCommandShardGroup(rr, cmds);
+    ShardGroup *sg = GetSlotShardGroup(rr, slot, cmds->asking);
     if (!sg) {
         if (reply_ctx) {
             RedisModule_ReplyWithError(reply_ctx, "CLUSTERDOWN Hash slot is not served");
         }
         return RR_ERROR;
     }
-
-     if (cmds->slot < 0) {
-        if (reply_ctx) {
-            RedisModule_ReplyWithError(reply_ctx, "CLUSTERERROR should not have a negative slot here");
-        }
-        return RR_ERROR;
-    }
-    unsigned int slot = (unsigned int) cmds->slot;
 
     SlotRangeType slot_type = SLOTRANGE_TYPE_UNDEF;
     for (size_t i = 0; i < sg->slot_ranges_num; i++) {
@@ -218,11 +214,15 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
 
     if (!sg->local) {
         if (reply_ctx) {
+            /* Question: do we need this code, or is index 0 fine?
+            sg->next_redir++;
             if (sg->next_redir >= sg->nodes_num) {
                 sg->next_redir = 0;
             }
+            replyRedirect(reply_ctx, slot, &sg->nodes[sg->next_redir].addr);
+             */
 
-            replyRedirect(reply_ctx, cmds->slot, &sg->nodes[0].addr);
+            replyRedirect(reply_ctx, slot, &sg->nodes[0].addr);
         }
 
         return RR_ERROR;
@@ -238,7 +238,7 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
                 return RR_ERROR;
             case NoneExist:
                 if (reply_ctx) {
-                    replyAsk(rr, reply_ctx, cmds->slot);
+                    replyAsk(rr, reply_ctx, slot);
                 }
                 return RR_ERROR;
             case AllExist:
@@ -260,6 +260,36 @@ RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_c
     return RR_OK;
 }
 
+/* When sharding is enabled, handle sharding aspects before processing
+ * the request:
+ *
+ * 1. Compute hash slot of all associated keys and validate there's no cross-slot
+ *    violation.
+ * 2. Update the request's hash_slot for future reference.
+ * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
+ * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
+ */
+static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    int slot;
+
+    if (!isSharding(rr)) {
+        return RR_OK;
+    }
+
+    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
+        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+        return RR_ERROR;
+    }
+
+    /* If command has no keys, continue */
+    if (slot == -1) {
+        return RR_OK;
+    }
+
+    return validateRaftRedisCommandArray(rr, ctx, cmds, slot);
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -278,11 +308,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
      * hash slot validation and return an error / redirection if necessary. We do this
      * before checkLeader() to avoid multiple redirect hops.
      */
-    if (isSharding(rr) && handleSharding(rr, reply_ctx, cmds) != RR_OK) {
-        return;
-    }
-
-    if (cmds->slot != -1 && validateRaftRedisCommandArray(rr, reply_ctx, cmds) != RR_OK) {
+    if (handleSharding(rr, reply_ctx, cmds) != RR_OK) {
         return;
     }
 
