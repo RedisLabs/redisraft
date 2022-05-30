@@ -18,8 +18,6 @@ def test_hash_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
@@ -106,8 +104,6 @@ def test_set_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
@@ -212,8 +208,6 @@ def test_keys_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
