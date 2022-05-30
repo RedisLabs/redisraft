@@ -475,6 +475,7 @@ def test_shard_group_reshard_to_import(cluster):
     ) == b'OK'
 
     with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
+        # can't use cluster.execute() as that will try to handle the MOVED response itself
         cluster.leader_node().client.get("key")
 
     assert cluster.execute("asking", "get", "key") == b'value'
