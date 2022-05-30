@@ -2,34 +2,34 @@
 BLPOP with variadic LPUSH
 Linked LMOVEs
 client unblock tests
-.*B[RL]POP.*
-.*B[RLZ]MPOP.*
-.*BLMOVE.*
-.*B[LR]POP.*
-.*BZM?POP_?MIN.*
-.*BZM?POP_?MAX.*
+/.*B[RL]POP.*
+/.*B[RLZ]MPOP.*
+/.*BLMOVE.*
+/.*B[LR]POP.*
+/.*BZM?POP_?MIN.*
+/.*BZM?POP_?MAX.*
 LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
-.*XREAD.*
-.*XADD.*
-.*XRANGE.*
+/.*XREAD.*
+/.*XADD.*
+/.*XRANGE.*
 COPY basic usage for stream
+COPY basic usage for stream-cgroups
 Keyspace notifications: stream events test
 lazy free a stream with all types of metadata
 lazy free a stream with deleted cgroup
 
 -- Timeouts and termination of Lua scripts is not possible when scripts are
 -- replicated and executed by individual nodes.
-.*SCRIPT KILL.*
+/.*SCRIPT KILL.*
 Blocking commands ignores the timeout
 Timedout script does not cause a false dead client
 Timedout script link is still usable after Lua returns
-test function kill
-test function kill not working on eval
-test script kill not working on function
-test wrong subcommand
+/function kill
+/script kill
+/test wrong subcommand
 
 -- RAFT command prefix shows up in SLOWLOG.
 SLOWLOG - Rewritten commands are logged as their original command
@@ -59,9 +59,9 @@ Test read commands are not blocked by client pause
 Test write commands are paused by RO
 
 -- WATCH (multi/exec) not supported
-.*MULTI.*
-.*EXEC.*
-.*WATCH.*
+/.*MULTI.*
+/.*EXEC.*
+/.*WATCH.*
 SMOVE only notify dstset when the addition is successful
 FLUSHALL is able to touch the watched keys
 FLUSHDB is able to touch the watched keys
