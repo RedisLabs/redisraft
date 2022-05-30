@@ -15,6 +15,18 @@ def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
 
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789012',
+        '0', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        cluster.leader_node().info()['raft_dbid'],
+        '1', '1',
+        '0', '16383', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
     # -CROSSSLOT on multi-key cross slot violation
     with raises(ResponseError, match='CROSSSLOT'):
         c.mset({'key1': 'val1', 'key2': 'val2'})
