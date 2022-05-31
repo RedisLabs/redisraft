@@ -865,7 +865,9 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
      * */
     /* TODO: perhaps should only be called if using built in sharding mechanism */
     if (!rr->config->external_sharding && sg->nodes_num > 0) {
-        sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL);
+        char *username = rr->config->cluster_user;
+        char *password = rr->config->cluster_password;
+        sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL, username, password);
     }
 
     return RR_OK;
@@ -1633,7 +1635,9 @@ void ShardGroupLink(RedisRaftCtx *rr,
     st->connect_callback = linkSendRequest;
     st->start = time(NULL);
     st->req = RaftReqInit(ctx, RR_SHARDGROUP_LINK);
-    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback);
+    char *username = rr->config->cluster_user;
+    char *password = rr->config->cluster_password;
+    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback, username, password);
 }
 
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)

@@ -99,7 +99,9 @@ Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
     node->addr.port = addr->port;
 
     LIST_INSERT_HEAD(&node_list, node, entries);
-    node->conn = ConnCreate(node->rr, node, nodeIdleCallback, nodeFreeCallback);
+    char *username = rr->config->cluster_user;
+    char *password = rr->config->cluster_password;
+    node->conn = ConnCreate(node->rr, node, nodeIdleCallback, nodeFreeCallback, username, password);
 
     return node;
 }
