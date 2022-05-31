@@ -364,7 +364,7 @@ unsigned int keyHashSlot(RedisModuleString * str);
 
 static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
     RaftReq *req = entry->user_data;
 
@@ -383,7 +383,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         } else {
             if (slot != (int) thisslot) {
                 if (req) {
-                    RedisModule_ReplyWithError(req->ctx, "ERR keys don't all belong to same slot");
+                    replyCrossSlot(req->ctx);
                 }
                 goto error;
             }
@@ -398,16 +398,30 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     ShardingInfo *si = rr->sharding_info;
-    if (!si->migrating_slots_map[slot] || !si->migrating_slots_map[slot]->local) {
+    if (!si->migrating_slots_map[slot]) {
         if (req) {
-            RedisModule_ReplyWithError(req->ctx, "ERR not migratable keys");
+            RedisModule_ReplyWithError(req->ctx, "ERR keys are not migratable");
         }
         goto error;
     }
 
-    if (!si->importing_slots_map[slot] || si->importing_slots_map[slot]->local) {
+    if (!si->migrating_slots_map[slot]->local) {
         if (req) {
-            RedisModule_ReplyWithError(req->ctx, "ERR not importable keys");
+            RedisModule_ReplyWithError(req->ctx, "ERR This RedisRaft cluster doesn't own these keys");
+        }
+        goto error;
+    }
+
+    if (!si->importing_slots_map[slot]) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR no RedisRaft cluster to import keys into");
+        }
+        goto error;
+    }
+
+    if (!si->importing_slots_map[slot]->local) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR trying to import keys into self RedisCluster");
         }
         goto error;
     }
@@ -428,8 +442,8 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
 //        MigrateKeys(rr, req);
-        goto exit;
     }
+    goto exit;
 
 error:
     if (req) {
@@ -445,7 +459,7 @@ exit:
 
 static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
 
     RaftReq *req = entry->user_data;
 

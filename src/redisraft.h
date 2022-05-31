@@ -710,6 +710,8 @@ RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
+void replyCrossSlot(RedisModuleCtx *ctx);
+void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot);
 

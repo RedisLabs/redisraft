@@ -370,6 +370,8 @@ static void handleInfoCommand(RedisRaftCtx *rr,
     RedisModule_FreeCallReply(reply);
 }
 
+#define MIGRATE_CMD_OPTIONAL_ARG_IDX 6
+
 typedef struct MigrationInfo {
     char username[256];
     char password[256];
@@ -383,7 +385,7 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
     strncpy(ret->username, "default", sizeof(ret->username));
 
     int idx;
-    for (idx = 6; idx < cmd->argc; idx++) {
+    for (idx = MIGRATE_CMD_OPTIONAL_ARG_IDX; idx < cmd->argc; idx++) {
         size_t auth_str_len;
         const char * auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
         if (auth_str_len == 5 && !strncasecmp("AUTH2", auth_str, 5)) {
@@ -393,7 +395,7 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
             }
 
             size_t username_len;
-            const char * username = RedisModule_StringPtrLen(cmd->argv[idx+1], &username_len);
+            const char *username = RedisModule_StringPtrLen(cmd->argv[idx + 1], &username_len);
             if (username_len > 255) {
                 LOG_WARNING("username is too long: limited to 255 characters");
                 goto fail;
@@ -401,23 +403,9 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
             strncpy(ret->username, username, username_len);
 
             size_t password_len;
-            const char *password = RedisModule_StringPtrLen(cmd->argv[idx+2], &password_len);
+            const char *password = RedisModule_StringPtrLen(cmd->argv[idx + 2], &password_len);
             if (password_len > 255) {
                 LOG_WARNING("password is too long: limited to 255 characters");
-                goto fail;
-            }
-            strncpy(ret->password, password, password_len);
-            break;
-        } else if (auth_str_len == 4 && !strncasecmp("AUTH", auth_str, 4)) {
-            if (idx + 1 > cmd->argc) {
-                LOG_WARNING("couldn't parse password");
-                goto fail;
-            }
-
-            size_t password_len;
-            const char * password = RedisModule_StringPtrLen(cmd->argv[idx+1], &password_len);
-            if (password_len > 255) {
-                LOG_WARNING("username is too long: limited to 255 characters");
                 goto fail;
             }
             strncpy(ret->password, password, password_len);
@@ -458,7 +446,7 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     }
 
     /* find "keys" for parsing out keys */
-    int idx = 6;
+    int idx = MIGRATE_CMD_OPTIONAL_ARG_IDX;
     for(; idx < cmd->argc; idx++) {
         size_t str_len;
         const char * str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
@@ -478,7 +466,7 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * (cmd->argc - idx));
     int num_keys = cmd->argc - idx;
     for (int i = 0; i < num_keys; i++) {
-        keys[i] = RedisModule_CreateStringFromString(ctx, cmd->argv[idx + i]);
+        keys[i] = RedisModule_HoldString(ctx, cmd->argv[idx + i]);
     }
 
     req = RaftReqInit(ctx, RR_MIGRATE_KEYS);

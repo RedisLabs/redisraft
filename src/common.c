@@ -71,8 +71,7 @@ void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
 }
 
 /* Create a -ASK reply. */
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot)
-{
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot) {
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
     if (!sg) {
         RedisModule_ReplyWithError(ctx, "ERR no importing shard group to ask");
@@ -82,6 +81,32 @@ void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot)
     char buf[sizeof(sg->nodes[0].addr.host) + 256];
     snprintf(buf, sizeof(buf), "ASK %d %s:%u", slot, sg->nodes[0].addr.host, sg->nodes[0].addr.port);
     RedisModule_ReplyWithError(ctx, buf);
+}
+
+/* Create a CROSSSLOT response */
+void replyCrossSlot(RedisModuleCtx *ctx)
+{
+    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+}
+
+void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    int len = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+
+    char * buf = RedisModule_Alloc(len+1);
+
+    va_start(ap, fmt);
+    vsnprintf(buf, len, fmt, ap);
+    va_end(ap);
+
+    buf[len] = '\0';
+    RedisModule_ReplyWithError(ctx, buf);
+    RedisModule_Free(buf);
+
 }
 
 static const char *err_clusterdown = "CLUSTERDOWN No raft leader";

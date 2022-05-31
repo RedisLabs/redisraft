@@ -23,9 +23,10 @@
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(RedisModuleString * str) {
+unsigned int keyHashSlot(RedisModuleString *str)
+{
     size_t keylen;
-    const char * key = RedisModule_StringPtrLen(str, &keylen);
+    const char *key = RedisModule_StringPtrLen(str, &keylen);
 
     size_t s, e; /* start-end indexes of { and } */
 
@@ -784,7 +785,7 @@ ShardGroup *getShardGroupById(RedisRaftCtx *rr, const char *id)
 {
     ShardingInfo *si = rr->sharding_info;
 
-    return RedisModule_DictGetC(si->shard_group_map, (char *) id, strlen(id), NULL);
+    return RedisModule_DictGetC(si->shard_group_map, (void *) id, strlen(id), NULL);
 }
 
 /* Update an existing ShardGroup in the active ShardingInfo.

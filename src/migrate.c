@@ -176,7 +176,7 @@ fail:
     return REDISMODULE_OK;
 }
 
-void raftAppendRaftDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
+static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 {
     raft_entry_resp_t response;
 
@@ -187,10 +187,11 @@ void raftAppendRaftDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 
     int e = raft_recv_entry(rr->raft, entry, &response);
     if (e != 0) {
+        RedisModule_ReplyWithError(req->ctx, "ERR Unable to unlock/delete migrated keys, try again");
         replyRaftError(req->ctx, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
-        goto exit;
+        goto error;
     }
 
     raft_entry_release(entry);
@@ -200,13 +201,12 @@ void raftAppendRaftDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
      */
     return;
 
-    exit:
+error:
     RaftReqFree(req);
 }
 
 static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 {
-    LOG_WARNING("calling transferKeysResponse");
     Connection *conn = privdata;
     JoinLinkState *state = ConnGetPrivateData(conn);
     RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
@@ -215,24 +215,22 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
     redisReply *reply = r;
 
     if (!reply) {
-        LOG_WARNING("RAFT.IMPORT failed: connection dropped.");
         ConnMarkDisconnected(conn);
+        RedisModule_ReplyWithError(req->ctx, "ERR: connection dropped impporting keys into remote cluster, try again");
+        RaftReqFree(req);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         ConnAsyncTerminate(conn);
-
-        LOG_WARNING("RAFT.IMPORT failed: %.*s", (int) reply->len, reply->str);
-        RedisModule_ReplyWithError(req->ctx, "ERR: Migrate failed importing keys into remote cluster, try again");
+        replyWithFormatErrorString(req->ctx, "RAFT.IMPORT failed: %.*s", (int) reply->len, reply->str);
         RaftReqFree(req);
     } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2)) {
         ConnAsyncTerminate(conn);
-
         /* FIXME: above should be changed to string eventually? */
-        LOG_WARNING("RAFT.IMPORT unexpected response: type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
-        RedisModule_ReplyWithError(req->ctx, "ERR: received unexpected response from remote cluster, see logs");
+        replyWithFormatErrorString(req->ctx, "ERR: received unexpected response from remote cluster, type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
         RaftReqFree(req);
     } else {
+        /* SUCCESS */
         ConnAsyncTerminate(conn);
-        raftAppendRaftDeleteEntry(rr, req);
+        raftAppendRaftUnlockDeleteEntry(rr, req);
     }
 
     redisAsyncDisconnect(c);
@@ -240,7 +238,6 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 
 static void transferKeys(Connection *conn)
 {
-    LOG_WARNING("calling transferKeys");
     RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinLinkState *state = ConnGetPrivateData(conn);
     RaftReq *req = state->req;
@@ -288,8 +285,10 @@ static void transferKeys(Connection *conn)
     }
 
     if (redisAsyncCommandArgv(ConnGetRedisCtx(conn), transferKeysResponse, conn, argc, (const char **) argv, argv_len) != REDIS_OK) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to submit RAFT.IMPORT command, try again");
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
+        RaftReqFree(req);
     }
 
     for(int i = 0; i < argc; i++) {
@@ -304,7 +303,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
     state->type = "migrate";
     state->connect_callback = transferKeys;
-    time(&(state->start));
+    state->start = time(NULL);
     ShardGroup * sg = getShardGroupById(rr, req->r.migrate_keys.shardGroupId);
     if (sg == NULL) {
         RedisModule_ReplyWithError(req->ctx, "ERR couldn't resolve shardgroup id");
