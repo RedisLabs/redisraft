@@ -776,7 +776,7 @@ void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
-void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config);
+void ConfigUpdateTLS(RedisModuleCtx *ctx, RedisRaftConfig *config);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

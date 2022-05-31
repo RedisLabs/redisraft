@@ -1316,10 +1316,8 @@ static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
     return (int) pass_len;
 }
 
-SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+SSL_CTX *generateSSLContext(RedisRaftCtx *rr)
 {
-    (void) ctx;
-
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
         LOG_WARNING("SSL_CTX_new(): %s",
@@ -1368,35 +1366,42 @@ error:
 #endif
 
 
-void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
+void handleConfigChangeEvent(RedisModuleCtx *ctx,
+                             RedisModuleEvent eid, uint64_t event, void *data)
 {
-    if (eid.id != REDISMODULE_EVENT_CONFIG || subevent != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+    if (eid.id != REDISMODULE_EVENT_CONFIG ||
+        event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
         return;
     }
 
 #ifdef HAVE_TLS
-    if (!redis_raft.config->tls_enabled) {
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (!rr->config->tls_enabled) {
         return;
     }
 
     RedisModuleConfigChangeV1 *ei = data;
 
     for (unsigned int i = 0; i < ei->num_changes; i++) {
-        if (strcmp("tls-ca-cert-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-key-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-key-file-pass", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-key-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-key-file-pass", ei->config_names[i]) == 0 ||
-                strcmp("tls-cert-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-cert-file", ei->config_names[i]) == 0) {
-            updateTLSConfig(ctx, redis_raft.config);
-            SSL_CTX *new_ctx = generateSSLContext(ctx, &redis_raft);
-            if (new_ctx != NULL) {
-                if (redis_raft.ssl) {
-                    SSL_CTX_free(redis_raft.ssl);
-                }
-                redis_raft.ssl = new_ctx;
+        const char *conf = ei->config_names[i];
+
+        if (!strcmp(conf, "tls-ca-cert-file") ||
+            !strcmp(conf, "tls-key-file") ||
+            !strcmp(conf, "tls-key-file-pass") ||
+            !strcmp(conf, "tls-client-key-file") ||
+            !strcmp(conf, "tls-client-key-file-pass") ||
+            !strcmp(conf, "tls-cert-file") ||
+            !strcmp(conf, "tls-client-cert-file")) {
+
+            ConfigUpdateTLS(ctx, rr->config);
+
+            SSL_CTX *new_ctx = generateSSLContext(rr);
+            if (new_ctx) {
+                SSL_CTX_free(rr->ssl);
+                rr->ssl = new_ctx;
             }
+
             break;
         }
     }
@@ -1757,7 +1762,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
-        rr->ssl = generateSSLContext(ctx, rr);
+        rr->ssl = generateSSLContext(rr);
     }
 #endif
 
