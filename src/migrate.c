@@ -342,7 +342,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
-     for (unsigned int i = 0; i < sg->nodes_num; i++) {
+    for (unsigned int i = 0; i < sg->nodes_num; i++) {
         LOG_WARNING("MigrateKeys: adding %s:%d", sg->nodes[i].addr.host, sg->nodes[i].addr.port);
         NodeAddrListAddElement(&state->addr, &sg->nodes[i].addr);
     }
