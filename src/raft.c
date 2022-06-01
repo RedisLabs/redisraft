@@ -115,7 +115,7 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
 /* ------------------------------------ Log Execution ------------------------------------ */
 
-bool isSharding(RedisRaftCtx *rr) {
+static bool isSharding(RedisRaftCtx *rr) {
     return rr->sharding_info->is_sharding;
 }
 
@@ -161,7 +161,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
  *    has a RaftRedisCommandArray marked as asking
  */
 
-static ShardGroup * GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
+static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
 {
     ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
@@ -214,15 +214,11 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
 
     if (!sg->local) {
         if (reply_ctx) {
-            /* Question: do we need this code, or is index 0 fine?
             sg->next_redir++;
             if (sg->next_redir >= sg->nodes_num) {
                 sg->next_redir = 0;
             }
             replyRedirect(reply_ctx, slot, &sg->nodes[sg->next_redir].addr);
-             */
-
-            replyRedirect(reply_ctx, slot, &sg->nodes[0].addr);
         }
 
         return RR_ERROR;
