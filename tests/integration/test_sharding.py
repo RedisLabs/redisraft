@@ -290,23 +290,24 @@ def test_shard_group_linking(cluster_factory):
             node = cluster_nodes[i].split(b' ')
             if node[0] == "{}00000001".format(
                     cluster1.leader_node().info()['raft_dbid']).encode():
-                assert node[2] == b"myself"
-                assert node[3] == b"master"
+                assert node[2] == b"myself,master"
+                assert node[3] == b"-"
                 assert node[8] == b"0-1"
             elif node[0] == "{}00000002".format(
                     cluster1.leader_node().info()['raft_dbid']).encode():
-                assert node[2] == b"noflags"
-                assert node[3] == b"slave"
+                assert node[2] == b"slave"
+                assert node[3] == "{}00000001".format(
+                    cluster1.leader_node().info()['raft_dbid']).encode() # TODO
                 assert node[8] == b"0-1"
             elif node[0] == "{}00000001".format(
                     cluster2.leader_node().info()['raft_dbid']).encode():
-                assert node[2] == b"noflags"
-                assert node[3] == b"master"
+                assert node[2] == b"master"
+                assert node[3] == b"-"
                 assert node[8] == b"2-16383"
             elif node[0] == "{}00000002".format(
                     cluster2.leader_node().info()['raft_dbid']).encode():
-                assert node[2] == b"noflags"
-                assert node[3] == b"slave"
+                assert node[2] == b"slave"
+                assert node[3] == b"-"
                 assert node[8] == b"2-16383"
             else:
                 assert False, node
