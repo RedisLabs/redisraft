@@ -1211,7 +1211,7 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
     RedisModule_ReplyWithCString(ctx, addr->host);
     RedisModule_ReplyWithLongLong(ctx, addr->port);
 
-    snprintf(node_id, sizeof(node_id), "%.32s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+    raftNodeToString(node_id,  rr->log->dbid, raft_node);
     RedisModule_ReplyWithCString(ctx, node_id);
 
     return 1;
@@ -1277,7 +1277,7 @@ RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
 
 /* Formats a CLUSTER NODES line and appends it to ret */
 static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], NodeAddr *addr, const char *flags,
-                                    const char *master, int ping_sent, int pong_recv, raft_term_t epoch, const char *link_state,
+                                    const char *master_node_id, int ping_sent, int pong_recv, raft_term_t epoch, const char *link_state,
                                     RedisModuleString *slots)
 {
     size_t len;
@@ -1286,6 +1286,7 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     const char *slots_str;
 
     slots_str = RedisModule_StringPtrLen(slots, &slots_len);
+    const char *master = (master_node_id != NULL)? master_node_id : "-";
     RedisModuleString* str = RedisModule_CreateStringPrintf(NULL,
                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
                                                            node_id,
@@ -1330,13 +1331,24 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     }
 
     /* should we record heartbeat and reply times for ping/pong */
-    char *flags = self ? "myself" : "noflags";
-    char *master = leader ? "master" : "slave";
+    char *master = NULL;
+    char *myself_flag = self ? "myself," : "";
+    char *role_flag = leader ? "master" : "slave";
+    size_t flags_len = strlen(myself_flag) + strlen(role_flag) + 1;
+    char flags[flags_len];
+    snprintf(flags, flags_len, "%s%s", myself_flag, role_flag);
     int ping_sent = 0;
     int pong_recv = 0;
 
     char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
-    snprintf(node_id, sizeof(node_id), "%.32s%08x", rr->log->dbid, raft_node_get_id(raft_node));
+    raftNodeToString(node_id,  rr->log->dbid, raft_node);
+
+    char master_node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
+    if (!leader) {
+        raftNodeIdToString(master_node_id,  rr->log->dbid, raft_get_leader_id(rr->raft));
+        master = master_node_id;
+    }
+
 
     raft_term_t epoch = raft_get_current_term(redis_raft.raft);
     char *link_state = "connected";
@@ -1378,17 +1390,16 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
                 }
             } else {
                 for (unsigned int j = 0; j < sg->nodes_num; j++) {
-                    char *flags = "noflags";
                     /* SHARDGROUP GET only works on leader
                      * SHARDGROUP GET lists nodes in order of idx, but 0 will always be self, i.e. leader
                      */
-                    char *master = j == 0 ? "master" : "slave";
+                    char *flags = j == 0 ? "master" : "slave";
                     int ping_sent = 0;
                     int pong_recv = 0;
                     int epoch = 0;
                     char *link_state = "connected";
 
-                    appendClusterNodeString(ret, sg->nodes[j].node_id, &sg->nodes[j].addr, flags, master, ping_sent,
+                    appendClusterNodeString(ret, sg->nodes[j].node_id, &sg->nodes[j].addr, flags, NULL, ping_sent,
                                             pong_recv, epoch, link_state, slots);
                 }
             }

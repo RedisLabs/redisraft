@@ -257,3 +257,19 @@ void joinLinkFreeCallback(void *privdata)
     NodeAddrListFree(state->addr);
     RedisModule_Free(state);
 }
+
+/*
+* Serializes `raft_node_t` into a string, output has to point to a buffer sized `RAFT_SHARDGROUP_NODEID_LEN+1`
+*/
+void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node)
+{
+    raftNodeIdToString(output, dbid, raft_node_get_id(raft_node));
+}
+
+/*
+ * Serializes `raft_node_id_t` into a string, output has to point to a buffer sized `RAFT_SHARDGROUP_NODEID_LEN+1`
+ */
+void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
+{
+    snprintf(output, RAFT_SHARDGROUP_NODEID_LEN+1, "%.32s%08x", dbid, raft_id);
+}

@@ -680,6 +680,8 @@ RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
+void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
+void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
