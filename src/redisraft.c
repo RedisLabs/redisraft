@@ -485,6 +485,10 @@ exit:
 
 static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
+    if (checkLeader(rr, ctx, NULL) == RR_ERROR) {
+        return;
+    }
+
     RaftReq * req;
     if ((req = cmdToMigrate(rr, ctx, cmd)) == NULL) {
         return;
