@@ -110,6 +110,11 @@ exit:
     FreeImportKeys(&import_keys);
 }
 
+/* RAFT.IMPORT <term> <session key> key0_name key0_serialization ... keyN_name keyN_serialization
+ * Imports the keys and their values while validating via term and session key that import is valid
+ * Reply:
+ *   +OK upon success
+ */
 int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
