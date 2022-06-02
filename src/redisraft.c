@@ -1575,6 +1575,10 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
+    if (RedisModule_CreateCommand(ctx, "raft.import",
+                                  cmdRaftImport, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
 
     if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
             &RedisRaftTypeMethods)) == NULL) {

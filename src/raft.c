@@ -29,7 +29,8 @@ const char *RaftReqTypeStr[] = {
     [RR_SHARDGROUP_ADD]       = "RR_SHARDGROUP_ADD",
     [RR_SHARDGROUPS_REPLACE]  = "RR_SHARDGROUPS_REPLACE",
     [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
-    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER"
+    [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER",
+    [RR_IMPORT_KEYS]          = "RR_IMPORT_KEYS",
 };
 
 /* Forward declarations */
@@ -738,6 +739,9 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_REPLACE_SHARDGROUPS:
             replaceShardGroups(rr, entry);
             break;
+        case RAFT_LOGTYPE_IMPORT_KEYS:
+            importKeys(rr, entry);
+            break;
         default:
             break;
     }
@@ -1368,6 +1372,21 @@ void RaftReqFree(RaftReq *req)
     if (req->type == RR_REDISCOMMAND) {
         if (req->r.redis.cmds.size) {
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
+        }
+    } else if (req->type == RR_IMPORT_KEYS) {
+        if (req->r.import_keys.key_names) {
+            for (size_t i = 0; i < req->r.import_keys.num_keys; i++) {
+                RedisModule_FreeString(req->ctx, req->r.import_keys.key_names[i]);
+            }
+            RedisModule_Free(req->r.import_keys.key_names);
+            req->r.import_keys.key_names = NULL;
+        }
+        if (req->r.import_keys.key_serialized) {
+            for (size_t i = 0; i < req->r.import_keys.num_keys; i++) {
+                RedisModule_FreeString(req->ctx, req->r.import_keys.key_serialized[i]);
+            }
+            RedisModule_Free(req->r.import_keys.key_serialized);
+            req->r.import_keys.key_serialized = NULL;
         }
     }
 

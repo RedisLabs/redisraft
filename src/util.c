@@ -399,3 +399,27 @@ void HandleAsking(RaftRedisCommandArray *cmds)
         cmds->commands[0]->argc--;
     }
 }
+
+void FreeImportKeys(ImportKeys *target)
+{
+    if (target->num_keys) {
+        if (target->key_names) {
+            for (size_t i = 0; i < target->num_keys; i++) {
+                if (target->key_names[i]) {
+                    RedisModule_FreeString(NULL, target->key_names[i]);
+                }
+            }
+            RedisModule_Free(target->key_names);
+            target->key_names = NULL;
+        }
+        if (target->key_serialized) {
+            for (size_t i = 0; i < target->num_keys; i++) {
+                if (target->key_serialized[i]) {
+                    RedisModule_FreeString(NULL, target->key_serialized[i]);
+                }
+            }
+            RedisModule_Free(target->key_serialized);
+            target->key_serialized = NULL;
+        }
+    }
+}

@@ -167,6 +167,7 @@ add_library(redisraft MODULE
         src/fsync.c
         src/join.c
         src/log.c
+        src/migrate.c
         src/multi.c
         src/node.c
         src/node_addr.c
@@ -174,6 +175,7 @@ add_library(redisraft MODULE
         src/raft.c
         src/redisraft.c
         src/serialization.c
+        src/serialization_utils.c
         src/snapshot.c
         src/sort.c
         src/threadpool.c
@@ -219,6 +221,7 @@ add_executable(main
         src/fsync.c
         src/join.c
         src/log.c
+        src/migrate.c
         src/multi.c
         src/node.c
         src/node_addr.c
@@ -226,6 +229,7 @@ add_executable(main
         src/raft.c
         src/redisraft.c
         src/serialization.c
+        src/serialization_utils.c
         src/snapshot.c
         src/sort.c
         src/threadpool.c
