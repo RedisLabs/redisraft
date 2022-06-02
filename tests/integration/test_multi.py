@@ -100,13 +100,13 @@ def test_multi_exec_state_cleanup(cluster):
     c2.send_command('MULTI')
     assert c2.read_response() == b'OK'
 
-    assert r1.info()['raft_clients_in_multi_state'] == 2
+    assert r1.info()['raft_clients_state_tracking'] == 3
 
     c1.disconnect()
     c2.disconnect()
 
     time.sleep(1)   # Not ideal
-    assert r1.info()['raft_clients_in_multi_state'] == 0
+    assert r1.info()['raft_clients_state_tracking'] == 1
 
 
 def test_multi_exec_proxying(cluster):
