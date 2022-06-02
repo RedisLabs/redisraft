@@ -338,7 +338,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftExecuteCommandArray(&redis_raft,req->ctx, req->ctx, &req->r.redis.cmds);
 
 exit:
     RaftReqFree(req);
@@ -404,53 +404,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-/* When sharding is enabled, handle sharding aspects before processing
- * the request:
- *
- * 1. Compute hash slot of all associated keys and validate there's no cross-slot
- *    violation.
- * 2. Update the request's hash_slot for future reference.
- * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
- * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
- */
-static RRStatus handleSharding(RedisRaftCtx *rr,
-                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
-{
-    int slot;
-
-    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
-        return RR_ERROR;
-    }
-
-    /* If command has no keys, continue */
-    if (slot == -1) {
-        return RR_OK;
-    }
-
-    /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
-    if (!sg) {
-        RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
-        return RR_ERROR;
-    }
-
-    /* If accessing a foreign shardgroup, issue a redirect. We use round-robin
-     * to all nodes to compensate for the fact we do not have an up-to-date knowledge
-     * of who the leader is and whether or not some configuration has changed since
-     * last refresh (when refresh is implemented, in the future).
-     */
-    if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num) {
-            sg->next_redir = 0;
-        }
-        replyRedirect(ctx, slot, &sg->nodes[sg->next_redir++].addr);
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-}
-
 static void handleRedisCommand(RedisRaftCtx *rr,
                                RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
@@ -473,14 +426,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,
      * joining or loading data.
      */
     if (checkRaftState(rr, ctx) == RR_ERROR) {
-        return;
-    }
-
-    /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary. We
-     * do this before checkLeader() to avoid multiple redirect hops.
-     */
-    if (rr->config->sharding && handleSharding(rr, ctx, cmds) != RR_OK) {
         return;
     }
 
@@ -526,7 +471,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
                 return;
             }
 
-            RaftExecuteCommandArray(ctx, ctx, cmds);
+            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
         }
         return;
     }

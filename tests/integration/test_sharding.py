@@ -15,6 +15,18 @@ def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
 
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789012',
+        '0', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        cluster.leader_node().info()['raft_dbid'],
+        '1', '1',
+        '0', '16383', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
     # -CROSSSLOT on multi-key cross slot violation
     with raises(ResponseError, match='CROSSSLOT'):
         c.mset({'key1': 'val1', 'key2': 'val2'})
@@ -51,13 +63,6 @@ def test_shard_group_sanity(cluster):
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
-
-    # Follower redirect straight to remote shardgroup to
-    # avoid another redirect hop.
-    cluster.wait_for_unanimity()
-    cluster.node(2).wait_for_log_applied()  # to get shardgroup
-    with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
-        cluster.node(2).client.set('key', 'value')
 
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
@@ -403,3 +408,82 @@ def test_shard_group_no_slots(cluster):
     splits = results[0].split(b" ")
     assert len(splits) == 9
     assert splits[8] == b""
+
+
+def test_shard_group_reshard_to_migrate(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value");
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    assert cluster.execute("get", "key") == b'value'
+
+    with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
+        cluster.execute("set", "key1", "value1")
+
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('set', 'key', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('set', '{key}key1', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('EXEC')
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
+    assert cluster.execute("del", "key") == 1
+
+    with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
+        cluster.execute("get", "key")
+
+
+def test_shard_group_reshard_to_import(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value");
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '1',
+        '0', '16383', '2',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
+        # can't use cluster.execute() as that will try to handle the MOVED response itself
+        cluster.leader_node().client.get("key")
+
+    assert cluster.execute("asking", "get", "key") == b'value'
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.execute("asking", "get", "key1")
+
+    assert cluster.execute("asking", "del", "key") == 1
+
+    with raises(ResponseError, match="TRYAGAIN"):
+        cluster.execute("asking", "get", "key")

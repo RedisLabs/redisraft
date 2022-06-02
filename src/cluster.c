@@ -870,6 +870,25 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
         sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL, username, password);
     }
 
+    if (!si->is_sharding) {
+        if (si->shard_groups_num != 1) {
+            si->is_sharding = true;
+        } else {
+            size_t key_len;
+            ShardGroup *sg;
+
+            RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+            RedisModule_DictNextC(iter, &key_len, (void **) &sg);
+            RedisModule_DictIteratorStop(iter);
+
+            if (!sg->local || sg->slot_ranges_num != 1 ||
+                sg->slot_ranges[0].start_slot != 0 || sg->slot_ranges[0].end_slot != 16383 ||
+                sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
+                si->is_sharding = true;
+            }
+        }
+    }
+
     return RR_OK;
 
 fail:
@@ -1143,6 +1162,8 @@ void ShardingInfoReset(RedisRaftCtx *rr)
         si->importing_slots_map[i] = NULL;
         si->migrating_slots_map[i] = NULL;
     }
+
+    si->is_sharding = false;
 }
 
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
