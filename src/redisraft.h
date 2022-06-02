@@ -882,3 +882,11 @@ uint64_t MultiClientStateCount(RedisRaftCtx *rr);
 void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
+
+/* serialization_utils.c */
+int calcIntSerializedLen(size_t val);
+int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val);
+int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val);
+size_t calcSerializeStringSize(RedisModuleString * str);
+int decodeString(const char *p, size_t sz, RedisModuleString **str);
+int encodeString(char *p, size_t sz, RedisModuleString * str);

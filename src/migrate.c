@@ -61,6 +61,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (!validSlotMagic(rr, slot, import_keys.magic)) {
+        LOG_DEBUG("ignoring import keys as incorrect migration session key");
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR invalid magic");
         }
@@ -68,8 +69,8 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (!validSlotTerm(rr, slot, import_keys.term)) {
-        // this is acceptable (suspended old leader
-        LOG_WARNING("ignoring import keys as old term");
+        // this is expected situation (suspended old leader)
+        LOG_DEBUG("ignoring import keys as old term");
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR invalid term");
         }

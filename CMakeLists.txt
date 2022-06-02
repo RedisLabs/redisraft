@@ -175,6 +175,7 @@ add_library(redisraft MODULE
         src/raft.c
         src/redisraft.c
         src/serialization.c
+        src/serialization_utils.c
         src/snapshot.c
         src/sort.c
         src/threadpool.c
@@ -228,6 +229,7 @@ add_executable(main
         src/raft.c
         src/redisraft.c
         src/serialization.c
+        src/serialization_utils.c
         src/snapshot.c
         src/sort.c
         src/threadpool.c
