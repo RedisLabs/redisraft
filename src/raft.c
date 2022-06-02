@@ -360,8 +360,6 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 }
 
-unsigned int keyHashSlot(RedisModuleString * str);
-
 static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
@@ -377,7 +375,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     for (size_t i = 0; i < num_keys; i++) {
         RedisModuleString * key = keys[i];
 
-        unsigned int thisslot = keyHashSlot(key);
+        unsigned int thisslot = keyHashSlotRedisString(key);
         if (slot == -1) {
             slot = (int) thisslot;
         } else {

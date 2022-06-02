@@ -1162,7 +1162,7 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
         for (int j = 0; j < num_keys; j++) {
             RedisModuleString *key = cmd->argv[keyindex[j]];
 
-            int thisslot = (int) keyHashSlot(key);
+            int thisslot = (int) keyHashSlotRedisString(key);
 
             if (*slot == -1) {
                 /* First key */

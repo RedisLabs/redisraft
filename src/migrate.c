@@ -51,7 +51,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(import_keys.num_keys > 0);
 
     // FIXME: validate no cross slot migration at append time
-    int slot = keyHashSlot(import_keys.key_names[0]);
+    int slot = keyHashSlotRedisString(import_keys.key_names[0]);
 
     if (!validSlot(rr, slot)) {
         if (req) {

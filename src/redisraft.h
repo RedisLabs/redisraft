@@ -775,7 +775,8 @@ void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void HandleAsking(RaftRedisCommandArray *cmds);
 void FreeImportKeys(ImportKeys *target);
-unsigned int keyHashSlot(RedisModuleString *s);
+unsigned int keyHashSlot(const char *key, size_t keylen);
+unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char * slots, char * string);
 
 /* log.c */

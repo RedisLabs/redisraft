@@ -433,11 +433,8 @@ void FreeImportKeys(ImportKeys *target) {
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(RedisModuleString *str) {
-    size_t keylen;
-    char * key = RedisModule_StringPtrLen(str, &keylen);
-
-    int s, e; /* start-end indexes of { and } */
+unsigned int keyHashSlot(const char *key, size_t keylen) {
+    size_t s, e; /* start-end indexes of { and } */
 
     for (s = 0; s < keylen; s++)
         if (key[s] == '{') break;
@@ -455,6 +452,13 @@ unsigned int keyHashSlot(RedisModuleString *str) {
     /* If we are here there is both a { and a } on its right. Hash
      * what is in the middle between { and }. */
     return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
+}
+
+unsigned int keyHashSlotRedisString(RedisModuleString *str) {
+    size_t keylen;
+    const char *key = RedisModule_StringPtrLen(str, &keylen);
+
+    return keyHashSlot(key, keylen);
 }
 
 RRStatus parseHashSlots(char * slots, char * string)
