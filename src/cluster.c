@@ -44,6 +44,14 @@ unsigned int keyHashSlot(const char *key, int keylen) {
     return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
 }
 
+unsigned int KeyHashSlotRedisString(RedisModuleString *s)
+{
+    size_t key_len;
+    const char *key_str = RedisModule_StringPtrLen(s, &key_len);
+    return keyHashSlot(key_str, (int) key_len);
+}
+
+
 /* -----------------------------------------------------------------------------
  * ShardGroup Handling
  * -------------------------------------------------------------------------- */
@@ -845,13 +853,23 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         for (unsigned int j = sg->slot_ranges[i].start_slot; j <= sg->slot_ranges[i].end_slot; j++) {
             switch (sg->slot_ranges[i].type) {
+                /* we only reset max_importing_term when we aren't in an importing state (i.e. stable/migrating).
+                 * this is because when importing, we might have previously been importing and want to keep the same
+                 * value
+                 */
                 case SLOTRANGE_TYPE_STABLE:
+                    if (sg->local) {
+                        si->max_importing_term[j] = 0;
+                    }
                     si->stable_slots_map[j] = sg;
                     break;
                 case SLOTRANGE_TYPE_IMPORTING:
                     si->importing_slots_map[j] = sg;
                     break;
                 case SLOTRANGE_TYPE_MIGRATING:
+                    if (sg->local) {
+                        si->max_importing_term[j] = 0;
+                    }
                     si->migrating_slots_map[j] = sg;
                     break;
                 default:

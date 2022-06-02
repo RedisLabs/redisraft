@@ -461,6 +461,7 @@ enum RaftReqType {
     RR_SHARDGROUPS_REPLACE,
     RR_SHARDGROUP_LINK,
     RR_TRANSFER_LEADER,
+    RR_IMPORT_KEYS,
     RR_RAFTREQ_MAX
 };
 
@@ -514,6 +515,7 @@ typedef struct ShardGroupSlotRange {
     unsigned int start_slot; /* First slot, inclusive */
     unsigned int end_slot;   /* Last slot, inclusive */
     enum SlotRangeType type; /* type of slot range, normal, importing, exporting */
+    long long magic;               /* used for validating imports are consistent */
 } ShardGroupSlotRange;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
@@ -543,6 +545,7 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
 #define RAFT_LOGTYPE_UPDATE_SHARDGROUP   (RAFT_LOGTYPE_NUM+2)
 #define RAFT_LOGTYPE_REPLACE_SHARDGROUPS (RAFT_LOGTYPE_NUM+3)
+#define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM+6)
 
 /* Sharding information, used when cluster_mode is enabled and multiple
  * RedisRaft clusters operate together to perform sharding.
@@ -561,7 +564,17 @@ typedef struct ShardingInfo {
     ShardGroup *stable_slots_map[REDIS_RAFT_HASH_SLOTS];
     ShardGroup *importing_slots_map[REDIS_RAFT_HASH_SLOTS];
     ShardGroup *migrating_slots_map[REDIS_RAFT_HASH_SLOTS];
+
+    raft_term_t max_importing_term[REDIS_RAFT_HASH_SLOTS];
 } ShardingInfo;
+
+typedef struct {
+    raft_term_t term;
+    long long magic;
+    size_t num_keys;
+    RedisModuleString **key_names;
+    RedisModuleString **key_serialized;
+} ImportKeys;
 
 typedef struct RaftReq {
     int type;
@@ -578,6 +591,7 @@ typedef struct RaftReq {
             int fail;
             int delay;
         } debug;
+        ImportKeys import_keys;
     } r;
 } RaftReq;
 
@@ -707,6 +721,8 @@ void RaftRedisCommandArrayFree(RaftRedisCommandArray *array);
 void RaftRedisCommandFree(RaftRedisCommand *r);
 RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target);
 void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandArray *source);
+raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys);
+RRStatus RaftRedisDeserializeImport(ImportKeys * target, const void *buf, size_t buf_size);
 
 /* raft.c */
 RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config);
@@ -738,6 +754,7 @@ RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void HandleAsking(RaftRedisCommandArray *cmds);
+void FreeImportKeys(ImportKeys *target);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -843,9 +860,15 @@ void ShardGroupLink(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **a
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void ShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void ShardGroupReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+unsigned int KeyHashSlotRedisString(RedisModuleString *s);
 
 /* join.c */
 void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req, void (*complete_callback)(RaftReq *req));
+
+/* migrate.c */
+void importKeys(RedisRaftCtx *rr, raft_entry_t *entry);
+int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 
 /* commands.c */
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
@@ -861,3 +884,11 @@ uint64_t MultiClientStateCount(RedisRaftCtx *rr);
 void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
+
+/* serialization_utils.c */
+int calcIntSerializedLen(size_t val);
+int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val);
+int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val);
+size_t calcSerializeStringSize(RedisModuleString * str);
+int decodeString(const char *p, size_t sz, RedisModuleString **str);
+int encodeString(char *p, size_t sz, RedisModuleString * str);
