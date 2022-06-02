@@ -496,13 +496,13 @@ typedef struct ShardGroupNode {
  * but excluding nodes and shard groups */
 #define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
 
-enum SlotRangeType {
+typedef enum SlotRangeType {
     SLOTRANGE_TYPE_UNDEF = 0,
     SLOTRANGE_TYPE_STABLE,
     SLOTRANGE_TYPE_IMPORTING,
     SLOTRANGE_TYPE_MIGRATING,
     SLOTRANGE_TYPE_MAX
-};
+} SlotRangeType;
 
 static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
     return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);
@@ -550,6 +550,7 @@ typedef struct ShardGroup {
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
     RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
+    bool is_sharding;                    /* set when we are in a sharding mode */
 
     /* Maps hash slots to ShardGroups indexes.
      *
@@ -683,6 +684,7 @@ void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
@@ -711,7 +713,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
-void RaftExecuteCommandArray(RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *array);
+void RaftExecuteCommandArray(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);

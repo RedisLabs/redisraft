@@ -70,6 +70,20 @@ void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
     RedisModule_ReplyWithError(ctx, buf);
 }
 
+/* Create a -ASK reply. */
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot)
+{
+    ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
+    if (!sg) {
+        RedisModule_ReplyWithError(ctx, "ERR no importing shard group to ask");
+        return;
+    }
+
+    char buf[sizeof(sg->nodes[0].addr.host) + 256];
+    snprintf(buf, sizeof(buf), "ASK %d %s:%u", slot, sg->nodes[0].addr.host, sg->nodes[0].addr.port);
+    RedisModule_ReplyWithError(ctx, buf);
+}
+
 static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
 
 /* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
