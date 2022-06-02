@@ -420,6 +420,7 @@ typedef struct RedisRaftConfig {
     char *tls_key_pass;
     char *cluster_user;                 /* acl user to use for internode communication */
     char *cluster_password;             /* password used for internode communication */
+    char *scan_size;                    /* how many keys to fetch at a time internally for raft.scan */
 } RedisRaftConfig;
 
 typedef struct PendingResponse {
@@ -774,6 +775,9 @@ void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void HandleAsking(RaftRedisCommandArray *cmds);
 void FreeImportKeys(ImportKeys *target);
+unsigned int keyHashSlot(const char *key, size_t keylen);
+unsigned int keyHashSlotRedisString(RedisModuleString *s);
+RRStatus parseHashSlots(char * slots, char * string);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -879,7 +883,6 @@ void ShardGroupLink(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **a
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void ShardGroupAdd(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void ShardGroupReplace(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-unsigned int keyHashSlot(RedisModuleString *s);
 ShardGroup *getShardGroupById(RedisRaftCtx *rr, const char *id);
 
 /* join.c */
