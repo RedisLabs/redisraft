@@ -31,6 +31,8 @@ const char *RaftReqTypeStr[] = {
     [RR_SHARDGROUP_LINK]      = "RR_SHARDGROUP_LINK",
     [RR_TRANSFER_LEADER]      = "RR_TRANSFER_LEADER",
     [RR_IMPORT_KEYS]          = "RR_IMPORT_KEYS",
+    [RR_MIGRATE_KEYS]         = "RR_MIGRATE_KEYS",
+    [RR_DELETE_UNLOCK_KEYS]   = "RR_DELETE_UNLOCK_KEYS",
 };
 
 /* Forward declarations */
@@ -355,6 +357,129 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         if (reply) {
             RedisModule_FreeCallReply(reply);
         }
+    }
+}
+
+unsigned int keyHashSlot(RedisModuleString * str);
+
+static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
+
+    RaftReq *req = entry->user_data;
+
+    /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
+    size_t num_keys;
+    RedisModuleString ** keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
+
+    /* sanity check keys all belong to same slot */
+    int slot = -1;
+    for (size_t i = 0; i < num_keys; i++) {
+        RedisModuleString * key = keys[i];
+
+        unsigned int thisslot = keyHashSlot(key);
+        if (slot == -1) {
+            slot = (int) thisslot;
+        } else {
+            if (slot != (int) thisslot) {
+                if (req) {
+                    replyCrossSlot(req->ctx);
+                }
+                goto error;
+            }
+        }
+    }
+
+    if (slot == -1) { /* should be impossible, as keys should be listed up front */
+        if (req) {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
+        goto error;
+    }
+
+    ShardingInfo *si = rr->sharding_info;
+    if (!si->migrating_slots_map[slot]) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR keys are not migratable");
+        }
+        goto error;
+    }
+
+    if (!si->migrating_slots_map[slot]->local) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR This RedisRaft cluster doesn't own these keys");
+        }
+        goto error;
+    }
+
+    if (!si->importing_slots_map[slot]) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR no RedisRaft cluster to import keys into");
+        }
+        goto error;
+    }
+
+    if (!si->importing_slots_map[slot]->local) {
+        if (req) {
+            RedisModule_ReplyWithError(req->ctx, "ERR trying to import keys into self RedisCluster");
+        }
+        goto error;
+    }
+
+    for (size_t i = 0; i < num_keys; i++) {
+        if (RedisModule_KeyExists(rr->ctx, keys[i])) {
+/*            size_t str_len;
+            const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
+            LOG_WARNING("locking %.*s", (int) str_len, str);
+*/
+            RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
+        }
+    }
+
+    if (req) {
+        memcpy(req->r.migrate_keys.shardGroupId, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
+        MigrateKeys(rr, req);
+    }
+    goto exit;
+
+error:
+    if (req) {
+        RaftReqFree(req);
+    }
+
+exit:
+    for (size_t i = 0; i < num_keys; i++) {
+        RedisModule_FreeString(rr->ctx, keys[i]);
+    }
+    RedisModule_Free(keys);
+}
+
+static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
+
+    RaftReq *req = entry->user_data;
+
+    size_t num_keys;
+    RedisModuleString ** keys;
+
+    keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
+
+    enterRedisModuleCall();
+    RedisModuleCallReply *reply;
+    RedisModule_Assert((reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys)) != NULL);
+    exitRedisModuleCall();
+    RedisModule_FreeCallReply(reply);
+
+    for (size_t i = 0; i < num_keys; i++) {
+        RedisModule_DictDel(rr->locked_keys, keys[i], NULL);
+        RedisModule_FreeString(rr->ctx, keys[i]);
+    }
+    RedisModule_Free(keys);
+
+    if (req) {
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
     }
 }
 
@@ -741,6 +866,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_IMPORT_KEYS:
             importKeys(rr, entry);
+            break;
+        case RAFT_LOGTYPE_LOCK_KEYS:
+            lockKeys(rr, entry);
+            break;
+        case RAFT_LOGTYPE_DELETE_UNLOCK_KEYS:
+            unlockDeleteKeys(rr, entry);
             break;
         default:
             break;
@@ -1353,6 +1484,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
     threadPoolInit(&rr->thread_pool, 5);
 
+    rr->locked_keys = RedisModule_CreateDict(ctx);
+
     return RR_OK;
 }
 
@@ -1387,6 +1520,23 @@ void RaftReqFree(RaftReq *req)
             }
             RedisModule_Free(req->r.import_keys.key_serialized);
             req->r.import_keys.key_serialized = NULL;
+        }
+    } else if (req->type == RR_MIGRATE_KEYS) {
+        if (req->r.migrate_keys.keys) {
+            for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
+                RedisModule_FreeString(req->ctx, req->r.migrate_keys.keys[i]);
+            }
+            RedisModule_Free(req->r.migrate_keys.keys);
+            req->r.migrate_keys.keys = NULL;
+        }
+        if (req->r.migrate_keys.keys_serialized) {
+            for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
+                if (req->r.migrate_keys.keys_serialized[i] != NULL) {
+                    RedisModule_FreeString(req->ctx, req->r.migrate_keys.keys_serialized[i]);
+                }
+            }
+            RedisModule_Free(req->r.migrate_keys.keys_serialized);
+            req->r.migrate_keys.keys_serialized = NULL;
         }
     }
 

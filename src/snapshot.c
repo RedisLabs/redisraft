@@ -593,6 +593,17 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
 RedisModuleType *RedisRaftType = NULL;
 
+void LockedKeysRDBLoad(RedisModuleIO *rdb)
+{
+    size_t count = RedisModule_LoadUnsigned(rdb);
+
+    for (size_t i = 0; i < count; i++) {
+        RedisModuleString * key = RedisModule_LoadString(rdb);
+        RedisModule_DictSet(redis_raft.locked_keys, key, NULL);
+        RedisModule_FreeString(NULL, key);
+    }
+}
+
 static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
 {
     size_t len;
@@ -664,8 +675,29 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
     /* Load ShardingInfo */
     ShardingInfoRDBLoad(rdb);
 
+    /* Load locked_keys dict */
+    LockedKeysRDBLoad(rdb);
+
     info->loaded = true;
     return REDISMODULE_OK;
+}
+
+void LockedKeysRDBSave(RedisModuleIO *rdb)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RedisModuleDict * dict = rr->locked_keys;
+
+    RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(dict));
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
+
+    const char *key;
+    size_t key_len;
+
+    while ((key = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
+        RedisModule_SaveStringBuffer(rdb, key, key_len);
+    }
+    RedisModule_DictIteratorStop(iter);
 }
 
 static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
@@ -705,6 +737,9 @@ static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
 
     /* Save ShardingInfo */
     ShardingInfoRDBSave(rdb);
+
+    /* Save LockedKeys dict */
+    LockedKeysRDBSave(rdb);
 }
 
 /* Do nothing -- AOF should never be used with RedisRaft, but we have to specify
