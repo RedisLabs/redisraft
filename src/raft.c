@@ -1452,8 +1452,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
     }
 
     /* Client state for MULTI/ASKING support */
-    rr->multi_client_state = RedisModule_CreateDict(ctx);
-    rr->asking_client_state = RedisModule_CreateDict(ctx);
+    rr->client_state = RedisModule_CreateDict(ctx);
 
     /* Read configuration from Redis */
     if (ConfigReadFromRedis(rr) == RR_ERROR) {

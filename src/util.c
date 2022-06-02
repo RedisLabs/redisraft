@@ -501,3 +501,33 @@ exit:
     RedisModule_Free(string);
     return ret;
 }
+
+ClientState * GetClientState(RedisRaftCtx *rr, RedisModuleCtx * ctx)
+{
+    unsigned long long client_id = RedisModule_GetClientId(ctx);
+    return RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
+}
+
+uint64_t ClientStateCount(RedisRaftCtx *rr)
+{
+    return RedisModule_DictSize(rr->client_state);
+}
+
+void AllocClientState(RedisRaftCtx *rr, unsigned long long client_id)
+{
+    ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);
+    RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
+}
+
+void FreeClientState(RedisRaftCtx *rr, unsigned long long client_id)
+{
+    ClientState *state = NULL;
+
+    if (RedisModule_DictDelC(rr->client_state, &client_id,
+                             sizeof(client_id), &state) == REDISMODULE_OK) {
+        if (state) {
+            RaftRedisCommandArrayFree(&state->multiState.cmds);
+            RedisModule_Free(state);
+        }
+    }
+}

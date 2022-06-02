@@ -569,8 +569,15 @@ static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
         return false;
     }
 
-    unsigned long long client_id = RedisModule_GetClientId(ctx);
-    RedisModule_DictSetC(rr->asking_client_state, &client_id, sizeof(client_id), (void *) 1);
+    Node *ret;
+    if (checkLeader(rr, ctx, &ret) == RR_ERROR) {
+        /* change to replyAsk once that's committed */
+        replyRedirect(ctx, -1, &ret->addr);
+        return true;
+    }
+
+    ClientState *clientState = GetClientState(rr, ctx);
+    clientState->asking = true;
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -579,8 +586,8 @@ static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
 
 static bool GetAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    unsigned long long client_id = RedisModule_GetClientId(ctx);
-    return RedisModule_DictGetC(rr->asking_client_state, &client_id, sizeof(client_id), NULL);
+    ClientState *clientState = GetClientState(rr, ctx);
+    return clientState->asking;
 }
 
 static void handleRedisCommand(RedisRaftCtx *rr,
@@ -1625,7 +1632,7 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
 #endif
 }
 
-void handleClientDisconnectEvent(RedisModuleCtx *ctx,
+void handleClientEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
     (void) ctx;
@@ -1633,11 +1640,15 @@ void handleClientDisconnectEvent(RedisModuleCtx *ctx,
     RedisRaftCtx *rr = &redis_raft;
     RedisModuleClientInfo *ci = data;
 
-    if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
-        subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
-
-        MultiFreeClientState(rr, ci->id);
-        RedisModule_DictDelC(rr->asking_client_state, &(ci->id), sizeof(ci->id), NULL);
+    if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE) {
+        switch (subevent) {
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
+                FreeClientState(rr, ci->id);
+                break;
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED:
+                AllocClientState(rr, ci->id);
+                break;
+        }
     }
 }
 
@@ -1763,7 +1774,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
 
     RedisModule_InfoAddSection(ctx, "clients");
-    RedisModule_InfoAddFieldULongLong(ctx, "clients_in_multi_state", MultiClientStateCount(rr));
+    RedisModule_InfoAddFieldULongLong(ctx, "clients_state_tracking", ClientStateCount(rr));
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_reqs", rr->proxy_failed_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_responses", rr->proxy_failed_responses);
@@ -1968,7 +1979,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
-                handleClientDisconnectEvent) != REDISMODULE_OK) {
+                handleClientEvent) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }

@@ -336,8 +336,7 @@ typedef struct RedisRaftCtx {
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
 
-    RedisModuleDict *multi_client_state;         /* A dict that tracks multi state of the clients */
-    RedisModuleDict *asking_client_state;        /* A dict that tracks if a client is in an asking state */
+    RedisModuleDict *client_state;               /* A dict that tracks different client states */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -702,6 +701,17 @@ typedef struct JoinLinkState {
     void (*complete_callback)(RaftReq *req);
 } JoinLinkState;
 
+typedef struct MultiState {
+    RaftRedisCommandArray cmds;
+    bool active;
+    bool error;
+} MultiState;
+
+typedef struct ClientState {
+    MultiState multiState;
+    bool asking;
+} ClientState;
+
 /* common.c */
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
@@ -780,6 +790,10 @@ void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char * slots, char * string);
+ClientState * GetClientState(RedisRaftCtx *rr, RedisModuleCtx * ctx);
+uint64_t ClientStateCount(RedisRaftCtx *rr);
+void AllocClientState(RedisRaftCtx *rr, unsigned long long client_id);
+void FreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -904,9 +918,6 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* multi.c */
-void MultiInitClientState(RedisRaftCtx *rr);
-uint64_t MultiClientStateCount(RedisRaftCtx *rr);
-void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
 
