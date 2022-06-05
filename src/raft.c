@@ -1052,6 +1052,11 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 {
     raft_node_t *node;
 
+    raft_set_heap_functions(RedisModule_Alloc,
+                            RedisModule_Calloc,
+                            RedisModule_Realloc,
+                            RedisModule_Free);
+
     rr->raft = raft_new_with_log(&RaftLogImpl, rr);
     if (!rr->raft) {
         PANIC("Failed to initialize Raft library");

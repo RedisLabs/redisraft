@@ -1723,11 +1723,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    raft_set_heap_functions(RedisModule_Alloc,
-                            RedisModule_Calloc,
-                            RedisModule_Realloc,
-                            RedisModule_Free);
-
     if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
