@@ -133,7 +133,7 @@ resource "null_resource" "instances_yml" {
 
 # Run Ansible to deploy cluster and control nodes
 resource "null_resource" "ansible" {
-  depends_on = ["aws_instance.control", "aws_instance.node"]
+  depends_on = [aws_instance.control, aws_instance.node]
   provisioner "local-exec" {
     command = "ansible-playbook --extra-vars @ansible/instances.yml ansible/site.yml"
   }
