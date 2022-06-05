@@ -7,8 +7,9 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 
 import time
-from pytest import raises, skip
+from pytest import raises
 from redis.exceptions import ExecAbortError, ResponseError
+
 
 class RawConnection(object):
     """
@@ -23,6 +24,7 @@ class RawConnection(object):
     def execute(self, *cmd):
         self._conn.send_command(*cmd)
         return self._conn.read_response()
+
 
 def test_multi_exec_invalid_use(cluster):
     r1 = cluster.add_node()

@@ -8,6 +8,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import random
 import string
 
+
 def test_hash_deterministic_order(cluster):
     """
     Make sure hash keys maintain a deterministic order. We use Lua to

@@ -187,7 +187,7 @@ def test_stability_with_snapshots_and_restarts(cluster, workload):
 
     # Monitor progress
     start = time.time()
-    last_commit_index = 0
+
     while start + duration > time.time():
         time.sleep(2)
         cluster.random_node().restart()

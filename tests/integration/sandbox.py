@@ -21,8 +21,10 @@ import redis
 
 LOG = logging.getLogger('sandbox')
 
+
 class RedisRaftSanitizer(Exception):
     pass
+
 
 class RedisRaftError(Exception):
     pass
@@ -114,14 +116,14 @@ class RedisRaft(object):
                 raft_args[defkey] = defval
 
         self.raft_args = [str(x) for x in
-            itertools.chain.from_iterable(raft_args.items())]
+                          itertools.chain.from_iterable(raft_args.items())]
 
         self.client = redis.Redis(host='localhost', port=self.port,
                                   password=password,
-                                  ssl = config.tls,
-                                  ssl_certfile = self.cert,
-                                  ssl_keyfile = self.key,
-                                  ssl_ca_certs = self.cacert)
+                                  ssl=config.tls,
+                                  ssl_certfile=self.cert,
+                                  ssl_keyfile=self.key,
+                                  ssl_ca_certs=self.cacert)
 
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
@@ -193,14 +195,18 @@ class RedisRaft(object):
             extra_raft_args = []
         args = [self.executable] + self.args + self.raft_args + extra_raft_args
         logging.info("starting node: args = {}".format(args))
+
         self.process = subprocess.Popen(
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             executable=self.executable,
             args=args)
+
         self.stdout = PipeLogger(self.process.stdout,
-                                 'c{}/n{}/stdout'.format(self.cluster_id, self.id))
+                                 'c{}/n{}/stdout'.format(self.cluster_id,
+                                                         self.id))
         self.stderr = PipeLogger(self.process.stderr,
-                                 'c{}/n{}/stderr'.format(self.cluster_id, self.id))
+                                 'c{}/n{}/stderr'.format(self.cluster_id,
+                                                         self.id))
 
         if not verify:
             return
@@ -299,6 +305,9 @@ class RedisRaft(object):
     def cleanup(self):
         if not self.keepfiles:
             shutil.rmtree(self.serverdir, ignore_errors=True)
+
+    def execute(self, *cmd):
+        return self.client.execute_command(*cmd)
 
     def raft_config_set(self, key, val):
         return self.client.execute_command('raft.config', 'set', key, val)
@@ -532,8 +541,8 @@ class Cluster(object):
             port = self.base_port + _id
         node = None
         try:
-            node = RedisRaft(_id, port, self.config, redis_args, raft_args=_raft_args,
-                **kwargs)
+            node = RedisRaft(_id, port, self.config, redis_args,
+                             raft_args=_raft_args, **kwargs)
             if cluster_setup:
                 if self.nodes:
                     if join_addr_list is None:
@@ -641,7 +650,7 @@ class Cluster(object):
                     if no_leader_first:
                         LOG.info("-CLUSTERDOWN response received, will retry"
                                  " for %s seconds", self.noleader_timeout)
-                        #no_leader_first = False
+                        # no_leader_first = False
                     time.sleep(0.5)
                 else:
                     raise

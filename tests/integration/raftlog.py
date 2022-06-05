@@ -84,11 +84,11 @@ class LogHeader(RawEntry):
 
     def __str__(self):
         return '#### node_id={} dbid={} version={}\n' \
-        '        #### snapshot-term={} snapshot-index={}'.format(
-            self.node_id().decode(encoding='ascii'),
-            self.dbid().decode(encoding='ascii'),
-            self.version(),
-            self.snapshot_term(), self.snapshot_index())
+               '#### snapshot-term={} snapshot-index={}'.format(
+                self.node_id().decode(encoding='ascii'),
+                self.dbid().decode(encoding='ascii'),
+                self.version(),
+                self.snapshot_term(), self.snapshot_index())
 
 
 class LogEntry(RawEntry):
@@ -128,18 +128,18 @@ class LogEntry(RawEntry):
         return '<ShardGroup:slots=%s-%s,nodes=%s>' % (
             hdr[0], hdr[1],
             ','.join(['<id={},addr={}:{}'.format(*e.split(':'))
-                 for e in data_lines[1:] if len(e) > 0]))
+                      for e in data_lines[1:] if len(e) > 0]))
 
     @staticmethod
     def parse_cmdlist(data):
         cmds = []
         cmd_count = int(data[0][1:])
-        i = 1
+        idx = 1
         for _ in range(cmd_count):
-            args_count = int(data[i][1:])
-            i_end = i + 1 + (args_count)*2
-            cmds.append(' '.join(data[i+2:i_end:2]))
-            i = i_end
+            args_count = int(data[idx][1:])
+            i_end = idx + 1 + args_count * 2
+            cmds.append(' '.join(data[idx + 2:i_end:2]))
+            idx = i_end
         return '|'.join(cmds)
 
     def data(self, decode=False):
@@ -178,10 +178,10 @@ class RaftLog(object):
     def read(self):
         while True:
             try:
-                entry = RawEntry.from_file(self.logfile)
+                ety = RawEntry.from_file(self.logfile)
             except EOFError:
                 break
-            self.entries.append(entry)
+            self.entries.append(ety)
         self.dump()
 
     def header(self):
@@ -192,17 +192,17 @@ class RaftLog(object):
 
     def entry_count(self, _type=None):
         count = 0
-        for entry in self.entries:
-            if not isinstance(entry, LogEntry):
+        for ety in self.entries:
+            if not isinstance(ety, LogEntry):
                 continue
-            if _type is None or _type == entry.type():
+            if _type is None or _type == ety.type():
                 count += 1
         return count
 
     def dump(self):
         logging.info('===== Begin Raft Log Dump =====')
-        for entry in self.entries:
-            logging.info(repr(entry))
+        for ety in self.entries:
+            logging.info(repr(ety))
         logging.info('===== End Raft Log Dump =====')
 
 

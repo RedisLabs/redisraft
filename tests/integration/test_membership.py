@@ -10,7 +10,6 @@ import time
 from threading import Thread
 import pytest
 from pytest import raises
-from .sandbox import RedisRaftTimeout
 from redis import ResponseError, RedisError
 
 logger = logging.getLogger("integration")
@@ -133,7 +132,8 @@ def test_full_cluster_remove(cluster):
     # remove the leader node finally
     try:
         leader.client.execute_command('RAFT.NODE', 'REMOVE', leader.id)
-    except:
+    except Exception as e:
+        logger.info('RAFT.NODE REMOVE throws ' + str(e))
         pass
 
     # wait some time for the last node
@@ -167,8 +167,10 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
         n.restart()
 
     for node in cluster.nodes.values():
-        used_node_ids = node.client.execute_command('RAFT.DEBUG', 'USED_NODE_IDS')
-        assert set(used_node_ids) == set(node_ids), "Wrong used_node_ids for node {}".format(node.id)
+        used_node_ids = node.client.execute_command('RAFT.DEBUG',
+                                                    'USED_NODE_IDS')
+        assert set(used_node_ids) == set(node_ids), \
+            "Wrong used_node_ids for node {}".format(node.id)
 
     if use_snapshot:
         cluster.wait_for_unanimity()
@@ -183,12 +185,10 @@ def test_remove_and_rejoin_node_with_same_id_fails(cluster, use_snapshot):
 
     logger.info("Re-add node")
     with raises(ResponseError, match='failed to connect to cluster for join'):
-        new_node = cluster.add_node(port=port, node_id=node_id, single_run=True)
+        cluster.add_node(port=port, node_id=node_id, single_run=True)
 
 
 def test_node_history_with_same_address(cluster):
-    ""
-    ""
     cluster.create(5)
     cluster.execute("INCR", "step-counter")
 
@@ -234,9 +234,12 @@ def test_node_history_with_same_address(cluster):
 def test_update_self_voting_state_from_snapshot(cluster):
     cluster.create(3)
 
-    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'NODECFG', '2', '-voting') == b'OK'
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'NODECFG',
+                                                  '2', '-voting') == b'OK'
     assert cluster.node(2).info()['raft_is_voting'] == 'yes'
-    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    assert cluster.node(1).client.execute_command('RAFT.DEBUG',
+                                                  'COMPACT') == b'OK'
 
     cluster.node(1).client.execute_command('RAFT.DEBUG', 'SENDSNAPSHOT', '2')
     cluster.node(2).wait_for_info_param('raft_snapshots_loaded', 1)
@@ -319,4 +322,3 @@ def test_nodeshutdown_wrong_id(cluster):
 
     with raises(ResponseError, match='invalid node id'):
         cluster.node(1).client.execute_command('RAFT.NODESHUTDOWN', 51423122)
-
