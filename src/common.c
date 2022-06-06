@@ -61,6 +61,28 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
     }
 }
 
+/* Try to produce an error message which is similar to Redis */
+void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len)
+{
+    char buf[1024];
+    const char *msg;
+
+    switch (err) {
+        case ENOENT:
+            msg = "ERR unknown command `%.*s`";
+            break;
+        case EINVAL:
+            msg = "ERR wrong number of arguments for '%.*s' command";
+            break;
+        default:
+            msg = "ERR failed to execute command '%.*s'";
+            break;
+    }
+
+    snprintf(buf, sizeof(buf), msg, (int) len, cmd);
+    RedisModule_ReplyWithError(ctx, buf);
+}
+
 /* Create a -MOVED reply. */
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
 {

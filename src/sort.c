@@ -155,7 +155,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     redis_raft.entered_eval = entered_eval;
 
     if (!reply) {
-        handleRMCallError(ctx, errno, cmd_str, cmd_len);
+        replyRMCallError(ctx, errno, cmd_str, cmd_len);
     } else {
         int reply_type = RedisModule_CallReplyType(reply);
         switch (reply_type) {

@@ -124,9 +124,10 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
                              RedisModuleCtx *reply_ctx,
                              RaftRedisCommandArray *array)
 {
-    int i;
+    RedisRaftCtx *rr = &redis_raft;
+    RedisModuleCallReply *reply;
 
-    for (i = 0; i < array->len; i++) {
+    for (int i = 0; i < array->len; i++) {
         RaftRedisCommand *c = array->commands[i];
 
         size_t cmdlen;
@@ -145,27 +146,27 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
             continue;
         }
 
-        enterRedisModuleCall();
-        int eval = 0;
-        int old_entered_eval = 0;
-        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
-            old_entered_eval = redis_raft.entered_eval;
-            eval = 1;
-            redis_raft.entered_eval = 1;
+        int old_entered_eval = rr->entered_eval;
+
+        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) ||
+            (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            rr->entered_eval = 1;
         }
-        RedisModuleCallReply *reply = RedisModule_Call(
-                ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
+
+        enterRedisModuleCall();
+        reply = RedisModule_Call(ctx, cmd,
+                                 rr->resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
-        if (eval) {
-            redis_raft.entered_eval = old_entered_eval;
-        }
+
+        rr->entered_eval = old_entered_eval;
+
 
         if (reply_ctx) {
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
+                replyRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 
