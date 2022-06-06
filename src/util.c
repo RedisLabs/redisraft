@@ -516,18 +516,18 @@ uint64_t ClientStatesCount(RedisRaftCtx *rr)
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id)
 {
     ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);
-    RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
+    int ret = RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
+    RedisModule_Assert(ret == REDISMODULE_OK);
 }
 
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
 {
     ClientState *state = NULL;
 
-    if (RedisModule_DictDelC(rr->client_state, &client_id,
-                             sizeof(client_id), &state) == REDISMODULE_OK) {
-        if (state) {
-            ResetMultiClientState(state);
-            RedisModule_Free(state);
-        }
-    }
+    int ret = RedisModule_DictDelC(rr->client_state, &client_id, sizeof(client_id), &state);
+    RedisModule_Assert(ret == REDISMODULE_OK && state != NULL);
+
+    /* validated that state is not NULL above in the RM_Assert */
+    ResetMultiClientState(state);
+    RedisModule_Free(state);
 }
