@@ -576,7 +576,7 @@ static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
         return true;
     }
 
-    ClientState *clientState = GetClientState(rr, ctx);
+    ClientState *clientState = ClientStateGet(rr, ctx);
     clientState->asking = true;
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -586,7 +586,7 @@ static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
 
 static bool GetAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    ClientState *clientState = GetClientState(rr, ctx);
+    ClientState *clientState = ClientStateGet(rr, ctx);
     return clientState->asking;
 }
 
@@ -1643,10 +1643,10 @@ void handleClientEvent(RedisModuleCtx *ctx,
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE) {
         switch (subevent) {
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
-                FreeClientState(rr, ci->id);
+                ClientStateFree(rr, ci->id);
                 break;
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED:
-                AllocClientState(rr, ci->id);
+                ClientStateAlloc(rr, ci->id);
                 break;
         }
     }
@@ -1774,7 +1774,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
 
     RedisModule_InfoAddSection(ctx, "clients");
-    RedisModule_InfoAddFieldULongLong(ctx, "clients_state_tracking", ClientStateCount(rr));
+    RedisModule_InfoAddFieldULongLong(ctx, "clients_state_tracking", ClientStatesCount(rr));
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_reqs", rr->proxy_failed_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_responses", rr->proxy_failed_responses);

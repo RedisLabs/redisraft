@@ -708,7 +708,7 @@ typedef struct MultiState {
 } MultiState;
 
 typedef struct ClientState {
-    MultiState multiState;
+    MultiState multi_state;
     bool asking;
 } ClientState;
 
@@ -790,10 +790,10 @@ void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char * slots, char * string);
-ClientState * GetClientState(RedisRaftCtx *rr, RedisModuleCtx * ctx);
-uint64_t ClientStateCount(RedisRaftCtx *rr);
-void AllocClientState(RedisRaftCtx *rr, unsigned long long client_id);
-void FreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
+ClientState * ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx * ctx);
+uint64_t ClientStatesCount(RedisRaftCtx *rr);
+void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
+void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -918,6 +918,7 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* multi.c */
+void ResetMultiClientState(ClientState * clientState);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
 
