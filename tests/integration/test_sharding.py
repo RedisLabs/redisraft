@@ -396,7 +396,6 @@ def test_shard_group_refresh(cluster_factory):
     assert_after(check_slots, 10)
 
 
-
 def test_shard_group_no_slots(cluster):
     cluster.create(3, raft_args={
         'sharding': 'yes',
@@ -479,12 +478,20 @@ def test_shard_group_reshard_to_import(cluster):
         # can't use cluster.execute() as that will try to handle the MOVED response itself
         cluster.leader_node().client.get("key")
 
-    assert cluster.execute("asking", "get", "key") == b'value'
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
 
+    conn.send_command('get', 'key')
+    assert conn.read_response() == b'value'
+
+    conn.send_command('get', 'key1')
     with raises(ResponseError, match="TRYAGAIN"):
-        cluster.execute("asking", "get", "key1")
+        conn.read_response()
 
-    assert cluster.execute("asking", "del", "key") == 1
+    conn.send_command("del", "key")
+    assert conn.read_response() == 1
 
+    conn.send_command("get", "key")
     with raises(ResponseError, match="TRYAGAIN"):
-        cluster.execute("asking", "get", "key")
+        conn.read_response()
