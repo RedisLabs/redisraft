@@ -10,7 +10,7 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <assert.h>
+
 #include "redisraft.h"
 
 int RedisModuleStringToInt(RedisModuleString *str, int *value)
