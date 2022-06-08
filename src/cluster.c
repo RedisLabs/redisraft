@@ -44,7 +44,7 @@ char *ShardGroupSerialize(ShardGroup *sg)
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         /* individual slot ranges */
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n", sr->start_slot, sr->end_slot, sr->type);
+        buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n%llu\n", sr->start_slot, sr->end_slot, sr->type, sr->magic);
     }
 
     for (unsigned int i = 0; i < sg->nodes_num; i++) {
@@ -134,6 +134,15 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len)
         }
 
         r->type = strtoul(s, &endptr, 10);
+        RedisModule_Assert(endptr == nl);
+        s = nl + 1;
+
+        nl = memchr(s, '\n', end - s);
+        if (!nl) {
+            goto error;
+        }
+
+        r->magic = (long long) strtoull(s, &endptr, 10);
         RedisModule_Assert(endptr == nl);
         s = nl + 1;
     }
@@ -877,7 +886,7 @@ fail:
 /* Parse a ShardGroup specification as passed directly to RAFT.SHARDGROUP ADD.
  * Shard group argv syntax is as follows:
  *
- *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid] [node-addr:node-port])*
+ *  [shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type] [migration session key])* ([node-uid] [node-addr:node-port])*
  *
  * If parsing errors are encountered, an error reply is generated on the supplied RedisModuleCtx and NULL is returned
  * If it was processed successfully, a pointer to an allocated ShardGroup is returned and the number of consumed
@@ -919,7 +928,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     argidx++;
 
     /* Validate node arguments count is correct */
-    *num_argv_entries = (int) (3 + num_slots * 3 + num_nodes * 2);
+    *num_argv_entries = (int) (3 + num_slots * 4 + num_nodes * 2);
     if (*num_argv_entries > argc) {
         LOG_WARNING("ShardGroupParse failed; not enough args to parse: want %d have %d", *num_argv_entries, argc);
         RedisModule_WrongArity(ctx);
@@ -930,10 +939,11 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     sg->slot_ranges_num = num_slots;
     sg->slot_ranges = RedisModule_Calloc(num_slots, sizeof(ShardGroupSlotRange));
     for (int i = 0; i < num_slots; i++) {
-        long long start_slot, end_slot, type;
+        long long start_slot, end_slot, type, key;
         if (RedisModule_StringToLongLong(argv[argidx++], &start_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[argidx++], &end_slot) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[argidx++], &type) != REDISMODULE_OK ||
+            RedisModule_StringToLongLong(argv[argidx++], &key) != REDISMODULE_OK ||
             !HashSlotRangeValid((int) start_slot, (int) end_slot) ||
             !SlotRangeTypeValid(type)) {
             LOG_WARNING("ShardGroupParse failed; argv[%d]:argv[%d]: invalid parse slot_range", base_argv_idx + argidx - 3, base_argv_idx + argidx - 1);
@@ -943,6 +953,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         sg->slot_ranges[i].start_slot = start_slot;
         sg->slot_ranges[i].end_slot = end_slot;
         sg->slot_ranges[i].type = type;
+        sg->slot_ranges[i].magic = key;
     }
 
     /* Parse nodes */
