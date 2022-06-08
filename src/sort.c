@@ -7,7 +7,6 @@
  */
 
 #include <strings.h>
-#include <inttypes.h>
 
 #include "redisraft.h"
 
