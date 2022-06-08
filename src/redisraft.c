@@ -568,7 +568,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-static bool GetAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     ClientState *clientState = ClientStateGet(rr, ctx);
     return clientState->asking;
@@ -594,9 +594,8 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         return;
     }
 
-    if (GetAskingState(rr, ctx)) {
-        cmds->asking = true;
-    }
+    /* update cmds array with the client's saved "asking" state */
+    cmds->asking = getAskingState(rr, ctx);
 
     /* Check if MULTI/EXEC bundling is required. */
     if (MultiHandleCommand(rr, ctx, cmds)) {
