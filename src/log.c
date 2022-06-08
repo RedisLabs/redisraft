@@ -10,7 +10,6 @@
 #include <string.h>
 #include <strings.h>
 #include <stdlib.h>
-#include <sys/uio.h>
 
 #include <assert.h>
 
