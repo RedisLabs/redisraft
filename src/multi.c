@@ -34,7 +34,7 @@
 
 #include "redisraft.h"
 
-void ResetMultiClientState(ClientState * clientState)
+void MultiClientStateReset(ClientState * clientState)
 {
     RaftRedisCommandArrayFree(&clientState->multi_state.cmds);
     clientState->multi_state.active = false;
@@ -82,7 +82,7 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         }
 
         if (clientState->multi_state.error) {
-            ResetMultiClientState(clientState);
+            MultiClientStateReset(clientState);
             RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
             return true;
         }
@@ -90,16 +90,16 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         /* Just swap our commands with the EXEC command and proceed. */
         RaftRedisCommandArrayFree(cmds);
         RaftRedisCommandArrayMove(cmds, &clientState->multi_state.cmds);
-        ResetMultiClientState(clientState);
+        MultiClientStateReset(clientState);
 
         return false;
     } else if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
-        if (!clientState || !clientState->multi_state.active) {
+        if (!clientState->multi_state.active) {
             RedisModule_ReplyWithError(ctx, "ERR DISCARD without MULTI");
             return true;
         }
 
-        ResetMultiClientState(clientState);
+        MultiClientStateReset(clientState);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
 
         return true;

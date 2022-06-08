@@ -335,7 +335,6 @@ typedef struct RedisRaftCtx {
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
-
     RedisModuleDict *client_state;               /* A dict that tracks different client states */
 
     /* General stats */
@@ -724,7 +723,7 @@ RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
-void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...);
+void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
@@ -789,8 +788,8 @@ void HandleAsking(RaftRedisCommandArray *cmds);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
-RRStatus parseHashSlots(char * slots, char * string);
-ClientState * ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx * ctx);
+RRStatus parseHashSlots(char *slots, char *string);
+ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 uint64_t ClientStatesCount(RedisRaftCtx *rr);
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
@@ -813,8 +812,8 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
 void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
-int RaftMetaRead(RaftMeta *meta, const char* filename);
-int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote);
+int RaftMetaRead(RaftMeta *meta, const char *filename);
+int RaftMetaWrite(RaftMeta *meta, const char*filename, raft_term_t term, raft_node_id_t vote);
 
 typedef struct EntryCache {
     raft_index_t size;                  /* Size of ptrs */
@@ -918,7 +917,7 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* multi.c */
-void ResetMultiClientState(ClientState * clientState);
+void MultiClientStateReset(ClientState *clientState);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
 
@@ -926,6 +925,6 @@ bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandA
 int calcIntSerializedLen(size_t val);
 int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val);
 int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val);
-size_t calcSerializeStringSize(RedisModuleString * str);
+size_t calcSerializeStringSize(RedisModuleString *str);
 int decodeString(const char *p, size_t sz, RedisModuleString **str);
-int encodeString(char *p, size_t sz, RedisModuleString * str);
+int encodeString(char *p, size_t sz, RedisModuleString *str);

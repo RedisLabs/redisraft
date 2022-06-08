@@ -509,6 +509,19 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     raft_entry_release(entry);
 }
 
+static void  handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    Node *ret;
+    if (checkLeader(rr, ctx, &ret) == RR_ERROR) {
+        replyRedirect(ctx, -1, &ret->addr);
+    }
+
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    clientState->asking = true;
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -519,6 +532,7 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
  * - CLUSTER
  * - INFO
  * - MIGRATE
+ * - ASKING
  *
  * Returns true if the command was intercepted, in which case the RaftReq has
  * been replied to and freed.
@@ -546,42 +560,12 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
         return true;
     }
 
-    return false;
-}
-
-static bool AskingHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
-{
-    if (cmds->len != 1) {
-        return false;
-    }
-
-    /* TODO: will have to be == 2 in future with magic value in asking for argv[2] */
-    if (cmds->commands[0]->argc != 1) {
-        return false;
-    }
-
-    /* Is this a ASKING command? */
-    RaftRedisCommand *cmd = cmds->commands[0];
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-
-    if (cmd_len != 6 || strncasecmp(cmd_str, "ASKING", 6) != 0) {
-        return false;
-    }
-
-    Node *ret;
-    if (checkLeader(rr, ctx, &ret) == RR_ERROR) {
-        /* change to replyAsk once that's committed */
-        replyRedirect(ctx, -1, &ret->addr);
+    if (len == strlen("ASKING") && strncasecmp(cmd_str, "ASKING", len) == 0) {
+        handleAsking(rr, ctx);
         return true;
     }
 
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    clientState->asking = true;
-
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-
-    return true;
+    return false;
 }
 
 static bool GetAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
@@ -595,19 +579,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,
 {
     Node *leader_proxy = NULL;
 
-    if (AskingHandleCommand(rr, ctx, cmds)) {
-        return;
-    }
-
-    if (GetAskingState(rr, ctx)) {
-        cmds->asking = true;
-    }
-
-    /* Check if MULTI/EXEC bundling is required. */
-    if (MultiHandleCommand(rr, ctx, cmds)) {
-        return;
-    }
-
     /* Handle intercepted commands. We do this also on non-leader nodes or if we
      * don't have a leader, so it's up to the commands to check these conditions
      * if they have to.
@@ -620,6 +591,15 @@ static void handleRedisCommand(RedisRaftCtx *rr,
      * joining or loading data.
      */
     if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
+    }
+
+    if (GetAskingState(rr, ctx)) {
+        cmds->asking = true;
+    }
+
+    /* Check if MULTI/EXEC bundling is required. */
+    if (MultiHandleCommand(rr, ctx, cmds)) {
         return;
     }
 

@@ -528,6 +528,6 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
     RedisModule_Assert(ret == REDISMODULE_OK && state != NULL);
 
     /* validated that state is not NULL above in the RM_Assert */
-    ResetMultiClientState(state);
+    MultiClientStateReset(state);
     RedisModule_Free(state);
 }
