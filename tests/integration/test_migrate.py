@@ -23,4 +23,9 @@ def test_raft_import(cluster):
 
     assert cluster.execute('raft.import', '2', '0', 'key', serialized) == b'OK'
 
-    assert cluster.execute("asking", "get", "key") == b'value'
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command('get', 'key')
+    assert conn.read_response() == b'value'
