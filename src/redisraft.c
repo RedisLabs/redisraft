@@ -574,31 +574,15 @@ static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     return clientState->asking;
 }
 
-static void handleRedisCommand(RedisRaftCtx *rr,
-                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+static void handleRedisCommandAppend(RedisRaftCtx *rr,
+                                     RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     Node *leader_proxy = NULL;
-
-    /* Handle intercepted commands. We do this also on non-leader nodes or if we
-     * don't have a leader, so it's up to the commands to check these conditions
-     * if they have to.
-     */
-    if (handleInterceptedCommands(rr, ctx, cmds)) {
-        return;
-    }
 
     /* Check that we're part of a bootstrapped cluster and not in the middle of
      * joining or loading data.
      */
     if (checkRaftState(rr, ctx) == RR_ERROR) {
-        return;
-    }
-
-    /* update cmds array with the client's saved "asking" state */
-    cmds->asking = getAskingState(rr, ctx);
-
-    /* Check if MULTI/EXEC bundling is required. */
-    if (MultiHandleCommand(rr, ctx, cmds)) {
         return;
     }
 
@@ -668,6 +652,29 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     raft_entry_release(entry);
 }
 
+static void handleRedisCommand(RedisRaftCtx *rr,
+                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds) {
+    /* Handle intercepted commands. We do this also on non-leader nodes or if we
+     * don't have a leader, so it's up to the commands to check these conditions
+     * if they have to.
+     */
+    if (handleInterceptedCommands(rr, ctx, cmds)) {
+        return;
+    }
+
+    /* update cmds array with the client's saved "asking" state */
+    if (!cmds->asking) {
+        cmds->asking = getAskingState(rr, ctx);
+    }
+
+    /* Check if MULTI/EXEC bundling is required. */
+    if (MultiHandleCommand(rr, ctx, cmds)) {
+        return;
+    }
+
+    handleRedisCommandAppend(rr, ctx, cmds);
+}
+
 /* RAFT [Redis command to execute]
  *   Submit a Redis command to be appended to the Raft log and applied.
  *   The command blocks until it has been committed to the log by the majority
@@ -730,7 +737,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    handleRedisCommand(&redis_raft, ctx, &cmds);
+    handleRedisCommandAppend(&redis_raft, ctx, &cmds);
     RaftRedisCommandArrayFree(&cmds);
     return REDISMODULE_OK;
 }
