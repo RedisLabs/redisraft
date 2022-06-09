@@ -508,11 +508,6 @@ ClientState * ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx * ctx)
     return RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
 }
 
-uint64_t ClientStatesCount(RedisRaftCtx *rr)
-{
-    return RedisModule_DictSize(rr->client_state);
-}
-
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id)
 {
     ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);

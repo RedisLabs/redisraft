@@ -1754,7 +1754,6 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
 
     RedisModule_InfoAddSection(ctx, "clients");
-    RedisModule_InfoAddFieldULongLong(ctx, "clients_state_tracking", ClientStatesCount(rr));
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_reqs", rr->proxy_failed_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_responses", rr->proxy_failed_responses);

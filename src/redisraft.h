@@ -790,7 +790,6 @@ unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char *slots, char *string);
 ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-uint64_t ClientStatesCount(RedisRaftCtx *rr);
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 
