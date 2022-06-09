@@ -663,9 +663,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     }
 
     /* update cmds array with the client's saved "asking" state */
-    if (!cmds->asking) {
-        cmds->asking = getAskingState(rr, ctx);
-    }
+    cmds->asking = getAskingState(rr, ctx);
 
     /* Check if MULTI/EXEC bundling is required. */
     if (MultiHandleCommand(rr, ctx, cmds)) {
