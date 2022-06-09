@@ -44,17 +44,7 @@ void MultiClientStateReset(ClientState * clientState)
 bool MultiHandleCommand(RedisRaftCtx *rr,
                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    ClientState *clientState;
-
-    /* MULTI/EXEC bundling takes place only if we have a single command. If we
-     * have multiple commands we've received this as a RAFT.ENTRY input and
-     * bundling, probably through a proxy, and bundling was done before.
-     */
-    if (cmds->len != 1) {
-        return false;
-    }
-
-    clientState = ClientStateGet(rr, ctx);
+    ClientState *clientState = ClientStateGet(rr, ctx);
 
     /* Is this a MULTI command? */
     RaftRedisCommand *cmd = cmds->commands[0];
