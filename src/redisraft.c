@@ -509,15 +509,30 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     raft_entry_release(entry);
 }
 
-static void  handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    Node *ret;
-    if (checkLeader(rr, ctx, &ret) == RR_ERROR) {
-        replyRedirect(ctx, -1, &ret->addr);
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    return clientState->asking;
+}
+
+static void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
+{
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    clientState->asking = val;
+}
+
+static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    Node *leader_proxy = NULL;
+
+    Node **ret = rr->config->follower_proxy ? &leader_proxy : NULL;
+    if (checkLeader(rr, ctx, ret) == RR_ERROR) {
+        if (!rr->config->follower_proxy) {
+            return;
+        }
     }
 
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    clientState->asking = true;
+    setAskingState(rr, ctx, true);
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -566,12 +581,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     }
 
     return false;
-}
-
-static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    return clientState->asking;
 }
 
 static void handleRedisCommandAppend(RedisRaftCtx *rr,

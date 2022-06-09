@@ -812,7 +812,7 @@ void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 int RaftMetaRead(RaftMeta *meta, const char *filename);
-int RaftMetaWrite(RaftMeta *meta, const char*filename, raft_term_t term, raft_node_id_t vote);
+int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote);
 
 typedef struct EntryCache {
     raft_index_t size;                  /* Size of ptrs */

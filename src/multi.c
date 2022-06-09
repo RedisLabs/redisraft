@@ -34,7 +34,7 @@
 
 #include "redisraft.h"
 
-void MultiClientStateReset(ClientState * clientState)
+void MultiClientStateReset(ClientState *clientState)
 {
     RaftRedisCommandArrayFree(&clientState->multi_state.cmds);
     clientState->multi_state.active = false;
