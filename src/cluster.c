@@ -44,6 +44,7 @@ char *ShardGroupSerialize(ShardGroup *sg)
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         /* individual slot ranges */
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
+        /* storing magic as an unsigned long long as there's a strtoull() function, not a stroll() */
         buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n%llu\n", sr->start_slot, sr->end_slot, sr->type, sr->magic);
     }
 

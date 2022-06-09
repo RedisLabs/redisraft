@@ -242,9 +242,9 @@ RRStatus RaftRedisDeserializeImport(ImportKeys * target, const void *buf, size_t
         return RR_ERROR;
     }
     p += n; buf_size -= n;
-    target->magic = (int) magic;
+    target->magic = (long long) magic;
 
-    /* Read magic */
+    /* Read number of keys serialized in import entry */
     size_t num_keys;
     if ((n = decodeInteger(p, buf_size, '*', &num_keys)) < 0 || !num_keys) {
         return RR_ERROR;
