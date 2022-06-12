@@ -14,11 +14,6 @@
  * We then iterate the address list, establish a connection and attempt to
  * perform a RAFT.NODE ADD operation. If -MOVED replies are received they
  * are processed by adding the new node address to our list.
- *
- * We currently continue iterating the address list forever.
- * FIXME: Change the RAFT.CLUSTER JOIN implementation so it will (optionally?)
- * block, hold a reference from the JoinState to the RaftReq and produce a
- * reply only when successful - making this operation (optionally?) synchronous.
  */
 
 #include <string.h>
