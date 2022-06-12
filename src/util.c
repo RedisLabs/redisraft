@@ -502,7 +502,7 @@ exit:
     return ret;
 }
 
-ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx * ctx)
+ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     unsigned long long client_id = RedisModule_GetClientId(ctx);
     return RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
