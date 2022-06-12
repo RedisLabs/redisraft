@@ -16,6 +16,7 @@
 int RedisModuleStringToInt(RedisModuleString *str, int *value)
 {
     long long tmpll;
+
     if (RedisModule_StringToLongLong(str, &tmpll) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }
@@ -24,7 +25,7 @@ int RedisModuleStringToInt(RedisModuleString *str, int *value)
         return REDISMODULE_ERR;
     }
 
-    *value = tmpll;
+    *value = (int) tmpll;
     return REDISMODULE_OK;
 }
 
