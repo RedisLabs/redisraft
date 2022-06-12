@@ -1536,6 +1536,7 @@ void RaftReqFree(RaftReq *req)
             RedisModule_Free(req->r.migrate_keys.keys_serialized);
             req->r.migrate_keys.keys_serialized = NULL;
         }
+        redis_raft.migrate_req = NULL;
     }
 
     if (req->ctx) {
@@ -1553,6 +1554,10 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
+
+    if (type == RR_MIGRATE_KEYS) {
+        redis_raft.migrate_req = req;
+    }
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
