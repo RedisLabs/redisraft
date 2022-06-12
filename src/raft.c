@@ -784,13 +784,6 @@ raft_cbs_t redis_raft_callbacks = {
     .backpressure = raftBackpressure
 };
 
-/* ------------------------------------ Raft Thread ------------------------------------ */
-
-/*
- * Handling of the Redis Raft context, including its own thread and
- * async I/O loop.
- */
-
 RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 {
     /* Make sure the log we're going to apply matches the RDB we've loaded */
