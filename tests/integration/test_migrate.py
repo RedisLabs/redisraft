@@ -1,6 +1,7 @@
 from _pytest.python_api import raises
 from redis import ResponseError
 
+
 def test_raft_import(cluster):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
     assert cluster.execute('set', 'key', 'value')
@@ -135,9 +136,87 @@ def test_happy_migrate(cluster_factory):
         '1', '1',
         '0', '16383', '1', "123",
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
-    ) == b'OK'
+        ) == b'OK'
 
     assert cluster2.execute("get", "key") == b'value'
     assert cluster2.execute("get", "{key}key1") == b'value1'
     assert cluster2.execute("get", "key1") is None
 
+
+def test_sad_path_migrate(cluster_factory):
+    cluster1 = cluster_factory().create(1, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(1, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
+    cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
+    cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
+
+    assert cluster1.execute('set', 'key1', 'value1')
+    assert cluster1.execute('get', 'key1') == b'value1'
+    assert cluster1.execute('set', 'key2', 'value2')
+    assert cluster1.execute('get', 'key2') == b'value2'
+    assert cluster1.execute('set', 'key3', 'value3')
+    assert cluster1.execute('get', 'key3') == b'value3'
+
+    assert cluster1.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster2_dbid,
+        '1', '1',
+        '0', '16383', '2',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        cluster1_dbid,
+        '1', '1',
+        '0', '16383', '3',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        ) == b'OK'
+
+    assert cluster2.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster2_dbid,
+        '1', '1',
+        '0', '16383', '2',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        cluster1_dbid,
+        '1', '1',
+        '0', '16383', '3',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        ) == b'OK'
+
+    def validate_failed_migration(key_name, value, slot, err_string):
+        # first pass, should error out
+        with raises(ResponseError, match=err_string):
+            cluster1.execute("migrate", "", "", "", "", "", "keys", key_name)
+
+        # validate state
+        with raises(ResponseError, match="TRYAGAIN"):
+            cluster1.execute("get", key_name)
+        with raises(ResponseError, match=f"MOVED {slot} localhost"):
+            cluster2.leader_node().client.get(key_name)
+
+        # remove injected error, should pass
+        cluster1.execute("raft.debug", "migration_debug", 0)
+        assert cluster1.execute("migrate", "", "", "", "", "", "keys", key_name) == b'OK'
+
+        # validate state
+        with raises(ResponseError, match=f"ASK {slot} localhost"):
+            cluster1.execute("get", key_name)
+        with raises(ResponseError, match=f"MOVED {slot} localhost"):
+            cluster2.leader_node().client.get(key_name)
+
+        conn = cluster2.leader_node().client.connection_pool.get_connection('deferred')
+        conn.send_command('ASKING')
+        assert conn.read_response() == b'OK'
+        conn.send_command('get', key_name)
+        assert conn.read_response() == value
+
+    cluster1.execute("raft.debug", "migration_debug", 1)
+    validate_failed_migration("key1", b'value1', 9189, "failed to connect to import cluster, try again")
+    cluster1.execute("raft.debug", "migration_debug", 2)
+    validate_failed_migration("key2", b'value2', 4998, "failed to submit RAFT.IMPORT command, try again")
+    cluster1.execute("raft.debug", "migration_debug", 3)
+    validate_failed_migration("key3", b'value3', 456, "def")

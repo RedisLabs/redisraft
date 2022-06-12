@@ -250,6 +250,7 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 
 static void transferKeys(Connection *conn)
 {
+    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinLinkState *state = ConnGetPrivateData(conn);
     RaftReq *req = state->req;
 
@@ -259,6 +260,14 @@ static void transferKeys(Connection *conn)
     }
 
     /* raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized> */
+    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_IMPORT_FAILED) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to submit RAFT.IMPORT command, try again");
+        redisAsyncDisconnect(ConnGetRedisCtx(conn));
+        ConnMarkDisconnected(conn);
+        RaftReqFree(req);
+        return;
+    }
+
     int argc = 3 + (req->r.migrate_keys.num_serialized_keys * 2);
     char **argv = RedisModule_Calloc(argc, sizeof(char *));
     size_t *argv_len = RedisModule_Calloc(argc, sizeof(size_t));
@@ -322,6 +331,11 @@ static RRStatus getMigrationSessionKey(RedisRaftCtx *rr, RaftReq *req, unsigned 
 
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
 {
+    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_CONNECT_FAILED) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to connect to import cluster, try again");
+        goto exit;
+    }
+
     ShardGroup *sg = GetShardGroupById(rr, req->r.migrate_keys.shard_group_id);
     if (sg == NULL) {
         RedisModule_ReplyWithError(req->ctx, "ERR couldn't resolve shardgroup id");

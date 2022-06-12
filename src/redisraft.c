@@ -1472,6 +1472,18 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         rr->debug_delay_apply = val;
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "migration_debug", cmdlen) && argc == 3) {
+        long long val;
+        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
+            return REDISMODULE_OK;
+        }
+        if (val < 0 || val >= RAFT_DEBUG_MIGRATION_MAX) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
+            return REDISMODULE_OK;
+        }
+        rr->migration_debug = val;
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }

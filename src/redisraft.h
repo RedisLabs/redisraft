@@ -308,6 +308,13 @@ void fsyncThreadStart(FsyncThread *th, void (*on_complete)(void *result));
 void fsyncThreadAddTask(FsyncThread *th, int fd, raft_index_t requested_index);
 void fsyncThreadWaitUntilCompleted(FsyncThread *th);
 
+typedef enum {
+    RAFT_DEBUG_MIGRATION_NONE                    = 0,
+    RAFT_DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
+    RAFT_DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
+    RAFT_DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
+    RAFT_DEBUG_MIGRATION_MAX,
+} migration_debug;
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
@@ -341,6 +348,7 @@ typedef struct RedisRaftCtx {
     /* Debug - Testing */
     struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
     long long debug_delay_apply;                 /* If not zero, sleep microseconds before the execution of a command */
+    migration_debug migration_debug;             /* for debugging migration, places to inject error */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
