@@ -164,6 +164,7 @@ add_library(redisraft MODULE
         src/config.c
         src/connection.c
         src/crc16.c
+        src/entrycache.c
         src/fsync.c
         src/join.c
         src/log.c
@@ -216,6 +217,7 @@ add_executable(main
         src/config.c
         src/connection.c
         src/crc16.c
+        src/entrycache.c
         src/fsync.c
         src/join.c
         src/log.c

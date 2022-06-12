@@ -13,6 +13,7 @@
 #include <dlfcn.h>
 
 #include "redisraft.h"
+#include "entrycache.h"
 
 RedisModuleCtx *redis_raft_log_ctx = NULL;
 
