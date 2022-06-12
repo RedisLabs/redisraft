@@ -485,12 +485,21 @@ def test_shard_group_reshard_to_import(cluster):
     conn.send_command('get', 'key')
     assert conn.read_response() == b'value'
 
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
     conn.send_command('get', 'key1')
     with raises(ResponseError, match="TRYAGAIN"):
         conn.read_response()
 
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
     conn.send_command("del", "key")
     assert conn.read_response() == 1
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
 
     conn.send_command("get", "key")
     with raises(ResponseError, match="TRYAGAIN"):

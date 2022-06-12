@@ -679,6 +679,11 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         return;
     }
 
+    /* reset asking state when we go to execute the command */
+    if (cmds->asking) {
+        setAskingState(rr, ctx, false);
+    }
+
     handleRedisCommandAppend(rr, ctx, cmds);
 }
 
