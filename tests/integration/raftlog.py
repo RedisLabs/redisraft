@@ -134,12 +134,12 @@ class LogEntry(RawEntry):
     def parse_cmdlist(data):
         cmds = []
         cmd_count = int(data[0][1:])
-        idx = 1
+        i = 1
         for _ in range(cmd_count):
-            args_count = int(data[idx][1:])
-            i_end = idx + 1 + args_count * 2
-            cmds.append(' '.join(data[idx + 2:i_end:2]))
-            idx = i_end
+            args_count = int(data[i][1:])
+            i_end = i + 1 + args_count*2
+            cmds.append(' '.join(data[i+2:i_end:2]))
+            i = i_end
         return '|'.join(cmds)
 
     def data(self, decode=False):
@@ -178,10 +178,10 @@ class RaftLog(object):
     def read(self):
         while True:
             try:
-                ety = RawEntry.from_file(self.logfile)
+                entry = RawEntry.from_file(self.logfile)
             except EOFError:
                 break
-            self.entries.append(ety)
+            self.entries.append(entry)
         self.dump()
 
     def header(self):
@@ -192,24 +192,28 @@ class RaftLog(object):
 
     def entry_count(self, _type=None):
         count = 0
-        for ety in self.entries:
-            if not isinstance(ety, LogEntry):
+        for entry in self.entries:
+            if not isinstance(entry, LogEntry):
                 continue
-            if _type is None or _type == ety.type():
+            if _type is None or _type == entry.type():
                 count += 1
         return count
 
     def dump(self):
         logging.info('===== Begin Raft Log Dump =====')
-        for ety in self.entries:
-            logging.info(repr(ety))
+        for entry in self.entries:
+            logging.info(repr(entry))
         logging.info('===== End Raft Log Dump =====')
 
 
-if __name__ == '__main__':
+def main():
     log = RaftLog(sys.argv[1])
     log.read()
     i = 0
     for entry in log.entries:
         print('{:7d} {}'.format(i, str(entry)))
         i += 1
+
+
+if __name__ == '__main__':
+    main()
