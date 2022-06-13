@@ -14,10 +14,10 @@
 
 EntryCache *EntryCacheNew(raft_index_t initial_size)
 {
-    EntryCache *cache = RedisModule_Calloc(1, sizeof(EntryCache));
+    EntryCache *cache = RedisModule_Calloc(1, sizeof(*cache));
 
     cache->size = initial_size;
-    cache->ptrs = RedisModule_Calloc(cache->size, sizeof(raft_entry_t *));
+    cache->ptrs = RedisModule_Calloc(cache->size, sizeof(*cache->ptrs));
 
     return cache;
 }
@@ -40,13 +40,15 @@ void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx)
 
     RedisModule_Assert(cache->start_idx + cache->len == idx);
 
-    /* Enlrage cache if necessary */
+    /* Enlarge cache if necessary */
     if (cache->len == cache->size) {
-        unsigned long int new_size = cache->size * 2;
-        cache->ptrs = RedisModule_Realloc(cache->ptrs, new_size * sizeof(raft_entry_t *));
-
+        raft_index_t new_size = cache->size * 2;
+        cache->ptrs = RedisModule_Realloc(cache->ptrs,
+                                          new_size * sizeof(*cache->ptrs));
         if (cache->start > 0) {
-            memmove(&cache->ptrs[cache->size], &cache->ptrs[0], cache->start * sizeof(raft_entry_t *));
+            memmove(&cache->ptrs[cache->size],
+                    &cache->ptrs[0],
+                    cache->start * sizeof(raft_entry_t *));
             memset(&cache->ptrs[0], 0, cache->start * sizeof(raft_entry_t *));
         }
 
