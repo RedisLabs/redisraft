@@ -417,7 +417,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto error;
     }
 
-    if (!si->importing_slots_map[slot]->local) {
+    if (si->importing_slots_map[slot]->local) {
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR trying to import keys into self RedisCluster");
         }
