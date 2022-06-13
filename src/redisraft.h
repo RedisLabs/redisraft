@@ -483,6 +483,7 @@ typedef struct {
 
 typedef struct {
     bool asking;        /* if this command array is an asking */
+    int slot;           /* redis key slot these commands are associated with */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
@@ -721,13 +722,13 @@ RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
+void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot);
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
@@ -784,7 +785,6 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
-void HandleAsking(RaftRedisCommandArray *cmds);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
@@ -881,7 +881,7 @@ void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, int *slot);
+RRStatus computeHashSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);

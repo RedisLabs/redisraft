@@ -523,15 +523,6 @@ static void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
 
 static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    Node *leader_proxy = NULL;
-
-    Node **ret = rr->config->follower_proxy ? &leader_proxy : NULL;
-    if (checkLeader(rr, ctx, ret) == RR_ERROR) {
-        if (!rr->config->follower_proxy) {
-            return;
-        }
-    }
-
     setAskingState(rr, ctx, true);
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -549,8 +540,7 @@ static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
  * - MIGRATE
  * - ASKING
  *
- * Returns true if the command was intercepted, in which case the RaftReq has
- * been replied to and freed.
+ * Returns true if the command was intercepted, in which case the client has been replied to
  */
 static bool handleInterceptedCommands(RedisRaftCtx *rr,
                                       RedisModuleCtx *ctx,
@@ -586,7 +576,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
 static void handleRedisCommandAppend(RedisRaftCtx *rr,
                                      RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    Node *leader_proxy = NULL;
+    Node *leader = NULL;
 
     /* Check that we're part of a bootstrapped cluster and not in the middle of
      * joining or loading data.
@@ -596,14 +586,18 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     }
 
     /* Confirm that we're the leader and handle redirect or proxying if not. */
-    Node **ret = rr->config->follower_proxy ? &leader_proxy : NULL;
+    Node **ret = rr->config->follower_proxy || cmds->asking ? &leader : NULL;
     if (checkLeader(rr, ctx, ret) == RR_ERROR) {
         return;
     }
 
     /* Proxy */
-    if (leader_proxy) {
-        if (ProxyCommand(rr, ctx, cmds, leader_proxy) != RR_OK) {
+    if (leader) {
+        if (cmds->asking) {
+            if (computeHashSlot(rr, ctx, cmds) == RR_OK){
+                replyAsk(rr, ctx, (unsigned int) cmds->slot);
+            }
+        } else if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
             RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
         }
         return;

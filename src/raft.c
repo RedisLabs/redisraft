@@ -164,7 +164,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
  *    has a RaftRedisCommandArray marked as asking
  */
 
-static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
+static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool asking)
 {
     ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
@@ -187,9 +187,11 @@ static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
 }
 
 static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx,
-                                              RaftRedisCommandArray *cmds, unsigned int slot)
+                                              RaftRedisCommandArray *cmds)
 {
-    RedisModule_Assert(slot <= REDIS_RAFT_HASH_MAX_SLOT);
+    RedisModule_Assert(0 <= cmds->slot && cmds->slot <= REDIS_RAFT_HASH_MAX_SLOT);
+
+    unsigned int slot = (unsigned int) cmds->slot;
 
     /* Make sure hash slot is mapped and handled locally. */
     ShardGroup *sg = GetSlotShardGroup(rr, slot, cmds->asking);
@@ -237,7 +239,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
                 return RR_ERROR;
             case NoneExist:
                 if (reply_ctx) {
-                    replyAsk(rr, reply_ctx, slot);
+                    replyAsk(rr, reply_ctx, cmds->slot);
                 }
                 return RR_ERROR;
             case AllExist:
@@ -270,23 +272,20 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
  */
 static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    int slot;
-
     if (!isSharding(rr)) {
         return RR_OK;
     }
 
-    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+    if (computeHashSlot(rr, ctx, cmds) != RR_OK) {
         return RR_ERROR;
     }
 
     /* If command has no keys, continue */
-    if (slot == -1) {
+    if (cmds->slot == -1) {
         return RR_OK;
     }
 
-    return validateRaftRedisCommandArray(rr, ctx, cmds, slot);
+    return validateRaftRedisCommandArray(rr, ctx, cmds);
 }
 
 /* Execute all commands in a specified RaftRedisCommandArray.
@@ -300,8 +299,6 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
                              RaftRedisCommandArray *cmds)
 {
     int i;
-
-    HandleAsking(cmds);
 
     /* When we're in cluster mode, go through handleSharding. This will perform
      * hash slot validation and return an error / redirection if necessary. We do this

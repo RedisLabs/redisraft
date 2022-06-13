@@ -504,3 +504,34 @@ def test_shard_group_reshard_to_import(cluster):
     conn.send_command("get", "key")
     with raises(ResponseError, match="TRYAGAIN"):
         conn.read_response()
+
+
+def test_asking_follower(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value")
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        1,
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '3',
+        '0', '16383', '2',
+        '1234567890123456789012345678901234567890', cluster.node(1).address,
+        '1234567890123456789012345678901234567891', cluster.node(2).address,
+        '1234567890123456789012345678901234567892', cluster.node(3).address
+    ) == b'OK'
+
+    cluster.wait_for_unanimity()
+    cluster.node(2).wait_for_log_applied()
+
+    conn = cluster.node(2).client.connection_pool.get_connection('deferred')
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command('get', 'key')
+    with raises(ResponseError, match="ASK"):
+        conn.read_response()

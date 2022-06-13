@@ -62,7 +62,7 @@ void replyRaftError(RedisModuleCtx *ctx, int error)
 }
 
 /* Create a -MOVED reply. */
-void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
+void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
 {
     char buf[sizeof(addr->host) + 256];
 
@@ -71,7 +71,7 @@ void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
 }
 
 /* Create a -ASK reply. */
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot) {
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot) {
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
     if (!sg) {
         RedisModule_ReplyWithError(ctx, "ERR no importing shard group to ask");
@@ -79,7 +79,7 @@ void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot) {
     }
 
     char buf[sizeof(sg->nodes[0].addr.host) + 256];
-    snprintf(buf, sizeof(buf), "ASK %d %s:%u", slot, sg->nodes[0].addr.host, sg->nodes[0].addr.port);
+    snprintf(buf, sizeof(buf), "ASK %u %s:%u", slot, sg->nodes[0].addr.host, sg->nodes[0].addr.port);
     RedisModule_ReplyWithError(ctx, buf);
 }
 
