@@ -11,6 +11,7 @@ from redis import ResponseError
 from pytest import raises
 from .sandbox import assert_after
 
+
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
@@ -59,9 +60,10 @@ def test_shard_group_sanity(cluster):
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         cluster.node(2).client.set('key', 'value')
 
-    cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
+    cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
-    # Test by adding another fake shardgroup with same shardgroup id, should fail
+    # Test by adding another fake shardgroup with same shardgroup id
+    # should fail
     with raises(ResponseError, match='Invalid ShardGroup Update'):
         c.execute_command(
             'RAFT.SHARDGROUP', 'ADD',
@@ -80,7 +82,8 @@ def test_shard_group_replace(cluster):
 
     c = cluster.node(1).client
 
-    # tests wholesale replacement, while ignoring shardgroup that corresponds to local sg
+    # Tests wholesale replacement, while ignoring shardgroup
+    # that corresponds to local sg
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'REPLACE',
         '3',
@@ -97,26 +100,34 @@ def test_shard_group_replace(cluster):
         '0', '5', '1',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
+
     with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
         c.set('key', 'value')
+
     cluster.wait_for_unanimity()
     cluster.node(2).wait_for_log_applied()  # to get shardgroup
 
     def validate_slots(cluster_slots):
         assert len(cluster_slots) == 3
+        leader = cluster.leader_node()
+        local_id = "{}00000001".format(leader.info()['raft_dbid']).encode()
+
         for i in range(len(cluster_slots)):
-            if cluster_slots[i][2][2] == "{}00000001".format(
-                    cluster.leader_node().info()['raft_dbid']).encode():
-                assert cluster_slots[i][0] == 0, cluster_slots
-                assert cluster_slots[i][1] == 5, cluster_slots
-            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901234567890":
-                assert cluster_slots[i][0] == 6, cluster_slots
-                assert cluster_slots[i][1] == 7, cluster_slots
-            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901334567890":
-                assert cluster_slots[i][0] == 8, cluster_slots
-                assert cluster_slots[i][1] == 16383, cluster_slots
+            shargroup_id = cluster_slots[i][2][2]
+            start_slot = cluster_slots[i][0]
+            end_slot = cluster_slots[i][1]
+
+            if shargroup_id == local_id:
+                assert start_slot == 0, cluster_slots
+                assert end_slot == 5, cluster_slots
+            elif shargroup_id == b"1234567890123456789012345678901234567890":
+                assert start_slot == 6, cluster_slots
+                assert end_slot == 7, cluster_slots
+            elif shargroup_id == b"1234567890123456789012345678901334567890":
+                assert start_slot == 8, cluster_slots
+                assert end_slot == 16383, cluster_slots
             else:
-                assert False, "failed to match id {}".format(cluster_slots[i][2][2])
+                assert False, "failed to match id {}".format(shargroup_id)
 
     validate_slots(cluster.node(3).client.execute_command('CLUSTER', 'SLOTS'))
 
@@ -135,7 +146,7 @@ def test_shard_group_validation(cluster):
             '12345678901234567890123456789012',
             '1', '1',
             '1001', '20000', '1',
-            '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
+            '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
     # Conflict
     with raises(ResponseError, match='invalid'):
@@ -144,7 +155,7 @@ def test_shard_group_validation(cluster):
             '12345678901234567890123456789012',
             '1', '1',
             '1000', '1001', '1',
-            '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
+            '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
 
 def test_shard_group_propagation(cluster):
@@ -166,6 +177,7 @@ def test_shard_group_propagation(cluster):
 
     cluster_slots = cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
     assert len(cluster_slots) == 2
+
 
 def test_shard_group_snapshot_propagation(cluster):
     # Create a cluster with just a single slot
@@ -213,14 +225,18 @@ def test_shard_group_persistence(cluster):
         local_id = "{}00000001".format(
             cluster.leader_node().info()['raft_dbid']).encode()
         for i in range(len(cluster_slots)):
-            if cluster_slots[i][2][2] == local_id:
-                assert cluster_slots[i][0] == 0, cluster_slots
-                assert cluster_slots[i][1] == 1000, cluster_slots
-            elif cluster_slots[i][2][2] == b"1234567890123456789012345678901234567890":
-                assert cluster_slots[i][0] == 1001, cluster_slots
-                assert cluster_slots[i][1] == 16383, cluster_slots
+            shargroup_id = cluster_slots[i][2][2]
+            start_slot = cluster_slots[i][0]
+            end_slot = cluster_slots[i][1]
+
+            if shargroup_id == local_id:
+                assert start_slot == 0, cluster_slots
+                assert end_slot == 1000, cluster_slots
+            elif shargroup_id == b"1234567890123456789012345678901234567890":
+                assert start_slot == 1001, cluster_slots
+                assert end_slot == 16383, cluster_slots
             else:
-                assert False, "failed to match id {}".format(cluster_slots[i][2][2])
+                assert False, "failed to match id {}".format(shargroup_id)
 
     validate_slots(n1.client.execute_command('CLUSTER', 'SLOTS'))
 
@@ -279,7 +295,8 @@ def test_shard_group_linking(cluster_factory):
                 assert cluster_slots[i][0] == 2, cluster_slots
                 assert cluster_slots[i][1] == 16383, cluster_slots
             else:
-                assert False, "failed to match id {}".format(cluster_slots[i][2][1])
+                assert False, "failed to match id {}".format(
+                    cluster_slots[i][2][1])
 
     validate_slots(cluster1.node(1).client.execute_command('CLUSTER', 'SLOTS'))
 
@@ -297,7 +314,7 @@ def test_shard_group_linking(cluster_factory):
                     cluster1.leader_node().info()['raft_dbid']).encode():
                 assert node[2] == b"slave"
                 assert node[3] == "{}00000001".format(
-                    cluster1.leader_node().info()['raft_dbid']).encode() # TODO
+                    cluster1.leader_node().info()['raft_dbid']).encode()
                 assert node[8] == b"0-1"
             elif node[0] == "{}00000001".format(
                     cluster2.leader_node().info()['raft_dbid']).encode():
@@ -312,9 +329,10 @@ def test_shard_group_linking(cluster_factory):
             else:
                 assert False, node
 
-        assert cluster_nodes[6] == b"";  # empty entry after final "\r\n" from split
+        # empty entry after final "\r\n" from split
+        assert cluster_nodes[6] == b""
 
-    validate_nodes(cluster1.node(1).client.execute_command('CLUSTER', 'NODES').split(b"\r\n"))
+    validate_nodes(cluster1.node(1).execute('CLUSTER', 'NODES').split(b"\r\n"))
 
     # Terminate leader on cluster 2, wait for re-election and confirm
     # propagation.
@@ -389,7 +407,6 @@ def test_shard_group_refresh(cluster_factory):
                 assert slots[i][2][1] != 5001, slots
 
     assert_after(check_slots, 10)
-
 
 
 def test_shard_group_no_slots(cluster):

@@ -5,10 +5,7 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-import logging
 import os.path
-import subprocess
-import tempfile
 from types import SimpleNamespace
 import pytest
 from .sandbox import Cluster
@@ -16,7 +13,7 @@ from .workload import Workload
 
 
 def pytest_addoption(parser):
-    import os
+
     parser.addoption(
         '--redis-executable', default='../redis/src/redis-server',
         help='Name of redis-server executable to use.')
@@ -45,6 +42,7 @@ def pytest_addoption(parser):
         '--tls', default=False, action='store_true',
         help='Use tls')
 
+
 def create_config(pytest_config):
     config = SimpleNamespace()
 
@@ -59,7 +57,7 @@ def create_config(pytest_config):
     config.fsync = pytest_config.getoption('--fsync')
     config.tls = pytest_config.getoption('--tls')
 
-    if (pytest_config.getoption('--valgrind')):
+    if pytest_config.getoption('--valgrind'):
         if config.args is None:
             config.args = []
         config.args = [
@@ -107,6 +105,7 @@ def cluster_factory(request):
 
     for _c in created_clusters:
         _c.destroy()
+
 
 @pytest.fixture
 def workload():

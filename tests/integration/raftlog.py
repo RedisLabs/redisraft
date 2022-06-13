@@ -84,11 +84,11 @@ class LogHeader(RawEntry):
 
     def __str__(self):
         return '#### node_id={} dbid={} version={}\n' \
-        '        #### snapshot-term={} snapshot-index={}'.format(
-            self.node_id().decode(encoding='ascii'),
-            self.dbid().decode(encoding='ascii'),
-            self.version(),
-            self.snapshot_term(), self.snapshot_index())
+               '#### snapshot-term={} snapshot-index={}'.format(
+                self.node_id().decode(encoding='ascii'),
+                self.dbid().decode(encoding='ascii'),
+                self.version(),
+                self.snapshot_term(), self.snapshot_index())
 
 
 class LogEntry(RawEntry):
@@ -128,7 +128,7 @@ class LogEntry(RawEntry):
         return '<ShardGroup:slots=%s-%s,nodes=%s>' % (
             hdr[0], hdr[1],
             ','.join(['<id={},addr={}:{}'.format(*e.split(':'))
-                 for e in data_lines[1:] if len(e) > 0]))
+                      for e in data_lines[1:] if len(e) > 0]))
 
     @staticmethod
     def parse_cmdlist(data):
@@ -137,7 +137,7 @@ class LogEntry(RawEntry):
         i = 1
         for _ in range(cmd_count):
             args_count = int(data[i][1:])
-            i_end = i + 1 + (args_count)*2
+            i_end = i + 1 + args_count*2
             cmds.append(' '.join(data[i+2:i_end:2]))
             i = i_end
         return '|'.join(cmds)
@@ -206,10 +206,14 @@ class RaftLog(object):
         logging.info('===== End Raft Log Dump =====')
 
 
-if __name__ == '__main__':
+def main():
     log = RaftLog(sys.argv[1])
     log.read()
     i = 0
     for entry in log.entries:
         print('{:7d} {}'.format(i, str(entry)))
         i += 1
+
+
+if __name__ == '__main__':
+    main()

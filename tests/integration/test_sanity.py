@@ -10,7 +10,7 @@ import socket
 import pytest as pytest
 import time
 from redis import ResponseError
-from pytest import raises, skip
+from pytest import raises
 from .sandbox import RedisRaft, RedisRaftFailedToStart
 
 
@@ -28,33 +28,33 @@ def test_info(cluster):
 
 
 def test_set_cluster_id(cluster):
-    id = "12345678901234567890123456789012"
-    cluster.create(3, cluster_id=id)
-    assert str(cluster.leader_node().info()["raft_dbid"]) == id
+    cluster_id = "12345678901234567890123456789012"
+    cluster.create(3, cluster_id=cluster_id)
+    assert str(cluster.leader_node().info()["raft_dbid"]) == cluster_id
 
 
 def test_set_cluster_password(cluster):
     password = "foobar"
-    id = "12345678901234567890123456789012"
-    cluster.create(3, password=password, cluster_id=id)
-    assert str(cluster.leader_node().info()["raft_dbid"]) == id
+    cluster_id = "12345678901234567890123456789012"
+    cluster.create(3, password=password, cluster_id=cluster_id)
+    assert str(cluster.leader_node().info()["raft_dbid"]) == cluster_id
 
 
 def test_set_cluster_id_too_short(cluster):
-    id = "123456789012345678901234567890"
+    cluster_id = "123456789012345678901234567890"
     with raises(ResponseError, match='cluster id must be 32 characters'):
-        cluster.create(3, cluster_id=id)
+        cluster.create(3, cluster_id=cluster_id)
 
 
 def test_set_cluster_id_too_long(cluster):
-    id = "1234567890123456789012345678901234"
+    cluster_id = "1234567890123456789012345678901234"
     with raises(ResponseError, match='cluster id must be 32 characters'):
-        cluster.create(3, cluster_id=id)
+        cluster.create(3, cluster_id=cluster_id)
 
 
 def test_fail_cluster_enabled(cluster):
     with raises(RedisRaftFailedToStart):
-        r1 = cluster.add_node(redis_args=["--cluster_enabled", "yes"])
+        cluster.add_node(redis_args=["--cluster_enabled", "yes"])
 
 
 def test_add_node_as_a_single_leader(cluster):
@@ -119,8 +119,11 @@ def test_resp3(cluster):
 
     s.send("*2\r\n$5\r\nHELLO\r\n$1\r\n3\r\n".encode())
     assert s.recv(1024).decode().startswith("%7")
-    s.send("*4\r\n$4\r\nhset\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$3\r\nbaz\r\n".encode())
+
+    s.send(
+        "*4\r\n$4\r\nhset\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$3\r\nbaz\r\n".encode())
     assert s.recv(1024).decode().startswith(":1")
+
     s.send("*2\r\n$7\r\nhgetall\r\n$3\r\nfoo\r\n".encode())
     assert s.recv(1024).decode() == '%1\r\n$3\r\nbar\r\n$3\r\nbaz\r\n'
 
@@ -145,12 +148,11 @@ def test_proxying(cluster):
     assert cluster.node(2).client.sadd('myset', 'b') == 1
 
     # Multibulk
-    assert set(cluster.node(2).client.smembers('myset')) == set([b'a', b'b'])
+    assert set(cluster.node(2).client.smembers('myset')) == {b'a', b'b'}
 
     # Nested multibulk
     assert set(cluster.node(2).client.execute_command(
-        'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]) == set(
-            [b'a', b'b', b'c'])
+        'EVAL', 'return {{\'a\',\'b\',\'c\'}};', 0)[0]) == {b'a', b'b', b'c'}
     # Error
     with raises(ResponseError, match='WRONGTYPE'):
         cluster.node(2).client.incr('myset')
@@ -374,7 +376,7 @@ def test_rolled_back_multi_reply(cluster):
     cluster.node(1).resume()
 
     with raises(ResponseError, match='TIMEOUT'):
-        assert conn.read_response() == None
+        assert conn.read_response() is None
 
 
 def test_rolled_back_read_only_multi_reply(cluster):
@@ -407,7 +409,7 @@ def test_rolled_back_read_only_multi_reply(cluster):
     cluster.node(1).resume()
 
     with raises(ResponseError, match='TIMEOUT'):
-        assert conn.read_response() == None
+        assert conn.read_response() is None
 
 
 def test_tls_reconfig(cluster):
@@ -415,10 +417,14 @@ def test_tls_reconfig(cluster):
         return
 
     cluster.create(3)
-    cluster.node(1).client.execute_command("config", "set", "tls-cert-file", cluster.node(1).cert)
+
+    n1 = cluster.node(1)
+    n1.client.execute_command("config", "set", "tls-cert-file", n1.cert)
+
     cluster.node(2).restart()
     cluster.node(3).restart()
     cluster.node(3).wait_for_election()
+
     assert cluster.node(3).info().get('raft_leader_id') == 1
     commit_idx = cluster.leader_node().commit_index()
     cluster.node(3).wait_for_commit_index(commit_idx, gt_ok=True)
