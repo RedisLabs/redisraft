@@ -296,7 +296,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
         return 0;
     }
 
-    /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
+    /* RAFT.REQUESTVOTE <target_node_id> <src_node_id> <prevote>:<term>:<candidate_id>:<last_log_idx>:<last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
                 node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
                 raft_node_get_id(raft_node),

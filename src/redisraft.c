@@ -261,7 +261,7 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [prevote]:[term]:[candidate_id]:[last_log_idx]:[last_log_term]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -1075,6 +1075,31 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *   the background rewrite child process.
  * Reply:
  *   +OK
+ *
+ * RAFT.DEBUG NODECFG <node_id> <"{+voting|-voting|+active|-active}*">
+ *     Set/unset voting/active node configuration flags
+ * Reply:
+ *    +OK
+ *
+ * RAFT.DEBUG SENDSNAPSHOT <node_id>
+ *     Send node snapshot
+ * Reply:
+ *     +OK
+ *
+ * RAFT.DEBUG USED_NODE_IDS
+ *     return an array of used node ids
+ * Reply:
+ *    An array of used node ids
+ *
+ * RAFT.DEBUG EXEC [Redis command to execute]+
+ *     Execute Redis commands locally (commands do not go through Raft interception)
+ * Reply:
+ *     Any standard Redis reply, depending on the commands.
+ *
+ * RAFT.DEBUG DISABLE_APPLY <val>
+ *     Set/unset disable_apply raft configuration flag
+ * Reply:
+ *     +OK
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -1228,7 +1253,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
         long long val;
         if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid append delay value");
+            RedisModule_ReplyWithError(ctx, "ERR invalid disable apply value");
             return REDISMODULE_OK;
         }
 
