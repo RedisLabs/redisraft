@@ -56,7 +56,7 @@ Cluster Setup
 
 ### Supported Redis Versions
 
-RedisRaft works only on Redis 6.0 and above.
+RedisRaft works only on Redis 7.0 and above.
 
 ### Starting RedisRaft
 
