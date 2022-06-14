@@ -1413,6 +1413,7 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
     str = RedisModule_StringPtrLen(argv[2], &str_len);
     slot_str = RedisModule_Alloc(str_len+1);
     strncpy(slot_str, str, str_len);
+    slot_str[str_len] = '\0';
 
     int ret = parseHashSlots(slots, slot_str);
     RedisModule_Free(slot_str);
