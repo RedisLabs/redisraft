@@ -94,23 +94,7 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
     rr->client_attached_entries++;
 }
 
-/* ------------------------------------ RaftRedisCommand ------------------------------------ */
-
-/* ---------------------- RAFT MULTI/EXEC Handlig ---------------------------- */
-
-/* There are several concerns about MULTI/EXEC Handling:
- *
- * 1. We want to make sure that the commands are executed atomically across all
- *    cluster nodes. To do this, we need to pack them as a single Raft log entry.
- * 2. When executing the MULTI/EXEC we don't really need to wrap it because Redis
- *    wraps all module commands in MULTI/EXEC (although no harm is done).
- * 3. The MULTI/EXEC wrapping also ensures that any WATCHed keys will fail the
- *    transaction.  We do have to be careful though and never proxy such operations
- *    to a leader, as we don't synchronize WATCH.  (Note: we should also avoid
- *    proxying WATCH commands of course).
- */
-
-/* ------------------------------------ Log Execution ------------------------------------ */
+/* ----------------------------- Log Execution ------------------------------ */
 
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
@@ -132,9 +116,11 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
 
         /* We need to handle MULTI as a special case:
         * 1. Skip the command (no need to execute MULTI in a Module context).
-        * 2. If we're returning a response, group it as an array (multibulk).
+        * 2. If we're returning a response, group it as an array (multibulk)
+        * 3. When executing the MULTI/EXEC we don't really need to wrap it
+        *    because Redis wraps all module commands in MULTI/EXEC
+        *    (although no harm is done).
         */
-
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
             if (reply_ctx) {
                 RedisModule_ReplyWithArray(reply_ctx, array->len - 1);
