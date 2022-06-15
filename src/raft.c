@@ -124,6 +124,10 @@ void RaftExecuteCommandArray(RedisModuleCtx *ctx,
     RedisRaftCtx *rr = &redis_raft;
     RedisModuleCallReply *reply;
 
+    if (rr->debug_delay_apply) {
+        usleep(rr->debug_delay_apply);
+    }
+
     for (int i = 0; i < array->len; i++) {
         RaftRedisCommand *c = array->commands[i];
 

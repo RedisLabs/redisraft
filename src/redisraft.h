@@ -331,11 +331,15 @@ typedef struct RedisRaftCtx {
     int snapshot_child_fd;                       /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file;         /* Snapshot file memory map to send to followers */
     RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
-    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
+
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *multi_client_state;         /* A dict that tracks multi state of the clients */
+
+    /* Debug - Testing */
+    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
+    long long debug_delay_apply;                 /* If not zero, sleep microseconds before the execution of a command */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
