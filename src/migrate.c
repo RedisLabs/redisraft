@@ -90,7 +90,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
         enterRedisModuleCall();
         RedisModuleCallReply *reply;
-        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
+        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v",git  temp, 4)) != NULL);
         exitRedisModuleCall();
         if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
             size_t err_len;
