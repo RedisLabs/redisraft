@@ -41,17 +41,23 @@ message(STATUS "Main build type: ${CMAKE_BUILD_TYPE}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE")
 
 if (BUILD_TLS)
+    if (NOT OPENSSL_ROOT_DIR)
+        if (APPLE)
+            set(OPENSSL_ROOT_DIR "/usr/local/opt/openssl")
+        endif ()
+    endif ()
+
     find_package(OpenSSL REQUIRED)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_TLS")
-endif()
+endif ()
 
 if (TRACE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DENABLE_TRACE")
-endif()
+endif ()
 
 if (NOT PYTEST_OPTS)
     set(PYTEST_OPTS "-v")
-endif()
+endif ()
 # Create a PYTEST_OPTS list by replacing space with semicolon. Otherwise,
 # Cmake thinks it has to escape space and inserts backslash.
 string(REPLACE " " ";" PYTEST_LIST ${PYTEST_OPTS})
@@ -62,20 +68,19 @@ if (SANITIZER)
     if ("${SANITIZER}" STREQUAL "address")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
         add_link_options(-fsanitize=address)
-        link_libraries(-static-libasan)
-    elseif("${SANITIZER}" STREQUAL "undefined")
+    elseif ("${SANITIZER}" STREQUAL "undefined")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
         add_link_options(-fsanitize=undefined)
-    elseif("${SANITIZER}" STREQUAL "thread")
+    elseif ("${SANITIZER}" STREQUAL "thread")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread")
         add_link_options(-fsanitize=thread)
-    else()
+    else ()
         message(FATAL_ERROR "Unknown sanitizer : ${SANITIZER}")
-    endif()
+    endif ()
 
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-sanitize-recover=all -fno-omit-frame-pointer")
     message(STATUS "Using sanitizer : ${SANITIZER}")
-endif()
+endif ()
 
 # ------------------------ Build Settings End -------------------------------- #
 
@@ -98,14 +103,14 @@ set_target_properties(cmocka PROPERTIES COMPILE_FLAGS "-w")
 # ------------------------------ hiredis ------------------------------------- #
 if (BUILD_TLS)
     option(ENABLE_SSL "Building with TLS" ON)
-endif()
+endif ()
 option(DISABLE_TESTS "Disable hiredis tests" ON)
 
 add_subdirectory(deps/hiredis)
 set_property(TARGET hiredis_static PROPERTY POSITION_INDEPENDENT_CODE ON)
 if (BUILD_TLS)
     set_property(TARGET hiredis_ssl_static PROPERTY POSITION_INDEPENDENT_CODE ON)
-endif()
+endif ()
 
 # Disable warnings for dependencies
 set_target_properties(hiredis PROPERTIES COMPILE_FLAGS "-w")
@@ -190,16 +195,16 @@ target_compile_options(redisraft PRIVATE -Wall -Werror -Wextra -Wno-unused-param
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(LINKER_FLAGS "-Wl,-Bsymbolic-functions")
-else()
+else ()
     set(LINKER_FLAGS "-Wl,-undefined -Wl,dynamic_lookup")
-endif()
+endif ()
 
 set_property(TARGET redisraft PROPERTY LINK_FLAGS ${LINKER_FLAGS})
 
 target_link_libraries(redisraft PUBLIC raft hiredis_static)
 if (BUILD_TLS)
     target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
-endif()
+endif ()
 
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
@@ -239,7 +244,7 @@ target_compile_options(main PUBLIC -include dut_premble.h)
 target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl)
 if (BUILD_TLS)
     target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
-endif()
+endif ()
 
 target_include_directories(main PUBLIC tests deps/raft/include deps/)
 
