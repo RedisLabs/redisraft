@@ -483,7 +483,6 @@ typedef struct {
 
 typedef struct {
     bool asking;        /* if this command array is an asking */
-    int slot;           /* redis key slot these commands are associated with */
     int size;           /* Size of allocated array */
     int len;            /* Number of elements in array */
     RaftRedisCommand **commands;
@@ -717,8 +716,9 @@ void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 void replyRaftError(RedisModuleCtx *ctx, int error);
-raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
+raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+bool isLeader(RedisRaftCtx *rr);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
@@ -881,7 +881,7 @@ void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
-RRStatus computeHashSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
+RRStatus computeHashSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, unsigned int *slot);
 void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
@@ -911,6 +911,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
+bool IsKeyCommands(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 
 /* sort.c */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

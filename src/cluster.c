@@ -1149,10 +1149,10 @@ void ShardingInfoReset(RedisRaftCtx *rr)
  */
 RRStatus computeHashSlot(RedisRaftCtx *rr,
                          RedisModuleCtx *ctx,
-                         RaftRedisCommandArray *cmds)
+                         RaftRedisCommandArray *cmds,
+                         unsigned int *slot)
 {
-    cmds->slot = -1;
-
+    bool first_key = true;
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -1162,15 +1162,14 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
         for (int j = 0; j < num_keys; j++) {
             RedisModuleString *key = cmd->argv[keyindex[j]];
 
-            int thisslot = (int) keyHashSlotRedisString(key);
+            unsigned int thisslot = keyHashSlotRedisString(key);
 
-            if (cmds->slot == -1) {
-                /* First key */
-                cmds->slot = thisslot;
+            if (first_key) {
+                *slot = thisslot;
+                first_key = false;
             } else {
-                if (cmds->slot != thisslot) {
+                if (*slot != thisslot) {
                     RedisModule_Free(keyindex);
-                    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
                     return RR_ERROR;
                 }
             }
@@ -1364,7 +1363,7 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
 
 static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
+    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }
@@ -1421,7 +1420,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
 static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
+    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }

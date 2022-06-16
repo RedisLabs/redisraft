@@ -37,6 +37,9 @@ void *__dso_handle;
 
 #define VALID_NODE_ID(x)    ((x) > 0)
 
+static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
+static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
+
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
 {
@@ -80,8 +83,15 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    if (checkRaftState(rr, ctx) == RR_ERROR ||
-        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    if (!isLeader(rr)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
         return REDISMODULE_OK;
     }
 
@@ -485,7 +495,11 @@ exit:
 
 static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    if (checkLeader(rr, ctx, NULL) == RR_ERROR) {
+    if (!isLeader(rr)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
         return;
     }
 
@@ -576,8 +590,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
 static void handleRedisCommandAppend(RedisRaftCtx *rr,
                                      RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    Node *leader = NULL;
-
     /* Check that we're part of a bootstrapped cluster and not in the middle of
      * joining or loading data.
      */
@@ -585,20 +597,10 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    /* Confirm that we're the leader and handle redirect or proxying if not. */
-    Node **ret = rr->config->follower_proxy || cmds->asking ? &leader : NULL;
-    if (checkLeader(rr, ctx, ret) == RR_ERROR) {
-        return;
-    }
-
-    /* Proxy */
-    if (leader) {
-        if (cmds->asking) {
-            if (computeHashSlot(rr, ctx, cmds) == RR_OK){
-                replyAsk(rr, ctx, (unsigned int) cmds->slot);
-            }
-        } else if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
-            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+    if (!isLeader(rr)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            handleNonLeaderCommand(rr, ctx, leader, cmds);
         }
         return;
     }
@@ -673,12 +675,54 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         return;
     }
 
-    /* reset asking state when we go to execute the command */
+    handleRedisCommandAppend(rr, ctx, cmds);
+
+    /* reset asking state when after executing the command */
     if (cmds->asking) {
         setAskingState(rr, ctx, false);
     }
+}
 
-    handleRedisCommandAppend(rr, ctx, cmds);
+static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader) {
+
+    RedisModule_Assert(!raft_is_leader(rr->raft));
+
+    /* One anomaly here is that may redirect a client to the leader even for
+     * commands have no keys, which is something Redis Cluster never does. We
+     * still need to consider how this impacts clients which may not expect it.
+     */
+    replyRedirect(ctx, 0, &leader->addr);
+}
+
+static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds) {
+    RedisModule_Assert(!raft_is_leader(rr->raft));
+
+    // reply ASK for ASKING state commands
+    if (cmds->asking) {
+        RedisModule_Assert(cmds);
+        RedisModule_Assert(IsKeyCommands(rr, ctx, cmds)); // ASKING mode requests always have keys
+        unsigned int slot;
+        if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
+            return RR_ERROR;
+        }
+
+        replyAsk(rr, ctx, (unsigned int) slot);
+        return RR_OK;
+    }
+
+    // forward commands to the leader in follower_proxy state
+    if (rr->config->follower_proxy) {
+        RedisModule_Assert(cmds);
+        if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+            return RR_ERROR;
+        }
+        return RR_OK;
+    }
+
+    // redirect otherwise
+    redirectCommand(rr, ctx, leader);
+    return RR_OK;
 }
 
 /* RAFT [Redis command to execute]
@@ -1160,8 +1204,15 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
-    if (checkRaftState(rr, ctx) == RR_ERROR ||
-        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    if (!isLeader(rr)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
         return REDISMODULE_OK;
     }
 
