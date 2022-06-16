@@ -78,8 +78,8 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* 2  'static' strings need for restore command */
-    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", 1); /* ttl of zero */
-    RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", 1); /* overwrite on import */
+    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", strlen("0")); /* ttl of zero */
+    RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", strlen("REPLACE")); /* overwrite on import */
 
     for (size_t i = 0; i < import_keys.num_keys; i++) {
         RedisModuleString * temp[4];
