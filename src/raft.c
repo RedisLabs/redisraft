@@ -365,6 +365,9 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
     RaftReq *req = entry->user_data;
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+    }
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -476,6 +479,7 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Free(keys);
 
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }

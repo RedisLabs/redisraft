@@ -110,6 +110,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
 exit:
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
     FreeImportKeys(&import_keys);
