@@ -442,6 +442,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
 error:
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
 
@@ -476,6 +477,7 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Free(keys);
 
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }
