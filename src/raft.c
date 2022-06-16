@@ -270,20 +270,20 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
  */
 static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    unsigned int slot;
+    int slot;
 
     if (!isSharding(rr)) {
-        return RR_OK;
-    }
-
-    /* If commands have no keys, continue */
-    if (!IsKeyCommands(rr, ctx, cmds)) {
         return RR_OK;
     }
 
     if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
         RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
         return RR_ERROR;
+    }
+
+    /* If commands have no keys, continue */
+    if (slot == -1) {
+        return RR_OK;
     }
 
     return validateRaftRedisCommandArray(rr, ctx, cmds, slot);

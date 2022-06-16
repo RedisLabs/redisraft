@@ -1150,9 +1150,9 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 RRStatus computeHashSlot(RedisRaftCtx *rr,
                          RedisModuleCtx *ctx,
                          RaftRedisCommandArray *cmds,
-                         unsigned int *slot)
+                         int *slot)
 {
-    bool first_key = true;
+    *slot = -1;
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -1162,11 +1162,10 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
         for (int j = 0; j < num_keys; j++) {
             RedisModuleString *key = cmd->argv[keyindex[j]];
 
-            unsigned int thisslot = keyHashSlotRedisString(key);
+            int thisslot = (int) keyHashSlotRedisString(key);
 
-            if (first_key) {
+            if (*slot) {
                 *slot = thisslot;
-                first_key = false;
             } else {
                 if (*slot != thisslot) {
                     RedisModule_Free(keyindex);

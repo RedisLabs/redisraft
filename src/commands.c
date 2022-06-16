@@ -242,19 +242,3 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
 
     return flags;
 }
-
-bool IsKeyCommands(RedisRaftCtx *rr,
-                   RedisModuleCtx *ctx,
-                   RaftRedisCommandArray *cmds) {
-    for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand *cmd = cmds->commands[i];
-
-        /* Iterate command keys */
-        int num_keys = 0;
-        RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
-        if (num_keys) {
-            return true;
-        }
-    }
-    return false;
-}

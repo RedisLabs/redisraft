@@ -148,13 +148,6 @@ Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     return node;
 }
 
-
-/* Checks if the current cluster is the leader */
-bool isLeader(RedisRaftCtx *rr) {
-
-    return raft_is_leader(rr->raft);
-}
-
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING
  * and return an error.
  */
