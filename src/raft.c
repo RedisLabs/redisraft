@@ -435,6 +435,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (req) {
+        entryDetachRaftReq(rr, entry);
         memcpy(req->r.migrate_keys.shardGroupId, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
         MigrateKeys(rr, req);
     }
