@@ -92,7 +92,12 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModuleCallReply *reply;
         RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
         exitRedisModuleCall();
-        RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+        if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+            size_t err_len;
+            const char * err = RedisModule_CallReplyStringPtr(reply, &err_len);
+            LOG_WARNING("importKeys: restore failed with %.*s", (int) err_len, err);
+            RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+        }
         RedisModule_FreeCallReply(reply);
     }
 
