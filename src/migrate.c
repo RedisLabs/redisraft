@@ -2,19 +2,19 @@
 
 #include "redisraft.h"
 
-static int validSlotMagic(RedisRaftCtx *rr, unsigned int slot, int magic)
+static bool validSlotMigrationSessionKey(RedisRaftCtx *rr, unsigned int slot, unsigned long long migration_session_key)
 {
     /* validSlot will have already validated that slot is importing */
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
 
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        if (sr->start_slot <= slot && sr->end_slot >= slot && sr->magic == magic) {
-            return 1;
+        if (sr->start_slot <= slot && sr->end_slot >= slot && sr->migration_session_key == migration_session_key) {
+            return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 static int validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
@@ -60,10 +60,10 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto exit;
     }
 
-    if (!validSlotMagic(rr, slot, import_keys.magic)) {
+    if (!validSlotMigrationSessionKey(rr, slot, import_keys.migration_session_key)) {
         LOG_DEBUG("ignoring import keys as incorrect migration session key");
         if (req) {
-            RedisModule_ReplyWithError(req->ctx, "ERR invalid magic");
+            RedisModule_ReplyWithError(req->ctx, "ERR invalid migration_session_key");
         }
         goto exit;
     }
@@ -119,7 +119,7 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
-    /* argc must be at least 5, for 3 static args (cmd/magic/term) + 2 for 1 key
+    /* argc must be at least 5, for 3 static args (cmd/migration_session_key/term) + 2 for 1 key
      * and must be odd, due to 2 args needed for each key
      */
     if (argc < 5 || (argc % 2) == 0) {
@@ -133,15 +133,15 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    long long magic;
-    if (RedisModule_StringToLongLong(argv[2], &magic) == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "ERR failed to parse import magic");
+    long long migration_session_key;
+    if (RedisModule_StringToLongLong(argv[2], &migration_session_key) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, "ERR failed to parse import migration session key");
         return REDISMODULE_OK;
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_IMPORT_KEYS);
     req->r.import_keys.term = (raft_term_t) term;
-    req->r.import_keys.magic = magic;
+    req->r.import_keys.migration_session_key = migration_session_key;
 
     int num_keys = (argc -3) / 2;
     req->r.import_keys.num_keys = num_keys;
@@ -252,7 +252,7 @@ static void transferKeys(Connection *conn)
         //FIXME: error
     }
 
-    // raft.import term magic <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized>
+    // raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized>
     int argc = 3 + (req->r.migrate_keys.num_serialized_keys * 2);
     char **argv = RedisModule_Calloc(argc, sizeof(char *));
     size_t *argv_len = RedisModule_Calloc(argc, sizeof(size_t));

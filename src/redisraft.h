@@ -516,10 +516,10 @@ static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
 #define SLOT_RANGE_MAXLEN (10 + 1 + 10 + 1 + 10 + 1 + 1)
 
 typedef struct ShardGroupSlotRange {
-    unsigned int start_slot; /* First slot, inclusive */
-    unsigned int end_slot;   /* Last slot, inclusive */
-    enum SlotRangeType type; /* type of slot range, normal, importing, exporting */
-    long long magic;               /* used for validating imports are consistent */
+    unsigned int start_slot;                  /* First slot, inclusive */
+    unsigned int end_slot;                    /* Last slot, inclusive */
+    enum SlotRangeType type;                  /* type of slot range, normal, importing, exporting */
+    unsigned long long migration_session_key; /* used for validating imports are consistent */
 } ShardGroupSlotRange;
 
 /* Describes a ShardGroup. A ShardGroup is a RedisRaft cluster that
@@ -576,7 +576,7 @@ typedef struct ShardingInfo {
 
 typedef struct {
     raft_term_t term;
-    long long magic;
+    unsigned long long migration_session_key;
     size_t num_keys;
     RedisModuleString **key_names;
     RedisModuleString **key_serialized;

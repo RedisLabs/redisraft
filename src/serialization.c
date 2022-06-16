@@ -236,13 +236,13 @@ RRStatus RaftRedisDeserializeImport(ImportKeys * target, const void *buf, size_t
     p += n; buf_size -= n;
     target->term = term;
 
-    /* Read magic */
-    size_t magic;
-    if ((n = decodeInteger(p, buf_size, '*', &magic)) < 0) {
+    /* Read migration_session_key */
+    size_t migration_session_key;
+    if ((n = decodeInteger(p, buf_size, '*', &migration_session_key)) < 0) {
         return RR_ERROR;
     }
     p += n; buf_size -= n;
-    target->magic = (long long) magic;
+    target->migration_session_key = (unsigned long long) migration_session_key;
 
     /* Read number of keys serialized in import entry */
     size_t num_keys;
@@ -274,7 +274,7 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
     int n;
 
     size_t sz = calcIntSerializedLen(import_keys->term);
-    sz += calcIntSerializedLen(import_keys->magic);
+    sz += calcIntSerializedLen(import_keys->migration_session_key);
     sz += calcIntSerializedLen(import_keys->num_keys);
     for (size_t i = 0; i < import_keys->num_keys; i++) {
         sz += calcSerializeStringSize(import_keys->key_names[i]);
@@ -290,8 +290,8 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
     RedisModule_Assert(n != -1);
     p += n; sz -= n;
 
-    /* encode magic */
-    n = encodeInteger('*', p, sz, import_keys->magic);
+    /* encode migration_session_key */
+    n = encodeInteger('*', p, sz, import_keys->migration_session_key);
     RedisModule_Assert(n != -1);
     p += n; sz -= n;
 

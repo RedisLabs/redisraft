@@ -155,7 +155,7 @@ static void test_serialize_shardgroup(void **state)
             .start_slot = 1,
             .end_slot = 1000,
             .type = SLOTRANGE_TYPE_STABLE,
-            .magic = 123
+            .migration_session_key = 123
     };
     ShardGroup sg = {
         .id = "12345678901234567890123456789012",
@@ -194,7 +194,7 @@ static void test_deserialize_shardgroup(void **state)
     assert_int_equal(sg->slot_ranges[0].start_slot, 1);
     assert_int_equal(sg->slot_ranges[0].end_slot, 1000);
     assert_int_equal(sg->slot_ranges[0].type, SLOTRANGE_TYPE_STABLE);
-    assert_int_equal(sg->slot_ranges[0].magic, 123);
+    assert_int_equal(sg->slot_ranges[0].migration_session_key, 123);
     assert_int_equal(sg->nodes_num, 3);
 
     assert_string_equal(sg->nodes[0].node_id, "12345678901234567890123456789012aabbccdd");

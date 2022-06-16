@@ -44,8 +44,7 @@ char *ShardGroupSerialize(ShardGroup *sg)
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         /* individual slot ranges */
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        /* storing magic as an unsigned long long as there's a strtoull() function, not a stroll() */
-        buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n%llu\n", sr->start_slot, sr->end_slot, sr->type, sr->magic);
+        buf = catsnprintf(buf, &buf_size, "%u\n%u\n%u\n%llu\n", sr->start_slot, sr->end_slot, sr->type, sr->migration_session_key);
     }
 
     for (unsigned int i = 0; i < sg->nodes_num; i++) {
@@ -143,7 +142,7 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len)
             goto error;
         }
 
-        r->magic = (long long) strtoull(s, &endptr, 10);
+        r->migration_session_key = strtoull(s, &endptr, 10);
         RedisModule_Assert(endptr == nl);
         s = nl + 1;
     }
@@ -954,7 +953,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         sg->slot_ranges[i].start_slot = start_slot;
         sg->slot_ranges[i].end_slot = end_slot;
         sg->slot_ranges[i].type = type;
-        sg->slot_ranges[i].magic = key;
+        sg->slot_ranges[i].migration_session_key = key;
     }
 
     /* Parse nodes */
