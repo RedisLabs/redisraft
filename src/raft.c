@@ -365,6 +365,9 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
     RaftReq *req = entry->user_data;
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+    }
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -435,7 +438,6 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (req) {
-        entryDetachRaftReq(rr, entry);
         memcpy(req->r.migrate_keys.shardGroupId, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
         MigrateKeys(rr, req);
     }
@@ -443,7 +445,6 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
 error:
     if (req) {
-        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
 
