@@ -1164,7 +1164,7 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
 
             int thisslot = (int) keyHashSlotRedisString(key);
 
-            if (*slot) {
+            if (*slot == -1) {
                 *slot = thisslot;
             } else {
                 if (*slot != thisslot) {

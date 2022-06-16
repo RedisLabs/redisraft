@@ -277,7 +277,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
     }
 
     if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+        replyCrossSlot(ctx);
         return RR_ERROR;
     }
 
