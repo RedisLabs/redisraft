@@ -495,14 +495,18 @@ exit:
 
 static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
+      if (rr->migrate_req != NULL) {
+        RedisModule_ReplyWithError(ctx, "ERR RedisRaft only supports one concurrent migration currently");
+        return;
+    }
+  
     if (!raft_is_leader(rr->raft)) {
         Node *leader = getLeaderNodeOrReply(rr, ctx);
         if (leader) {
             redirectCommand(rr, ctx, leader);
         }
-        return;
     }
-
+  
     RaftReq * req;
     if ((req = cmdToMigrate(rr, ctx, cmd)) == NULL) {
         return;
@@ -1498,6 +1502,7 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
     str = RedisModule_StringPtrLen(argv[2], &str_len);
     slot_str = RedisModule_Alloc(str_len+1);
     strncpy(slot_str, str, str_len);
+    slot_str[str_len] = '\0';
 
     int ret = parseHashSlots(slots, slot_str);
     RedisModule_Free(slot_str);

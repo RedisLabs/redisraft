@@ -78,8 +78,8 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* 2  'static' strings need for restore command */
-    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", 1); /* ttl of zero */
-    RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", 1); /* overwrite on import */
+    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", strlen("0")); /* ttl of zero */
+    RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", strlen("REPLACE")); /* overwrite on import */
 
     for (size_t i = 0; i < import_keys.num_keys; i++) {
         RedisModuleString * temp[4];
@@ -90,9 +90,14 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
         enterRedisModuleCall();
         RedisModuleCallReply *reply;
-        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 3)) != NULL);
+        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 4)) != NULL);
         exitRedisModuleCall();
-        RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+        if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+            size_t err_len;
+            const char * err = RedisModule_CallReplyStringPtr(reply, &err_len);
+            LOG_WARNING("importKeys: restore failed with %.*s", (int) err_len, err);
+            RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
+        }
         RedisModule_FreeCallReply(reply);
     }
 
@@ -105,6 +110,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
 exit:
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     }
     FreeImportKeys(&import_keys);
@@ -264,7 +270,7 @@ static void transferKeys(Connection *conn)
     argv_len[1] = n;
     argv[2] = RedisModule_Alloc(32);
     // FIXME needs to be taken from sg (in raft.import pr))
-    n = snprintf(argv[1], 32, "%llu", (long long unsigned) 0);
+    n = snprintf(argv[2], 32, "%llu", (long long unsigned) 0);
     argv_len[2] = n;
 
     for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {

@@ -361,6 +361,9 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
     RaftReq *req = entry->user_data;
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+    }
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -413,7 +416,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto error;
     }
 
-    if (!si->importing_slots_map[slot]->local) {
+    if (si->importing_slots_map[slot]->local) {
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR trying to import keys into self RedisCluster");
         }
@@ -472,6 +475,7 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Free(keys);
 
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }
@@ -1532,6 +1536,7 @@ void RaftReqFree(RaftReq *req)
             RedisModule_Free(req->r.migrate_keys.keys_serialized);
             req->r.migrate_keys.keys_serialized = NULL;
         }
+        redis_raft.migrate_req = NULL;
     }
 
     if (req->ctx) {
@@ -1549,6 +1554,10 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
+
+    if (type == RR_MIGRATE_KEYS) {
+        redis_raft.migrate_req = req;
+    }
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
