@@ -223,7 +223,6 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
         const char * cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
 
         if (!strncasecmp("asking", cmd_str, cmd_len)) {
-            /* TODO: when asking <migration_session_key> support is added, need to adjust to argv[2] */
             if (array->commands[i]->argc > 1) {
                 cmd = array->commands[i]->argv[1];
             } else {
