@@ -89,6 +89,11 @@ void replyCrossSlot(RedisModuleCtx *ctx)
     RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
 }
 
+void replyClusterDownWithNoRaftLeader(RedisModuleCtx *ctx)
+{
+    RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+}
+
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...)
 {
     va_list ap;
@@ -109,8 +114,6 @@ void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...)
 
 }
 
-static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
-
 /* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
  * and return NULL.
  *
@@ -121,7 +124,7 @@ raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     raft_node_t *node = raft_get_leader_node(rr->raft);
     if (!node) {
-        RedisModule_ReplyWithError(ctx, err_clusterdown);
+        replyClusterDownWithNoRaftLeader(ctx);
     }
 
     return node;
@@ -142,7 +145,7 @@ Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
     Node *node = raft_node_get_udata(raft_node);
     if (!node) {
-        RedisModule_ReplyWithError(ctx, err_clusterdown);
+        replyClusterDownWithNoRaftLeader(ctx);
     }
 
     return node;

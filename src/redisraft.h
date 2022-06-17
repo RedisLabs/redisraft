@@ -724,6 +724,7 @@ RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
+void replyClusterDownWithNoRaftLeader(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
