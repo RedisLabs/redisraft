@@ -1160,11 +1160,11 @@ void ShardingInfoReset(RedisRaftCtx *rr)
  * the entry or reply with an error or if it can't be done
  */
 RRStatus computeHashSlot(RedisRaftCtx *rr,
+                         RedisModuleCtx *ctx,
                          RaftRedisCommandArray *cmds,
                          int *slot)
 {
     *slot = -1;
-
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
 
@@ -1177,7 +1177,6 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
             int thisslot = (int) keyHashSlotRedisString(key);
 
             if (*slot == -1) {
-                /* First key */
                 *slot = thisslot;
             } else {
                 if (*slot != thisslot) {
@@ -1375,7 +1374,7 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
 
 static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
+    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }
@@ -1432,7 +1431,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
 static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderNodeOrReply(rr, ctx);
+    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
     if (!leader_node) {
         return;
     }

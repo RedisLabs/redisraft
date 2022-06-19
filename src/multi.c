@@ -34,111 +34,69 @@
 
 #include "redisraft.h"
 
-
-typedef struct MultiState {
-    RaftRedisCommandArray cmds;
-    bool error;
-} MultiState;
-
-void MultiInitClientState(RedisRaftCtx *rr)
+void MultiClientStateReset(ClientState *clientState)
 {
-    rr->multi_client_state = RedisModule_CreateDict(NULL);
-}
-
-uint64_t MultiClientStateCount(RedisRaftCtx *rr)
-{
-    return RedisModule_DictSize(rr->multi_client_state);
-}
-
-void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id)
-{
-    MultiState *state = NULL;
-
-    if (RedisModule_DictDelC(rr->multi_client_state, &client_id,
-                             sizeof(client_id), &state) == REDISMODULE_OK) {
-        if (state) {
-            RaftRedisCommandArrayFree(&state->cmds);
-            RedisModule_Free(state);
-        }
-    }
+    RaftRedisCommandArrayFree(&clientState->multi_state.cmds);
+    clientState->multi_state.active = false;
+    clientState->multi_state.error = false;
 }
 
 bool MultiHandleCommand(RedisRaftCtx *rr,
                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    unsigned long long client_id;
-    MultiState *multiState;
-
-    /* MULTI/EXEC bundling takes place only if we have a single command. If we
-     * have multiple commands we've received this as a RAFT.ENTRY input and
-     * bundling, probably through a proxy, and bundling was done before.
-     */
-    if (cmds->len != 1) {
-        return false;
-    }
-
-    client_id = RedisModule_GetClientId(ctx);
-    multiState = RedisModule_DictGetC(rr->multi_client_state,
-                                      &client_id, sizeof(client_id), NULL);
+    ClientState *clientState = ClientStateGet(rr, ctx);
 
     /* Is this a MULTI command? */
     RaftRedisCommand *cmd = cmds->commands[0];
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
 
-    if (cmd_len == 6 && !strncasecmp(cmd_str, "ASKING", 6)) {
-        /* TODO: will have to be > 2 in future with migration_session_key value in asking for argv[2] */
-        if (cmd->argc > 1) {
-            cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &cmd_len);
-        }
-    }
-
     if (cmd_len == 5 && !strncasecmp(cmd_str, "MULTI", 5)) {
-        if (multiState) {
+        if (clientState->multi_state.active) {
             RedisModule_ReplyWithError(ctx, "ERR MULTI calls can not be nested");
         } else {
-            multiState = RedisModule_Calloc(sizeof(MultiState), 1);
-            RedisModule_DictSetC(rr->multi_client_state, &client_id, sizeof(client_id), multiState);
+            clientState->multi_state.active = 1;
 
             /* We put the MULTI as the first command in the array, as we still
              * need to distinguish single-MULTI array from a single command.
              */
-            RaftRedisCommandArrayMove(&multiState->cmds, cmds);
+            RaftRedisCommandArrayMove(&clientState->multi_state.cmds, cmds);
             RedisModule_ReplyWithSimpleString(ctx, "OK");
         }
 
         return true;
     } else if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
-        if (!multiState) {
+        if (!clientState->multi_state.active) {
             RedisModule_ReplyWithError(ctx, "ERR EXEC without MULTI");
             return true;
         }
 
-        if (multiState->error) {
+        if (clientState->multi_state.error) {
+            MultiClientStateReset(clientState);
             RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
             return true;
         }
 
         /* Just swap our commands with the EXEC command and proceed. */
         RaftRedisCommandArrayFree(cmds);
-        RaftRedisCommandArrayMove(cmds, &multiState->cmds);
-        MultiFreeClientState(rr, client_id);
+        RaftRedisCommandArrayMove(cmds, &clientState->multi_state.cmds);
+        MultiClientStateReset(clientState);
 
         return false;
     } else if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
-        if (!multiState) {
+        if (!clientState->multi_state.active) {
             RedisModule_ReplyWithError(ctx, "ERR DISCARD without MULTI");
             return true;
         }
 
-        MultiFreeClientState(rr, client_id);
+        MultiClientStateReset(clientState);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
 
         return true;
     }
 
     /* Are we in MULTI? */
-    if (multiState) {
+    if (clientState->multi_state.active) {
         /* We have to detect commands that are unsupported or must not be
          * intercepted and reject the transaction.
          */
@@ -146,12 +104,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
 
         if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
-            multiState->error = 1;
+            clientState->multi_state.error = true;
         } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
-            multiState->error = 1;
+            clientState->multi_state.error = true;
         } else {
-            RaftRedisCommandArrayMove(&multiState->cmds, cmds);
+            RaftRedisCommandArrayMove(&clientState->multi_state.cmds, cmds);
             RedisModule_ReplyWithSimpleString(ctx, "QUEUED");
         }
 

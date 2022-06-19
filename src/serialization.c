@@ -47,6 +47,8 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 
     source->len = 0;
     memset(source->commands, 0, sizeof(RaftRedisCommand *) * source->size);
+
+    target->asking = source->asking;
 }
 
 /* Free a RaftRedisCommand */
@@ -103,7 +105,7 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t sz = calcIntSerializedLen(source->len);
+    size_t sz = calcIntSerializedLen(source->asking) + calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
@@ -116,6 +118,11 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
     /* Prepare entry */
     raft_entry_t *ety = raft_entry_new(sz);
     p = ety->data;
+
+    /* Encode Asking */
+    n = encodeInteger('*', p, sz, source->asking);
+    RedisModule_Assert(n != -1);
+    p +=n; sz -= n;
 
     /* Encode count */
     n = encodeInteger('*', p, sz, source->len);
@@ -195,7 +202,15 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
         RaftRedisCommandArrayFree(target);
     }
 
-    /* Read multibulk count */
+    /* Read asking */
+    size_t asking;
+    if ((n = decodeInteger(p, buf_size, '*', &asking)) < 0) {
+        return RR_ERROR;
+    }
+    p += n; buf_size -= n;
+    target->asking = asking;
+
+    /* Read command count */
     if ((n = decodeInteger(p, buf_size, '*', &commands_num)) < 0 ||
             !commands_num) {
         return RR_ERROR;

@@ -164,7 +164,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
  *    has a RaftRedisCommandArray marked as asking
  */
 
-static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
+static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool asking)
 {
     ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
@@ -276,12 +276,12 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
         return RR_OK;
     }
 
-    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+    if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
+        replyCrossSlot(ctx);
         return RR_ERROR;
     }
 
-    /* If command has no keys, continue */
+    /* If commands have no keys, continue */
     if (slot == -1) {
         return RR_OK;
     }
@@ -301,12 +301,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 {
     int i;
 
-    HandleAsking(cmds);
-
     /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary. We do this
-     * before checkLeader() to avoid multiple redirect hops.
-     */
+     * hash slot validation and return an error / redirection if necessary. */
     if (handleSharding(rr, reply_ctx, cmds) != RR_OK) {
         return;
     }
@@ -365,6 +361,9 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
     RaftReq *req = entry->user_data;
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+    }
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -417,7 +416,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         goto error;
     }
 
-    if (!si->importing_slots_map[slot]->local) {
+    if (si->importing_slots_map[slot]->local) {
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR trying to import keys into self RedisCluster");
         }
@@ -476,6 +475,7 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Free(keys);
 
     if (req) {
+        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }
@@ -1451,8 +1451,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
         rr->resp_call_fmt = "v";
     }
 
-    /* Client state for MULTI support */
-    rr->multi_client_state = RedisModule_CreateDict(ctx);
+    /* Client state for MULTI/ASKING support */
+    rr->client_state = RedisModule_CreateDict(ctx);
 
     /* Read configuration from Redis */
     if (ConfigReadFromRedis(rr) == RR_ERROR) {
@@ -1536,6 +1536,7 @@ void RaftReqFree(RaftReq *req)
             RedisModule_Free(req->r.migrate_keys.keys_serialized);
             req->r.migrate_keys.keys_serialized = NULL;
         }
+        redis_raft.migrate_req = NULL;
     }
 
     if (req->ctx) {
@@ -1553,6 +1554,10 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
+
+    if (type == RR_MIGRATE_KEYS) {
+        redis_raft.migrate_req = req;
+    }
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
