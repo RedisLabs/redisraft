@@ -340,6 +340,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
     }
     req->r.migrate_keys.migrate_term = raft_get_current_term(rr->raft);
     if (getMigrationSessionKey(rr, req, &req->r.migrate_keys.migration_session_key) != RR_OK) {
+        RedisModule_ReplyWithError(req->ctx, "ERR failed to retrieve migration session key");
         goto exit;
     }
 
