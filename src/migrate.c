@@ -192,7 +192,7 @@ fail:
 
 static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED) {
+    if (rr->migration_debug == DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED) {
         RedisModule_ReplyWithError(req->ctx, "ERR Unable to unlock/delete migrated keys, try again");
         RaftReqFree(req);
         return;
@@ -265,14 +265,14 @@ static void transferKeys(Connection *conn)
         return;
     }
 
-    /* raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized> */
-    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_IMPORT_FAILED) {
+    if (rr->migration_debug == DEBUG_MIGRATION_EMULATE_IMPORT_FAILED) {
         ConnAsyncTerminate(conn);
         RedisModule_ReplyWithError(req->ctx, "ERR failed to submit RAFT.IMPORT command, try again");
         RaftReqFree(req);
         return;
     }
 
+    /* raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized> */
     int argc = 3 + (req->r.migrate_keys.num_serialized_keys * 2);
     char **argv = RedisModule_Calloc(argc, sizeof(char *));
     size_t *argv_len = RedisModule_Calloc(argc, sizeof(size_t));
@@ -336,7 +336,7 @@ static RRStatus getMigrationSessionKey(RedisRaftCtx *rr, RaftReq *req, unsigned 
 
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
 {
-    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_CONNECT_FAILED) {
+    if (rr->migration_debug == DEBUG_MIGRATION_EMULATE_CONNECT_FAILED) {
         RedisModule_ReplyWithError(req->ctx, "ERR failed to connect to import cluster, try again");
         goto exit;
     }

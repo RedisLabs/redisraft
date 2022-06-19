@@ -1478,7 +1478,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
             return REDISMODULE_OK;
         }
-        if (val < 0 || val >= RAFT_DEBUG_MIGRATION_MAX) {
+        if (val < 0 || val >= DEBUG_MIGRATION_MAX) {
             RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
             return REDISMODULE_OK;
         }

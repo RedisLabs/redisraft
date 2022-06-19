@@ -309,12 +309,12 @@ void fsyncThreadAddTask(FsyncThread *th, int fd, raft_index_t requested_index);
 void fsyncThreadWaitUntilCompleted(FsyncThread *th);
 
 typedef enum {
-    RAFT_DEBUG_MIGRATION_NONE                    = 0,
-    RAFT_DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
-    RAFT_DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
-    RAFT_DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
-    RAFT_DEBUG_MIGRATION_MAX,
-} migration_debug;
+    DEBUG_MIGRATION_NONE                    = 0,
+    DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
+    DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
+    DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
+    DEBUG_MIGRATION_MAX,
+} MigrationDebug;
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
@@ -338,7 +338,6 @@ typedef struct RedisRaftCtx {
     int snapshot_child_fd;                       /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file;         /* Snapshot file memory map to send to followers */
     RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
-
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
