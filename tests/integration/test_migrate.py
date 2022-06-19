@@ -219,4 +219,5 @@ def test_sad_path_migrate(cluster_factory):
     cluster1.execute("raft.debug", "migration_debug", 2)
     validate_failed_migration("key2", b'value2', 4998, "failed to submit RAFT.IMPORT command, try again")
     cluster1.execute("raft.debug", "migration_debug", 3)
-    validate_failed_migration("key3", b'value3', 456, "def")
+    validate_failed_migration("key3", b'value3', 935, "Unable to unlock/delete migrated keys, try again")
+
