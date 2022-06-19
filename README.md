@@ -39,12 +39,7 @@ To build:
 
 ### Creating a RedisRaft Cluster
 
-RedisRaft requires the latest Redis build from 'unstable' branch. Build Redis first:
-    
-    git clone https://github.com/redis/redis  
-    cd redis
-    make 
-    make install
+**Note**: RedisRaft requires Redis 7.0 or above.
 
 To create a three-node cluster, start the first node:
 
