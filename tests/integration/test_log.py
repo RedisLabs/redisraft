@@ -72,7 +72,7 @@ def test_raft_log_max_file_size(cluster):
         assert r1.client.set('testkey', 'x'*500)
 
     r1.wait_for_info_param('raft_snapshots_created', 1)
-    assert r1.info()['raft_log_entries'] < 10
+    assert r1.info()['raft_log_entries'] < r1.info()['raft_current_index']
 
 
 def test_raft_log_max_cache_size(cluster):
