@@ -519,7 +519,7 @@ def test_asking_follower(cluster):
         1,
         cluster.leader_node().info()["raft_dbid"],
         '1', '3',
-        '0', '16383', '2',
+        '0', '16383', '2', '0',
         '1234567890123456789012345678901234567890', cluster.node(1).address,
         '1234567890123456789012345678901234567891', cluster.node(2).address,
         '1234567890123456789012345678901234567892', cluster.node(3).address
