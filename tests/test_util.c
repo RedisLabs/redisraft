@@ -11,6 +11,7 @@
 #include <setjmp.h>
 #include <unistd.h>
 #include <string.h>
+#include <strings.h>
 
 #include "cmocka.h"
 

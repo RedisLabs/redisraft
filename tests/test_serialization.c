@@ -41,7 +41,7 @@ static void test_serialize_redis_command(void **state)
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd2_argv, 2);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd3_argv, 1);
     
-    const char *expected = "*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    const char *expected = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
 
     raft_entry_t *e = RaftRedisCommandArraySerialize(&cmd_array);
     assert_non_null(e);
@@ -65,7 +65,7 @@ static void test_deserialize_redis_command(void **state)
 
 static void test_deserialize_redis_command_array(void **state)
 {
-    const char *serialized = "*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    const char *serialized = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
     int serialized_len = strlen(serialized);
 
     RaftRedisCommandArray cmd_array = { 0 };

@@ -384,22 +384,6 @@ void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
     RedisModule_Assert(ret == RR_OK);
 }
 
-void HandleAsking(RaftRedisCommandArray *cmds)
-{
-    RaftRedisCommand *cmd = cmds->commands[0];
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-
-    if (cmd_len == 6 && !strncasecmp(cmd_str, "ASKING", 6)) {
-        cmds->asking = true;
-        RedisModule_FreeString(NULL, cmds->commands[0]->argv[0]);
-        for (int i = 1; i < cmds->commands[0]->argc; i++) {
-            cmds->commands[0]->argv[i-1] = cmds->commands[0]->argv[i];
-        }
-        cmds->commands[0]->argc--;
-    }
-}
-
 void FreeImportKeys(ImportKeys *target) {
     if (target->num_keys) {
         if (target->key_names) {
@@ -500,4 +484,29 @@ RRStatus parseHashSlots(char * slots, char * string)
 exit:
     RedisModule_Free(string);
     return ret;
+}
+
+ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    unsigned long long client_id = RedisModule_GetClientId(ctx);
+    return RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
+}
+
+void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id)
+{
+    ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);
+    int ret = RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
+    RedisModule_Assert(ret == REDISMODULE_OK);
+}
+
+void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
+{
+    ClientState *state = NULL;
+
+    int ret = RedisModule_DictDelC(rr->client_state, &client_id, sizeof(client_id), &state);
+    RedisModule_Assert(ret == REDISMODULE_OK && state != NULL);
+
+    /* validated that state is not NULL above in the RM_Assert */
+    MultiClientStateReset(state);
+    RedisModule_Free(state);
 }

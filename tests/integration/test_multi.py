@@ -84,31 +84,6 @@ def test_multi_exec(cluster):
     assert conn.execute('GET', 'key') == b'3'
 
 
-def test_multi_exec_state_cleanup(cluster):
-    """
-    MULTI/EXEC state is cleaned up on client disconnect
-    """
-
-    r1 = cluster.add_node()
-
-    # Normal flow, no disconnect
-    c1 = r1.client.connection_pool.get_connection('multi')
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-
-    c2 = r1.client.connection_pool.get_connection('multi')
-    c2.send_command('MULTI')
-    assert c2.read_response() == b'OK'
-
-    assert r1.info()['raft_clients_in_multi_state'] == 2
-
-    c1.disconnect()
-    c2.disconnect()
-
-    time.sleep(1)   # Not ideal
-    assert r1.info()['raft_clients_in_multi_state'] == 0
-
-
 def test_multi_exec_proxying(cluster):
     """
     Proxy a MULTI/EXEC sequence

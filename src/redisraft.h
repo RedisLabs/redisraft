@@ -336,7 +336,7 @@ typedef struct RedisRaftCtx {
     struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
-    RedisModuleDict *multi_client_state;         /* A dict that tracks multi state of the clients */
+    RedisModuleDict *client_state;               /* A dict that tracks different client states */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -701,23 +701,35 @@ typedef struct JoinLinkState {
     void (*complete_callback)(RaftReq *req);
 } JoinLinkState;
 
+typedef struct MultiState {
+    RaftRedisCommandArray cmds;
+    bool active;
+    bool error;
+} MultiState;
+
+typedef struct ClientState {
+    MultiState multi_state;
+    bool asking;
+} ClientState;
+
 /* common.c */
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 void replyRaftError(RedisModuleCtx *ctx, int error);
-raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader);
+raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr);
+void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
-void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...);
+void replyClusterDownWithNoRaftLeader(RedisModuleCtx *ctx);
+void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, int slot);
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
@@ -774,11 +786,13 @@ RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
 void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
-void HandleAsking(RaftRedisCommandArray *cmds);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
-RRStatus parseHashSlots(char * slots, char * string);
+RRStatus parseHashSlots(char *slots, char *string);
+ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
+void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -798,8 +812,8 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
 void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
-int RaftMetaRead(RaftMeta *meta, const char* filename);
-int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote);
+int RaftMetaRead(RaftMeta *meta, const char *filename);
+int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote);
 
 typedef struct EntryCache {
     raft_index_t size;                  /* Size of ptrs */
@@ -868,7 +882,7 @@ void ShardGroupFree(ShardGroup *sg);
 void ShardGroupTerm(ShardGroup *sg);
 ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int base_argv_idx, int *num_elems);
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *len);
-RRStatus computeHashSlot(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, int *slot);
+RRStatus computeHashSlot(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, int *slot);
 void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);
 void ShardingInfoInit(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
@@ -903,9 +917,7 @@ const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /* multi.c */
-void MultiInitClientState(RedisRaftCtx *rr);
-uint64_t MultiClientStateCount(RedisRaftCtx *rr);
-void MultiFreeClientState(RedisRaftCtx *rr, unsigned long long client_id);
+void MultiClientStateReset(ClientState *clientState);
 bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 #endif  /* _REDISRAFT_H */
 
@@ -913,6 +925,6 @@ bool MultiHandleCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandA
 int calcIntSerializedLen(size_t val);
 int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val);
 int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val);
-size_t calcSerializeStringSize(RedisModuleString * str);
+size_t calcSerializeStringSize(RedisModuleString *str);
 int decodeString(const char *p, size_t sz, RedisModuleString **str);
-int encodeString(char *p, size_t sz, RedisModuleString * str);
+int encodeString(char *p, size_t sz, RedisModuleString *str);

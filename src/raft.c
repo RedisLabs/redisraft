@@ -164,7 +164,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
  *    has a RaftRedisCommandArray marked as asking
  */
 
-static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, int slot, bool asking)
+static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool asking)
 {
     ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
@@ -276,12 +276,12 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
         return RR_OK;
     }
 
-    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+    if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
+        replyCrossSlot(ctx);
         return RR_ERROR;
     }
 
-    /* If command has no keys, continue */
+    /* If commands have no keys, continue */
     if (slot == -1) {
         return RR_OK;
     }
@@ -301,12 +301,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 {
     int i;
 
-    HandleAsking(cmds);
-
     /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary. We do this
-     * before checkLeader() to avoid multiple redirect hops.
-     */
+     * hash slot validation and return an error / redirection if necessary. */
     if (handleSharding(rr, reply_ctx, cmds) != RR_OK) {
         return;
     }
@@ -1455,8 +1451,8 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
         rr->resp_call_fmt = "v";
     }
 
-    /* Client state for MULTI support */
-    rr->multi_client_state = RedisModule_CreateDict(ctx);
+    /* Client state for MULTI/ASKING support */
+    rr->client_state = RedisModule_CreateDict(ctx);
 
     /* Read configuration from Redis */
     if (ConfigReadFromRedis(rr) == RR_ERROR) {
