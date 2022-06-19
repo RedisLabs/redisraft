@@ -329,6 +329,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
 
             if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING) {
                 req->r.migrate_keys.keys_serialized[i] = RedisModule_CreateStringFromCallReply(reply);
+                RedisModule_FreeCallReply(reply);
             } else {
                 if (reply) {
                     LOG_WARNING("unexpected response type = %d", RedisModule_CallReplyType(reply));
