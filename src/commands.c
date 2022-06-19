@@ -13,68 +13,128 @@
 
 static RedisModuleDict *commandSpecDict = NULL;
 
+/* Look up the specified command in the command spec table and return the
+ * CommandSpec associated with it. If create is true, a new entry will
+ * be created if one does not exist. Otherwise, NULL is returned.
+ */
+static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool create)
+{
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
+    char buf[64];
+    char *lcmd = buf;
+
+    if (cmd_len >= sizeof(buf)) {
+        lcmd = RedisModule_Alloc(cmd_len + 1);
+    }
+
+    for (size_t i = 0; i < cmd_len; i++) {
+        lcmd[i] = (char) tolower(cmd_str[i]);
+    }
+    lcmd[cmd_len] = '\0';
+
+    CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, lcmd, cmd_len, NULL);
+    if (!cs && create) {
+        cs = RedisModule_Alloc(sizeof(CommandSpec));
+        cs->name = RedisModule_Strdup(lcmd);
+        cs->flags = 0;
+
+        RedisModule_DictSetC(commandSpecDict, lcmd, cmd_len, cs);
+    }
+
+    if (lcmd != buf) {
+        RedisModule_Free(lcmd);
+    }
+
+    return cs;
+}
+
+/* Use COMMAND to fetch all Redis commands and update the CommandSpec. */
+static void CommandSpecPopulateFromRedis(RedisModuleCtx *ctx)
+{
+    const char *readonly_flag = "readonly";
+    const char *random_hint = "nondeterministic_output";
+    const char *sort_reply_hint = "nondeterministic_output_order";
+
+    RedisModuleCallReply *reply = NULL;
+
+    reply = RedisModule_Call(ctx, "COMMAND", "");
+    RedisModule_Assert(reply != NULL);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+
+    for (size_t i = 0; i < RedisModule_CallReplyLength(reply); i++) {
+        unsigned int cmdspec_flags = 0;
+
+        RedisModuleCallReply *cmd = RedisModule_CallReplyArrayElement(reply, i);
+        RedisModule_Assert(cmd != NULL);
+        RedisModule_Assert(RedisModule_CallReplyType(cmd) == REDISMODULE_REPLY_ARRAY);
+
+        /* Scan flags (element #3) and map "read-only" */
+        RedisModuleCallReply *flags = RedisModule_CallReplyArrayElement(cmd, 2);
+        RedisModule_Assert(flags != NULL);
+        RedisModule_Assert(RedisModule_CallReplyType(flags) == REDISMODULE_REPLY_ARRAY);
+
+        for (size_t j = 0; j < RedisModule_CallReplyLength(flags); j++) {
+            RedisModuleCallReply *flag = RedisModule_CallReplyArrayElement(flags, j);
+            RedisModule_Assert(flag != NULL);
+            RedisModule_Assert(RedisModule_CallReplyType(flag) == REDISMODULE_REPLY_STRING);
+
+            size_t len;
+            const char *str = RedisModule_CallReplyStringPtr(flag, &len);
+
+            if (len == strlen(readonly_flag) && memcmp(str, readonly_flag, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_READONLY;
+            }
+        }
+
+        /* Scan hints (element #8) and map "nondeterministic_output" and
+         * "nondeterministic_output_order".
+         */
+
+        RedisModuleCallReply *hints = RedisModule_CallReplyArrayElement(cmd, 7);
+        RedisModule_Assert(hints != NULL);
+        RedisModule_Assert(RedisModule_CallReplyType(hints) == REDISMODULE_REPLY_ARRAY);
+
+        for (size_t j = 0; j < RedisModule_CallReplyLength(hints); j++) {
+            RedisModuleCallReply *hint = RedisModule_CallReplyArrayElement(hints, j);
+            RedisModule_Assert(hint != NULL);
+            RedisModule_Assert(RedisModule_CallReplyType(hint) == REDISMODULE_REPLY_STRING);
+
+            size_t len;
+            const char *str = RedisModule_CallReplyStringPtr(hint, &len);
+
+            if (len == strlen(random_hint) && memcmp(str, random_hint, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_RANDOM;
+            } else if (len == strlen(sort_reply_hint) && memcmp(str, sort_reply_hint, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_SORT_REPLY;
+            }
+        }
+
+        /* Ignore commands with non-default flags */
+        if (!cmdspec_flags) {
+            continue;
+        }
+
+        RedisModuleCallReply *name = RedisModule_CallReplyArrayElement(cmd, 0);
+        RedisModule_Assert(name != NULL);
+        RedisModule_Assert(RedisModule_CallReplyType(name) == REDISMODULE_REPLY_STRING);
+
+        RedisModuleString *name_str = RedisModule_CreateStringFromCallReply(name);
+        CommandSpec *cs = getOrCreateCommandSpec(name_str, true);
+        RedisModule_Assert(cs != NULL);
+        RedisModule_Free(name_str);
+
+        cs->flags |= cmdspec_flags;
+    }
+
+    RedisModule_FreeCallReply(reply);
+}
+
 RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
 {
     static CommandSpec commands[] = {
             /* Core Redis Commands */
-            { "get",                    CMD_SPEC_READONLY },
-            { "strlen",                 CMD_SPEC_READONLY },
-            { "exists",                 CMD_SPEC_READONLY },
-            { "getbit",                 CMD_SPEC_READONLY },
-            { "getrange",               CMD_SPEC_READONLY },
-            { "substr",                 CMD_SPEC_READONLY },
-            { "mget",                   CMD_SPEC_READONLY },
-            { "llen",                   CMD_SPEC_READONLY },
-            { "lindex",                 CMD_SPEC_READONLY },
-            { "lrange",                 CMD_SPEC_READONLY },
-            { "scard",                  CMD_SPEC_READONLY },
-            { "sismember",              CMD_SPEC_READONLY },
-            { "srandmember",            CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "sinter",                 CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "sunion",                 CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "sdiff",                  CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "smembers",               CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "sscan",                  CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "zrange",                 CMD_SPEC_READONLY },
-            { "zrangebyscore",          CMD_SPEC_READONLY },
-            { "zrevrangebyscore",       CMD_SPEC_READONLY },
-            { "zrangebylex",            CMD_SPEC_READONLY },
-            { "zrevrangebylex",         CMD_SPEC_READONLY },
-            { "zcount",                 CMD_SPEC_READONLY },
-            { "zlexcount",              CMD_SPEC_READONLY },
-            { "zrevrange",              CMD_SPEC_READONLY },
-            { "zcard",                  CMD_SPEC_READONLY },
-            { "zscore",                 CMD_SPEC_READONLY },
-            { "zrank",                  CMD_SPEC_READONLY },
-            { "zrevrank",               CMD_SPEC_READONLY },
-            { "zscan",                  CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "hmget",                  CMD_SPEC_READONLY },
-            { "hlen",                   CMD_SPEC_READONLY },
-            { "hstrlen",                CMD_SPEC_READONLY },
-            { "hkeys",                  CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "hvals",                  CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "hgetall",                CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "hexists",                CMD_SPEC_READONLY },
-            { "hscan",                  CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "randomkey",              CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "keys",                   CMD_SPEC_READONLY | CMD_SPEC_SORT_REPLY },
-            { "scan",                   CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "dbsize",                 CMD_SPEC_READONLY },
-            { "ttl",                    CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "pttl",                   CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "expiretime",             CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
-            { "pexiretime",             CMD_SPEC_READONLY | CMD_SPEC_RANDOM },
             { "time",                   CMD_SPEC_DONT_INTERCEPT | CMD_SPEC_RANDOM },
-            { "bitcount",               CMD_SPEC_READONLY },
-            { "georadius_ro",           CMD_SPEC_READONLY },
-            { "georadiusbymember_ro",   CMD_SPEC_READONLY },
-            { "geohash",                CMD_SPEC_READONLY },
-            { "geopos",                 CMD_SPEC_READONLY },
-            { "geodist",                CMD_SPEC_READONLY },
-            { "pfcount",                CMD_SPEC_READONLY },
-            { "spop",                   CMD_SPEC_RANDOM },
-            { "zrandmember",            CMD_SPEC_RANDOM },
-            { "hrandfield",             CMD_SPEC_RANDOM },
             { "sync",                   CMD_SPEC_UNSUPPORTED },
             { "psync",                  CMD_SPEC_UNSUPPORTED },
             { "reset",                  CMD_SPEC_UNSUPPORTED },
@@ -178,6 +238,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
         RedisModule_Free(temp);
     }
 
+    CommandSpecPopulateFromRedis(ctx);
     return RR_OK;
 }
 
@@ -186,25 +247,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
  */
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd)
 {
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
-    char buf[64];
-    char *lcmd = buf;
-
-    if (cmd_len > sizeof(buf)) {
-        lcmd = RedisModule_Alloc(cmd_len);
-    }
-
-    for (size_t i = 0; i < cmd_len; i++) {
-        lcmd[i] = (char) tolower(cmd_str[i]);
-    }
-
-    CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, lcmd, cmd_len, NULL);
-    if (lcmd != buf) {
-        RedisModule_Free(lcmd);
-    }
-
-    return cs;
+    return getOrCreateCommandSpec(cmd, false);
 }
 
 /* For a given RaftRedisCommandArray, return a flags value that represents
