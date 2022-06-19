@@ -151,6 +151,38 @@ jobs:
           cd build
           make tests
 
+  test-macos-tls-sanitizer-compile:
+    runs-on: macos-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'macos')
+    timeout-minutes: 14400
+    steps:
+      - name: prep
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ env.GITHUB_REPOSITORY }}
+          ref: ${{ env.GITHUB_HEAD_REF }}
+      - name: Install build dependencies
+        run: brew install autoconf automake
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          make
+      - name: Checkout Redis
+        uses: actions/checkout@v2
+        with:
+          repository: 'redis/redis'
+          ref: 'unstable'
+          path: 'redis'
+      - name: Build Redis
+        run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
+
   test-tls-address-sanitizer:
     runs-on: ubuntu-latest
     if: |
