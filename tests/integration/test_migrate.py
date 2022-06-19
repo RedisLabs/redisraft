@@ -69,11 +69,11 @@ def test_happy_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2',
+        '0', '16383', '2', '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3',
+        '0', '16383', '3', '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -82,11 +82,11 @@ def test_happy_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2',
+        '0', '16383', '2', '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3',
+        '0', '16383', '3', '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -133,7 +133,7 @@ def test_happy_migrate(cluster_factory):
         '1',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '1',
+        '0', '16383', '1', "123",
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
     ) == b'OK'
 
