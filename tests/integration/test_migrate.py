@@ -21,6 +21,9 @@ def test_raft_import(cluster):
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
+    # Test that rexecuting raft.import continues to succeed
+    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
     assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
 
     conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
