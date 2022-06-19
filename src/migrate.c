@@ -192,6 +192,12 @@ fail:
 
 static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 {
+    if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED) {
+        RedisModule_ReplyWithError(req->ctx, "ERR Unable to unlock/delete migrated keys, try again");
+        RaftReqFree(req);
+        return;
+    }
+
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_DELETE_UNLOCK_KEYS;
@@ -261,9 +267,8 @@ static void transferKeys(Connection *conn)
 
     /* raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized> */
     if (rr->migration_debug == RAFT_DEBUG_MIGRATION_EMULATE_IMPORT_FAILED) {
+        ConnAsyncTerminate(conn);
         RedisModule_ReplyWithError(req->ctx, "ERR failed to submit RAFT.IMPORT command, try again");
-        redisAsyncDisconnect(ConnGetRedisCtx(conn));
-        ConnMarkDisconnected(conn);
         RaftReqFree(req);
         return;
     }

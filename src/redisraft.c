@@ -1483,6 +1483,8 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
         rr->migration_debug = val;
+
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
         return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
