@@ -327,19 +327,17 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
             RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "DUMP", "s", key);
             exitRedisModuleCall();
 
-            if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING) {
-                req->r.migrate_keys.keys_serialized[i] = RedisModule_CreateStringFromCallReply(reply);
-                RedisModule_FreeCallReply(reply);
-            } else {
+            if (!reply || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+                RedisModule_ReplyWithError(req->ctx, "ERR serializing keys for migration failed");
                 if (reply) {
                     LOG_WARNING("unexpected response type = %d", RedisModule_CallReplyType(reply));
                     RedisModule_FreeCallReply(reply);
-                } else {
-                    LOG_WARNING("didn't get a reply!");
                 }
-                RedisModule_ReplyWithError(req->ctx, "ERR see logs");
                 goto exit;
             }
+
+            req->r.migrate_keys.keys_serialized[i] = RedisModule_CreateStringFromCallReply(reply);
+            RedisModule_FreeCallReply(reply);
         }
     }
 
@@ -350,7 +348,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
     }
 
     for (unsigned int i = 0; i < sg->nodes_num; i++) {
-        LOG_WARNING("MigrateKeys: adding %s:%d", sg->nodes[i].addr.host, sg->nodes[i].addr.port);
+        LOG_VERBOSE("MigrateKeys: adding %s:%d", sg->nodes[i].addr.host, sg->nodes[i].addr.port);
         NodeAddrListAddElement(&state->addr, &sg->nodes[i].addr);
     }
     state->req = req;
