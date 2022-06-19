@@ -1098,6 +1098,9 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *
  * RAFT.DEBUG DISABLE_APPLY <val>
  *     Set/unset disable_apply raft configuration flag
+ *
+ * RAFT.DEBUG DELAY_APPLY <val>
+ *     Sleep <val> microseconds before executing a command
  * Reply:
  *     +OK
  */
@@ -1266,6 +1269,15 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "delay_apply", cmdlen) && argc == 3) {
+        long long val;
+        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid delay apply value");
+            return REDISMODULE_OK;
+        }
+
+        rr->debug_delay_apply = val;
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
