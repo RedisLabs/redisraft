@@ -1,3 +1,7 @@
+from _pytest.python_api import raises
+from redis import ResponseError
+
+
 def test_raft_import(cluster):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
     assert cluster.execute('set', 'key', 'value')
@@ -21,10 +25,21 @@ def test_raft_import(cluster):
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
-    # Test that rexecuting raft.import continues to succeed
+    # initial import
     assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    # older term, fails
+    with raises(ResponseError, match='invalid term'):
+        assert cluster.execute('raft.import', '1', '123', 'key', serialized)
+    # not matched session migration key
+    with raises(ResponseError, match='invalid magic'):
+        assert cluster.execute('raft.import', '2', '10', 'key', serialized)
+    # repeated with correct values
     assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
-    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    # repeated with updated term
+    assert cluster.execute('raft.import', '3', '123', 'key', serialized) == b'OK'
+    # again, older, previously valid term
+    with raises(ResponseError, match='invalid term'):
+        assert cluster.execute('raft.import', '2', '123', 'key', serialized)
 
     conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
     conn.send_command('ASKING')
