@@ -715,6 +715,7 @@ static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, No
 
         if (res == RR_ERROR) {
             replyCrossSlot(ctx);
+            return RR_ERROR;
         }
 
         replyAsk(rr, ctx, (unsigned int) slot);
