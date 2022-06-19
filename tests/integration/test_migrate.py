@@ -110,7 +110,20 @@ def test_happy_migrate(cluster_factory):
     assert conn.read_response() == b'value'
 
     conn.send_command('get', '{key}key1')
+    with raises(ResponseError, match="MOVED 12539 localhost:5001"):
+        conn.read_response()
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+    conn.send_command('get', '{key}key1')
     assert conn.read_response() == b'value1'
+
+    conn.send_command('get', 'key1')
+    with raises(ResponseError, match="MOVED 9189 localhost:5001"):
+        conn.read_response()
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
     conn.send_command('get', 'key1')
     with raises(ResponseError, match="TRYAGAIN"):
         conn.read_response()
