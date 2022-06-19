@@ -148,6 +148,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
                 int nokey;
                 RedisModule_DictGet(rr->locked_keys, cmd->argv[keyindex[j]], &nokey);
                 if (!nokey) {
+                    RedisModule_Free(keyindex);
                     return SomeExist;
                 }
             }
