@@ -386,6 +386,11 @@ static inline bool HashSlotRangeValid(long start_slot, long end_slot)
             start_slot <= end_slot);
 }
 
+static inline bool MigrationSessionKeyValid(long long key)
+{
+    return key >= 0;
+}
+
 typedef struct RedisRaftConfig {
     raft_node_id_t id;          /* Local node Id */
     NodeAddr addr;              /* Address of local node, if specified */

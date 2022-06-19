@@ -945,7 +945,8 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
             RedisModule_StringToLongLong(argv[argidx++], &type) != REDISMODULE_OK ||
             RedisModule_StringToLongLong(argv[argidx++], &key) != REDISMODULE_OK ||
             !HashSlotRangeValid((int) start_slot, (int) end_slot) ||
-            !SlotRangeTypeValid(type)) {
+            !SlotRangeTypeValid(type) ||
+            !MigrationSessionKeyValid(key)) {
             LOG_WARNING("ShardGroupParse failed; argv[%d]:argv[%d]: invalid parse slot_range", base_argv_idx + argidx - 3, base_argv_idx + argidx - 1);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (slot range)");
             goto error;
