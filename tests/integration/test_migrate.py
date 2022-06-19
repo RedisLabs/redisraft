@@ -31,7 +31,7 @@ def test_raft_import(cluster):
     with raises(ResponseError, match='invalid term'):
         assert cluster.execute('raft.import', '1', '123', 'key', serialized)
     # not matched session migration key
-    with raises(ResponseError, match='invalid magic'):
+    with raises(ResponseError, match='invalid migration_session_key'):
         assert cluster.execute('raft.import', '2', '10', 'key', serialized)
     # repeated with correct values
     assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
