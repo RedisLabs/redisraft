@@ -101,8 +101,15 @@ if (BUILD_TLS)
 endif()
 option(DISABLE_TESTS "Disable hiredis tests" ON)
 
+# Silence hiredis warnings on MacOS
+if (APPLE)
+    set(CMAKE_C_ARCHIVE_CREATE "<CMAKE_AR> Scr <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_C_ARCHIVE_FINISH "<CMAKE_RANLIB> -no_warning_for_no_symbols -c <TARGET>")
+endif()
+
 add_subdirectory(deps/hiredis)
 set_property(TARGET hiredis_static PROPERTY POSITION_INDEPENDENT_CODE ON)
+
 if (BUILD_TLS)
     set_property(TARGET hiredis_ssl_static PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
