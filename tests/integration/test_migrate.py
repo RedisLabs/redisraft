@@ -13,15 +13,15 @@ def test_raft_import(cluster):
         '2',
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '3',
+        '0', '16383', '3', '123',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
         cluster.leader_node().info()["raft_dbid"],
         '1', '1',
-        '0', '16383', '2',
+        '0', '16383', '2', '123',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
-    assert cluster.execute('raft.import', '2', '0', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
 
     conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
     conn.send_command('ASKING')
