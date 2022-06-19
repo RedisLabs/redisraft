@@ -9,11 +9,18 @@ static bool validSlotMigrationSessionKey(RedisRaftCtx *rr, unsigned int slot, un
 
     for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
         ShardGroupSlotRange *sr = &sg->slot_ranges[i];
-        if (sr->start_slot <= slot && sr->end_slot >= slot && sr->migration_session_key == migration_session_key) {
-            return true;
+        if (sr->start_slot <= slot && sr->end_slot >= slot) {
+            if (sr->migration_session_key == migration_session_key) {
+                LOG_VERBOSE("migration_session keys matched");
+                return true;
+            } else {
+                LOG_VERBOSE("migration_session keys didn't match, got %llu expected %llu", migration_session_key, sr->migration_session_key);
+                return false;
+            }
         }
     }
 
+    LOG_VERBOSE("didn't find shardgroup slot range for this");
     return false;
 }
 
@@ -269,8 +276,7 @@ static void transferKeys(Connection *conn)
     int n = snprintf(argv[1], 32, "%ld", req->r.migrate_keys.migrate_term);
     argv_len[1] = n;
     argv[2] = RedisModule_Alloc(32);
-    // FIXME needs to be taken from sg (in raft.import pr))
-    n = snprintf(argv[2], 32, "%llu", (long long unsigned) 0);
+    n = snprintf(argv[2], 32, "%llu", req->r.migrate_keys.migration_session_key);
     argv_len[2] = n;
 
     for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
@@ -304,6 +310,23 @@ static void transferKeys(Connection *conn)
     RedisModule_Free(argv_len);
 }
 
+static RRStatus getMigrationSessionKey(RedisRaftCtx *rr, RaftReq *req, unsigned long long *migration_session_key)
+{
+    RedisModuleString *key = req->r.migrate_keys.keys[0];
+    unsigned int slot = keyHashSlotRedisString(key);
+
+    ShardGroup *sg = rr->sharding_info->migrating_slots_map[slot];
+    for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
+        ShardGroupSlotRange *sr = &sg->slot_ranges[i];
+        if (sr->start_slot <= slot && sr->end_slot >= slot) {
+            *migration_session_key = sr->migration_session_key;
+            return RR_OK;
+        }
+    }
+
+    return RR_ERROR;
+}
+
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
 {
     JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
@@ -316,6 +339,9 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
     req->r.migrate_keys.migrate_term = raft_get_current_term(rr->raft);
+    if (getMigrationSessionKey(rr, req, &req->r.migrate_keys.migration_session_key) != RR_OK) {
+        goto exit;
+    }
 
     for (size_t i = 0; i < req->r.migrate_keys.num_keys; i++) {
         RedisModuleString *key = req->r.migrate_keys.keys[i];

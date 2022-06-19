@@ -613,6 +613,7 @@ typedef struct RaftReq {
             RedisModuleString **keys_serialized;
             size_t num_serialized_keys;
             raft_term_t migrate_term;
+            unsigned long long migration_session_key;
         } migrate_keys;
     } r;
 } RaftReq;
