@@ -12,6 +12,7 @@
 #include <strings.h>
 
 #include "redisraft.h"
+#include "entrycache.h"
 
 #define RAFTLIB_TRACE(fmt, ...) TRACE_MODULE(RAFTLIB, fmt, ##__VA_ARGS__)
 

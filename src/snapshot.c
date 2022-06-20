@@ -12,7 +12,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
 #include "redisraft.h"
+#include "entrycache.h"
 
 /* These are ugly hacks to work around missing Redis Module API calls!
  *
