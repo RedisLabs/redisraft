@@ -331,12 +331,16 @@ typedef struct RedisRaftCtx {
     int snapshot_child_fd;                       /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file;         /* Snapshot file memory map to send to followers */
     RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
-    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
+
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
     RedisModuleCommandFilter *registered_filter; /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;               /* A dict that tracks different client states */
+
+    /* Debug - Testing */
+    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
+    long long debug_delay_apply;                 /* If not zero, sleep microseconds before the execution of a command */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -723,6 +727,7 @@ void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
 void replyRaftError(RedisModuleCtx *ctx, int error);
+void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len);
 raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
@@ -790,7 +795,6 @@ int stringmatchlen(const char *pattern, int patternLen, const char *string, int 
 int stringmatch(const char *pattern, const char *string, int nocase);
 RRStatus parseMemorySize(const char *value, unsigned long *result);
 RRStatus formatExactMemorySize(unsigned long value, char *buf, size_t buf_size);
-void handleRMCallError(RedisModuleCtx *reply_ctx, int ret_errno, const char *cmd, size_t cmdlen);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
@@ -821,23 +825,6 @@ RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long 
 int RaftMetaRead(RaftMeta *meta, const char *filename);
 int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote);
 
-typedef struct EntryCache {
-    raft_index_t size;                  /* Size of ptrs */
-    raft_index_t len;                   /* Number of entries in cache */
-    raft_index_t start_idx;             /* Log index of first entry */
-    raft_index_t start;                 /* ptrs array index of first entry */
-    unsigned long int entries_memsize;  /* Total memory used by entries */
-    raft_entry_t **ptrs;
-} EntryCache;
-
-EntryCache *EntryCacheNew(raft_index_t initial_size);
-void EntryCacheFree(EntryCache *cache);
-void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx);
-raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
-long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
-long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);
-long EntryCacheCompact(EntryCache *cache, size_t max_memory);
-
 /* config.c */
 void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config);
 RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target);
@@ -845,7 +832,7 @@ void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 RRStatus ConfigReadFromRedis(RedisRaftCtx *rr);
 RRStatus ConfigureRedis(RedisModuleCtx *ctx);
-void updateTLSConfig(RedisModuleCtx *ctx, RedisRaftConfig *config);
+void ConfigUpdateTLS(RedisModuleCtx *ctx, RedisRaftConfig *config);
 
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;

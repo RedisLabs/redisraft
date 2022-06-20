@@ -6,8 +6,6 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <time.h>
-
 #include "redisraft.h"
 #include "hiredis_redismodule.h"
 

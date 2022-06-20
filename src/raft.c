@@ -9,12 +9,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <unistd.h>
-#include <ctype.h>
 #include <strings.h>
-#include <inttypes.h>
 
 #include "redisraft.h"
+#include "entrycache.h"
 
 #define RAFTLIB_TRACE(fmt, ...) TRACE_MODULE(RAFTLIB, fmt, ##__VA_ARGS__)
 
@@ -100,23 +98,7 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
     rr->client_attached_entries++;
 }
 
-/* ------------------------------------ RaftRedisCommand ------------------------------------ */
-
-/* ---------------------- RAFT MULTI/EXEC Handlig ---------------------------- */
-
-/* There are several concerns about MULTI/EXEC Handling:
- *
- * 1. We want to make sure that the commands are executed atomically across all
- *    cluster nodes. To do this, we need to pack them as a single Raft log entry.
- * 2. When executing the MULTI/EXEC we don't really need to wrap it because Redis
- *    wraps all module commands in MULTI/EXEC (although no harm is done).
- * 3. The MULTI/EXEC wrapping also ensures that any WATCHed keys will fail the
- *    transaction.  We do have to be careful though and never proxy such operations
- *    to a leader, as we don't synchronize WATCH.  (Note: we should also avoid
- *    proxying WATCH commands of course).
- */
-
-/* ------------------------------------ Log Execution ------------------------------------ */
+/* ----------------------------- Log Execution ------------------------------ */
 
 static bool isSharding(RedisRaftCtx *rr) {
     return rr->sharding_info->is_sharding;
@@ -309,7 +291,11 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
                              RedisModuleCtx *reply_ctx,
                              RaftRedisCommandArray *cmds)
 {
-    int i;
+    RedisModuleCallReply *reply;
+
+    if (rr->debug_delay_apply) {
+        usleep(rr->debug_delay_apply);
+    }
 
     /* When we're in cluster mode, go through handleSharding. This will perform
      * hash slot validation and return an error / redirection if necessary. */
@@ -317,7 +303,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         return;
     }
 
-    for (i = 0; i < cmds->len; i++) {
+    for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
 
         size_t cmdlen;
@@ -325,9 +311,11 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 
         /* We need to handle MULTI as a special case:
         * 1. Skip the command (no need to execute MULTI in a Module context).
-        * 2. If we're returning a response, group it as an array (multibulk).
+        * 2. If we're returning a response, group it as an array (multibulk)
+        * 3. When executing the MULTI/EXEC we don't really need to wrap it
+        *    because Redis wraps all module commands in MULTI/EXEC
+        *    (although no harm is done).
         */
-
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
             if (reply_ctx) {
                 RedisModule_ReplyWithArray(reply_ctx, cmds->len - 1);
@@ -336,27 +324,27 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
             continue;
         }
 
-        enterRedisModuleCall();
-        int eval = 0;
-        int old_entered_eval = 0;
-        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) || (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
-            old_entered_eval = redis_raft.entered_eval;
-            eval = 1;
-            redis_raft.entered_eval = 1;
+        int old_entered_eval = rr->entered_eval;
+
+        if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) ||
+            (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            rr->entered_eval = 1;
         }
-        RedisModuleCallReply *reply = RedisModule_Call(
-                ctx, cmd, redis_raft.resp_call_fmt, &c->argv[1], c->argc - 1);
+
+        enterRedisModuleCall();
+        reply = RedisModule_Call(ctx, cmd,
+                                 rr->resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
-        if (eval) {
-            redis_raft.entered_eval = old_entered_eval;
-        }
+
+        rr->entered_eval = old_entered_eval;
+
 
         if (reply_ctx) {
             if (reply) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
             } else {
-                handleRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
+                replyRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
             }
         }
 
@@ -614,7 +602,7 @@ static int raftSendRequestVote(raft_server_t *raft, void *user_data,
         return 0;
     }
 
-    /* RAFT.REQUESTVOTE <src_node_id> <term> <candidate_id> <last_log_idx> <last_log_term> */
+    /* RAFT.REQUESTVOTE <target_node_id> <src_node_id> <prevote>:<term>:<candidate_id>:<last_log_idx>:<last_log_term> */
     if (redisAsyncCommand(ConnGetRedisCtx(node->conn), handleRequestVoteResponse,
                 node, "RAFT.REQUESTVOTE %d %d %d:%ld:%d:%ld:%ld",
                 raft_node_get_id(raft_node),
@@ -1111,13 +1099,6 @@ raft_cbs_t redis_raft_callbacks = {
     .backpressure = raftBackpressure
 };
 
-/* ------------------------------------ Raft Thread ------------------------------------ */
-
-/*
- * Handling of the Redis Raft context, including its own thread and
- * async I/O loop.
- */
-
 RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 {
     /* Make sure the log we're going to apply matches the RDB we've loaded */
@@ -1376,6 +1357,11 @@ RRStatus loadRaftLog(RedisRaftCtx *rr)
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 {
     raft_node_t *node;
+
+    raft_set_heap_functions(RedisModule_Alloc,
+                            RedisModule_Calloc,
+                            RedisModule_Realloc,
+                            RedisModule_Free);
 
     rr->raft = raft_new_with_log(&RaftLogImpl, rr);
     if (!rr->raft) {

@@ -6,7 +6,7 @@ Copyright (c) 2021 Redis Ltd.
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 import random
-import string
+
 
 def test_hash_deterministic_order(cluster):
     """
@@ -20,8 +20,6 @@ def test_hash_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
@@ -108,8 +106,6 @@ def test_set_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
@@ -214,8 +210,6 @@ def test_keys_deterministic_order(cluster):
     """
 
     cluster.create(3)
-    for i in [1, 2, 3]:
-        cluster.node(i).raft_config_set('loglevel', 'debug')
 
     script = cluster.node(1).client.register_script("""
 -- Populate hash KEYS[1] with ARGV[1] fields, then assign each field
@@ -266,11 +260,12 @@ return 1
 
 def test_raft_sort_hashes(cluster):
     cluster.create(3)
-    for i in range(1000):
-        key = ''.join(random.choices(string.ascii_uppercase, k=6))
-        val = ''.join(random.choices(string.ascii_uppercase, k=6))
-        cluster.execute("hset", "test", key, val)
-        cluster.execute("hset", "test", key + "1", val)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("hset", "test", nums[i], i)
+        cluster.execute("hset", "test", nums[i] + 20000, i)
 
     hgetall = cluster.execute("raft._sort_reply", "hgetall", "test")
     hkeys = cluster.execute("raft._sort_reply", "hkeys", "test")
@@ -310,11 +305,13 @@ def test_raft_sort_hashes(cluster):
 
 def test_raft_sort_sets(cluster):
     cluster.create(3)
-    for i in range(1000):
-        val = ''.join(random.choices(string.ascii_uppercase, k=6))
-        cluster.execute("sadd", "test", val)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("sadd", "test", nums[i])
         if i % 2 == 0:
-            cluster.execute("sadd", "test1", val)
+            cluster.execute("sadd", "test1", nums[i])
 
     sinter = cluster.execute("raft._sort_reply", "sinter", "test", "test1")
     sunion = cluster.execute("raft._sort_reply", "sunion", "test", "test1")
@@ -367,10 +364,11 @@ def test_raft_sort_sets(cluster):
 
 def test_raft_sort_keys(cluster):
     cluster.create(3)
-    for i in range(1000):
-        key = ''.join(random.choices(string.ascii_uppercase, k=6))
-        val = ''.join(random.choices(string.ascii_uppercase, k=6))
-        cluster.execute("set", key, val)
+
+    nums = random.sample(range(1, 10000), 1000)
+
+    for i in range(0, len(nums)):
+        cluster.execute("set", nums[i], i)
 
     keys = cluster.execute("raft._sort_reply", "keys", "*")
 

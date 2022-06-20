@@ -7,7 +7,6 @@
  */
 
 #include <strings.h>
-#include <inttypes.h>
 
 #include "redisraft.h"
 
@@ -16,8 +15,6 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
     int reply_type = RedisModule_CallReplyType(reply);
-
-    LOG_DEBUG("replySortedArray: number of elements before sort = %ld\n", len);
 
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
     for (size_t i = 0; i < len; i++) {
@@ -41,14 +38,8 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         const char *entry_str = RedisModule_CallReplyStringPtr(entry, &entry_len);
         unsigned long val = (unsigned long) RedisModule_DictGetC(dict, (char *) entry_str, entry_len, NULL);
         val++;
-        if (val > 1) {
-            LOG_DEBUG("replySortedArray: duplicate entry in dict, that's ok");
-        }
         RedisModule_DictReplaceC(dict, (char *) entry_str, entry_len, (void *) val);
     }
-
-    LOG_DEBUG("replySortedArray: number of elements in dict = %"PRIu64,
-              RedisModule_DictSize(dict));
 
     switch (reply_type)
     {
@@ -72,17 +63,13 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
     char *key;
     size_t key_len;
     unsigned long val;
-    size_t count = 0;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
+    while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &val)) != NULL) {
         for (unsigned long i = 0; i < val; i++) {
             RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
-            count++;
         }
     }
     RedisModule_DictIteratorStop(iter);
-
-    LOG_DEBUG("replySortedArray: number of output entries = %ld", count);
 
 early_exit:
     RedisModule_FreeDict(ctx, dict);
@@ -93,8 +80,6 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
-
-    LOG_DEBUG("replySortedMap: number of elements before sort = %ld\n", len);
 
     for (size_t i = 0; i < len; i++) {
         RedisModuleCallReply *key;
@@ -109,9 +94,6 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
             goto early_exit;
         }
     }
-
-    LOG_DEBUG("replySortedMap: number of elements in dict = %"PRIu64,
-              RedisModule_DictSize(dict));
 
     if (RedisModule_ReplyWithMap(ctx, len) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
@@ -129,7 +111,6 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         RedisModule_ReplyWithCallReply(ctx, value);
     }
     RedisModule_DictIteratorStop(iter);
-    LOG_DEBUG("replySortedMap: number of output entries = %ld", count);
 
 early_exit:
     RedisModule_FreeDict(ctx, dict);
@@ -155,7 +136,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     redis_raft.entered_eval = entered_eval;
 
     if (!reply) {
-        handleRMCallError(ctx, errno, cmd_str, cmd_len);
+        replyRMCallError(ctx, errno, cmd_str, cmd_len);
     } else {
         int reply_type = RedisModule_CallReplyType(reply);
         switch (reply_type) {

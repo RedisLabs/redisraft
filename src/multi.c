@@ -1,21 +1,23 @@
 /* Handle MULTI/EXEC transactions here.
  *
+ * We want to make sure that the commands are executed atomically across all
+ * cluster nodes. To do this, we need to pack them as a single Raft log entry.
+ *
  * If this logic was applied, the return value is true, indicating no further
  * processing is required.
  *
  * 1) On MULTI, we create a RaftRedisCommandArray which will store all
  *    user commands as they are queued.
- * 2) On EXEC, we remove the RaftRedisCommandArray with all queued commands
- *    from multi_client_state, place it in the RaftReq and let the rest of the
- *    code handle it.
+ * 2) On EXEC, we move all queued commands from multi_client_state and place
+ *    them in the command array and let the rest of the code handle it.
  * 3) On DISCARD we simply remove the queued commands array.
  *
  * Important notes:
  * 1) Although as a module we don't need to pass MULTI to Redis, we still keep
  *    it in the array, because when processing the array we want to distinguish
  *    between a MULTI with a single command and a non-MULTI scenario.
- * 2) If our RaftReq contains multiple commands, we assume it was received as
- *    a RAFT.ENTRY in which case we need to process it as an EXEC.  That means
+ * 2) If our command array contains multiple commands, we assume it was received
+ *    as a RAFT.ENTRY in which case we need to process it as an EXEC. That means
  *    we don't need to reply with +OK and multiple +QUEUED, but just process
  *    the commands atomically.  This is common when a follower proxies a batch
  *    of commands to a leader: the follower handles the user interaction and

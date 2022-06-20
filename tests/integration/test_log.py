@@ -12,6 +12,7 @@ from redis import ResponseError
 from .raftlog import RaftLog
 import pytest
 
+
 def test_log_rollback(cluster):
     """
     Rollback of log entries that were written in the minority.
@@ -42,7 +43,7 @@ def test_log_rollback(cluster):
     cluster.node(2).start()
     cluster.node(3).start()
     cluster.node(2).wait_for_election()
-    assert cluster.node(2).current_index() == 7 # 6 + 1 no-op entry
+    assert cluster.node(2).current_index() == 7  # 6 + 1 no-op entry
 
     # Restart node 1
     cluster.node(1).start()
@@ -71,7 +72,7 @@ def test_raft_log_max_file_size(cluster):
         assert r1.client.set('testkey', 'x'*500)
 
     r1.wait_for_info_param('raft_snapshots_created', 1)
-    assert r1.info()['raft_log_entries'] < 10
+    assert r1.info()['raft_log_entries'] < r1.info()['raft_current_index']
 
 
 def test_raft_log_max_cache_size(cluster):

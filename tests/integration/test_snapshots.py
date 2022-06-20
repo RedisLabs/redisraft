@@ -359,13 +359,17 @@ def test_stale_log_trim(cluster):
     # with a recent snapshot and start it. This simulates delivery of snapshot
     # and a crash sometime before the log is adjusted.
     cluster.node(3).terminate()
+
     for _ in range(20):
         assert cluster.execute('INCR', 'testkey')
-    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    assert cluster.node(1).execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+
     for _ in range(20):
         assert cluster.execute('INCR', 'testkey')
+
     shutil.copyfile(os.path.join(os.curdir, cluster.node(1).dbfilename),
-        os.path.join(os.curdir, cluster.node(3).dbfilename))
+                    os.path.join(os.curdir, cluster.node(3).dbfilename))
 
     cluster.node(3).start()
     cluster.node(3).wait_for_node_voting()
@@ -384,7 +388,7 @@ def test_log_reset_on_snapshot_load(cluster):
     cluster.node(3).terminate()
     for _ in range(20):
         assert cluster.execute('INCR', 'testkey')
-    assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(1).execute('RAFT.DEBUG', 'COMPACT') == b'OK'
 
     # Start node 3 and wait for it to receive a snapshot
     cluster.node(3).start()
@@ -397,6 +401,7 @@ def test_log_reset_on_snapshot_load(cluster):
 
     assert cluster.execute('INCR', 'last-key')
     cluster.wait_for_unanimity()
+
 
 def test_snapshot_fork_failure(cluster):
     """

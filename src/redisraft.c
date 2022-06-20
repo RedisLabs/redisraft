@@ -9,11 +9,11 @@
 #include <string.h>
 #include <strings.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <inttypes.h>
 #include <dlfcn.h>
 
 #include "redisraft.h"
+#include "entrycache.h"
 
 RedisModuleCtx *redis_raft_log_ctx = NULL;
 
@@ -272,7 +272,7 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [term]:[candidate_id]:[last_log_idx]:[last_log_term]
+/* RAFT.REQUESTVOTE [target_node_id] [src_node_id] [prevote]:[term]:[candidate_id]:[last_log_idx]:[last_log_term]
  *   Request a node's vote (per Raft paper).
  * Reply:
  *   -NOCLUSTER ||
@@ -1269,6 +1269,34 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *   the background rewrite child process.
  * Reply:
  *   +OK
+ *
+ * RAFT.DEBUG NODECFG <node_id> <"{+voting|-voting|+active|-active}*">
+ *     Set/unset voting/active node configuration flags
+ * Reply:
+ *    +OK
+ *
+ * RAFT.DEBUG SENDSNAPSHOT <node_id>
+ *     Send node snapshot
+ * Reply:
+ *     +OK
+ *
+ * RAFT.DEBUG USED_NODE_IDS
+ *     return an array of used node ids
+ * Reply:
+ *    An array of used node ids
+ *
+ * RAFT.DEBUG EXEC [Redis command to execute]+
+ *     Execute Redis commands locally (commands do not go through Raft interception)
+ * Reply:
+ *     Any standard Redis reply, depending on the commands.
+ *
+ * RAFT.DEBUG DISABLE_APPLY <val>
+ *     Set/unset disable_apply raft configuration flag
+ *
+ * RAFT.DEBUG DELAY_APPLY <val>
+ *     Sleep <val> microseconds before executing a command
+ * Reply:
+ *     +OK
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -1422,7 +1450,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
         long long val;
         if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid append delay value");
+            RedisModule_ReplyWithError(ctx, "ERR invalid disable apply value");
             return REDISMODULE_OK;
         }
 
@@ -1435,6 +1463,15 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "delay_apply", cmdlen) && argc == 3) {
+        long long val;
+        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid delay apply value");
+            return REDISMODULE_OK;
+        }
+
+        rr->debug_delay_apply = val;
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
@@ -1596,10 +1633,8 @@ static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
     return (int) pass_len;
 }
 
-SSL_CTX *generateSSLContext(RedisModuleCtx *ctx, RedisRaftCtx *rr)
+SSL_CTX *generateSSLContext(RedisRaftCtx *rr)
 {
-    (void) ctx;
-
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
         LOG_WARNING("SSL_CTX_new(): %s",
@@ -1648,35 +1683,42 @@ error:
 #endif
 
 
-void handleConfigChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data)
+void handleConfigChangeEvent(RedisModuleCtx *ctx,
+                             RedisModuleEvent eid, uint64_t event, void *data)
 {
-    if (eid.id != REDISMODULE_EVENT_CONFIG || subevent != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+    if (eid.id != REDISMODULE_EVENT_CONFIG ||
+        event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
         return;
     }
 
 #ifdef HAVE_TLS
-    if (!redis_raft.config->tls_enabled) {
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (!rr->config->tls_enabled) {
         return;
     }
 
     RedisModuleConfigChangeV1 *ei = data;
 
     for (unsigned int i = 0; i < ei->num_changes; i++) {
-        if (strcmp("tls-ca-cert-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-key-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-key-file-pass", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-key-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-key-file-pass", ei->config_names[i]) == 0 ||
-                strcmp("tls-cert-file", ei->config_names[i]) == 0 ||
-                strcmp("tls-client-cert-file", ei->config_names[i]) == 0) {
-            updateTLSConfig(ctx, redis_raft.config);
-            SSL_CTX *new_ctx = generateSSLContext(ctx, &redis_raft);
-            if (new_ctx != NULL) {
-                if (redis_raft.ssl) {
-                    SSL_CTX_free(redis_raft.ssl);
-                }
-                redis_raft.ssl = new_ctx;
+        const char *conf = ei->config_names[i];
+
+        if (!strcmp(conf, "tls-ca-cert-file") ||
+            !strcmp(conf, "tls-key-file") ||
+            !strcmp(conf, "tls-key-file-pass") ||
+            !strcmp(conf, "tls-client-key-file") ||
+            !strcmp(conf, "tls-client-key-file-pass") ||
+            !strcmp(conf, "tls-cert-file") ||
+            !strcmp(conf, "tls-client-cert-file")) {
+
+            ConfigUpdateTLS(ctx, rr->config);
+
+            SSL_CTX *new_ctx = generateSSLContext(rr);
+            if (new_ctx) {
+                SSL_CTX_free(rr->ssl);
+                rr->ssl = new_ctx;
             }
+
             break;
         }
     }
@@ -2016,11 +2058,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-    raft_set_heap_functions(RedisModule_Alloc,
-                            RedisModule_Calloc,
-                            RedisModule_Realloc,
-                            RedisModule_Free);
-
     if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
@@ -2050,7 +2087,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
 #ifdef HAVE_TLS
     if (rr->config->tls_enabled) {
-        rr->ssl = generateSSLContext(ctx, rr);
+        rr->ssl = generateSSLContext(rr);
     }
 #endif
 
