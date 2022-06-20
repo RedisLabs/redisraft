@@ -39,7 +39,8 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
         cs->name = RedisModule_Strdup(lcmd);
         cs->flags = 0;
 
-        RedisModule_DictSetC(commandSpecDict, lcmd, cmd_len, cs);
+        int ret = RedisModule_DictSetC(commandSpecDict, lcmd, cmd_len, cs);
+        RedisModule_Assert(ret == REDISMODULE_OK);
     }
 
     if (lcmd != buf) {
@@ -52,61 +53,73 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
 /* Use COMMAND to fetch all Redis commands and update the CommandSpec. */
 static void CommandSpecPopulateFromRedis(RedisModuleCtx *ctx)
 {
-    const char *readonly_flag = "readonly";
-    const char *random_hint = "nondeterministic_output";
-    const char *sort_reply_hint = "nondeterministic_output_order";
-
     RedisModuleCallReply *reply = NULL;
 
     reply = RedisModule_Call(ctx, "COMMAND", "");
     RedisModule_Assert(reply != NULL);
-    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+    RedisModule_Assert(RedisModule_CallReplyType(reply)
+        == REDISMODULE_REPLY_ARRAY);
 
     for (size_t i = 0; i < RedisModule_CallReplyLength(reply); i++) {
         unsigned int cmdspec_flags = 0;
 
         RedisModuleCallReply *cmd = RedisModule_CallReplyArrayElement(reply, i);
         RedisModule_Assert(cmd != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(cmd) == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(cmd)
+            == REDISMODULE_REPLY_ARRAY);
 
-        /* Scan flags (element #3) and map "read-only" */
+        /* Scan flags (element #3) and map:
+         * "readonly" => CMD_SPEC_READONLY
+         */
+        const char *readonly_flag = "readonly";
+
         RedisModuleCallReply *flags = RedisModule_CallReplyArrayElement(cmd, 2);
         RedisModule_Assert(flags != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(flags) == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(flags)
+            == REDISMODULE_REPLY_ARRAY);
 
         for (size_t j = 0; j < RedisModule_CallReplyLength(flags); j++) {
             RedisModuleCallReply *flag = RedisModule_CallReplyArrayElement(flags, j);
             RedisModule_Assert(flag != NULL);
-            RedisModule_Assert(RedisModule_CallReplyType(flag) == REDISMODULE_REPLY_STRING);
+            RedisModule_Assert(RedisModule_CallReplyType(flag)
+                == REDISMODULE_REPLY_STRING);
 
             size_t len;
             const char *str = RedisModule_CallReplyStringPtr(flag, &len);
 
-            if (len == strlen(readonly_flag) && memcmp(str, readonly_flag, len) == 0) {
-                cmdspec_flags |= CMD_SPEC_READONLY;
+            if (len == strlen(readonly_flag) &&
+                memcmp(str, readonly_flag, len) == 0) {
+                    cmdspec_flags |= CMD_SPEC_READONLY;
             }
         }
 
-        /* Scan hints (element #8) and map "nondeterministic_output" and
-         * "nondeterministic_output_order".
+        /* Scan hints (element #8) and map:
+         * "nondeterministic_output" => CMD_SPEC_RANDOM
+         * "nondeterministic_output_order" => CMD_SPEC_SORT_REPLY
          */
+        const char *random_hint = "nondeterministic_output";
+        const char *sort_reply_hint = "nondeterministic_output_order";
 
         RedisModuleCallReply *hints = RedisModule_CallReplyArrayElement(cmd, 7);
         RedisModule_Assert(hints != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(hints) == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(hints)
+            == REDISMODULE_REPLY_ARRAY);
 
         for (size_t j = 0; j < RedisModule_CallReplyLength(hints); j++) {
             RedisModuleCallReply *hint = RedisModule_CallReplyArrayElement(hints, j);
             RedisModule_Assert(hint != NULL);
-            RedisModule_Assert(RedisModule_CallReplyType(hint) == REDISMODULE_REPLY_STRING);
+            RedisModule_Assert(RedisModule_CallReplyType(hint)
+                == REDISMODULE_REPLY_STRING);
 
             size_t len;
             const char *str = RedisModule_CallReplyStringPtr(hint, &len);
 
-            if (len == strlen(random_hint) && memcmp(str, random_hint, len) == 0) {
-                cmdspec_flags |= CMD_SPEC_RANDOM;
-            } else if (len == strlen(sort_reply_hint) && memcmp(str, sort_reply_hint, len) == 0) {
-                cmdspec_flags |= CMD_SPEC_SORT_REPLY;
+            if (len == strlen(random_hint) &&
+                memcmp(str, random_hint, len) == 0) {
+                    cmdspec_flags |= CMD_SPEC_RANDOM;
+            } else if (len == strlen(sort_reply_hint) &&
+                       memcmp(str, sort_reply_hint, len) == 0) {
+                            cmdspec_flags |= CMD_SPEC_SORT_REPLY;
             }
         }
 
@@ -117,7 +130,8 @@ static void CommandSpecPopulateFromRedis(RedisModuleCtx *ctx)
 
         RedisModuleCallReply *name = RedisModule_CallReplyArrayElement(cmd, 0);
         RedisModule_Assert(name != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(name) == REDISMODULE_REPLY_STRING);
+        RedisModule_Assert(RedisModule_CallReplyType(name)
+            == REDISMODULE_REPLY_STRING);
 
         RedisModuleString *name_str = RedisModule_CreateStringFromCallReply(name);
         CommandSpec *cs = getOrCreateCommandSpec(name_str, true);
