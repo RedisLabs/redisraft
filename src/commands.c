@@ -51,7 +51,7 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
 }
 
 /* Use COMMAND to fetch all Redis commands and update the CommandSpec. */
-static void CommandSpecPopulateFromRedis(RedisModuleCtx *ctx)
+static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 {
     RedisModuleCallReply *reply = NULL;
 
@@ -252,7 +252,7 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
         RedisModule_Free(temp);
     }
 
-    CommandSpecPopulateFromRedis(ctx);
+    populateCommandSpecFromRedis(ctx);
     return RR_OK;
 }
 
