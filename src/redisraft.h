@@ -384,6 +384,7 @@ extern raft_log_impl_t RaftLogImpl;
 #define REDIS_RAFT_HASH_SLOTS                         16384
 #define REDIS_RAFT_HASH_MIN_SLOT                      0
 #define REDIS_RAFT_HASH_MAX_SLOT                      16383
+#define REDIS_RAFT_MAX_SLOT_CHARS                     5
 #define REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL 5000
 #define REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES          4
 /* a string because, that's what has to be passed to rm_call("scan"...) */
@@ -579,7 +580,7 @@ typedef struct ShardGroup {
  */
 typedef struct ShardingInfo {
     unsigned int shard_groups_num;       /* Number of shard groups */
-    RedisModuleDict *shard_group_map;    /* shard group id -> x in shard_groups[x] */
+    RedisModuleDict *shard_group_map;    /* shard group id -> (ShardGroup *) */
     bool is_sharding;                    /* set when we are in a sharding mode */
 
     /* Maps hash slots to ShardGroups indexes.
