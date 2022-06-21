@@ -24,27 +24,27 @@ static bool validSlotMigrationSessionKey(RedisRaftCtx *rr, unsigned int slot, un
     return false;
 }
 
-static int validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
+static bool validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
 {
     ShardingInfo *si = rr->sharding_info;
 
     if (si->max_importing_term[slot] <= term) {
         si->max_importing_term[slot] = term;
-        return 1;
+        return true;
     }
 
-    return 0;
+    return false;
 }
 
-static int validSlot(RedisRaftCtx *rr, int slot)
+static bool validSlot(RedisRaftCtx *rr, int slot)
 {
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
 
     if (sg && sg->local) {
-        return 1;
+        return true;
     }
 
-    return 0;
+    return false;
 }
 
 void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
@@ -58,7 +58,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(import_keys.num_keys > 0);
 
     // FIXME: validate no cross slot migration at append time
-    int slot = keyHashSlotRedisString(import_keys.key_names[0]);
+    unsigned int slot = keyHashSlotRedisString(import_keys.key_names[0]);
 
     if (!validSlot(rr, slot)) {
         if (req) {
@@ -76,7 +76,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (!validSlotTerm(rr, slot, import_keys.term)) {
-        // this is expected situation (suspended old leader)
+        /* this is expected situation (suspended old leader) */
         LOG_DEBUG("ignoring import keys as old term");
         if (req) {
             RedisModule_ReplyWithError(req->ctx, "ERR invalid term");
@@ -89,19 +89,20 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", strlen("REPLACE")); /* overwrite on import */
 
     for (size_t i = 0; i < import_keys.num_keys; i++) {
-        RedisModuleString * temp[4];
+        RedisModuleString *temp[4];
         temp[0] = import_keys.key_names[i];
         temp[1] = zero;
         temp[2] = import_keys.key_serialized[i];
         temp[3] = replace;
 
         enterRedisModuleCall();
-        RedisModuleCallReply *reply;
-        RedisModule_Assert((reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 4)) != NULL);
+        RedisModuleCallReply *reply = RedisModule_Call(rr->ctx, "restore", "v", temp, 4);
         exitRedisModuleCall();
+        RedisModule_Assert(reply != NULL);
+
         if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
             size_t err_len;
-            const char * err = RedisModule_CallReplyStringPtr(reply, &err_len);
+            const char *err = RedisModule_CallReplyStringPtr(reply, &err_len);
             LOG_WARNING("importKeys: restore failed with %.*s", (int) err_len, err);
             RedisModule_Assert(RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR);
         }
@@ -171,8 +172,7 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     entry->type = RAFT_LOGTYPE_IMPORT_KEYS;
     entryAttachRaftReq(rr, entry, req);
 
-    raft_entry_resp_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         replyRaftError(req->ctx, e);
         entryDetachRaftReq(rr, entry);
@@ -191,14 +191,12 @@ fail:
 
 static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 {
-    raft_entry_resp_t response;
-
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_DELETE_UNLOCK_KEYS;
     entryAttachRaftReq(rr, entry, req);
 
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         RedisModule_ReplyWithError(req->ctx, "ERR Unable to unlock/delete migrated keys, try again");
         replyRaftError(req->ctx, e);
@@ -229,7 +227,7 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 
     if (!reply) {
         ConnMarkDisconnected(conn);
-        RedisModule_ReplyWithError(req->ctx, "ERR: connection dropped impporting keys into remote cluster, try again");
+        RedisModule_ReplyWithError(req->ctx, "ERR: connection dropped importing keys into remote cluster, try again");
         RaftReqFree(req);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         ConnAsyncTerminate(conn);
@@ -238,7 +236,7 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
     } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2)) {
         ConnAsyncTerminate(conn);
         /* FIXME: above should be changed to string eventually? */
-        replyWithFormatErrorString(req->ctx, "ERR: received unexpected response from remote cluster, type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
+        replyWithFormatErrorString(req->ctx, "ERR received unexpected response from remote cluster, type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
         RaftReqFree(req);
     } else {
         /* SUCCESS */
@@ -251,7 +249,6 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 
 static void transferKeys(Connection *conn)
 {
-    RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
     JoinLinkState *state = ConnGetPrivateData(conn);
     RaftReq *req = state->req;
 
@@ -260,12 +257,7 @@ static void transferKeys(Connection *conn)
         return;
     }
 
-    ShardGroup * sg = getShardGroupById(rr, req->r.migrate_keys.shardGroupId);
-    if (sg == NULL) {
-        //FIXME: error
-    }
-
-    // raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized>
+    /* raft.import term migration_session_key <key1_name> <key1_serialized> ... <keyn_name> <keyn_serialized> */
     int argc = 3 + (req->r.migrate_keys.num_serialized_keys * 2);
     char **argv = RedisModule_Calloc(argc, sizeof(char *));
     size_t *argv_len = RedisModule_Calloc(argc, sizeof(size_t));
@@ -285,12 +277,12 @@ static void transferKeys(Connection *conn)
         }
 
         size_t key_len;
-        const char * key = RedisModule_StringPtrLen(req->r.migrate_keys.keys[i], &key_len);
+        const char *key = RedisModule_StringPtrLen(req->r.migrate_keys.keys[i], &key_len);
         argv[3 + (i*2)] = RedisModule_Strdup(key);
         argv_len[3+ (i*2)] = key_len;
 
         size_t str_len;
-        const char * str = RedisModule_StringPtrLen(req->r.migrate_keys.keys_serialized[i], &str_len);
+        const char *str = RedisModule_StringPtrLen(req->r.migrate_keys.keys_serialized[i], &str_len);
         argv[3 + (i*2) + 1] = RedisModule_Alloc(str_len);
         memcpy(argv[3 + (i*2) + 1], str, str_len);
         argv_len[3 + (i*2) + 1] = str_len;
@@ -303,7 +295,7 @@ static void transferKeys(Connection *conn)
         RaftReqFree(req);
     }
 
-    for(int i = 0; i < argc; i++) {
+    for (int i = 0; i < argc; i++) {
         RedisModule_Free(argv[i]);
     }
     RedisModule_Free(argv);
@@ -333,7 +325,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
     state->type = "migrate";
     state->connect_callback = transferKeys;
     state->start = time(NULL);
-    ShardGroup * sg = getShardGroupById(rr, req->r.migrate_keys.shardGroupId);
+    ShardGroup *sg = GetShardGroupById(rr, req->r.migrate_keys.shard_group_id);
     if (sg == NULL) {
         RedisModule_ReplyWithError(req->ctx, "ERR couldn't resolve shardgroup id");
         goto exit;

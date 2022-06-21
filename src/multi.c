@@ -36,13 +36,6 @@
 
 #include "redisraft.h"
 
-void MultiClientStateReset(ClientState *clientState)
-{
-    RaftRedisCommandArrayFree(&clientState->multi_state.cmds);
-    clientState->multi_state.active = false;
-    clientState->multi_state.error = false;
-}
-
 bool MultiHandleCommand(RedisRaftCtx *rr,
                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {

@@ -33,10 +33,10 @@ static inline struct RedisModuleString *mock_CreateString(const char *s, size_t 
     return (struct RedisModuleString *) buf;
 }
 
-static inline char * mock_Strdup(const char * s)
+static inline char *mock_Strdup(const char *s)
 {
     size_t len = strlen(s);
-    char * buf = test_malloc(len + 1);
+    char *buf = test_malloc(len + 1);
     memcpy(buf, s, len);
     buf[len] = '\0';
     return buf;

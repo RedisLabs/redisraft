@@ -364,7 +364,8 @@ void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
     RedisModule_Assert(ret == RR_OK);
 }
 
-void FreeImportKeys(ImportKeys *target) {
+void FreeImportKeys(ImportKeys *target)
+{
     if (target->num_keys) {
         if (target->key_names) {
             for (size_t i = 0; i < target->num_keys; i++) {
@@ -397,7 +398,8 @@ void FreeImportKeys(ImportKeys *target) {
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(const char *key, size_t keylen) {
+unsigned int keyHashSlot(const char *key, size_t keylen)
+{
     size_t s, e; /* start-end indexes of { and } */
 
     for (s = 0; s < keylen; s++)
@@ -418,24 +420,26 @@ unsigned int keyHashSlot(const char *key, size_t keylen) {
     return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
 }
 
-unsigned int keyHashSlotRedisString(RedisModuleString *str) {
+unsigned int keyHashSlotRedisString(RedisModuleString *str)
+{
     size_t keylen;
     const char *key = RedisModule_StringPtrLen(str, &keylen);
 
     return keyHashSlot(key, keylen);
 }
 
-RRStatus parseHashSlots(char * slots, char * string)
+RRStatus parseHashSlots(char *slots, char *string)
 {
     string = RedisModule_Strdup(string);
     RRStatus ret = RR_OK;
-    char *tok = strtok(string, ",");
+    char *saveptr = NULL;
+    char *tok = strtok_r(string, ",", &saveptr);
     while (tok != NULL) {
-        char * dash = strchr(tok, '-');
+        char *dash = strchr(tok, '-');
         if (dash == NULL) {
             char *endptr;
             unsigned int slot = strtoul(tok, &endptr, 10);
-            if (*endptr != 0 || slot > REDIS_RAFT_HASH_MAX_SLOT) {
+            if (*endptr != '\0' || slot > REDIS_RAFT_HASH_MAX_SLOT) {
                 ret = RR_ERROR;
                 goto exit;
             }
@@ -444,13 +448,13 @@ RRStatus parseHashSlots(char * slots, char * string)
             *dash = '\0';
             char *endptr;
             unsigned int start = strtoul(tok, &endptr, 10);
-            if (*endptr != 0 || start > REDIS_RAFT_HASH_MAX_SLOT) {
+            if (*endptr != '\0' || start > REDIS_RAFT_HASH_MAX_SLOT) {
                 ret = RR_ERROR;
                 goto exit;
             }
             tok = dash + 1;
             unsigned int end = strtoul(tok, &endptr, 10);
-            if (*endptr != 0 || end > REDIS_RAFT_HASH_MAX_SLOT || end < start) {
+            if (*endptr != '\0' || end > REDIS_RAFT_HASH_MAX_SLOT || end < start) {
                 ret = RR_ERROR;
                 goto exit;
             }
@@ -458,35 +462,10 @@ RRStatus parseHashSlots(char * slots, char * string)
                 slots[i] = 1;
             }
         }
-        tok = strtok(NULL, ",");
+        tok = strtok_r(NULL, ",", &saveptr);
     }
 
 exit:
     RedisModule_Free(string);
     return ret;
-}
-
-ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    unsigned long long client_id = RedisModule_GetClientId(ctx);
-    return RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
-}
-
-void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id)
-{
-    ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);
-    int ret = RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
-    RedisModule_Assert(ret == REDISMODULE_OK);
-}
-
-void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
-{
-    ClientState *state = NULL;
-
-    int ret = RedisModule_DictDelC(rr->client_state, &client_id, sizeof(client_id), &state);
-    RedisModule_Assert(ret == REDISMODULE_OK && state != NULL);
-
-    /* validated that state is not NULL above in the RM_Assert */
-    MultiClientStateReset(state);
-    RedisModule_Free(state);
 }

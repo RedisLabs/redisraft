@@ -236,7 +236,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     return RR_OK;
 }
 
-RRStatus RaftRedisDeserializeImport(ImportKeys * target, const void *buf, size_t buf_size)
+RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t buf_size)
 {
     const char *p = buf;
     int n;
@@ -271,11 +271,13 @@ RRStatus RaftRedisDeserializeImport(ImportKeys * target, const void *buf, size_t
     target->key_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString*));
 
     for (size_t i = 0; i < num_keys; i++) {
-        if ((n = decodeString(p, buf_size, &target->key_names[i])) < 0 || !target->key_names[i]) {
+        n = decodeString(p, buf_size, &target->key_names[i]);
+        if (n < 0 || !target->key_names[i]) {
             return RR_ERROR;
         }
         p += n; buf_size -= n;
-        if ((n = decodeString(p, buf_size, &target->key_serialized[i])) < 0 || !target->key_serialized[i]) {
+        n = decodeString(p, buf_size, &target->key_serialized[i]);
+        if (n < 0 || !target->key_serialized[i]) {
             return RR_ERROR;
         }
         p += n; buf_size -= n;
@@ -330,7 +332,7 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
 /* serialize out keys in a RaftRedisCommand for locking */
 raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc)
 {
-    RedisModuleDict * keys = RedisModule_CreateDict(redis_raft.ctx);
+    RedisModuleDict *keys = RedisModule_CreateDict(NULL);
     size_t total_key_size = 0;
     int num_keys = 0;
 
@@ -368,24 +370,25 @@ raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc)
     RedisModule_DictIteratorStop(iter);
 
     RedisModule_Assert(data_len == 0);
-    RedisModule_FreeDict(redis_raft.ctx, keys);
+    RedisModule_FreeDict(NULL, keys);
 
     return ety;
 }
 
-RedisModuleString ** RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys)
+RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys)
 {
     RedisModuleString **ret;
 
     const char *p = buf;
     int n;
     /* Read number of keys */
-    if ((n = decodeInteger(p, buf_size, '*', num_keys)) < 0 || !num_keys) {
+    n = decodeInteger(p, buf_size, '*', num_keys);
+    if (n < 0 || num_keys == 0) {
         return NULL;
     }
     p += n;
 
-    ret = RedisModule_Alloc(sizeof(RedisModuleString *) * *num_keys);
+    ret = RedisModule_Alloc(sizeof(RedisModuleString *) * (*num_keys));
     for (size_t i = 0; i < *num_keys; i++) {
         size_t str_len = strlen(p);
         ret[i] = RedisModule_CreateString(redis_raft.ctx, p, str_len);

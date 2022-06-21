@@ -217,9 +217,7 @@ unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned
 {
     unsigned int flags = 0;
     for (int i = 0; i < array->len; i++) {
-        /* we get the flag for the command that is asking, not the asking */
-        RedisModuleString * cmd = array->commands[i]->argv[0];
-        const CommandSpec *cs = CommandSpecGet(cmd);
+        const CommandSpec *cs = CommandSpecGet(array->commands[i]->argv[0]);
         if (cs) {
             flags |= cs->flags;
         } else {

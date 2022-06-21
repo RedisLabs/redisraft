@@ -23,7 +23,7 @@ int calcIntSerializedLen(size_t val)
 }
 
 /* returns the expected length of a serialized RedisModuleString */
-size_t calcSerializeStringSize(RedisModuleString * str)
+size_t calcSerializeStringSize(RedisModuleString *str)
 {
     size_t len;
     RedisModule_StringPtrLen(str, &len);
@@ -88,7 +88,7 @@ int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
     return n;
 }
 
-/* decodes a ReidsModuleString from the serialization buffer p
+/* decodes a RedisModuleString from the serialization buffer p
  * sz = remaining size of buffer
  * str = pointer to the RedisModuleString we will create so it can be returned to caller
  *
@@ -118,7 +118,7 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str)
  *
  * returns the number of bytes consumed from the buffer or -1 upon error
  */
-int encodeString(char *p, size_t sz, RedisModuleString * str)
+int encodeString(char *p, size_t sz, RedisModuleString *str)
 {
     size_t len;
     int n;
