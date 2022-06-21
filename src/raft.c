@@ -104,47 +104,6 @@ static bool isSharding(RedisRaftCtx *rr) {
     return rr->sharding_info->is_sharding;
 }
 
-typedef enum KeysStatus{
-    AllExist,
-    SomeExist,
-    NoneExist,
-} KeysStatus;
-
-static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
-    int total_keys = 0;
-    int found = 0;
-
-    for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand *cmd = cmds->commands[i];
-
-        /* Iterate command keys */
-        int num_keys = 0;
-        int *keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
-        total_keys += num_keys;
-
-        for (int j = 0; j < num_keys; j++) {
-            if (RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
-                found++;
-
-                /* test if locked */
-                int nokey;
-                RedisModule_DictGet(rr->locked_keys, cmd->argv[keyindex[j]], &nokey);
-                if (!nokey) {
-                    RedisModule_Free(keyindex);
-                    return SomeExist;
-                }
-            }
-        }
-        RedisModule_Free(keyindex);
-    }
-
-    if (found != total_keys) {
-        return (found == 0) ? NoneExist : SomeExist;
-    }
-
-    return AllExist;
-}
-
 /* figure out the "owner shardgroup"
  *
  * the owner shardgroup is either
@@ -178,8 +137,57 @@ static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool a
     return sg;
 }
 
-static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *reply_ctx,
-                                              RaftRedisCommandArray *cmds, unsigned int slot)
+static RRStatus validateKeyExistence(RedisModuleCtx *ctx,
+                                     RaftRedisCommandArray *cmds,
+                                     unsigned int slot,
+                                     SlotRangeType slot_type)
+{
+    int total_keys = 0, num_keys_found = 0;
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (slot_type == SLOTRANGE_TYPE_STABLE) {
+        return RR_OK;
+    }
+
+    for (int i = 0; i < cmds->len; i++) {
+        int num_keys, *keyindex;
+        RaftRedisCommand *cmd = cmds->commands[i];
+
+        /* Iterate command keys */
+        keyindex = RedisModule_GetCommandKeys(rr->ctx, cmd->argv, cmd->argc, &num_keys);
+        total_keys += num_keys;
+
+        for (int j = 0; j < num_keys; j++) {
+            int nokey; /* Key should not be locked */
+            RedisModule_DictGet(rr->locked_keys, cmd->argv[keyindex[j]], &nokey);
+
+            if (nokey && RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
+                num_keys_found++;
+            }
+        }
+        RedisModule_Free(keyindex);
+    }
+
+    if (num_keys_found == total_keys) {
+        return RR_OK;
+    }
+
+    /* There are missing keys, reply an error */
+    if (ctx) {
+        if (num_keys_found == 0 && slot_type == SLOTRANGE_TYPE_MIGRATING) {
+            replyAsk(rr, ctx, slot);
+        } else {
+            RedisModule_ReplyWithError(ctx, "TRYAGAIN");
+        }
+    }
+
+    return RR_ERROR;
+}
+
+static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr,
+                                              RedisModuleCtx *reply_ctx,
+                                              RaftRedisCommandArray *cmds,
+                                              unsigned int slot)
 {
     RedisModule_Assert(slot <= REDIS_RAFT_HASH_MAX_SLOT);
 
@@ -219,36 +227,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
         return RR_ERROR;
     }
 
-    /* if our keys belong to a local migrating/importing slot, all keys must exist */
-    if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
-        switch (validateKeyExistence(rr, cmds)) {
-            case SomeExist:
-                if (reply_ctx) {
-                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
-                }
-                return RR_ERROR;
-            case NoneExist:
-                if (reply_ctx) {
-                    replyAsk(rr, reply_ctx, slot);
-                }
-                return RR_ERROR;
-            case AllExist:
-                return RR_OK;
-        }
-    } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
-        switch (validateKeyExistence(rr, cmds)) {
-            case SomeExist:
-            case NoneExist:
-                if (reply_ctx) {
-                    RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
-                }
-                return RR_ERROR;
-            case AllExist:
-                return RR_OK;
-        }
-    }
-
-    return RR_OK;
+    return validateKeyExistence(reply_ctx, cmds, slot, slot_type);
 }
 
 /* When sharding is enabled, handle sharding aspects before processing
