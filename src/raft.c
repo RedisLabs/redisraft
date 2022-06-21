@@ -160,8 +160,12 @@ static RRStatus validateKeyExistence(RedisModuleCtx *ctx,
         for (int j = 0; j < num_keys; j++) {
             int nokey; /* Key should not be locked */
             RedisModule_DictGet(rr->locked_keys, cmd->argv[keyindex[j]], &nokey);
+            if (!nokey) {
+                RedisModule_Free(keyindex);
+                goto reply_tryagain;
+            }
 
-            if (nokey && RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
+            if (RedisModule_KeyExists(rr->ctx, cmd->argv[keyindex[j]])) {
                 num_keys_found++;
             }
         }
@@ -173,12 +177,16 @@ static RRStatus validateKeyExistence(RedisModuleCtx *ctx,
     }
 
     /* There are missing keys, reply an error */
-    if (ctx) {
-        if (num_keys_found == 0 && slot_type == SLOTRANGE_TYPE_MIGRATING) {
+    if (num_keys_found == 0 && slot_type == SLOTRANGE_TYPE_MIGRATING) {
+        if (ctx) {
             replyAsk(rr, ctx, slot);
-        } else {
-            RedisModule_ReplyWithError(ctx, "TRYAGAIN");
         }
+        return RR_ERROR;
+    }
+
+reply_tryagain:
+    if (ctx) {
+        RedisModule_ReplyWithError(ctx, "TRYAGAIN");
     }
 
     return RR_ERROR;
