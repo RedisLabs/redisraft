@@ -926,6 +926,6 @@ int encodeString(char *p, size_t sz, RedisModuleString *str);
 ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
-void MultiClientStateReset(ClientState *client_state);
+void ClientStateResetMulti(ClientState *client_state);
 
 #endif  /* _REDISRAFT_H */

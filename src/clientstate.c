@@ -29,11 +29,11 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
     RedisModule_Assert(ret == REDISMODULE_OK && state != NULL);
 
     /* validated that state is not NULL above in the RM_Assert */
-    MultiClientStateReset(state);
+    ClientStateResetMulti(state);
     RedisModule_Free(state);
 }
 
-void MultiClientStateReset(ClientState *client_state)
+void ClientStateResetMulti(ClientState *client_state)
 {
     RaftRedisCommandArrayFree(&client_state->multi_state.cmds);
     client_state->multi_state.active = false;
