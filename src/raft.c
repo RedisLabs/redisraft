@@ -498,7 +498,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     RaftReq *req = entry->user_data;
 
     if (req) {
-        RaftExecuteCommandArray(rr,req->ctx, req->ctx, &req->r.redis.cmds);
+        RaftExecuteCommandArray(rr, req->ctx, req->ctx, &req->r.redis.cmds);
         entryDetachRaftReq(rr, entry);
         RaftReqFree(req);
     } else {

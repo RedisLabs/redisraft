@@ -504,6 +504,7 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
         Node *leader = getLeaderNodeOrReply(rr, ctx);
         if (leader) {
             redirectCommand(rr, ctx, leader);
+            return;
         }
     }
   

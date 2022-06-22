@@ -322,10 +322,6 @@ static RRStatus getMigrationSessionKey(RedisRaftCtx *rr, RaftReq *req, unsigned 
 
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
 {
-    JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
-    state->type = "migrate";
-    state->connect_callback = transferKeys;
-    state->start = time(NULL);
     ShardGroup *sg = GetShardGroupById(rr, req->r.migrate_keys.shard_group_id);
     if (sg == NULL) {
         RedisModule_ReplyWithError(req->ctx, "ERR couldn't resolve shardgroup id");
@@ -367,10 +363,15 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req)
         goto exit;
     }
 
+    JoinLinkState *state = RedisModule_Calloc(1, sizeof(*state));
     for (unsigned int i = 0; i < sg->nodes_num; i++) {
         LOG_VERBOSE("MigrateKeys: adding %s:%d", sg->nodes[i].addr.host, sg->nodes[i].addr.port);
         NodeAddrListAddElement(&state->addr, &sg->nodes[i].addr);
     }
+
+    state->type = "migrate";
+    state->connect_callback = transferKeys;
+    state->start = time(NULL);
     state->req = req;
 
     char *username = req->r.migrate_keys.auth_username;
