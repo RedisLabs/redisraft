@@ -109,12 +109,14 @@ typedef enum KeysStatus{
     AllExist,
     SomeExist,
     NoneExist,
+    LockedExist,
 } KeysStatus;
 
 static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
 {
     int total_keys = 0;
     int found = 0;
+    unsigned int locked = 0;
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *cmd = cmds->commands[i];
@@ -132,12 +134,15 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
                 int nokey;
                 RedisModule_DictGet(rr->locked_keys, cmd->argv[keyindex[j]], &nokey);
                 if (!nokey) {
-                    RedisModule_Free(keyindex);
-                    return SomeExist;
+                    locked++;
                 }
             }
         }
         RedisModule_Free(keyindex);
+    }
+
+    if (locked > 0) {
+        return LockedExist;
     }
 
     if (found != total_keys) {
@@ -221,6 +226,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
     if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
         switch (validateKeyExistence(rr, cmds)) {
             case SomeExist:
+            case LockedExist:
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
                 }
@@ -237,6 +243,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
         switch (validateKeyExistence(rr, cmds)) {
             case SomeExist:
             case NoneExist:
+            case LockedExist:
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
                 }
