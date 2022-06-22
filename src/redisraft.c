@@ -38,7 +38,7 @@ void *__dso_handle;
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
-static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
 
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
@@ -591,58 +591,35 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
-                                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
-{
-    /* Check that we're part of a bootstrapped cluster and not in the middle of
-     * joining or loading data.
-     */
-    if (checkRaftState(rr, ctx) == RR_ERROR) {
-        return RR_ERROR;
-    }
-
-    if (!raft_is_leader(rr->raft)) {
-        Node *leader = getLeaderNodeOrReply(rr, ctx);
-        if (!leader) {
-            return RR_ERROR;
-        }
-
-        return handleNonLeaderCommand(rr, ctx, leader, cmds);
-    }
-
-    /* Handle the special case of read-only commands here: if quorum reads
-     * are enabled schedule the request to be processed when we have a guarantee
-     * we're still a leader. Otherwise, just process the reads.
-     *
-     * Normally we can expect a single command in the request, unless it is a
-     * MULTI/EXEC transaction in which case all queued commands are handled at
-     * once.
-     */
-    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
-    if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
-        RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
-        return RR_ERROR;
-    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
-        if (rr->config->quorum_reads) {
-            RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-            RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-            raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
-        } else {
-            /* Wait until the new leader applies an entry from the current term.
-             * Otherwise, we might process a request before replaying logs.
-             * The state machine will be in an older state. Reading from it
-             * might look like going backward in time. */
-            raft_term_t term = raft_get_current_term(rr->raft);
-            if (term != rr->snapshot_info.last_applied_term) {
-                replyClusterDown(ctx);
-                return RR_ERROR;
-            }
-
+/* Handle the special case of read-only commands here: if quorum reads
+ * are enabled schedule the request to be processed when we have a guarantee
+ * we're still a leader. Otherwise, just process the reads.
+ *
+ * Normally we can expect a single command in the request, unless it is a
+ * MULTI/EXEC transaction in which case all queued commands are handled at
+ * once.
+ */
+static void handleRedisCommandAppendReadOnly(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                                             RaftRedisCommandArray *cmds) {/* read only command, quorum or not */
+    if (rr->config->quorum_reads) {
+        RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+        RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+        raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+    } else {
+        /* Wait until the new leader applies an entry from the current term.
+         * Otherwise, we might process a request before replaying logs.
+         * The state machine will be in an older state. Reading from it
+         * might look like going backward in time. */
+        raft_term_t term = raft_get_current_term(rr->raft);
+        if (term == rr->snapshot_info.last_applied_term) {
             RaftExecuteCommandArray(rr, ctx, ctx, cmds);
+        } else {
+            replyClusterDown(ctx);
         }
-        return RR_OK;
     }
+}
 
+static void handleRedisCommandAppendLog(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds) {
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
@@ -650,17 +627,43 @@ static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
+
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     if (e != 0) {
         replyRaftError(ctx, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         RaftReqFree(req);
-        return RR_ERROR;
+    } else {
+        raft_entry_release(entry);
+    }
+}
+
+static void handleRedisCommandAppend(RedisRaftCtx *rr,
+                                      RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
+
+    /* Check that we're part of a bootstrapped cluster and not in the middle of
+     * joining or loading data.
+     */
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
     }
 
-    raft_entry_release(entry);
-    return RR_OK;
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+
+        return handleNonLeaderCommand(rr, ctx, leader, cmds);
+    }
+
+    if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
+    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
+        handleRedisCommandAppendReadOnly(rr, ctx, cmds);
+    } else {
+        handleRedisCommandAppendLog(rr, ctx, cmds);
+    }
 }
 
 static void handleRedisCommand(RedisRaftCtx *rr,
@@ -697,42 +700,36 @@ static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader)
     replyRedirect(ctx, 0, &leader->addr);
 }
 
-static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
 {
     RedisModule_Assert(!raft_is_leader(rr->raft));
     RedisModule_Assert(cmds);
 
-    /* reply ASK for ASKING state commands */
-    if (cmds->asking) {
+
+    if (!leader) {
+        /* if no leader, cluster is down */
+        replyClusterDown(ctx);
+    } else if (rr->config->follower_proxy) {
+        /* forward commands to the leader in follower_proxy state */
+        if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+        }
+    } else if (cmds->asking) {
+        /* reply ASK for ASKING state commands */
         int slot;
         RRStatus res = HashSlotCompute(rr, cmds, &slot);
         if (slot == -1) {
             /* ASKING mode requests should always have keys */
             RedisModule_ReplyWithError(ctx, "ERR cmd without keys in asking mode");
-            return RR_ERROR;
-        }
-
-        if (res == RR_ERROR) {
+        } else if (res == RR_ERROR) {
             replyCrossSlot(ctx);
-            return RR_ERROR;
+        } else {
+            replyAsk(rr, ctx, (unsigned int) slot);
         }
-
-        replyAsk(rr, ctx, (unsigned int) slot);
-        return RR_OK;
+    } else {
+        /* redirect otherwise */
+        redirectCommand(rr, ctx, leader);
     }
-
-    /* forward commands to the leader in follower_proxy state */
-    if (rr->config->follower_proxy) {
-        if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
-            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
-            return RR_ERROR;
-        }
-        return RR_OK;
-    }
-
-    /* redirect otherwise */
-    redirectCommand(rr, ctx, leader);
-    return RR_OK;
 }
 
 /* RAFT [Redis command to execute]
@@ -766,6 +763,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         cmd->argv[i] =  argv[i + 1];
         RedisModule_RetainString(ctx, cmd->argv[i]);
     }
+
     handleRedisCommand(rr, ctx, &cmds);
     RaftRedisCommandArrayFree(&cmds);
 
