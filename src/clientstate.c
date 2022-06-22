@@ -27,11 +27,11 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
 
     int ret = RedisModule_DictDelC(rr->client_state, &client_id, sizeof(client_id), &state);
     RedisModule_Assert(ret == REDISMODULE_OK);
-    RedisModule_Assert(state != NULL);
 
-    /* validated that state is not NULL above in the RM_Assert */
-    ClientStateResetMulti(state);
-    RedisModule_Free(state);
+    if (state != NULL) {
+        ClientStateResetMulti(state);
+        RedisModule_Free(state);
+    }
 }
 
 void ClientStateResetMulti(ClientState *client_state)
