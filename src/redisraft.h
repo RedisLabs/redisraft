@@ -347,7 +347,7 @@ typedef struct RedisRaftCtx {
     /* Debug - Testing */
     struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
     long long debug_delay_apply;                 /* If not zero, sleep microseconds before the execution of a command */
-    migration_debug migration_debug;             /* for debugging migration, places to inject error */
+    MigrationDebug migration_debug;             /* for debugging migration, places to inject error */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
