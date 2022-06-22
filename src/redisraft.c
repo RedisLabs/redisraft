@@ -512,12 +512,11 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
         return;
     }
 
-    raft_entry_resp_t response;
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_LOCK_KEYS;
     entryAttachRaftReq(rr, entry, req);
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         replyRaftError(req->ctx, e);
         RaftReqFree(req);
