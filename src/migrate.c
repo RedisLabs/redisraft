@@ -54,7 +54,8 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RaftReq *req = entry->user_data;
 
     ImportKeys import_keys = {0};
-    RedisModule_Assert(RaftRedisDeserializeImport(&import_keys, entry->data, entry->data_len) == RR_OK);
+    int ret = RaftRedisDeserializeImport(&import_keys, entry->data, entry->data_len);
+    RedisModule_Assert(ret == RR_OK);
     RedisModule_Assert(import_keys.num_keys > 0);
 
     // FIXME: validate no cross slot migration at append time
