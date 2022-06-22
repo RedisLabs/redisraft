@@ -106,10 +106,10 @@ static bool isSharding(RedisRaftCtx *rr)
 }
 
 typedef enum KeysStatus{
-    AllExist,
-    SomeExist,
-    NoneExist,
-    LockedExist,
+    ALL_EXIST,
+    SOME_EXIST,
+    NONE_EXIST,
+    LOCKED_EXIST,
 } KeysStatus;
 
 static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
@@ -142,14 +142,14 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
     }
 
     if (locked > 0) {
-        return LockedExist;
+        return LOCKED_EXIST;
     }
 
     if (found != total_keys) {
-        return (found == 0) ? NoneExist : SomeExist;
+        return (found == 0) ? NONE_EXIST : SOME_EXIST;
     }
 
-    return AllExist;
+    return ALL_EXIST;
 }
 
 /* figure out the "owner shardgroup"
@@ -225,30 +225,30 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
     /* if our keys belong to a local migrating/importing slot, all keys must exist */
     if (slot_type == SLOTRANGE_TYPE_MIGRATING) {
         switch (validateKeyExistence(rr, cmds)) {
-            case SomeExist:
-            case LockedExist:
+            case SOME_EXIST:
+            case LOCKED_EXIST:
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
                 }
                 return RR_ERROR;
-            case NoneExist:
+            case NONE_EXIST:
                 if (reply_ctx) {
                     replyAsk(rr, reply_ctx, slot);
                 }
                 return RR_ERROR;
-            case AllExist:
+            case ALL_EXIST:
                 return RR_OK;
         }
     } else if (slot_type == SLOTRANGE_TYPE_IMPORTING) {
         switch (validateKeyExistence(rr, cmds)) {
-            case SomeExist:
-            case NoneExist:
-            case LockedExist:
+            case SOME_EXIST:
+            case NONE_EXIST:
+            case LOCKED_EXIST:
                 if (reply_ctx) {
                     RedisModule_ReplyWithError(reply_ctx, "TRYAGAIN");
                 }
                 return RR_ERROR;
-            case AllExist:
+            case ALL_EXIST:
                 return RR_OK;
         }
     }
