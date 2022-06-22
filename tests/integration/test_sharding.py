@@ -32,7 +32,7 @@ def test_cross_slot_violation(cluster):
     with raises(ResponseError, match='CROSSSLOT'):
         c.mset({'key1': 'val1', 'key2': 'val2'})
 
-    # With tags it should succeed
+    # With tags, it should succeed
     assert c.mset({'{tag1}key1': 'val1', '{tag1}key2': 'val2'})
 
     # MULTI/EXEC with cross slot between commands
@@ -434,7 +434,7 @@ def test_shard_group_reshard_to_migrate(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.execute("set", "key", "value");
+    cluster.execute("set", "key", "value")
 
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -477,7 +477,7 @@ def test_shard_group_reshard_to_import(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.execute("set", "key", "value");
+    cluster.execute("set", "key", "value")
 
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',

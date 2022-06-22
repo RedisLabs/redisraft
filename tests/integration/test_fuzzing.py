@@ -174,7 +174,7 @@ def test_proxy_stability_under_load(cluster, workload):
 @pytest.mark.slow
 def test_stability_with_snapshots_and_restarts(cluster, workload):
     """
-    Test stability of the cluster with frequent snapshoting.
+    Test stability of the cluster with frequent snapshotting.
     """
 
     thread_count = 100
