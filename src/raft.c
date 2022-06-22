@@ -105,7 +105,7 @@ static bool isSharding(RedisRaftCtx *rr)
     return rr->sharding_info->is_sharding;
 }
 
-typedef enum KeysStatus{
+typedef enum KeysStatus {
     ALL_EXIST,
     SOME_EXIST,
     NONE_EXIST,

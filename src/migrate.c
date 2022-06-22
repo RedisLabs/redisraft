@@ -24,7 +24,7 @@ static bool validSlotMigrationSessionKey(RedisRaftCtx *rr, unsigned int slot, un
     return false;
 }
 
-static bool validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
+static bool validSlotTerm(RedisRaftCtx *rr, unsigned int slot, raft_term_t term)
 {
     ShardingInfo *si = rr->sharding_info;
 
@@ -36,7 +36,7 @@ static bool validSlotTerm(RedisRaftCtx *rr, int slot, raft_term_t term)
     return false;
 }
 
-static bool validSlot(RedisRaftCtx *rr, int slot)
+static bool validSlot(RedisRaftCtx *rr, unsigned int slot)
 {
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
 
@@ -234,7 +234,7 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
         ConnAsyncTerminate(conn);
         replyWithFormatErrorString(req->ctx, "RAFT.IMPORT failed: %.*s", (int) reply->len, reply->str);
         RaftReqFree(req);
-    } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2)) {
+    } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2) != 0) {
         ConnAsyncTerminate(conn);
         /* FIXME: above should be changed to string eventually? */
         replyWithFormatErrorString(req->ctx, "ERR received unexpected response from remote cluster, type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
