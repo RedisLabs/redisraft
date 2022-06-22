@@ -5,8 +5,6 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-import logging
-
 from redis import ResponseError
 from pytest import raises
 
@@ -92,14 +90,14 @@ def test_ignored_commands(cluster):
     """
     # create a non initialized single node cluster
     cluster.nodes = {1: RedisRaft(1, cluster.base_port + 1,
-              config=cluster.config,
-              raft_args={"ignored-commands": "ignored,mycommand"},
-              cluster_id=cluster.cluster_id)}
+                                  config=cluster.config,
+                                  raft_args={"ignored-commands": "ignored,mycommand"},
+                                  cluster_id=cluster.cluster_id)}
 
     cluster.node(1).cleanup()
     cluster.node(1).start()
 
-    # ignored commands should give a non existent command redis error
+    # ignored commands should give a non-existent command redis error
     with raises(ResponseError, match="unknown command"):
         cluster.node(1).client.execute_command("ignored", "test", "command")
     with raises(ResponseError, match="unknown command"):

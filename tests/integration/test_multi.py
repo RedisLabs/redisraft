@@ -5,17 +5,15 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-
-import time
 from pytest import raises
 from redis.exceptions import ExecAbortError, ResponseError
 
 
 class RawConnection(object):
     """
-    Implement a simply way of executing a Redis command and return the raw
+    Implement a simple way of executing a Redis command and return the raw
     unprocessed reply (unlike redis-py's execute_command() which applies some
-    command-specific parsing.
+    command-specific parsing.)
     """
 
     def __init__(self, client):

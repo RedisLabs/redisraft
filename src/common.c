@@ -93,7 +93,8 @@ void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
 }
 
 /* Create a -ASK reply. */
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot) {
+void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot)
+{
     ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
     if (!sg) {
         RedisModule_ReplyWithError(ctx, "ERR no importing shard group to ask");
@@ -111,29 +112,21 @@ void replyCrossSlot(RedisModuleCtx *ctx)
     RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
 }
 
-void replyClusterDownWithNoRaftLeader(RedisModuleCtx *ctx)
+void replyClusterDown(RedisModuleCtx *ctx)
 {
     RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
 }
 
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char * fmt, ...)
 {
+    char buf[512];
     va_list ap;
 
     va_start(ap, fmt);
-    int len = vsnprintf(NULL, 0, fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
 
-    char * buf = RedisModule_Alloc(len+1);
-
-    va_start(ap, fmt);
-    vsnprintf(buf, len, fmt, ap);
-    va_end(ap);
-
-    buf[len] = '\0';
     RedisModule_ReplyWithError(ctx, buf);
-    RedisModule_Free(buf);
-
 }
 
 /* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
@@ -146,7 +139,7 @@ raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     raft_node_t *node = raft_get_leader_node(rr->raft);
     if (!node) {
-        replyClusterDownWithNoRaftLeader(ctx);
+        replyClusterDown(ctx);
     }
 
     return node;
@@ -167,7 +160,7 @@ Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
     Node *node = raft_node_get_udata(raft_node);
     if (!node) {
-        replyClusterDownWithNoRaftLeader(ctx);
+        replyClusterDown(ctx);
     }
 
     return node;

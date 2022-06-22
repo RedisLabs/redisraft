@@ -170,6 +170,7 @@ add_dependencies(coverage-report coverage)
 
 # ------------------------ Library build start  ------------------------------ #
 add_library(redisraft MODULE
+        src/clientstate.c
         src/cluster.c
         src/commands.c
         src/common.c
@@ -225,6 +226,7 @@ target_include_directories(redisraft PUBLIC
 
 # ---------------------------- Test Start ------------------------------------ #
 add_executable(main
+        src/clientstate.c
         src/cluster.c
         src/commands.c
         src/common.c

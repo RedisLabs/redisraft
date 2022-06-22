@@ -100,7 +100,8 @@ void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
 /* ----------------------------- Log Execution ------------------------------ */
 
-static bool isSharding(RedisRaftCtx *rr) {
+static bool isSharding(RedisRaftCtx *rr)
+{
     return rr->sharding_info->is_sharding;
 }
 
@@ -110,7 +111,8 @@ typedef enum KeysStatus{
     NoneExist,
 } KeysStatus;
 
-static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds) {
+static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
     int total_keys = 0;
     int found = 0;
 
@@ -155,8 +157,7 @@ static KeysStatus validateKeyExistence(RedisRaftCtx *rr, RaftRedisCommandArray *
  * 3) a shardgroup marked as local (i.e. corresponding to this cluster) that owns the slot as an importing slot and
  *    has a RaftRedisCommandArray marked as asking
  */
-
-static ShardGroup *GetSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool asking)
+static ShardGroup *getSlotShardGroup(RedisRaftCtx *rr, unsigned int slot, bool asking)
 {
     ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
     if (sg != NULL) {
@@ -184,7 +185,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
     RedisModule_Assert(slot <= REDIS_RAFT_HASH_MAX_SLOT);
 
     /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = GetSlotShardGroup(rr, slot, cmds->asking);
+    ShardGroup *sg = getSlotShardGroup(rr, slot, cmds->asking);
     if (!sg) {
         if (reply_ctx) {
             RedisModule_ReplyWithError(reply_ctx, "CLUSTERDOWN Hash slot is not served");
@@ -209,10 +210,7 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
 
     if (!sg->local) {
         if (reply_ctx) {
-            sg->next_redir++;
-            if (sg->next_redir >= sg->nodes_num) {
-                sg->next_redir = 0;
-            }
+            sg->next_redir = (sg->next_redir + 1) % sg->nodes_num;
             replyRedirect(reply_ctx, slot, &sg->nodes[sg->next_redir].addr);
         }
 
@@ -268,7 +266,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
         return RR_OK;
     }
 
-    if (computeHashSlot(rr, ctx, cmds, &slot) != RR_OK) {
+    if (HashSlotCompute(rr, cmds, &slot) != RR_OK) {
         replyCrossSlot(ctx);
         return RR_ERROR;
     }
@@ -365,7 +363,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
-    RedisModuleString ** keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
+    RedisModuleString **keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
 
     /* sanity check keys all belong to same slot */
     int slot = -1;
@@ -387,7 +385,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
     if (slot == -1) { /* should be impossible, as keys should be listed up front */
         if (req) {
-            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+            RedisModule_ReplyWithSimpleString(req->ctx, "ERR lockKeys called without any keys to lock");
         }
         goto error;
     }
@@ -423,16 +421,16 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 
     for (size_t i = 0; i < num_keys; i++) {
         if (RedisModule_KeyExists(rr->ctx, keys[i])) {
-/*            size_t str_len;
+            size_t str_len;
             const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
-            LOG_WARNING("locking %.*s", (int) str_len, str);
-*/
+            LOG_VERBOSE("locking %.*s", (int) str_len, str);
+
             RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
         }
     }
 
     if (req) {
-        memcpy(req->r.migrate_keys.shardGroupId, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
+        memcpy(req->r.migrate_keys.shard_group_id, si->importing_slots_map[slot]->id, RAFT_DBID_LEN);
         MigrateKeys(rr, req);
     }
     goto exit;
@@ -456,14 +454,14 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RaftReq *req = entry->user_data;
 
     size_t num_keys;
-    RedisModuleString ** keys;
+    RedisModuleString **keys;
 
     keys = RaftRedisLockKeysDeserialize(entry->data, entry->data_len, &num_keys);
 
     enterRedisModuleCall();
-    RedisModuleCallReply *reply;
-    RedisModule_Assert((reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys)) != NULL);
+    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, "del", "v", keys, num_keys);
     exitRedisModuleCall();
+    RedisModule_Assert(reply != NULL);
     RedisModule_FreeCallReply(reply);
 
     for (size_t i = 0; i < num_keys; i++) {

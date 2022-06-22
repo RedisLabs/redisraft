@@ -431,7 +431,7 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
         if (strlen(value) > 0) {
             target->scan_size = RedisModule_Strdup(value);
         } else {
-            target->scan_size = RedisModule_Strdup("1000");
+            target->scan_size = RedisModule_Strdup(REDIS_RAFT_DEFAULT_SCAN_SIZE);
         }
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
@@ -680,7 +680,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
     config->cluster_user = RedisModule_Strdup("default");
     config->cluster_password = NULL;
-    config->scan_size = "1000";
+    config->scan_size = RedisModule_Strdup(REDIS_RAFT_DEFAULT_SCAN_SIZE);
 
 #ifdef HAVE_TLS
     ConfigUpdateTLS(ctx, config);

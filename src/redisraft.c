@@ -348,7 +348,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(&redis_raft,req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, &req->r.redis.cmds);
 
 exit:
     RaftReqFree(req);
@@ -383,13 +383,13 @@ static void handleInfoCommand(RedisRaftCtx *rr,
 #define MIGRATE_CMD_OPTIONAL_ARG_IDX 6
 
 typedef struct MigrationInfo {
-    char username[256];
-    char password[256];
+    char username[MAX_AUTH_STRING_ARG_LENGTH+1];
+    char password[MAX_AUTH_STRING_ARG_LENGTH+1];
 } MigrationInfo;
 
-static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *cmd)
+static MigrationInfo *extractMigrationInfo(RaftRedisCommand *cmd)
 {
-    MigrationInfo * ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
+    MigrationInfo *ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
 
     /* default values if auth isn't specified */
     strncpy(ret->username, "default", sizeof(ret->username));
@@ -397,7 +397,7 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
     int idx;
     for (idx = MIGRATE_CMD_OPTIONAL_ARG_IDX; idx < cmd->argc; idx++) {
         size_t auth_str_len;
-        const char * auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
+        const char *auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
         if (auth_str_len == 5 && !strncasecmp("AUTH2", auth_str, 5)) {
             if (idx + 2 > cmd->argc) {
                 LOG_WARNING("couldn't parse username/password");
@@ -406,7 +406,7 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
 
             size_t username_len;
             const char *username = RedisModule_StringPtrLen(cmd->argv[idx + 1], &username_len);
-            if (username_len > 255) {
+            if (username_len > MAX_AUTH_STRING_ARG_LENGTH) {
                 LOG_WARNING("username is too long: limited to 255 characters");
                 goto fail;
             }
@@ -414,7 +414,7 @@ static MigrationInfo * extractMigrationInfo(RedisRaftCtx *rr, RaftRedisCommand *
 
             size_t password_len;
             const char *password = RedisModule_StringPtrLen(cmd->argv[idx + 2], &password_len);
-            if (password_len > 255) {
+            if (password_len > MAX_AUTH_STRING_ARG_LENGTH) {
                 LOG_WARNING("password is too long: limited to 255 characters");
                 goto fail;
             }
@@ -430,24 +430,24 @@ fail:
     return NULL;
 }
 
-static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisCommand *cmd)
+static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
     RaftReq *req = NULL;
 
-    // 0. assert minimum size here
+    /* 0. assert minimum size here */
     if (cmd->argc < 8) {
         RedisModule_WrongArity(ctx);
         return req;
     }
 
-    // 1. Extract migration info and store it in a dict rr->migrate_info
-    MigrationInfo * migrationInfo = extractMigrationInfo(rr, cmd);
+    /* 1. Extract migration info and store it in a dict rr->migrate_info */
+    MigrationInfo *migrationInfo = extractMigrationInfo(cmd);
     if (migrationInfo == NULL) {
         RedisModule_ReplyWithError(ctx, "ERR check logs");
         goto exit;
     }
 
-    // 2. assert single key is empty
+    /* 2. assert single key is empty */
     size_t key_len;
     RedisModule_StringPtrLen(cmd->argv[3], &key_len);
     if (key_len != 0) {
@@ -459,7 +459,7 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     int idx = MIGRATE_CMD_OPTIONAL_ARG_IDX;
     for(; idx < cmd->argc; idx++) {
         size_t str_len;
-        const char * str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
+        const char *str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
         if (str_len == 4 && !strcasecmp("keys", str)) {
             break;
         }
@@ -485,8 +485,8 @@ static RaftReq * cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx * ctx, RaftRedisC
     req->r.migrate_keys.num_keys = num_keys;
     req->r.migrate_keys.keys = keys;
     req->r.migrate_keys.keys_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
-    memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, 255);
-    memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, 255);
+    memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, MAX_AUTH_STRING_ARG_LENGTH);
+    memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, MAX_AUTH_STRING_ARG_LENGTH);
 
 exit:
     RedisModule_Free(migrationInfo);
@@ -495,7 +495,7 @@ exit:
 
 static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-      if (rr->migrate_req != NULL) {
+    if (rr->migrate_req != NULL) {
         RedisModule_ReplyWithError(ctx, "ERR RedisRaft only supports one concurrent migration currently");
         return;
     }
@@ -507,8 +507,8 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
         }
     }
   
-    RaftReq * req;
-    if ((req = cmdToMigrate(rr, ctx, cmd)) == NULL) {
+    RaftReq *req = cmdToMigrate(rr, ctx, cmd);
+    if (req == NULL) {
         return;
     }
 
@@ -634,7 +634,7 @@ static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
              * might look like going backward in time. */
             raft_term_t term = raft_get_current_term(rr->raft);
             if (term != rr->snapshot_info.last_applied_term) {
-                replyClusterDownWithNoRaftLeader(ctx);
+                replyClusterDown(ctx);
                 return RR_ERROR;
             }
 
@@ -688,7 +688,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,
 
 static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader)
 {
-
     RedisModule_Assert(!raft_is_leader(rr->raft));
 
     /* One anomaly here is that may redirect a client to the leader even for
@@ -706,7 +705,7 @@ static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, No
     /* reply ASK for ASKING state commands */
     if (cmds->asking) {
         int slot;
-        RRStatus res = computeHashSlot(rr, ctx, cmds, &slot);
+        RRStatus res = HashSlotCompute(rr, cmds, &slot);
         if (slot == -1) {
             /* ASKING mode requests should always have keys */
             RedisModule_ReplyWithError(ctx, "ERR cmd without keys in asking mode");
@@ -1537,12 +1536,12 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
         return REDISMODULE_OK;
     }
 
-    char cursor[15] = {0};
+    char cursor[32] = {0};
     char slots[REDIS_RAFT_HASH_SLOTS] = {0};
-    char * slot_str;
+    char *slot_str;
 
     size_t str_len;
-    const char * str = RedisModule_StringPtrLen(argv[1], &str_len);
+    const char *str = RedisModule_StringPtrLen(argv[1], &str_len);
     strncpy(cursor, str, str_len);
 
     str = RedisModule_StringPtrLen(argv[2], &str_len);
@@ -1597,7 +1596,7 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
     long count = 0;
     for (size_t i = 0; i < RedisModule_CallReplyLength(list); i++) {
-        RedisModuleCallReply * key = RedisModule_CallReplyArrayElement(list, i);
+        RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(list, i);
         str = RedisModule_CallReplyStringPtr(key, &str_len);
         unsigned int slot = keyHashSlot(str, str_len);
         if (slots[slot]) {

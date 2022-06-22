@@ -754,7 +754,7 @@ RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     return RR_OK;
 }
 
-ShardGroup *getShardGroupById(RedisRaftCtx *rr, const char *id)
+ShardGroup *GetShardGroupById(RedisRaftCtx *rr, const char *id)
 {
     ShardingInfo *si = rr->sharding_info;
 
@@ -774,7 +774,7 @@ RRStatus ShardingInfoUpdateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg)
     if (!memcmp(rr->snapshot_info.dbid, new_sg->id, sizeof(new_sg->id))) {
         /* TODO: when we can update slots, that is the only thing that will be updated here */
     } else {
-        ShardGroup *sg = getShardGroupById(rr, new_sg->id);
+        ShardGroup *sg = GetShardGroupById(rr, new_sg->id);
         if (sg == NULL) {
             goto out;
         }
@@ -869,7 +869,8 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
             RedisModule_DictIteratorStop(iter);
 
             if (!sg->local || sg->slot_ranges_num != 1 ||
-                sg->slot_ranges[0].start_slot != 0 || sg->slot_ranges[0].end_slot != 16383 ||
+                sg->slot_ranges[0].start_slot != REDIS_RAFT_HASH_MIN_SLOT ||
+                sg->slot_ranges[0].end_slot != REDIS_RAFT_HASH_MAX_SLOT ||
                 sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
                 si->is_sharding = true;
             }
@@ -1159,8 +1160,7 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 /* Compute the hash slot for a RaftRedisCommandArray list of commands and update
  * the entry or reply with an error or if it can't be done
  */
-RRStatus computeHashSlot(RedisRaftCtx *rr,
-                         RedisModuleCtx *ctx,
+RRStatus HashSlotCompute(RedisRaftCtx *rr,
                          RaftRedisCommandArray *cmds,
                          int *slot)
 {
@@ -1177,6 +1177,7 @@ RRStatus computeHashSlot(RedisRaftCtx *rr,
             int thisslot = (int) keyHashSlotRedisString(key);
 
             if (*slot == -1) {
+                /* First key */
                 *slot = thisslot;
             } else {
                 if (*slot != thisslot) {
@@ -1663,7 +1664,7 @@ void ShardGroupLink(RedisRaftCtx *rr,
 
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    ShardGroup *sg = getShardGroupById(rr, rr->log->dbid);
+    ShardGroup *sg = GetShardGroupById(rr, rr->log->dbid);
 
     /* 2 arrays
      * 1. slot ranges -> each element is a 3 element array start/end/type

@@ -24,7 +24,7 @@ def test_cross_slot_violation(cluster):
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         cluster.leader_node().info()['raft_dbid'],
         '1', '1',
-        '0', '16383', '1', '324',
+        '0', '16383', '1', '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -32,7 +32,7 @@ def test_cross_slot_violation(cluster):
     with raises(ResponseError, match='CROSSSLOT'):
         c.mset({'key1': 'val1', 'key2': 'val2'})
 
-    # With tags it should succeed
+    # With tags, it should succeed
     assert c.mset({'{tag1}key1': 'val1', '{tag1}key2': 'val2'})
 
     # MULTI/EXEC with cross slot between commands
@@ -94,15 +94,15 @@ def test_shard_group_replace(cluster):
         '3',
         '12345678901234567890123456789012',
         '1', '1',
-        '6', '7', '1', '12',
+        '6', '7', '1', '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         '12345678901234567890123456789013',
         '1', '1',
-        '8', '16383', '1', '34',
+        '8', '16383', '1', '0',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
         cluster.leader_node().info()['raft_dbid'],
         '1', '1',
-        '0', '5', '1', '56',
+        '0', '5', '1', '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -434,7 +434,7 @@ def test_shard_group_reshard_to_migrate(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.execute("set", "key", "value");
+    cluster.execute("set", "key", "value")
 
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -477,7 +477,7 @@ def test_shard_group_reshard_to_import(cluster):
         'external-sharding': 'yes'
     })
 
-    cluster.execute("set", "key", "value");
+    cluster.execute("set", "key", "value")
 
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -537,7 +537,7 @@ def test_asking_follower(cluster):
         1,
         cluster.leader_node().info()["raft_dbid"],
         '1', '3',
-        '0', '16383', '2', '0',
+        '0', '16383', '2', '123',
         '1234567890123456789012345678901234567890', cluster.node(1).address,
         '1234567890123456789012345678901234567891', cluster.node(2).address,
         '1234567890123456789012345678901234567892', cluster.node(3).address

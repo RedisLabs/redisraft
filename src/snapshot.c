@@ -595,13 +595,14 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
 
 RedisModuleType *RedisRaftType = NULL;
 
-void LockedKeysRDBLoad(RedisModuleIO *rdb)
+static void lockedKeysRDBLoad(RedisModuleIO *rdb)
 {
+    RedisRaftCtx *rr = &redis_raft;
     size_t count = RedisModule_LoadUnsigned(rdb);
 
     for (size_t i = 0; i < count; i++) {
-        RedisModuleString * key = RedisModule_LoadString(rdb);
-        RedisModule_DictSet(redis_raft.locked_keys, key, NULL);
+        RedisModuleString *key = RedisModule_LoadString(rdb);
+        RedisModule_DictSet(rr->locked_keys, key, NULL);
         RedisModule_FreeString(NULL, key);
     }
 }
@@ -678,16 +679,16 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
     ShardingInfoRDBLoad(rdb);
 
     /* Load locked_keys dict */
-    LockedKeysRDBLoad(rdb);
+    lockedKeysRDBLoad(rdb);
 
     info->loaded = true;
     return REDISMODULE_OK;
 }
 
-void LockedKeysRDBSave(RedisModuleIO *rdb)
+static void lockedKeysRDBSave(RedisModuleIO *rdb)
 {
     RedisRaftCtx *rr = &redis_raft;
-    RedisModuleDict * dict = rr->locked_keys;
+    RedisModuleDict *dict = rr->locked_keys;
 
     RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(dict));
 
@@ -741,7 +742,7 @@ static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
     ShardingInfoRDBSave(rdb);
 
     /* Save LockedKeys dict */
-    LockedKeysRDBSave(rdb);
+    lockedKeysRDBSave(rdb);
 }
 
 /* Do nothing -- AOF should never be used with RedisRaft, but we have to specify
