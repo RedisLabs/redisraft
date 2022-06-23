@@ -48,6 +48,43 @@ def test_raft_import(cluster):
     assert conn.read_response() == b'value'
 
 
+def test_migrate_to_follower(cluster_factory):
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
+    cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
+    cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
+
+    assert cluster1.execute('set', 'key', 'value')
+    assert cluster1.execute('get', 'key') == b'value'
+    assert cluster1.execute('set', '{key}key1', 'value1')
+    assert cluster1.execute('get', '{key}key1') == b'value1'
+
+    assert cluster1.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster2_dbid,
+        '1', '3',
+        '0', '16383', '2', '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
+        cluster1_dbid,
+        '1', '3',
+        '0', '16383', '3', '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
+        '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
+        ) == b'OK'
+
+    c = cluster1.node(2).client;
+    with raises(ResponseError, match="MOVED 0 localhost:5001"):
+        assert c.execute_command("migrate", "", "", "", "", "", "keys", "key", "{key}key1") == b'OK'
+
 def test_happy_migrate(cluster_factory):
     cluster1 = cluster_factory().create(1, raft_args={
         'sharding': 'yes',
