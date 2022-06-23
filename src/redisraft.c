@@ -658,9 +658,15 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     if (!raft_is_leader(rr->raft)) {
         handleNonLeaderCommand(rr, ctx, cmds);
-    } else if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        return;
+    }
+
+    if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
-    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
+        return;
+    }
+
+    if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         handleRedisCommandAppendReadOnly(rr, ctx, cmds);
     } else {
         handleRedisCommandAppendLog(rr, ctx, cmds);
@@ -711,12 +717,18 @@ static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRe
     if (!leader) {
         /* if no leader, cluster is down */
         replyClusterDown(ctx);
-    } else if (rr->config->follower_proxy) {
+        return;
+    }
+
+    if (rr->config->follower_proxy) {
         /* forward commands to the leader in follower_proxy state */
         if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
             RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
         }
-    } else if (cmds->asking) {
+        return;
+    }
+
+    if (cmds->asking) {
         /* reply ASK for ASKING state commands */
         int slot;
         RRStatus res = HashSlotCompute(rr, cmds, &slot);
@@ -728,10 +740,11 @@ static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRe
         } else {
             replyAsk(rr, ctx, (unsigned int) slot);
         }
-    } else {
-        /* redirect otherwise */
-        redirectCommand(rr, ctx, leader);
+        return;
     }
+
+    /* redirect otherwise */
+    redirectCommand(rr, ctx, leader);
 }
 
 /* RAFT [Redis command to execute]
