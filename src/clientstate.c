@@ -28,14 +28,19 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
     RedisModule_DictDelC(rr->client_state, &client_id, sizeof(client_id), &state);
 
     if (state != NULL) {
-        ClientStateResetMulti(state);
+        ClientStateReset(state);
         RedisModule_Free(state);
     }
 }
 
-void ClientStateResetMulti(ClientState *client_state)
+void MultiStateReset(MultiState *multi_state)
 {
-    RaftRedisCommandArrayFree(&client_state->multi_state.cmds);
-    client_state->multi_state.active = false;
-    client_state->multi_state.error = false;
+    RaftRedisCommandArrayFree(&multi_state->cmds);
+    multi_state->active = false;
+    multi_state->error = false;
+}
+
+void ClientStateReset(ClientState *client_state)
+{
+    MultiStateReset(&client_state->multi_state);
 }
