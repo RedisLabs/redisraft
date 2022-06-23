@@ -214,10 +214,10 @@ def test_sad_path_migrate(cluster_factory):
         conn.send_command('get', key_name)
         assert conn.read_response() == value
 
-    cluster1.execute("raft.debug", "migration_debug", 1)
+    cluster1.execute("raft.debug", "migration_debug", 'fail_connect')
     validate_failed_migration("key1", b'value1', 9189, "failed to connect to import cluster, try again")
-    cluster1.execute("raft.debug", "migration_debug", 2)
+    cluster1.execute("raft.debug", "migration_debug", 'fail_import')
     validate_failed_migration("key2", b'value2', 4998, "failed to submit RAFT.IMPORT command, try again")
-    cluster1.execute("raft.debug", "migration_debug", 3)
+    cluster1.execute("raft.debug", "migration_debug", 'fail_unlock')
     validate_failed_migration("key3", b'value3', 935, "Unable to unlock/delete migrated keys, try again")
 
