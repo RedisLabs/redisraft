@@ -236,7 +236,6 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
         RaftReqFree(req);
     } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2) != 0) {
         ConnAsyncTerminate(conn);
-        /* FIXME: above should be changed to string eventually? */
         replyWithFormatErrorString(req->ctx, "ERR received unexpected response from remote cluster, type = %d (wanted %d), len = %ld, response = %.*s", reply->type, REDIS_REPLY_STATUS, reply->len, (int) reply->len, reply->str);
         RaftReqFree(req);
     } else {

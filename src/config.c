@@ -424,14 +424,11 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             target->cluster_user = RedisModule_Strdup(value);
         }
     } else if (!strcmp(keyword, CONF_SCAN_SIZE)) {
-        if (target->scan_size) {
-            RedisModule_Free(target->scan_size);
-            target->scan_size = NULL;
-        }
         if (strlen(value) > 0) {
+            if (target->scan_size) {
+                RedisModule_Free(target->scan_size);
+            }
             target->scan_size = RedisModule_Strdup(value);
-        } else {
-            target->scan_size = RedisModule_Strdup(REDIS_RAFT_DEFAULT_SCAN_SIZE);
         }
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
