@@ -38,7 +38,7 @@ void *__dso_handle;
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
-static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds);
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
@@ -594,10 +594,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
 /* Handle the special case of read-only commands here: if quorum reads
  * are enabled schedule the request to be processed when we have a guarantee
  * we're still a leader. Otherwise, just process the reads.
- *
- * Normally we can expect a single command in the request, unless it is a
- * MULTI/EXEC transaction in which case all queued commands are handled at
- * once.
  */
 static void handleRedisCommandAppendReadOnly(RedisRaftCtx *rr, RedisModuleCtx *ctx,
                                              RaftRedisCommandArray *cmds)
@@ -612,15 +608,17 @@ static void handleRedisCommandAppendReadOnly(RedisRaftCtx *rr, RedisModuleCtx *c
          * The state machine will be in an older state. Reading from it
          * might look like going backward in time. */
         raft_term_t term = raft_get_current_term(rr->raft);
-        if (term == rr->snapshot_info.last_applied_term) {
-            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
-        } else {
+        if (term != rr->snapshot_info.last_applied_term) {
             replyClusterDown(ctx);
+            return;
         }
+
+        RaftExecuteCommandArray(rr, ctx, ctx, cmds);
     }
 }
 
-static void handleRedisCommandAppendLog(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds) {
+static void handleRedisCommandAppendLog(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
@@ -635,14 +633,20 @@ static void handleRedisCommandAppendLog(RedisRaftCtx *rr, RedisModuleCtx *ctx, R
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         RaftReqFree(req);
-    } else {
-        raft_entry_release(entry);
+        return;
     }
+
+    raft_entry_release(entry);
 }
 
 static void handleRedisCommandAppend(RedisRaftCtx *rr,
-                                      RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+                                     RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
+    /*
+    * Normally we can expect a single command in the request, unless it is a
+    * MULTI/EXEC transaction in which case all queued commands are handled at
+    * once.
+    */
     unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
 
     /* Check that we're part of a bootstrapped cluster and not in the middle of
@@ -653,12 +657,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     }
 
     if (!raft_is_leader(rr->raft)) {
-        Node *leader = getLeaderNodeOrReply(rr, ctx);
-
-        return handleNonLeaderCommand(rr, ctx, leader, cmds);
-    }
-
-    if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        handleNonLeaderCommand(rr, ctx, cmds);
+    } else if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
     } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         handleRedisCommandAppendReadOnly(rr, ctx, cmds);
@@ -701,11 +701,12 @@ static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader)
     replyRedirect(ctx, 0, &leader->addr);
 }
 
-static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     RedisModule_Assert(!raft_is_leader(rr->raft));
     RedisModule_Assert(cmds);
 
+    Node *leader = getLeaderNodeOrReply(rr, ctx);
 
     if (!leader) {
         /* if no leader, cluster is down */
