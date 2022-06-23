@@ -199,7 +199,7 @@ def test_sad_path_migrate(cluster_factory):
             cluster2.leader_node().client.get(key_name)
 
         # remove injected error, should pass
-        cluster1.execute("raft.debug", "migration_debug", 0)
+        cluster1.execute("raft.debug", "migration_debug", 'none')
         assert cluster1.execute("migrate", "", "", "", "", "", "keys", key_name) == b'OK'
 
         # validate state
