@@ -38,7 +38,7 @@ void *__dso_handle;
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
-static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds);
 
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
@@ -600,7 +600,8 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
  * once.
  */
 static void handleRedisCommandAppendReadOnly(RedisRaftCtx *rr, RedisModuleCtx *ctx,
-                                             RaftRedisCommandArray *cmds) {/* read only command, quorum or not */
+                                             RaftRedisCommandArray *cmds)
+{
     if (rr->config->quorum_reads) {
         RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
