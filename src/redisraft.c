@@ -1294,6 +1294,9 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *
  * RAFT.DEBUG DELAY_APPLY <val>
  *     Sleep <val> microseconds before executing a command
+ *
+ * RAFT.DEBUG MIGRATION_DEBUG [fail_connect|fail_import|fail_unlock|none]
+ *     Inject errors at specific places in migration flow to test consistency
  * Reply:
  *     +OK
  */
@@ -1472,6 +1475,28 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         rr->debug_delay_apply = val;
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "migration_debug", cmdlen) && argc == 3) {
+        MigrationDebug val;
+
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(argv[2], &len);
+        if (!strncasecmp(str, "fail_connect", len)) {
+            val = DEBUG_MIGRATION_EMULATE_CONNECT_FAILED;
+        } else if (!strncasecmp(str, "fail_import", len)) {
+            val = DEBUG_MIGRATION_EMULATE_IMPORT_FAILED;
+        } else if (!strncasecmp(str, "fail_unlock", len)) {
+            val = DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED;
+        } else if (!strncasecmp(str, "none", len)) {
+            val = DEBUG_MIGRATION_NONE;
+        } else {
+            RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
+            return REDISMODULE_OK;
+        }
+
+        rr->migration_debug = val;
+
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
