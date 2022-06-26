@@ -655,6 +655,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         size_t len;
         char *buf = RedisModule_LoadStringBuffer(rdb, &len);
         ShardGroup *sg = ShardGroupDeserialize(buf, len);
+        RedisModule_Free(buf);
         RedisModule_Assert(sg != NULL);
 
         /* set local flag */

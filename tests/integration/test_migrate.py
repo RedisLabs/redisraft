@@ -49,6 +49,51 @@ def test_raft_import(cluster):
     assert conn.read_response() == b'value'
 
 
+def test_import_with_snapshot(cluster):
+    cluster.create(1, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+    serialized = cluster.execute('dump', 'key')
+    assert cluster.execute('del', 'key') == 1
+
+    assert cluster.execute('get', 'key') is None
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3', '123',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '1',
+        '0', '16383', '2', '123',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    # initial import
+    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    cluster.node(1).kill()
+    cluster.node(1).start()
+    cluster.node(1).wait_for_info_param('raft_state', 'up')
+
+    # incorrect session migration key
+    with raises(ResponseError, match="invalid migration_session_key"):
+        cluster.execute('raft.import', '2', '0', 'key', serialized)
+
+    # older term than should be accepted
+    with raises(ResponseError, match="invalid term"):
+        cluster.execute('raft.import', '1', '123', 'key', serialized)
+
+    # same term should still work after snapshot load
+    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+
+
 def test_happy_migrate(cluster_factory):
     cluster1 = cluster_factory().create(1, raft_args={
         'sharding': 'yes',
