@@ -982,8 +982,8 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     argc--;
     int argv_idx = 1;
 
-    int i;
-    for (i = 0; i < num_shards; i++) {
+    unsigned int shard_count = 0;
+    for (int i = 0; i < num_shards; i++) {
         ShardGroup *sg;
 
         int num_argv_entries;
@@ -991,6 +991,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
             goto fail;
         }
 
+        shard_count++;
         shards[i] = sg;
 
         argv += num_argv_entries;
@@ -1064,7 +1065,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
 fail:
     *len = 0;
 
-    for (int j = 0; j <= i; j++) {
+    for (unsigned int j = 0; j < shard_count; j++) {
         ShardGroupFree(shards[j]);
     }
 

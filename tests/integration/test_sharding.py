@@ -12,6 +12,36 @@ from pytest import raises
 from .sandbox import assert_after
 
 
+def test_invalid_shardgroup_replace(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes'})
+    c = cluster.node(1).client
+
+    # not enough entries 1 shard
+    with raises(ResponseError, match="wrong number of arguments for 'raft.shardgroup"):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'REPLACE',
+            '1',
+            cluster.leader_node().info()['raft_dbid'],
+            '1', '1',
+            '0', '16383', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        )
+
+    # not enough entries 2 shard
+    with raises(ResponseError, match="wrong number of arguments for 'raft.shardgroup"):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'REPLACE',
+            '2',
+            '12345678901234567890123456789012',
+            '0', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+            cluster.leader_node().info()['raft_dbid'],
+            '1', '1',
+            '0', '16383', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        )
+
+
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
