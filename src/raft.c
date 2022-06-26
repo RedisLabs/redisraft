@@ -1705,7 +1705,6 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
             return;
         }
 
-        /* local cluster has an empty string sg.id */
         if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
             sg->local = true;
         }
