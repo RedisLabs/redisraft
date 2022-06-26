@@ -215,6 +215,12 @@ ShardGroup *ShardGroupCreate() {
 }
 
 void ShardGroupFree(ShardGroup *sg) {
+    if (!sg) {
+        /* FIXME: Would it be good to have a non fatal backtrace be printed here.
+         * Calling ShardGroupFree on a a null seems to be a logic error
+         */
+        return;
+    }
     ShardGroupTerm(sg);
     RedisModule_Free(sg);
 }
