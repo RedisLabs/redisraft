@@ -93,16 +93,11 @@ void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
 }
 
 /* Create a -ASK reply. */
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot)
+void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
 {
-    ShardGroup *sg = rr->sharding_info->importing_slots_map[slot];
-    if (!sg) {
-        RedisModule_ReplyWithError(ctx, "ERR no importing shard group to ask");
-        return;
-    }
+    char buf[sizeof(addr->host) + 256];
 
-    char buf[sizeof(sg->nodes[0].addr.host) + 256];
-    snprintf(buf, sizeof(buf), "ASK %u %s:%u", slot, sg->nodes[0].addr.host, sg->nodes[0].addr.port);
+    snprintf(buf, sizeof(buf), "ASK %u %s:%u", slot, addr->host, addr->port);
     RedisModule_ReplyWithError(ctx, buf);
 }
 

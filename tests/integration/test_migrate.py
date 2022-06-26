@@ -266,3 +266,20 @@ def test_sad_path_migrate(cluster_factory):
     cluster1.execute("raft.debug", "migration_debug", 'fail_unlock')
     validate_failed_migration("key3", b'value3', 935, "Unable to unlock/delete migrated keys, try again")
 
+
+def test_redirect_asking_to_leader(cluster):
+    """
+    Followers redirect asking mode requests to the leader with an ASK reply.
+    """
+    cluster.create(3)
+
+    # Leader is node-2
+    cluster.leader_node().transfer_leader(2)
+
+    # Send a request to node-3
+    follower = cluster.node(3)
+    follower.execute('ASKING')
+
+    # Expect redirection to node-2
+    with raises(ResponseError, match="ASK 12539 localhost:5002"):
+        follower.execute('get', 'key')

@@ -233,7 +233,14 @@ static RRStatus validateRaftRedisCommandArray(RedisRaftCtx *rr, RedisModuleCtx *
                 return RR_ERROR;
             case NONE_EXIST:
                 if (reply_ctx) {
-                    replyAsk(rr, reply_ctx, slot);
+                    ShardGroup *isg;
+
+                    isg = rr->sharding_info->importing_slots_map[slot];
+                    if (isg) {
+                        replyAsk(reply_ctx, slot, &isg->nodes[0].addr);
+                    } else {
+                        RedisModule_ReplyWithError(reply_ctx, "ERR no importing shard group to ask");
+                    }
                 }
                 return RR_ERROR;
             case ALL_EXIST:
