@@ -38,7 +38,7 @@ void *__dso_handle;
 #define VALID_NODE_ID(x)    ((x) > 0)
 
 static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
-static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
 
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
@@ -591,23 +591,25 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
-                                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+static void handleRedisCommandAppend(RedisRaftCtx *rr,
+                                     RedisModuleCtx *ctx,
+                                     RaftRedisCommandArray *cmds)
 {
     /* Check that we're part of a bootstrapped cluster and not in the middle of
      * joining or loading data.
      */
     if (checkRaftState(rr, ctx) == RR_ERROR) {
-        return RR_ERROR;
+        return;
     }
 
     if (!raft_is_leader(rr->raft)) {
         Node *leader = getLeaderNodeOrReply(rr, ctx);
         if (!leader) {
-            return RR_ERROR;
+            return;
         }
 
-        return handleNonLeaderCommand(rr, ctx, leader, cmds);
+        handleNonLeaderCommand(rr, ctx, leader, cmds);
+        return;
     }
 
     /* Handle the special case of read-only commands here: if quorum reads
@@ -621,8 +623,10 @@ static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
     unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
-        return RR_ERROR;
-    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
+        return;
+    }
+
+    if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (rr->config->quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
@@ -635,12 +639,12 @@ static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
             raft_term_t term = raft_get_current_term(rr->raft);
             if (term != rr->snapshot_info.last_applied_term) {
                 replyClusterDown(ctx);
-                return RR_ERROR;
+                return;
             }
 
             RaftExecuteCommandArray(rr, ctx, ctx, cmds);
         }
-        return RR_OK;
+        return;
     }
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
@@ -650,17 +654,17 @@ static RRStatus handleRedisCommandAppend(RedisRaftCtx *rr,
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
+
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     if (e != 0) {
         replyRaftError(ctx, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         RaftReqFree(req);
-        return RR_ERROR;
+        return;
     }
 
     raft_entry_release(entry);
-    return RR_OK;
 }
 
 static void handleRedisCommand(RedisRaftCtx *rr,
@@ -697,7 +701,7 @@ static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader)
     replyRedirect(ctx, 0, &leader->addr);
 }
 
-static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
 {
     RedisModule_Assert(!raft_is_leader(rr->raft));
     RedisModule_Assert(cmds);
@@ -705,34 +709,31 @@ static RRStatus handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, No
     /* reply ASK for ASKING state commands */
     if (cmds->asking) {
         int slot;
-        RRStatus res = HashSlotCompute(rr, cmds, &slot);
+        if (HashSlotCompute(rr, cmds, &slot) != RR_OK) {
+            replyCrossSlot(ctx);
+            return;
+        }
+
         if (slot == -1) {
             /* ASKING mode requests should always have keys */
             RedisModule_ReplyWithError(ctx, "ERR cmd without keys in asking mode");
-            return RR_ERROR;
-        }
-
-        if (res == RR_ERROR) {
-            replyCrossSlot(ctx);
-            return RR_ERROR;
+            return;
         }
 
         replyAsk(rr, ctx, (unsigned int) slot);
-        return RR_OK;
+        return;
     }
 
     /* forward commands to the leader in follower_proxy state */
     if (rr->config->follower_proxy) {
         if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
             RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
-            return RR_ERROR;
         }
-        return RR_OK;
+        return;
     }
 
     /* redirect otherwise */
     redirectCommand(rr, ctx, leader);
-    return RR_OK;
 }
 
 /* RAFT [Redis command to execute]
