@@ -86,7 +86,7 @@ def test_import_with_snapshot(cluster):
     with raises(ResponseError, match="invalid migration_session_key"):
         cluster.execute('raft.import', '2', '0', 'key', serialized)
 
-    # older term than should be accepted
+    # older term should not be accepted
     with raises(ResponseError, match="invalid term"):
         cluster.execute('raft.import', '1', '123', 'key', serialized)
 
