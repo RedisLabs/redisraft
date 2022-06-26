@@ -607,25 +607,15 @@ void ShardingInfoRDBSave(RedisModuleIO *rdb)
         ShardGroup *sg;
 
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-            RedisModule_SaveStringBuffer(rdb, sg->id, strlen(sg->id));
-            RedisModule_SaveUnsigned(rdb, sg->local ? 1 : 0);
-            RedisModule_SaveUnsigned(rdb, sg->slot_ranges_num);
-            for (unsigned int j = 0; j < sg->slot_ranges_num; j++) {
-                ShardGroupSlotRange  *r = &sg->slot_ranges[j];
-                RedisModule_SaveUnsigned(rdb, r->start_slot);
-                RedisModule_SaveUnsigned(rdb, r->end_slot);
-                RedisModule_SaveUnsigned(rdb, r->type);
-            }
-            RedisModule_SaveUnsigned(rdb, sg->nodes_num);
-            for (unsigned int j = 0; j < sg->nodes_num; j++) {
-                ShardGroupNode *n = &sg->nodes[j];
-                RedisModule_SaveStringBuffer(rdb, n->node_id, strlen(n->node_id));
-                RedisModule_SaveStringBuffer(rdb, n->addr.host, strlen(n->addr.host));
-                RedisModule_SaveUnsigned(rdb, n->addr.port);
-            }
-
+            char *buf = ShardGroupSerialize(sg);
+            RedisModule_SaveStringBuffer(rdb, buf, strlen(buf));
+            RedisModule_Free(buf);
         }
         RedisModule_DictIteratorStop(iter);
+    }
+
+    for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        RedisModule_SaveUnsigned(rdb, si->max_importing_term[i]);
     }
 }
 
@@ -662,53 +652,26 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
 
     /* Load individual shard groups */
     for (unsigned int i = 0; i < rdb_shard_groups_num; i++) {
-        ShardGroup *sg = ShardGroupCreate();
-
         size_t len;
         char *buf = RedisModule_LoadStringBuffer(rdb, &len);
-        RedisModule_Assert(len < sizeof(sg->id));
-        memcpy(sg->id, buf, len);
-        sg->id[len] = '\0';
+        ShardGroup *sg = ShardGroupDeserialize(buf, len);
         RedisModule_Free(buf);
-        sg->local = RedisModule_LoadUnsigned(rdb);
+        RedisModule_Assert(sg != NULL);
 
-        /* Load Slot Range */
-        sg->slot_ranges_num = RedisModule_LoadUnsigned(rdb);
-        sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
-        for (unsigned int j = 0; j < sg->slot_ranges_num; j++) {
-            ShardGroupSlotRange *r = &sg->slot_ranges[j];
-            r->start_slot = RedisModule_LoadUnsigned(rdb);
-            r->end_slot = RedisModule_LoadUnsigned(rdb);
-            r->type = RedisModule_LoadUnsigned(rdb);
+        /* set local flag */
+        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+            sg->local = true;
         }
 
-        /* Load nodes */
-        sg->nodes_num = RedisModule_LoadUnsigned(rdb);
-        sg->nodes = RedisModule_Calloc(sg->nodes_num, sizeof(ShardGroupNode));
-        for (unsigned int j = 0; j < sg->nodes_num; j++) {
-            ShardGroupNode *n = &sg->nodes[j];
-            size_t size;
-            char *val = RedisModule_LoadStringBuffer(rdb, &size);
-
-            RedisModule_Assert(size < sizeof(n->node_id));
-            memcpy(n->node_id, val, size);
-            n->node_id[size] = '\0';
-            RedisModule_Free(val);
-
-            val = RedisModule_LoadStringBuffer(rdb, &size);
-            RedisModule_Assert(size < sizeof(n->addr.host));
-            memcpy(n->addr.host, val, size);
-            n->addr.host[size] = '\0';
-            RedisModule_Free(val);
-
-            n->addr.port = RedisModule_LoadUnsigned(rdb);
-        }
-
-        /* This also handles all validation so serious violations, although
+        /* This also handles all validation so serious violations, although it
          * should never exist, will be caught.
          */
         RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
         RedisModule_Assert(ret == RR_OK);
+    }
+
+    for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
+        si->max_importing_term[i] = (raft_term_t) RedisModule_LoadUnsigned(rdb);
     }
 }
 
