@@ -985,7 +985,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     argc--;
     int argv_idx = 1;
 
-    int created_shard_count = 0;
+    unsigned int created_shard_count = 0;
     for (int i = 0; i < num_shards; i++) {
         ShardGroup *sg;
 
