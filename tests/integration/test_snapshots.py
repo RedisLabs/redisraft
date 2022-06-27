@@ -150,7 +150,7 @@ def test_cfg_node_removed_from_snapshot(cluster):
     cluster.wait_for_unanimity()
 
     # interrupt
-    # we now take down node 4 so it doesn't get updates and remove node 5.
+    # we now take down node 4, so it doesn't get updates, and remove node 5.
     cluster.node(4).terminate()
     cluster.remove_node(5)
     cluster.wait_for_unanimity(exclude=[4])

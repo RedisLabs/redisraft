@@ -12,15 +12,57 @@ from pytest import raises
 from .sandbox import assert_after
 
 
+def test_invalid_shardgroup_replace(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes'})
+    c = cluster.node(1).client
+
+    # not enough entries 1 shard
+    with raises(ResponseError, match="wrong number of arguments for 'raft.shardgroup"):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'REPLACE',
+            '1',
+            cluster.leader_node().info()['raft_dbid'],
+            '1', '1',
+            '0', '16383', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        )
+
+    # not enough entries 2 shard
+    with raises(ResponseError, match="wrong number of arguments for 'raft.shardgroup"):
+        c.execute_command(
+            'RAFT.SHARDGROUP', 'REPLACE',
+            '2',
+            '12345678901234567890123456789012',
+            '0', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+            cluster.leader_node().info()['raft_dbid'],
+            '1', '1',
+            '0', '16383', '1',
+            '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        )
+
+
 def test_cross_slot_violation(cluster):
     cluster.create(3, raft_args={'sharding': 'yes'})
     c = cluster.node(1).client
+
+    assert c.execute_command(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789012',
+        '0', '1',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        cluster.leader_node().info()['raft_dbid'],
+        '1', '1',
+        '0', '16383', '1', '0',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
 
     # -CROSSSLOT on multi-key cross slot violation
     with raises(ResponseError, match='CROSSSLOT'):
         c.mset({'key1': 'val1', 'key2': 'val2'})
 
-    # With tags it should succeed
+    # With tags, it should succeed
     assert c.mset({'{tag1}key1': 'val1', '{tag1}key2': 'val2'})
 
     # MULTI/EXEC with cross slot between commands
@@ -48,17 +90,10 @@ def test_shard_group_sanity(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16382', '1',
+        '1', '16382', '1', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
-
-    # Follower redirect straight to remote shardgroup to
-    # avoid another redirect hop.
-    cluster.wait_for_unanimity()
-    cluster.node(2).wait_for_log_applied()  # to get shardgroup
-    with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
-        cluster.node(2).client.set('key', 'value')
 
     cluster.node(3).client.execute_command('CLUSTER', 'SLOTS')
 
@@ -69,7 +104,7 @@ def test_shard_group_sanity(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '16383', '16383', '1',
+            '16383', '16383', '1', '0',
             '1234567890123456789012345678901234567890', '   1.1.1.1:1111')
 
 
@@ -89,15 +124,15 @@ def test_shard_group_replace(cluster):
         '3',
         '12345678901234567890123456789012',
         '1', '1',
-        '6', '7', '1',
+        '6', '7', '1', '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         '12345678901234567890123456789013',
         '1', '1',
-        '8', '16383', '1',
+        '8', '16383', '1', '0',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
         cluster.leader_node().info()['raft_dbid'],
         '1', '1',
-        '0', '5', '1',
+        '0', '5', '1', '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -145,7 +180,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1001', '20000', '1',
+            '1001', '20000', '1', '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
     # Conflict
@@ -154,7 +189,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1000', '1001', '1',
+            '1000', '1001', '1', '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
 
@@ -169,7 +204,7 @@ def test_shard_group_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '100',
         '1', '1',
-        '1001', '16383', '1',
+        '1001', '16383', '1', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     cluster.wait_for_unanimity()
@@ -190,7 +225,7 @@ def test_shard_group_snapshot_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '1',
+        '1001', '16383', '1', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     assert c.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
@@ -216,7 +251,7 @@ def test_shard_group_persistence(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '1',
+        '1001', '16383', '1', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     # Make sure received cluster slots is sane
@@ -421,3 +456,130 @@ def test_shard_group_no_slots(cluster):
     splits = results[0].split(b" ")
     assert len(splits) == 9
     assert splits[8] == b""
+
+
+def test_shard_group_reshard_to_migrate(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value")
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '2', '123',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '1',
+        '0', '16383', '3', '123',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    assert cluster.execute("get", "key") == b'value'
+
+    with raises(ResponseError, match="ASK 9189 3.3.3.3:3333"):
+        cluster.execute("set", "key1", "value1")
+
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('set', 'key', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('set', '{key}key1', 'newvalue')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('EXEC')
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
+    assert cluster.execute("del", "key") == 1
+
+    with raises(ResponseError, match="ASK 12539 3.3.3.3:3333"):
+        cluster.execute("get", "key")
+
+
+def test_shard_group_reshard_to_import(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value")
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3', '456',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '1',
+        '0', '16383', '2', '456',
+        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+    ) == b'OK'
+
+    with raises(ResponseError, match="MOVED 12539 3.3.3.3:3333"):
+        # can't use cluster.execute() as that will try to handle the MOVED response itself
+        cluster.leader_node().client.get("key")
+
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command('get', 'key')
+    assert conn.read_response() == b'value'
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command('get', 'key1')
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command("del", "key")
+    assert conn.read_response() == 1
+
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command("get", "key")
+    with raises(ResponseError, match="TRYAGAIN"):
+        conn.read_response()
+
+
+def test_asking_follower(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster.execute("set", "key", "value")
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        1,
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '3',
+        '0', '16383', '2', '123',
+        '1234567890123456789012345678901234567890', cluster.node(1).address,
+        '1234567890123456789012345678901234567891', cluster.node(2).address,
+        '1234567890123456789012345678901234567892', cluster.node(3).address
+    ) == b'OK'
+
+    cluster.wait_for_unanimity()
+    cluster.node(2).wait_for_log_applied()
+
+    conn = cluster.node(2).client.connection_pool.get_connection('deferred')
+    conn.send_command('ASKING')
+    assert conn.read_response() == b'OK'
+
+    conn.send_command('get', 'key')
+    with raises(ResponseError, match="ASK"):
+        conn.read_response()

@@ -37,6 +37,9 @@ void *__dso_handle;
 
 #define VALID_NODE_ID(x)    ((x) > 0)
 
+static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader);
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,  Node *leader, RaftRedisCommandArray *cmds);
+
 /* Parse a node address from a RedisModuleString */
 static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, NodeAddr *addr)
 {
@@ -80,8 +83,15 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    if (checkRaftState(rr, ctx) == RR_ERROR ||
-        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
         return REDISMODULE_OK;
     }
 
@@ -338,7 +348,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, &req->r.redis.cmds);
 
 exit:
     RaftReqFree(req);
@@ -370,6 +380,172 @@ static void handleInfoCommand(RedisRaftCtx *rr,
     RedisModule_FreeCallReply(reply);
 }
 
+#define MIGRATE_CMD_OPTIONAL_ARG_IDX 6
+
+typedef struct MigrationInfo {
+    char username[MAX_AUTH_STRING_ARG_LENGTH+1];
+    char password[MAX_AUTH_STRING_ARG_LENGTH+1];
+} MigrationInfo;
+
+static MigrationInfo *extractMigrationInfo(RaftRedisCommand *cmd)
+{
+    MigrationInfo *ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
+
+    /* default values if auth isn't specified */
+    strncpy(ret->username, "default", sizeof(ret->username));
+
+    int idx;
+    for (idx = MIGRATE_CMD_OPTIONAL_ARG_IDX; idx < cmd->argc; idx++) {
+        size_t auth_str_len;
+        const char *auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
+        if (auth_str_len == 5 && !strncasecmp("AUTH2", auth_str, 5)) {
+            if (idx + 2 > cmd->argc) {
+                LOG_WARNING("couldn't parse username/password");
+                goto fail;
+            }
+
+            size_t username_len;
+            const char *username = RedisModule_StringPtrLen(cmd->argv[idx + 1], &username_len);
+            if (username_len > MAX_AUTH_STRING_ARG_LENGTH) {
+                LOG_WARNING("username is too long: limited to 255 characters");
+                goto fail;
+            }
+            strncpy(ret->username, username, username_len);
+
+            size_t password_len;
+            const char *password = RedisModule_StringPtrLen(cmd->argv[idx + 2], &password_len);
+            if (password_len > MAX_AUTH_STRING_ARG_LENGTH) {
+                LOG_WARNING("password is too long: limited to 255 characters");
+                goto fail;
+            }
+            strncpy(ret->password, password, password_len);
+            break;
+        }
+    }
+
+    return ret;
+
+fail:
+    RedisModule_Free(ret);
+    return NULL;
+}
+
+static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    RaftReq *req = NULL;
+
+    /* 0. assert minimum size here */
+    if (cmd->argc < 8) {
+        RedisModule_WrongArity(ctx);
+        return req;
+    }
+
+    /* 1. Extract migration info and store it in a dict rr->migrate_info */
+    MigrationInfo *migrationInfo = extractMigrationInfo(cmd);
+    if (migrationInfo == NULL) {
+        RedisModule_ReplyWithError(ctx, "ERR check logs");
+        goto exit;
+    }
+
+    /* 2. assert single key is empty */
+    size_t key_len;
+    RedisModule_StringPtrLen(cmd->argv[3], &key_len);
+    if (key_len != 0) {
+        RedisModule_ReplyWithError(ctx, "ERR RedisRaft doesn't support old style single key migration");
+        goto exit;
+    }
+
+    /* find "keys" for parsing out keys */
+    int idx = MIGRATE_CMD_OPTIONAL_ARG_IDX;
+    for(; idx < cmd->argc; idx++) {
+        size_t str_len;
+        const char *str = RedisModule_StringPtrLen(cmd->argv[idx], &str_len);
+        if (str_len == 4 && !strcasecmp("keys", str)) {
+            break;
+        }
+    }
+
+    /* move idx past "keys" argv */
+    idx++;
+
+    if (idx >= cmd->argc) {
+        RedisModule_ReplyWithError(ctx, "ERR Didn't provide any keys to migrate");
+        goto exit;
+    }
+
+    RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * (cmd->argc - idx));
+    int num_keys = cmd->argc - idx;
+    for (int i = 0; i < num_keys; i++) {
+        keys[i] = RedisModule_HoldString(ctx, cmd->argv[idx + i]);
+    }
+
+    req = RaftReqInit(ctx, RR_MIGRATE_KEYS);
+
+    /* Overwrite with new data */
+    req->r.migrate_keys.num_keys = num_keys;
+    req->r.migrate_keys.keys = keys;
+    req->r.migrate_keys.keys_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
+    memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, MAX_AUTH_STRING_ARG_LENGTH);
+    memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, MAX_AUTH_STRING_ARG_LENGTH);
+
+exit:
+    RedisModule_Free(migrationInfo);
+    return req;
+}
+
+static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    if (rr->migrate_req != NULL) {
+        RedisModule_ReplyWithError(ctx, "ERR RedisRaft only supports one concurrent migration currently");
+        return;
+    }
+  
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
+        return;
+    }
+  
+    RaftReq *req = cmdToMigrate(rr, ctx, cmd);
+    if (req == NULL) {
+        return;
+    }
+
+    raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_LOCK_KEYS;
+    entryAttachRaftReq(rr, entry, req);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (e != 0) {
+        replyRaftError(req->ctx, e);
+        RaftReqFree(req);
+        entryDetachRaftReq(rr, entry);
+    }
+
+    raft_entry_release(entry);
+}
+
+static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    return clientState->asking;
+}
+
+static void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
+{
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    clientState->asking = val;
+}
+
+static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    setAskingState(rr, ctx, true);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -379,9 +555,10 @@ static void handleInfoCommand(RedisRaftCtx *rr,
  * Currently intercepted commands:
  * - CLUSTER
  * - INFO
+ * - MIGRATE
+ * - ASKING
  *
- * Returns true if the command was intercepted, in which case the RaftReq has
- * been replied to and freed.
+ * Returns true if the command was intercepted, in which case the client has been replied to
  */
 static bool handleInterceptedCommands(RedisRaftCtx *rr,
                                       RedisModuleCtx *ctx,
@@ -401,74 +578,23 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
         return true;
     }
 
+    if (len == strlen("MIGRATE") && strncasecmp(cmd_str, "MIGRATE", len) == 0) {
+        handleMigrateCommand(rr, ctx, cmd);
+        return true;
+    }
+
+    if (len == strlen("ASKING") && strncasecmp(cmd_str, "ASKING", len) == 0) {
+        handleAsking(rr, ctx);
+        return true;
+    }
+
     return false;
 }
 
-/* When sharding is enabled, handle sharding aspects before processing
- * the request:
- *
- * 1. Compute hash slot of all associated keys and validate there's no cross-slot
- *    violation.
- * 2. Update the request's hash_slot for future reference.
- * 3. If the hash slot is associated with a foreign ShardGroup, perform a redirect.
- * 4. If the hash slot is not mapped, produce a CLUSTERDOWN error.
- */
-static RRStatus handleSharding(RedisRaftCtx *rr,
-                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+static void handleRedisCommandAppend(RedisRaftCtx *rr,
+                                     RedisModuleCtx *ctx,
+                                     RaftRedisCommandArray *cmds)
 {
-    int slot;
-
-    if (computeHashSlot(rr, cmds, &slot) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
-        return RR_ERROR;
-    }
-
-    /* If command has no keys, continue */
-    if (slot == -1) {
-        return RR_OK;
-    }
-
-    /* Make sure hash slot is mapped and handled locally. */
-    ShardGroup *sg = rr->sharding_info->stable_slots_map[slot];
-    if (!sg) {
-        RedisModule_ReplyWithError(ctx, "CLUSTERDOWN Hash slot is not served");
-        return RR_ERROR;
-    }
-
-    /* If accessing a foreign shardgroup, issue a redirect. We use round-robin
-     * to all nodes to compensate for the fact we do not have an up-to-date knowledge
-     * of who the leader is and whether or not some configuration has changed since
-     * last refresh (when refresh is implemented, in the future).
-     */
-    if (!sg->local) {
-        if (sg->next_redir >= sg->nodes_num) {
-            sg->next_redir = 0;
-        }
-        replyRedirect(ctx, slot, &sg->nodes[sg->next_redir++].addr);
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-}
-
-static void handleRedisCommand(RedisRaftCtx *rr,
-                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
-{
-    Node *leader_proxy = NULL;
-
-    /* Check if MULTI/EXEC bundling is required. */
-    if (MultiHandleCommand(rr, ctx, cmds)) {
-        return;
-    }
-
-    /* Handle intercepted commands. We do this also on non-leader nodes or if we
-     * don't have a leader, so it's up to the commands to check these conditions
-     * if they have to.
-     */
-    if (handleInterceptedCommands(rr, ctx, cmds)) {
-        return;
-    }
-
     /* Check that we're part of a bootstrapped cluster and not in the middle of
      * joining or loading data.
      */
@@ -476,25 +602,13 @@ static void handleRedisCommand(RedisRaftCtx *rr,
         return;
     }
 
-    /* When we're in cluster mode, go through handleSharding. This will perform
-     * hash slot validation and return an error / redirection if necessary. We
-     * do this before checkLeader() to avoid multiple redirect hops.
-     */
-    if (rr->config->sharding && handleSharding(rr, ctx, cmds) != RR_OK) {
-        return;
-    }
-
-    /* Confirm that we're the leader and handle redirect or proxying if not. */
-    Node **ret = rr->config->follower_proxy ? &leader_proxy : NULL;
-    if (checkLeader(rr, ctx, ret) == RR_ERROR) {
-        return;
-    }
-
-    /* Proxy */
-    if (leader_proxy) {
-        if (ProxyCommand(rr, ctx, cmds, leader_proxy) != RR_OK) {
-            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (!leader) {
+            return;
         }
+
+        handleNonLeaderCommand(rr, ctx, leader, cmds);
         return;
     }
 
@@ -510,7 +624,9 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
-    } else if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
+    }
+
+    if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (rr->config->quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
@@ -522,11 +638,11 @@ static void handleRedisCommand(RedisRaftCtx *rr,
              * might look like going backward in time. */
             raft_term_t term = raft_get_current_term(rr->raft);
             if (term != rr->snapshot_info.last_applied_term) {
-                RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+                replyClusterDown(ctx);
                 return;
             }
 
-            RaftExecuteCommandArray(ctx, ctx, cmds);
+            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
         }
         return;
     }
@@ -538,6 +654,7 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
+
     int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
     if (e != 0) {
         replyRaftError(ctx, e);
@@ -548,6 +665,75 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     }
 
     raft_entry_release(entry);
+}
+
+static void handleRedisCommand(RedisRaftCtx *rr,
+                               RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    /* update cmds array with the client's saved "asking" state */
+    cmds->asking = getAskingState(rr, ctx);
+    setAskingState(rr, ctx, false);
+
+    /* Handle intercepted commands. We do this also on non-leader nodes or if we
+     * don't have a leader, so it's up to the commands to check these conditions
+     * if they have to.
+     */
+    if (handleInterceptedCommands(rr, ctx, cmds)) {
+        return;
+    }
+
+    /* Check if MULTI/EXEC bundling is required. */
+    if (MultiHandleCommand(rr, ctx, cmds)) {
+        return;
+    }
+
+    handleRedisCommandAppend(rr, ctx, cmds);
+}
+
+static void redirectCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader)
+{
+    RedisModule_Assert(!raft_is_leader(rr->raft));
+
+    /* One anomaly here is that may redirect a client to the leader even for
+     * commands have no keys, which is something Redis Cluster never does. We
+     * still need to consider how this impacts clients which may not expect it.
+     */
+    replyRedirect(ctx, 0, &leader->addr);
+}
+
+static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *leader, RaftRedisCommandArray *cmds)
+{
+    RedisModule_Assert(!raft_is_leader(rr->raft));
+    RedisModule_Assert(cmds);
+
+    /* reply ASK for ASKING state commands */
+    if (cmds->asking) {
+        int slot;
+        if (HashSlotCompute(rr, cmds, &slot) != RR_OK) {
+            replyCrossSlot(ctx);
+            return;
+        }
+
+        if (slot == -1) {
+            /* ASKING mode requests should always have keys */
+            RedisModule_ReplyWithError(ctx, "ERR cmd without keys in asking mode");
+            return;
+        }
+
+        replyAsk(ctx, (unsigned int) slot, &leader->addr);
+        return;
+    }
+
+    /* forward commands to the leader in follower_proxy state */
+    if (rr->config->follower_proxy) {
+        if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+        }
+        return;
+    }
+
+    /* redirect otherwise */
+    redirectCommand(rr, ctx, leader);
 }
 
 /* RAFT [Redis command to execute]
@@ -612,7 +798,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    handleRedisCommand(&redis_raft, ctx, &cmds);
+    handleRedisCommandAppend(&redis_raft, ctx, &cmds);
     RaftRedisCommandArrayFree(&cmds);
     return REDISMODULE_OK;
 }
@@ -1029,8 +1215,15 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
-    if (checkRaftState(rr, ctx) == RR_ERROR ||
-        checkLeader(rr, ctx, NULL) == RR_ERROR) {
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
         return REDISMODULE_OK;
     }
 
@@ -1102,6 +1295,9 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *
  * RAFT.DEBUG DELAY_APPLY <val>
  *     Sleep <val> microseconds before executing a command
+ *
+ * RAFT.DEBUG MIGRATION_DEBUG [fail_connect|fail_import|fail_unlock|none]
+ *     Inject errors at specific places in migration flow to test consistency
  * Reply:
  *     +OK
  */
@@ -1280,6 +1476,28 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         rr->debug_delay_apply = val;
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "migration_debug", cmdlen) && argc == 3) {
+        MigrationDebug val;
+
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(argv[2], &len);
+        if (!strncasecmp(str, "fail_connect", len)) {
+            val = DEBUG_MIGRATION_EMULATE_CONNECT_FAILED;
+        } else if (!strncasecmp(str, "fail_import", len)) {
+            val = DEBUG_MIGRATION_EMULATE_IMPORT_FAILED;
+        } else if (!strncasecmp(str, "fail_unlock", len)) {
+            val = DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED;
+        } else if (!strncasecmp(str, "none", len)) {
+            val = DEBUG_MIGRATION_NONE;
+        } else {
+            RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
+            return REDISMODULE_OK;
+        }
+
+        rr->migration_debug = val;
+
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+        return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
@@ -1331,6 +1549,93 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
 {
     RedisModule_ReplyWithError(ctx, "Cannot run a command with random results in this context");
 
+    return REDISMODULE_OK;
+}
+
+static int cmdRaftScan(RedisModuleCtx *ctx,
+                         RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (argc < 3) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    char cursor[32] = {0};
+    char slots[REDIS_RAFT_HASH_SLOTS] = {0};
+    char *slot_str;
+
+    size_t str_len;
+    const char *str = RedisModule_StringPtrLen(argv[1], &str_len);
+    strncpy(cursor, str, str_len);
+
+    str = RedisModule_StringPtrLen(argv[2], &str_len);
+    slot_str = RedisModule_Alloc(str_len+1);
+    strncpy(slot_str, str, str_len);
+    slot_str[str_len] = '\0';
+
+    int ret = parseHashSlots(slots, slot_str);
+    RedisModule_Free(slot_str);
+    if (ret != RR_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR couldn't parse slots");
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleCallReply *reply;
+    if (!(reply = RedisModule_Call(ctx, "scan", "ccc", cursor, "count", rr->config->scan_size))) {
+        RedisModule_ReplyWithError(ctx, "ERR scan failed");
+        return REDISMODULE_OK;
+    }
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
+        RedisModule_ReplyWithError(ctx, "ERR scan returned unexpected reply type");
+        goto exit;
+    }
+
+    if (RedisModule_CallReplyLength(reply) != 2) {
+        RedisModule_ReplyWithError(ctx, "ERR scan returned unexpected array length");
+        goto exit;
+    }
+
+    RedisModuleCallReply *rCursor = RedisModule_CallReplyArrayElement(reply, 0);
+    if (RedisModule_CallReplyType(rCursor) != REDISMODULE_REPLY_STRING) {
+        RedisModule_ReplyWithError(ctx, "ERR scan returned unexpected type for cursor");
+        goto exit;
+    }
+
+    RedisModuleCallReply *list = RedisModule_CallReplyArrayElement(reply, 1);
+    if (RedisModule_CallReplyType(list) != REDISMODULE_REPLY_ARRAY) {
+        RedisModule_ReplyWithError(ctx, "ERR scan returned unexpected type for key list");
+        goto exit;
+    }
+
+    for (size_t i = 0; i < RedisModule_CallReplyLength(list); i++) {
+        if (RedisModule_CallReplyType(RedisModule_CallReplyArrayElement(list, i)) != REDISMODULE_REPLY_STRING) {
+            RedisModule_ReplyWithError(ctx, "ERR scan returned unexpected type for a key");
+            goto exit;
+        }
+    }
+
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithCallReply(ctx, rCursor);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    long count = 0;
+    for (size_t i = 0; i < RedisModule_CallReplyLength(list); i++) {
+        RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(list, i);
+        str = RedisModule_CallReplyStringPtr(key, &str_len);
+        unsigned int slot = keyHashSlot(str, str_len);
+        if (slots[slot]) {
+            count++;
+            RedisModule_ReplyWithArray(ctx, 2);
+            RedisModule_ReplyWithCallReply(ctx, key);
+            RedisModule_ReplyWithLongLong(ctx, slot);
+        }
+    }
+    RedisModule_ReplySetArrayLength(ctx, count);
+
+exit:
+    RedisModule_FreeCallReply(reply);
     return REDISMODULE_OK;
 }
 
@@ -1445,7 +1750,7 @@ void handleConfigChangeEvent(RedisModuleCtx *ctx,
 #endif
 }
 
-void handleClientDisconnectEvent(RedisModuleCtx *ctx,
+void handleClientEvent(RedisModuleCtx *ctx,
         RedisModuleEvent eid, uint64_t subevent, void *data)
 {
     (void) ctx;
@@ -1453,10 +1758,15 @@ void handleClientDisconnectEvent(RedisModuleCtx *ctx,
     RedisRaftCtx *rr = &redis_raft;
     RedisModuleClientInfo *ci = data;
 
-    if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE &&
-        subevent == REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED) {
-
-        MultiFreeClientState(rr, ci->id);
+    if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE) {
+        switch (subevent) {
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
+                ClientStateFree(rr, ci->id);
+                break;
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED:
+                ClientStateAlloc(rr, ci->id);
+                break;
+        }
     }
 }
 
@@ -1582,7 +1892,6 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
 
     RedisModule_InfoAddSection(ctx, "clients");
-    RedisModule_InfoAddFieldULongLong(ctx, "clients_in_multi_state", MultiClientStateCount(rr));
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_reqs", rr->proxy_failed_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_responses", rr->proxy_failed_responses);
@@ -1672,6 +1981,15 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
         return REDISMODULE_ERR;
     }
 
+    if (RedisModule_CreateCommand(ctx, "raft.import",
+                                  cmdRaftImport, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft.scan",
+                                  cmdRaftScan, "admin", 0,0,0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
 
     if ((RedisRaftType = RedisModule_CreateDataType(ctx, REDIS_RAFT_DATATYPE_NAME, REDIS_RAFT_DATATYPE_ENCVER,
             &RedisRaftTypeMethods)) == NULL) {
@@ -1773,7 +2091,7 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
-                handleClientDisconnectEvent) != REDISMODULE_OK) {
+                handleClientEvent) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }

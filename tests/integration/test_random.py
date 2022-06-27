@@ -15,7 +15,7 @@ def test_hash_deterministic_order(cluster):
     enumerated order.
 
     Hash keys that exceed the 'hash-max-*' configuration settings
-    will be created as unordered hash tables and we want to confirm they
+    will be created as unordered hash tables, and we want to confirm they
     maintain the same order across the cluster.
     """
 

@@ -84,15 +84,45 @@ void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len)
 }
 
 /* Create a -MOVED reply. */
-void replyRedirect(RedisModuleCtx *ctx, int slot, NodeAddr *addr)
+void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
 {
     char buf[sizeof(addr->host) + 256];
 
-    snprintf(buf, sizeof(buf), "MOVED %d %s:%u", slot, addr->host, addr->port);
+    snprintf(buf, sizeof(buf), "MOVED %u %s:%u", slot, addr->host, addr->port);
     RedisModule_ReplyWithError(ctx, buf);
 }
 
-static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
+/* Create a -ASK reply. */
+void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr)
+{
+    char buf[sizeof(addr->host) + 256];
+
+    snprintf(buf, sizeof(buf), "ASK %u %s:%u", slot, addr->host, addr->port);
+    RedisModule_ReplyWithError(ctx, buf);
+}
+
+/* Create a CROSSSLOT response */
+void replyCrossSlot(RedisModuleCtx *ctx)
+{
+    RedisModule_ReplyWithError(ctx, "CROSSSLOT Keys in request don't hash to the same slot");
+}
+
+void replyClusterDown(RedisModuleCtx *ctx)
+{
+    RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
+}
+
+void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...)
+{
+    char buf[512];
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    RedisModule_ReplyWithError(ctx, buf);
+}
 
 /* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
  * and return NULL.
@@ -100,57 +130,35 @@ static const char *err_clusterdown = "CLUSTERDOWN No raft leader";
  * Note: it's possible to have an elected but unknown leader node, in which
  * case NULL will also be returned.
  */
-raft_node_t *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     raft_node_t *node = raft_get_leader_node(rr->raft);
     if (!node) {
-        RedisModule_ReplyWithError(ctx, err_clusterdown);
+        replyClusterDown(ctx);
     }
 
     return node;
 }
 
-/* Checks that we *have* a Raft leader and its identity.
+/* Returns the leader node (Node), or reply a -CLUSTERDOWN error
+ * and return NULL.
  *
- * If no leader is currently elected, replies a -CLUSTERDOWN error and
- * return RR_ERROR.
- *
- * If ret_leader is provided, it is used to return the current leader
- * by reference along with an RR_OK return value.
- *
- * If ret_leader is not provided and the current node is NOT the leader,
- * a -MOVED reply is generated with the current leader and RR_ERROR is
- * returned.
+ * Note: it's possible to have an elected but unknown leader node, in which
+ * case NULL will also be returned.
  */
-RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node **ret_leader)
+Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    Node *node = NULL;
-
-    if (raft_is_leader(rr->raft)) {
-        return RR_OK;
+    raft_node_t *raft_node = getLeaderRaftNodeOrReply(rr, ctx);
+    if (!raft_node) {
+        return NULL;
     }
 
-    raft_node_t *leader = raft_get_leader_node(rr->raft);
-    if (leader) {
-        node = raft_node_get_udata(leader);
-    }
-
+    Node *node = raft_node_get_udata(raft_node);
     if (!node) {
-        RedisModule_ReplyWithError(ctx, err_clusterdown);
-        return RR_ERROR;
+        replyClusterDown(ctx);
     }
 
-    if (ret_leader) {
-        *ret_leader = node;
-        return RR_OK;
-    }
-
-    /* One anomaly here is that may redirect a client to the leader even for
-     * commands have no keys, which is something Redis Cluster never does. We
-     * still need to consider how this impacts clients which may not expect it.
-     */
-    replyRedirect(ctx, 0, &node->addr);
-    return RR_ERROR;
+    return node;
 }
 
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING

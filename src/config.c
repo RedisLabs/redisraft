@@ -50,6 +50,7 @@ static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
 static const char *CONF_TLS_ENABLED = "tls-enabled";
 static const char *CONF_CLUSTER_USER = "cluster-user";
 static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
+static const char *CONF_SCAN_SIZE = "scan-size";
 
 static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
 {
@@ -75,7 +76,7 @@ static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const cha
         goto exit;
     }
 
-    exit:
+exit:
     exitRedisModuleCall();
     if (reply) {
         RedisModule_FreeCallReply(reply);
@@ -111,7 +112,7 @@ char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     memcpy(buf, str, len);
     buf[len] = '\0';
 
-    exit:
+exit:
     exitRedisModuleCall();
     if (reply_name) {
         RedisModule_FreeCallReply(reply_name);
@@ -407,20 +408,31 @@ static RRStatus processConfigParam(const char *keyword, const char *value, Redis
             goto invalid_value;
         target->tls_enabled = val;
     } else if (!strcmp(keyword, CONF_CLUSTER_PASSWORD)) {
-        if (target->cluster_password) {
-            RedisModule_Free(target->cluster_password);
-            target->cluster_password = NULL;
-        }
         if (strlen(value) > 0) {
+            if (target->cluster_password) {
+                RedisModule_Free(target->cluster_password);
+            }
             target->cluster_password = RedisModule_Strdup(value);
+        } else {
+            goto invalid_value;
         }
     } else if (!strcmp(keyword, CONF_CLUSTER_USER)) {
-        if (target->cluster_user) {
-            RedisModule_Free(target->cluster_user);
-            target->cluster_user = NULL;
-        }
         if (strlen(value) > 0) {
+            if (target->cluster_user) {
+                RedisModule_Free(target->cluster_user);
+            }
             target->cluster_user = RedisModule_Strdup(value);
+        } else {
+            goto invalid_value;
+        }
+    } else if (!strcmp(keyword, CONF_SCAN_SIZE)) {
+        if (strlen(value) > 0) {
+            if (target->scan_size) {
+                RedisModule_Free(target->scan_size);
+            }
+            target->scan_size = RedisModule_Strdup(value);
+        } else {
+            goto invalid_value;
         }
     } else {
         snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
@@ -612,6 +624,10 @@ void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, 
         len++;
         replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user ? config->cluster_user : "");
     }
+    if (stringmatch(pattern, CONF_SCAN_SIZE, 1)) {
+        len++;
+        replyConfigStr(ctx, CONF_SCAN_SIZE, config->scan_size);
+    }
     RedisModule_ReplySetArrayLength(ctx, len * 2);
 }
 
@@ -665,6 +681,7 @@ void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
     config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
     config->cluster_user = RedisModule_Strdup("default");
     config->cluster_password = NULL;
+    config->scan_size = RedisModule_Strdup(REDIS_RAFT_DEFAULT_SCAN_SIZE);
 
 #ifdef HAVE_TLS
     ConfigUpdateTLS(ctx, config);
