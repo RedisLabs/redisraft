@@ -749,7 +749,7 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
 void replyRaftError(RedisModuleCtx *ctx, int error);
 void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
-void replyAsk(RedisRaftCtx *rr, RedisModuleCtx *ctx, unsigned int slot);
+void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyClusterDown(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);

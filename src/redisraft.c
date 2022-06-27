@@ -720,7 +720,7 @@ static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *
             return;
         }
 
-        replyAsk(rr, ctx, (unsigned int) slot);
+        replyAsk(ctx, (unsigned int) slot, &leader->addr);
         return;
     }
 
