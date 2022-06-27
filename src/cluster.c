@@ -214,13 +214,10 @@ ShardGroup *ShardGroupCreate() {
     return sg;
 }
 
+/* Unlike C heap function, this should only be passed non NULL (valid) pointers */
 void ShardGroupFree(ShardGroup *sg) {
-    if (!sg) {
-        /* FIXME: Would it be good to have a non fatal backtrace be printed here.
-         * Calling ShardGroupFree on a a null seems to be a logic error
-         */
-        return;
-    }
+    RedisModule_Assert(sg != NULL);
+
     ShardGroupTerm(sg);
     RedisModule_Free(sg);
 }
@@ -988,7 +985,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     argc--;
     int argv_idx = 1;
 
-    unsigned int shard_count = 0;
+    int created_shard_count = 0;
     for (int i = 0; i < num_shards; i++) {
         ShardGroup *sg;
 
@@ -997,8 +994,8 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
             goto fail;
         }
 
-        shard_count++;
         shards[i] = sg;
+        created_shard_count++;
 
         argv += num_argv_entries;
         argc -= num_argv_entries;
@@ -1071,7 +1068,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
 fail:
     *len = 0;
 
-    for (unsigned int j = 0; j < shard_count; j++) {
+    for (unsigned int j = 0; j < created_shard_count; j++) {
         ShardGroupFree(shards[j]);
     }
 
