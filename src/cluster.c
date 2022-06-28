@@ -1234,7 +1234,7 @@ RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
 
         char slot_str[REDIS_RAFT_MAX_SLOT_CHARS*2 + 1 + 1] = {0};
 
-        char* slot_ptr = slot_str;
+        char *slot_ptr = slot_str;
         if (!first_slot) {
             *slot_str = ' ';
             slot_ptr++;

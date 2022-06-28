@@ -42,7 +42,6 @@ def test_set_cluster_password(cluster):
 
 def test_set_cluster_id_too_short(cluster):
     cluster_id = "123456789012345678901234567890"
-    # res = cluster.create(3, cluster_id=cluster_id)
     with raises(ResponseError, match='invalid cluster message \(cluster id length\)'):
         cluster.create(3, cluster_id=cluster_id)
 
