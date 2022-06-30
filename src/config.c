@@ -605,7 +605,7 @@ static int setNumeric(const char *name, long long val, void *priv,
     } else if (strcasecmp(name, conf_max_append_req_in_flight) == 0) {
         c->max_appendentries_inflight = (int) val;
     } else if (strcasecmp(name, conf_scan_size) == 0) {
-        c->scan_size = (int) val;
+        c->scan_size = val;
     } else {
         return REDISMODULE_ERR;
     }
