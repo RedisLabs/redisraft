@@ -625,6 +625,25 @@ def test_asking_follower(cluster):
         conn.read_response()
 
 
+def test_cluster_slots_for_empty_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_shardgroup_id = "1" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '1',
+
+        cluster_shardgroup_id,
+        '0', '1',
+        '%s00000001' % cluster_shardgroup_id, '1.1.1.1:1111',
+        ) == b'OK'
+
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 0
+
+    validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
 def test_cluster_slots_for_single_slot_sg(cluster):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
     cluster_stable_shardgroup_id = "1" * 32
@@ -672,6 +691,7 @@ def test_cluster_slots_for_single_slot_sg(cluster):
                 assert False, "failed to match id {}".format(node_id)
 
     validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
 
 def test_cluster_slots_for_single_slot_range_sg(cluster):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
@@ -776,6 +796,40 @@ def test_cluster_slots_for_multiple_slots_range_sg(cluster):
                 assert False, "failed to match slot {}-{}".format(start_slot, end_slot)
 
     validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_cluster_nodes_for_empty_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_shardgroup_id = "1" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '1',
+
+        cluster_shardgroup_id,
+        '0', '1',
+        '%s00000001' % cluster_shardgroup_id, '1.1.1.1:1111',
+        ) == b'OK'
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 1
+        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        node_id = "{}00000001".format(cluster_shardgroup_id).encode()
+        local_node_id = "{}00000001".format(cluster_dbid).encode()
+
+        node_data = cluster_nodes[0].split(b' ')
+
+        if local_node_id == node_data[0]:
+            assert node_data[2] == b"myself,master"
+        else:
+            assert node_data[2] == b"master"
+
+        assert node_data[3] == b"-"
+
+        assert node_data[0] == node_id
+        assert node_data[8] == b""
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
 
 def test_cluster_nodes_for_single_slot_range_sg(cluster):
