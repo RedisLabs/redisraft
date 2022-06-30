@@ -127,7 +127,7 @@ def test_migration_basic(cluster_factory):
     assert cluster2.execute('dbsize') == key_count
     assert cluster2.node(1).execute('get', '{key}1') == b'value'
     with raises(ResponseError, match='MOVED 4998'):
-        cluster2.node(1).execute('get', '{key2}')
+        cluster2.node(1).execute('get', '{key2}1')
 
 
 def test_raft_import(cluster):
