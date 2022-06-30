@@ -353,7 +353,7 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
     CuAssertIntEquals(tc, 2, raft_get_commit_idx(r));
     CuAssertIntEquals(tc, 2, raft_get_last_applied_idx(r));
     CuAssertIntEquals(tc, 1, raft_get_last_log_term(r));
-    CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+    CuAssertIntEquals(tc, 0, raft_periodic_internal(r, 1000));
 
 
     /* the above test returns correct term as didn't snapshot all entries, makes sure works if we snapshot all */
@@ -363,7 +363,7 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
     raft_recv_entry(r, ety, &cr);
 
     raft_set_commit_idx(r, 4);
-    CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+    CuAssertIntEquals(tc, 0, raft_periodic_internal(r, 1000));
     CuAssertIntEquals(tc, 2, raft_get_log_count(r));
     CuAssertIntEquals(tc, 4, raft_get_commit_idx(r));
     CuAssertIntEquals(tc, 3, r->log_impl->first_idx(r->log));
@@ -416,7 +416,7 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted2(CuTest * tc)
     CuAssertIntEquals(tc, 1, raft_get_log_count(r));
     CuAssertIntEquals(tc, 2, raft_get_commit_idx(r));
     CuAssertIntEquals(tc, 2, raft_get_last_applied_idx(r));
-    CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+    CuAssertIntEquals(tc, 0, raft_periodic_internal(r, 1000));
 }
 
 void TestRaft_joinee_needs_to_get_snapshot(CuTest * tc)
@@ -479,7 +479,7 @@ void TestRaft_follower_load_from_snapshot(CuTest * tc)
     CuAssertIntEquals(tc, 5, raft_get_commit_idx(r));
     CuAssertIntEquals(tc, 5, raft_get_last_applied_idx(r));
 
-    CuAssertIntEquals(tc, 0, raft_periodic(r, 1000));
+    CuAssertIntEquals(tc, 0, raft_periodic_internal(r, 1000));
 
     /* current idx means snapshot was unnecessary */
     ety = __MAKE_ENTRY(2, 1, "entry");

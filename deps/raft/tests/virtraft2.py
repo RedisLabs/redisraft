@@ -413,7 +413,7 @@ class Network(object):
             if lib.raft_is_leader(sv.raft):
                 msg_id = lib.raft_get_msg_id(sv.raft) + 1
                 arg = sv.id * net.rqm + msg_id
-                lib.raft_queue_read_request(sv.raft, sv.handle_read_queue, ffi.cast("void *", arg))
+                lib.raft_recv_read_request(sv.raft, sv.handle_read_queue, ffi.cast("void *", arg))
 
     def id2server(self, id):
         for server in self.servers:
@@ -666,7 +666,7 @@ class Network(object):
         e = server.recv_entry(ety)
         assert e == 0
 
-        lib.raft_set_commit_idx(server.raft, 1)
+        lib.raft_set_commit_idx(server.raft, 2)
         e = lib.raft_apply_all(server.raft)
         assert e == 0
 
@@ -925,7 +925,7 @@ class RaftServer(object):
         if self.network.random.randint(1, 100000) < self.network.compaction_rate:
             self.do_compaction()
 
-        e = lib.raft_periodic(self.raft, msec)
+        e = lib.raft_periodic_internal(self.raft, msec)
         if lib.RAFT_ERR_SHUTDOWN == e:
             self.shutdown()
 
@@ -1091,6 +1091,9 @@ class RaftServer(object):
         logger.debug('{} loading snapshot'.format(self))
 
         leader = find_leader()
+        if not leader:
+            return 0
+
         leader_snapshot = leader.snapshot_buf
 
         # Copy received snapshot as our snapshot and clear the temp buf

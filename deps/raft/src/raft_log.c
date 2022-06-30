@@ -357,9 +357,12 @@ static raft_entry_t *log_get(void *log, raft_index_t idx)
     return e;
 }
 
-static int log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entry_t **entries)
+static raft_index_t log_get_batch(void *log,
+                                  raft_index_t idx,
+                                  raft_index_t entries_n,
+                                  raft_entry_t **entries)
 {
-    long n, i;
+    raft_index_t n;
     raft_entry_t **r = raft_log_get_from_idx(log, idx, &n);
 
     if (!r || n < 1) {
@@ -369,11 +372,11 @@ static int log_get_batch(void *log, raft_index_t idx, int entries_n, raft_entry_
     if (n > entries_n)
         n = entries_n;
 
-    for (i = 0; i < n; i++) {
+    for (raft_index_t i = 0; i < n; i++) {
         entries[i] = r[i];
         raft_entry_hold(entries[i]);
     }
-    return (int) n;
+    return n;
 }
 
 static int log_pop(void *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
