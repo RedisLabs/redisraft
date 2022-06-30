@@ -1108,7 +1108,8 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             size_t len;
             const char *reqId = RedisModule_StringPtrLen(argv[2], &len);
             if (len != RAFT_DBID_LEN) {
-                RedisModule_ReplyWithError(ctx, "ERR cluster id must be 32 characters");
+                LOG_WARNING("RAFT.CLUSTER failed; argv[2] cluster id is wrong (%ld instead of %d)", len, RAFT_DBID_LEN);
+                RedisModule_ReplyWithError(ctx, "ERR invalid cluster message (cluster id length)");
                 return REDISMODULE_OK;
             }
             memcpy(cluster_id, reqId, RAFT_DBID_LEN);
@@ -1160,7 +1161,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
  * Reply:
  *   +OK
  *
- * RAFT.SHARDGROUP REPLACE [num shardgroups] ([shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type])* ([node-uid node-addr:node-port])*)*
+ * RAFT.SHARDGROUP REPLACE [num shardgroups] ([shardgroup id] [num_slots] [num_nodes] ([start slot] [end slot] [slot type] [migration session key])* ([node-uid] [node-addr:node-port])*)*
  *   Replaces all the external shardgroups with the external shardgroups listed here.  ignores the shardgroup set that is the local cluster
  * Reply:
  *   +OK

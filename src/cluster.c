@@ -870,8 +870,8 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     ShardGroup *sg = ShardGroupCreate();
 
     id = RedisModule_StringPtrLen(argv[0], &len);
-    if (len > RAFT_DBID_LEN) {
-        LOG_WARNING("ShardGroupParse failed; argv[%d] shard_group id is too long", base_argv_idx + argidx);
+    if (len != RAFT_DBID_LEN) {
+        LOG_WARNING("ShardGroupParse failed; argv[%d] shard_group id is wrong (%ld instead of %d)", base_argv_idx + argidx, len, RAFT_DBID_LEN);
         RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (shard group id length)");
         goto error;
     }
@@ -931,7 +931,7 @@ ShardGroup *ShardGroupParse(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         const char *str = RedisModule_StringPtrLen(argv[argidx], &len);
 
         if (len != RAFT_SHARDGROUP_NODEID_LEN) {
-            LOG_WARNING("ShardGroupParse failed; argv[%d] node id is too long", base_argv_idx + argidx);
+            LOG_WARNING("ShardGroupParse failed; argv[%d] node id length is wrong (%ld instead of %d)", base_argv_idx + argidx, len, RAFT_SHARDGROUP_NODEID_LEN);
             RedisModule_ReplyWithError(ctx, "ERR invalid shard group message (node id length)");
             goto error;
         }
@@ -959,7 +959,7 @@ error:
 /* parses all the shardgroups in a replace call and validates them */
 /*
  * It is able to validate them at this point, because the replace call has a view of the entire world
- * and replaces the entire world.  Therefore, its not dependent on the state of the ShardGroups at any
+ * and replaces the entire world.  Therefore, it's not dependent on the state of the ShardGroups at any
  * point in time.
  */
 ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
@@ -1016,7 +1016,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     for (int j = 0; j < num_shards; j++) {
         ShardGroup *sg = shards[j];
         for (unsigned int k = 0; k < sg->slot_ranges_num; k++) {
-            ShardGroupSlotRange * sr = &sg->slot_ranges[k];
+            ShardGroupSlotRange *sr = &sg->slot_ranges[k];
             switch (sr->type) {
                 case SLOTRANGE_TYPE_STABLE:
                     for (unsigned int l = sr->start_slot; l <= sr->end_slot; l++) {
@@ -1217,37 +1217,38 @@ static int addClusterSlotShardGroupNodeReply(RedisRaftCtx *rr, RedisModuleCtx *c
 
 /* Returns a string representation of the hash slot range assigned to the
  * specified shardgroup.
- *
- * Currently, doesn't handle importing/migrating yet.
  */
 RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
 {
-    RedisModuleString *ret;
+    RedisModuleString *ret = RedisModule_CreateString(ctx, "", 0);
 
     if (sg->slot_ranges_num == 0) {
-        return RedisModule_CreateString(ctx, "", 0);
+        return ret;
     }
 
-    if (sg->slot_ranges[0].start_slot != sg->slot_ranges[0].end_slot) {
-        ret = RedisModule_CreateStringPrintf(ctx, "%d-%d", sg->slot_ranges[0].start_slot, sg->slot_ranges[0].end_slot);
-    } else {
-        ret = RedisModule_CreateStringPrintf(ctx, "%d", sg->slot_ranges[0].start_slot);
-    }
-
-    for (unsigned int i = 1; i < sg->slot_ranges_num; i++) {
-        RedisModuleString *tmp;
-        const char *str;
-        size_t len;
-
-        if (sg->slot_ranges[i].start_slot != sg->slot_ranges[i].end_slot) {
-            tmp = RedisModule_CreateStringPrintf(ctx, " %d-%d", sg->slot_ranges[i].start_slot, sg->slot_ranges[i].end_slot);
-        } else {
-            tmp = RedisModule_CreateStringPrintf(ctx, " %d", sg->slot_ranges[i].start_slot);
+    bool first_slot = true;
+    for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
+        if (sg->slot_ranges[i].type == SLOTRANGE_TYPE_IMPORTING) {
+            continue;
         }
 
-        str = RedisModule_StringPtrLen(tmp, &len);
-        RedisModule_StringAppendBuffer(ctx, ret, str, len);
-        RedisModule_FreeString(ctx, tmp);
+        char slot_str[REDIS_RAFT_MAX_SLOT_CHARS*2 + 1 + 1] = {0};
+
+        char *slot_ptr = slot_str;
+        if (!first_slot) {
+            *slot_str = ' ';
+            slot_ptr++;
+        }
+
+        if (sg->slot_ranges[i].start_slot != sg->slot_ranges[i].end_slot) {
+            sprintf(slot_ptr, "%d-%d", sg->slot_ranges[i].start_slot, sg->slot_ranges[i].end_slot);
+        } else {
+            sprintf(slot_ptr, "%d", sg->slot_ranges[i].start_slot);
+        }
+
+        first_slot = false;
+
+        RedisModule_StringAppendBuffer(ctx, ret, slot_str, strlen(slot_str));
     }
 
     return ret;
@@ -1415,17 +1416,17 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     size_t key_len;
     ShardGroup *sg;
 
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
-    while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-        num_slots += sg->slot_ranges_num;
-    }
-    RedisModule_DictIteratorStop(iter);
-    RedisModule_ReplyWithArray(ctx, num_slots);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     /* Return array elements */
-    iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
     while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
         for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
+            if (sg->slot_ranges[i].type == SLOTRANGE_TYPE_IMPORTING) {
+                continue;
+            }
+            num_slots += 1;
+
             RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
             int slot_len = 0;
@@ -1466,6 +1467,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     }
 
     RedisModule_DictIteratorStop(iter);
+    RedisModule_ReplySetArrayLength(ctx, num_slots);
 }
 
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.

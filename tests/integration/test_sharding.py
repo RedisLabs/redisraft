@@ -125,15 +125,17 @@ def test_shard_group_replace(cluster):
         '12345678901234567890123456789012',
         '1', '1',
         '6', '7', '1', '0',
-        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        '2' * 40, '2.2.2.2:2222',
+
         '12345678901234567890123456789013',
         '1', '1',
         '8', '16383', '1', '0',
-        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        '3' * 40, '3.3.3.3:3333',
+
         cluster.leader_node().info()['raft_dbid'],
         '1', '1',
         '0', '5', '1', '0',
-        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        '4' * 40, '2.2.2.2:2222',
     ) == b'OK'
 
     with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
@@ -148,23 +150,57 @@ def test_shard_group_replace(cluster):
         local_id = "{}00000001".format(leader.info()['raft_dbid']).encode()
 
         for i in range(len(cluster_slots)):
-            shargroup_id = cluster_slots[i][2][2]
+            node_id = cluster_slots[i][2][2]
             start_slot = cluster_slots[i][0]
             end_slot = cluster_slots[i][1]
 
-            if shargroup_id == local_id:
+            if node_id == local_id:
                 assert start_slot == 0, cluster_slots
                 assert end_slot == 5, cluster_slots
-            elif shargroup_id == b"1234567890123456789012345678901234567890":
+            elif node_id == b'2' * 40:
                 assert start_slot == 6, cluster_slots
                 assert end_slot == 7, cluster_slots
-            elif shargroup_id == b"1234567890123456789012345678901334567890":
+            elif node_id == b'3' * 40:
                 assert start_slot == 8, cluster_slots
                 assert end_slot == 16383, cluster_slots
             else:
-                assert False, "failed to match id {}".format(shargroup_id)
+                assert False, "failed to match id {}".format(node_id)
 
     validate_slots(cluster.node(3).client.execute_command('CLUSTER', 'SLOTS'))
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 5
+        for i in [0, 1, 3, 4]:
+            node = cluster_nodes[i].split(b' ')
+            if node[0] == "{}00000001".format(
+                    cluster.leader_node().info()['raft_dbid']).encode():
+                assert node[2] == b"myself,master"
+                assert node[3] == b"-"
+                assert node[8] == b"0-5"
+            elif node[0] == "{}00000002".format(
+                    cluster.leader_node().info()['raft_dbid']).encode():
+                assert node[2] == b"slave"
+                assert node[3] == "{}00000001".format(
+                    cluster.leader_node().info()['raft_dbid']).encode()
+                assert node[8] == b"0-5"
+            elif node[0] == "{}00000003".format(
+                    cluster.leader_node().info()['raft_dbid']).encode():
+                assert node[2] == b"slave"
+                assert node[3] == "{}00000001".format(
+                    cluster.leader_node().info()['raft_dbid']).encode()
+                assert node[8] == b"0-5"
+            elif node[0] == b'2' * 40:
+                assert node[2] == b"master"
+                assert node[3] == b"-"
+                assert node[8] == b"6-7"
+            elif node[0] == b'3' * 40:
+                assert node[2] == b"master"
+                assert node[3] == b"-"
+                assert node[8] == b"8-16383"
+            else:
+                assert False, node
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
 
 def test_shard_group_validation(cluster):
@@ -202,7 +238,7 @@ def test_shard_group_propagation(cluster):
     c = cluster.node(1).client
     assert c.execute_command(
         'RAFT.SHARDGROUP', 'ADD',
-        '100',
+        '1' * 32,
         '1', '1',
         '1001', '16383', '1', '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
@@ -337,7 +373,7 @@ def test_shard_group_linking(cluster_factory):
 
     # Verify CLUSTER NODES looks good
     def validate_nodes(cluster_nodes):
-        assert len(cluster_nodes) == 7  # blank entry at the end
+        assert len(cluster_nodes) == 6
         for i in [0, 1, 3, 4]:
             node = cluster_nodes[i].split(b' ')
             if node[0] == "{}00000001".format(
@@ -364,10 +400,7 @@ def test_shard_group_linking(cluster_factory):
             else:
                 assert False, node
 
-        # empty entry after final "\r\n" from split
-        assert cluster_nodes[6] == b""
-
-    validate_nodes(cluster1.node(1).execute('CLUSTER', 'NODES').split(b"\r\n"))
+    validate_nodes(cluster1.node(1).execute('CLUSTER', 'NODES').splitlines())
 
     # Terminate leader on cluster 2, wait for re-election and confirm
     # propagation.
@@ -450,12 +483,15 @@ def test_shard_group_no_slots(cluster):
         'slot-config': ''
     })
 
-    c = cluster.node(1).client
-    results = c.execute_command('CLUSTER', 'NODES').split(b"\r\n")
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 3
 
-    splits = results[0].split(b" ")
-    assert len(splits) == 9
-    assert splits[8] == b""
+        for i in range(len(cluster_nodes)):
+            node_data = cluster_nodes[i].split(b' ')
+            assert len(node_data) == 9
+            assert node_data[8] == b""
+
+    validate_nodes(cluster.node(1).client.execute_command('CLUSTER', 'NODES').splitlines())
 
 
 def test_shard_group_reshard_to_migrate(cluster):
@@ -469,14 +505,16 @@ def test_shard_group_reshard_to_migrate(cluster):
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
+
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '2', '123',
-        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        '0', '16383', '2', '0',
+        '3' * 40, '3.3.3.3:3333',
+
         cluster.leader_node().info()["raft_dbid"],
         '1', '1',
-        '0', '16383', '3', '123',
-        '1234567890123456789012345678901234567890', '2.2.2.2:2222',
+        '0', '16383', '3', '0',
+        '2' * 40, '2.2.2.2:2222',
     ) == b'OK'
 
     assert cluster.execute("get", "key") == b'value'
@@ -512,10 +550,12 @@ def test_shard_group_reshard_to_import(cluster):
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
         '2',
+
         '12345678901234567890123456789013',
         '1', '1',
         '0', '16383', '3', '456',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+
         cluster.leader_node().info()["raft_dbid"],
         '1', '1',
         '0', '16383', '2', '456',
@@ -583,3 +623,383 @@ def test_asking_follower(cluster):
     conn.send_command('get', 'key')
     with raises(ResponseError, match="ASK"):
         conn.read_response()
+
+
+def test_cluster_slots_for_empty_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_shardgroup_id = "1" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '1',
+
+        cluster_shardgroup_id,
+        '0', '1',
+        '%s00000001' % cluster_shardgroup_id, '1.1.1.1:1111',
+        ) == b'OK'
+
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 0
+
+    validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_cluster_slots_for_single_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_stable_shardgroup_id = "1" * 32
+    cluster_importing_shardgroup_id = "2" * 32
+    cluster_migrating_shardgroup_id = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        cluster_stable_shardgroup_id,
+        '1', '1',
+        '0', '0', '1', '123',
+        '%s00000001' % cluster_stable_shardgroup_id, '1.1.1.1:1111',
+
+        cluster_importing_shardgroup_id,
+        '1', '1',
+        '501', '501', '2', '123',
+        '%s00000001' % cluster_importing_shardgroup_id, '2.2.2.2:2222',
+
+        cluster_migrating_shardgroup_id,
+        '1', '1',
+        '501', '501', '3', '123',
+        '%s00000001' % cluster_migrating_shardgroup_id, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 2
+
+        stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
+        migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
+
+        for i in range(len(cluster_slots)):
+            node_id = cluster_slots[i][2][2]
+            start_slot = cluster_slots[i][0]
+            end_slot = cluster_slots[i][1]
+
+            if node_id == stable_node_id:
+                assert start_slot == 0, cluster_slots
+                assert end_slot == 0, cluster_slots
+            elif node_id == migrate_node_id:
+                assert start_slot == 501, cluster_slots
+                assert end_slot == 501, cluster_slots
+            else:
+                assert False, "failed to match id {}".format(node_id)
+
+    validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_cluster_slots_for_single_slot_range_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_stable_shardgroup_id = "1" * 32
+    cluster_importing_shardgroup_id = "2" * 32
+    cluster_migrating_shardgroup_id = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        cluster_stable_shardgroup_id,
+        '1', '1',
+        '0', '500', '1', '123',
+        '%s00000001' % cluster_stable_shardgroup_id, '1.1.1.1:1111',
+
+        cluster_importing_shardgroup_id,
+        '1', '1',
+        '501', '16383', '2', '123',
+        '%s00000001' % cluster_importing_shardgroup_id, '2.2.2.2:2222',
+
+        cluster_migrating_shardgroup_id,
+        '1', '1',
+        '501', '16383', '3', '123',
+        '%s00000001' % cluster_migrating_shardgroup_id, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 2
+
+        stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
+        migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
+
+        for i in range(len(cluster_slots)):
+            node_id = cluster_slots[i][2][2]
+            start_slot = cluster_slots[i][0]
+            end_slot = cluster_slots[i][1]
+
+            if node_id == stable_node_id:
+                assert start_slot == 0, cluster_slots
+                assert end_slot == 500, cluster_slots
+            elif node_id == migrate_node_id:
+                assert start_slot == 501, cluster_slots
+                assert end_slot == 16383, cluster_slots
+            else:
+                assert False, "failed to match id {}".format(node_id)
+
+    validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_cluster_slots_for_multiple_slots_range_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    shardgroup_id_1 = "1" * 32
+    shardgroup_id_2 = "2" * 32
+    shardgroup_id_3 = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        shardgroup_id_1,
+        '3', '1',
+        '0', '500', '1', '123',
+        '600', '700', '2', '123',
+        '800', '1000', '3', '123',
+        '%s00000001' % shardgroup_id_1, '1.1.1.1:1111',
+
+        shardgroup_id_2,
+        '2', '1',
+        '1001', '16383', '2', '123',
+        '600', '700', '3', '123',
+        '%s00000001' % shardgroup_id_2, '2.2.2.2:2222',
+
+        shardgroup_id_3,
+        '2', '1',
+        '800', '1000', '2', '123',
+        '1001', '16383', '3', '123',
+        '%s00000001' % shardgroup_id_3, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_slots(cluster_slots):
+        assert len(cluster_slots) == 4
+
+        node_id_1 = "{}00000001".format(shardgroup_id_1).encode()
+        node_id_2 = "{}00000001".format(shardgroup_id_2).encode()
+        node_id_3 = "{}00000001".format(shardgroup_id_3).encode()
+
+        for i in range(len(cluster_slots)):
+            node_id = cluster_slots[i][2][2]
+            start_slot = cluster_slots[i][0]
+            end_slot = cluster_slots[i][1]
+
+            if start_slot == 0 and end_slot == 500:
+                assert node_id == node_id_1
+            elif start_slot == 800 and end_slot == 1000:
+                assert node_id == node_id_1
+            elif start_slot == 600 and end_slot == 700:
+                assert node_id == node_id_2
+            elif start_slot == 1001 and end_slot == 16383:
+                assert node_id == node_id_3
+            else:
+                assert False, "failed to match slot {}-{}".format(start_slot, end_slot)
+
+    validate_slots(cluster.node(1).client.execute_command('CLUSTER', 'SLOTS'))
+
+
+def test_cluster_nodes_for_empty_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_shardgroup_id = "1" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '1',
+
+        cluster_shardgroup_id,
+        '0', '1',
+        '%s00000001' % cluster_shardgroup_id, '1.1.1.1:1111',
+        ) == b'OK'
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 1
+        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        node_id = "{}00000001".format(cluster_shardgroup_id).encode()
+        local_node_id = "{}00000001".format(cluster_dbid).encode()
+
+        node_data = cluster_nodes[0].split(b' ')
+
+        if local_node_id == node_data[0]:
+            assert node_data[2] == b"myself,master"
+        else:
+            assert node_data[2] == b"master"
+
+        assert node_data[3] == b"-"
+
+        assert node_data[0] == node_id
+        assert node_data[8] == b""
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
+
+
+def test_cluster_nodes_for_single_slot_range_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_stable_shardgroup_id = "1" * 32
+    cluster_importing_shardgroup_id = "2" * 32
+    cluster_migrating_shardgroup_id = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        cluster_stable_shardgroup_id,
+        '1', '1',
+        '0', '500', '1', '123',
+        '%s00000001' % cluster_stable_shardgroup_id, '1.1.1.1:1111',
+
+        cluster_importing_shardgroup_id,
+        '1', '1',
+        '501', '16383', '2', '123',
+        '%s00000001' % cluster_importing_shardgroup_id, '2.2.2.2:2222',
+
+        cluster_migrating_shardgroup_id,
+        '1', '1',
+        '501', '16383', '3', '123',
+        '%s00000001' % cluster_migrating_shardgroup_id, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 3
+        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
+        migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
+        import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
+        local_node_id = "{}00000001".format(cluster_dbid).encode()
+
+        for i in range(len(cluster_nodes)):
+            node_data = cluster_nodes[i].split(b' ')
+
+            if local_node_id == node_data[0]:
+                assert node_data[2] == b"myself,master"
+            else:
+                assert node_data[2] == b"master"
+
+            assert node_data[3] == b"-"
+
+            if node_data[0] == stable_node_id:
+                assert node_data[8] == b"0-500"
+            elif node_data[0] == migrate_node_id:
+                assert node_data[8] == b"501-16383"
+            elif node_data[0] == import_node_id:
+                assert node_data[8] == b""
+            else:
+                assert False, "failed to match id {}".format(node_data[0])
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
+
+
+def test_cluster_nodes_for_single_slot_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_stable_shardgroup_id = "1" * 32
+    cluster_importing_shardgroup_id = "2" * 32
+    cluster_migrating_shardgroup_id = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        cluster_stable_shardgroup_id,
+        '1', '1',
+        '0', '0', '1', '123',
+        '%s00000001' % cluster_stable_shardgroup_id, '1.1.1.1:1111',
+
+        cluster_importing_shardgroup_id,
+        '1', '1',
+        '501', '501', '2', '123',
+        '%s00000001' % cluster_importing_shardgroup_id, '2.2.2.2:2222',
+
+        cluster_migrating_shardgroup_id,
+        '1', '1',
+        '501', '501', '3', '123',
+        '%s00000001' % cluster_migrating_shardgroup_id, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 3
+        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
+        migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
+        import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
+        local_node_id = "{}00000001".format(cluster_dbid).encode()
+
+        for i in range(len(cluster_nodes)):
+            node_data = cluster_nodes[i].split(b' ')
+
+            if local_node_id == node_data[0]:
+                assert node_data[2] == b"myself,master"
+            else:
+                assert node_data[2] == b"master"
+
+            assert node_data[3] == b"-"
+
+            if node_data[0] == stable_node_id:
+                assert node_data[8] == b"0"
+            elif node_data[0] == migrate_node_id:
+                assert node_data[8] == b"501"
+            elif node_data[0] == import_node_id:
+                assert node_data[8] == b""
+            else:
+                assert False, "failed to match id {}".format(node_data[0])
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
+
+
+def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
+    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    shardgroup_id_1 = "1" * 32
+    shardgroup_id_2 = "2" * 32
+    shardgroup_id_3 = "3" * 32
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '3',
+
+        shardgroup_id_1,
+        '3', '1',
+        '0', '500', '1', '123',
+        '600', '700', '2', '123',
+        '800', '1000', '3', '123',
+        '%s00000001' % shardgroup_id_1, '1.1.1.1:1111',
+
+        shardgroup_id_2,
+        '2', '1',
+        '1001', '16383', '2', '123',
+        '600', '700', '3', '123',
+        '%s00000001' % shardgroup_id_2, '2.2.2.2:2222',
+
+        shardgroup_id_3,
+        '2', '1',
+        '800', '1000', '2', '123',
+        '1001', '16383', '3', '123',
+        '%s00000001' % shardgroup_id_3, '3.3.3.3:3333',
+        ) == b'OK'
+
+    def validate_nodes(cluster_nodes):
+        assert len(cluster_nodes) == 3
+        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        node_id_1 = "{}00000001".format(shardgroup_id_1).encode()
+        node_id_2 = "{}00000001".format(shardgroup_id_2).encode()
+        node_id_3 = "{}00000001".format(shardgroup_id_3).encode()
+        local_node_id = "{}00000001".format(cluster_dbid).encode()
+
+        for i in range(len(cluster_nodes)):
+            node_data = cluster_nodes[i].split(b' ')
+
+            if local_node_id == node_data[0]:
+                assert node_data[2] == b"myself,master"
+            else:
+                assert node_data[2] == b"master"
+
+            assert node_data[3] == b"-"
+
+            if node_data[0] == node_id_1:
+                assert node_data[8] == b"0-500"
+                assert node_data[9] == b"800-1000"
+            elif node_data[0] == node_id_2:
+                assert node_data[8] == b"600-700"
+            elif node_data[0] == node_id_3:
+                assert node_data[8] == b"1001-16383"
+            else:
+                assert False, "failed to match id {}".format(node_data[0])
+
+    validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
