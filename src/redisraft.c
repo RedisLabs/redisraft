@@ -1863,29 +1863,11 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                     "RedisRaft version %s [%s]",
                     REDISRAFT_VERSION, REDISRAFT_GIT_SHA1);
 
-    /* With https://github.com/redis/redis/pull/9968, rdbSave() function
-     * prototype has changed. RedisRaft uses this function, we are dependent on
-     * its prototype. Here, we check existence of a symbol which was added in
-     * the same PR. So, we make sure Redis build contains this change.
-     * This check should be replaced with a proper version check after Redis 7.0
-     * release. */
-    void *handle = dlopen(NULL, RTLD_NOW);
-    if (!dlsym(handle, "rdbSaveFunctions") ) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
-                        "RedisRaft requires Redis build from unstable branch!");
-        dlclose(handle);
-        return REDISMODULE_ERR;
-    }
-    dlclose(handle);
-
-    /* Sanity check Redis version */
-    if (RedisModule_SubscribeToServerEvent == NULL ||
-            RedisModule_RegisterCommandFilter == NULL ||
-            RedisModule_GetCommandKeys == NULL ||
-            RedisModule_GetDetachedThreadSafeContext == NULL ||
-            RedisModule_MonotonicMicroseconds == NULL) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
-                        "RedisRaft requires Redis build from unstable branch!");
+    const int MIN_SUPPORTED_REDIS_VERSION = 0x00070000;
+    if (!RMAPI_FUNC_SUPPORTED(RedisModule_GetServerVersion) ||
+        RedisModule_GetServerVersion() < MIN_SUPPORTED_REDIS_VERSION) {
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
+                        "RedisRaft requires Redis 7.0 or above");
         return REDISMODULE_ERR;
     }
 
