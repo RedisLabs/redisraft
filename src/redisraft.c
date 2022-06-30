@@ -1653,9 +1653,9 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                     "RedisRaft version %s [%s]",
                     REDISRAFT_VERSION, REDISRAFT_GIT_SHA1);
 
-    const int v7_0_0 = 0x00070000;
+    const int MIN_SUPPORTED_REDIS_VERSION = 0x00070000;
     if (!RMAPI_FUNC_SUPPORTED(RedisModule_GetServerVersion) ||
-        RedisModule_GetServerVersion() < v7_0_0) {
+        RedisModule_GetServerVersion() < MIN_SUPPORTED_REDIS_VERSION) {
         RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
                         "RedisRaft requires Redis 7.0 or above");
         return REDISMODULE_ERR;
