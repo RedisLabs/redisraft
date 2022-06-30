@@ -27,23 +27,23 @@ def test_log_rollback(cluster):
     cluster.node(3).terminate()
 
     # Load a command which can't be committed
-    assert cluster.node(1).current_index() == 6
+    assert cluster.node(1).current_index() == 7
     conn = cluster.node(1).client.connection_pool.get_connection('deferred')
     conn.send_command('INCRBY', 'key', '222')
-    assert cluster.node(1).current_index() == 7
+    assert cluster.node(1).current_index() == 8
     cluster.node(1).terminate()
 
     # We want to be sure the last entry is in the log
     log = RaftLog(cluster.node(1).raftlog)
     log.read()
-    assert log.entry_count() == 7
+    assert log.entry_count() == 8
 
     # Restart the cluster without node 1, make sure the write was
     # not committed.
     cluster.node(2).start()
     cluster.node(3).start()
     cluster.node(2).wait_for_election()
-    assert cluster.node(2).current_index() == 7  # 6 + 1 no-op entry
+    assert cluster.node(2).current_index() == 8  # 7 + 1 no-op entry
 
     # Restart node 1
     cluster.node(1).start()
@@ -66,7 +66,7 @@ def test_raft_log_max_file_size(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.info()['raft_log_entries'] == 1
+    assert r1.info()['raft_log_entries'] == 2
     assert r1.config_set('raft.log-max-file-size', '1kb')
     for _ in range(10):
         assert r1.client.set('testkey', 'x'*500)
@@ -81,13 +81,13 @@ def test_raft_log_max_cache_size(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.info()['raft_cache_entries'] == 1
+    assert r1.info()['raft_cache_entries'] == 2
 
     assert r1.config_set('raft.log-max-cache-size', '1kb')
     assert r1.client.set('testkey', 'testvalue')
 
     info = r1.info()
-    assert info['raft_cache_entries'] == 2
+    assert info['raft_cache_entries'] == 3
     assert info['raft_cache_memory_size'] > 0
 
     for _ in range(10):
@@ -95,8 +95,8 @@ def test_raft_log_max_cache_size(cluster):
 
     time.sleep(1)
     info = r1.info()
-    assert info['raft_log_entries'] == 12
-    assert info['raft_cache_entries'] < 5
+    assert info['raft_log_entries'] == 13
+    assert info['raft_cache_entries'] < 6
 
 
 def test_reply_to_cache_invalidated_entry(cluster):
@@ -128,15 +128,15 @@ def test_reply_to_cache_invalidated_entry(cluster):
     # confirm all raft entries were created but some have been evicted
     # from cache already.
     info = cluster.node(1).info()
-    assert info['raft_log_entries'] == 15
-    assert info['raft_cache_entries'] < 10
+    assert info['raft_log_entries'] == 16
+    assert info['raft_cache_entries'] < 11
 
     # Repair cluster and wait
     cluster.node(2).start()
     cluster.node(3).start()
     cluster.node(1).wait_for_num_voting_nodes(3)
     time.sleep(1)
-    assert cluster.node(1).commit_index() == 15
+    assert cluster.node(1).commit_index() == 16
 
     # Expect TIMEOUT or OK for all
     for conn in conns:

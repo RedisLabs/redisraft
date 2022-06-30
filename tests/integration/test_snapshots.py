@@ -94,10 +94,10 @@ def test_log_fixup_after_snapshot_delivery(cluster):
 
     # node 2 must get a snapshot to sync, make sure this happens and that
     # the log is ok.
-    cluster.node(2).wait_for_current_index(8)
+    cluster.node(2).wait_for_current_index(9)
     log = RaftLog(cluster.node(2).raftlog)
     log.read()
-    assert log.header().snapshot_index() == 8
+    assert log.header().snapshot_index() == 9
 
 
 def test_cfg_node_added_from_snapshot(cluster):
@@ -130,15 +130,15 @@ def test_index_correct_right_after_snapshot(cluster):
     for _ in range(10):
         cluster.node(1).client.incr('counter')
     info = cluster.node(1).info()
-    assert info['raft_current_index'] == 11
+    assert info['raft_current_index'] == 12
 
     # Make sure log is compacted
     assert cluster.node(1).client.execute_command(
         'RAFT.DEBUG', 'COMPACT') == b'OK'
     info = cluster.node(1).info()
     assert info['raft_log_entries'] == 0
-    assert info['raft_current_index'] == 11
-    assert info['raft_commit_index'] == 11
+    assert info['raft_current_index'] == 12
+    assert info['raft_commit_index'] == 12
 
 
 def test_cfg_node_removed_from_snapshot(cluster):
@@ -203,8 +203,8 @@ def test_uncommitted_log_rewrite(cluster):
     conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
     conn.send_command('SET', 'key2', 'value2')  # Entry idx 7
 
-    assert cluster.node(1).current_index() == 7
-    assert cluster.node(1).commit_index() == 6
+    assert cluster.node(1).current_index() == 8
+    assert cluster.node(1).commit_index() == 7
     assert cluster.node(1).client.execute_command(
         'RAFT.DEBUG', 'COMPACT') == b'OK'
     assert cluster.node(1).info()['raft_log_entries'] == 1
@@ -216,8 +216,8 @@ def test_uncommitted_log_rewrite(cluster):
     cluster.node(1).kill()
     cluster.node(1).start()
     cluster.node(1).wait_for_info_param('raft_state', 'up')
-    assert cluster.node(1).current_index() == 7
-    assert cluster.node(1).commit_index() == 6
+    assert cluster.node(1).current_index() == 8
+    assert cluster.node(1).commit_index() == 7
     assert cluster.node(1).info()['raft_log_entries'] == 1
 
 

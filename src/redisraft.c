@@ -637,7 +637,12 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         if (rr->config.quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-            raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
+
+            int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
+            if (rc != 0) {
+                replyRaftError(ctx, rc);
+                return;
+            }
         } else {
             /* Wait until the new leader applies an entry from the current term.
              * Otherwise, we might process a request before replaying logs.

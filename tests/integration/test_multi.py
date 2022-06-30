@@ -65,7 +65,7 @@ def test_multi_exec(cluster):
 
     # MULTI does not go itself to the log
     assert conn.execute('MULTI') == b'OK'
-    assert r1.info()['raft_current_index'] == 1
+    assert r1.info()['raft_current_index'] == 2
 
     # MULTI cannot be nested
     with raises(ResponseError, match='.*MULTI calls can not be nested'):
@@ -77,9 +77,9 @@ def test_multi_exec(cluster):
     assert conn.execute('INCR', 'key') == b'QUEUED'
 
     # More validations
-    assert r1.info()['raft_current_index'] == 1
-    assert conn.execute('EXEC') == [1, 2, 3]
     assert r1.info()['raft_current_index'] == 2
+    assert conn.execute('EXEC') == [1, 2, 3]
+    assert r1.info()['raft_current_index'] == 3
 
     assert conn.execute('GET', 'key') == b'3'
 
@@ -95,7 +95,7 @@ def test_multi_exec_proxying(cluster):
 
     # Basic sanity
     n2 = cluster.node(2)
-    assert n2.info()['raft_current_index'] == 5
+    assert n2.info()['raft_current_index'] == 6
     conn = RawConnection(n2.client)
 
     assert conn.execute('MULTI') == b'OK'
@@ -103,7 +103,7 @@ def test_multi_exec_proxying(cluster):
     assert conn.execute('INCR', 'key') == b'QUEUED'
     assert conn.execute('INCR', 'key') == b'QUEUED'
     assert conn.execute('EXEC') == [1, 2, 3]
-    assert n2.info()['raft_current_index'] == 6
+    assert n2.info()['raft_current_index'] == 7
 
 
 def test_multi_mixed_ro_rw(cluster_factory):
