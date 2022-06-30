@@ -1000,10 +1000,10 @@ static raft_entry_t *logImplGet(void *rr_, raft_index_t idx)
     return ety;
 }
 
-static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entry_t **entries)
+static raft_index_t logImplGetBatch(void *rr_, raft_index_t idx, raft_index_t entries_n, raft_entry_t **entries)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    int n = 0;
+    raft_index_t n = 0;
     raft_index_t i = idx;
 
     while (n < entries_n) {
@@ -1020,7 +1020,7 @@ static int logImplGetBatch(void *rr_, raft_index_t idx, int entries_n, raft_entr
         i++;
     }
 
-    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%d) -> %d", idx, entries_n, n);
+    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%ld) -> %ld", idx, entries_n, n);
     return n;
 }
 

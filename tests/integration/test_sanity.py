@@ -64,7 +64,7 @@ def test_add_node_as_a_single_leader(cluster):
     # Do some basic sanity
     r1 = cluster.add_node()
     assert r1.client.set('key', 'value')
-    assert r1.info()['raft_current_index'] == 2
+    assert r1.info()['raft_current_index'] == 3
 
 
 def test_node_joins_and_gets_data(cluster):
@@ -167,13 +167,13 @@ def test_readonly_commands(cluster):
     assert cluster.leader == 1
 
     # Write something
-    assert cluster.node(1).current_index() == 5
-    assert cluster.node(1).client.set('key', 'value')
     assert cluster.node(1).current_index() == 6
+    assert cluster.node(1).client.set('key', 'value')
+    assert cluster.node(1).current_index() == 7
 
     # Read something, log should not grow
     assert cluster.node(1).client.get('key') == b'value'
-    assert cluster.node(1).current_index() == 6
+    assert cluster.node(1).current_index() == 7
 
     # Tear down cluster, reads should hang
     cluster.node(2).terminate()
@@ -251,13 +251,13 @@ def test_interception_does_not_affect_lua(cluster):
     """
 
     r1 = cluster.add_node()
-    assert r1.info()['raft_current_index'] == 1
+    assert r1.info()['raft_current_index'] == 2
     assert r1.client.execute_command('EVAL', """
 redis.call('SET','key1','value1');
 redis.call('SET','key2','value2');
 redis.call('SET','key3','value3');
 return 1234;""", '0') == 1234
-    assert r1.info()['raft_current_index'] == 2
+    assert r1.info()['raft_current_index'] == 3
     assert r1.client.get('key1') == b'value1'
     assert r1.client.get('key2') == b'value2'
     assert r1.client.get('key3') == b'value3'
@@ -286,7 +286,7 @@ def test_proxying_with_interception(cluster):
     assert cluster.node(1).client.rpush('list-a', 'x') == 3
 
     time.sleep(1)
-    assert cluster.node(1).info()['raft_current_index'] == 8
+    assert cluster.node(1).info()['raft_current_index'] == 9
 
 
 def test_rolled_back_reply(cluster):

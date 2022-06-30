@@ -32,7 +32,7 @@ int raft_get_num_voting_nodes(raft_server_t* me)
     return num;
 }
 
-int raft_get_timeout_elapsed(raft_server_t* me)
+raft_time_t raft_get_timeout_elapsed(raft_server_t* me)
 {
     return me->timeout_elapsed;
 }
@@ -234,6 +234,7 @@ raft_term_t raft_get_snapshot_last_term(raft_server_t *me)
 
 void raft_set_snapshot_metadata(raft_server_t *me, raft_term_t term, raft_index_t idx)
 {
+    me->last_applied_term = term;
     me->last_applied_idx = idx;
     me->snapshot_last_term = term;
     me->snapshot_last_idx = idx;

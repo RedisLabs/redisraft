@@ -264,7 +264,7 @@ typedef struct
     raft_index_t leader_commit;
 
     /** number of entries within this message */
-    int n_entries;
+    raft_index_t n_entries;
 
     /** array of pointers to entries within this message */
     raft_entry_req_t** entries;
@@ -638,6 +638,48 @@ typedef int (
     raft_node_t* node
     );
 
+/** Callback for fetching entries to send in a appendentries message.
+ *
+ *  This callback is useful when you want to limit appendentries message size.
+ *  Application is supposed to fill the `entries` array by using
+ *  raft_get_entry_from_idx() and raft_get_entries_from_idx() functions. If the
+ *  application wants to limit the appendentries message size, it can fill the
+ *  array partially. As this callback is inside a loop, the remaining entries
+ *  will be fetched and sent as another append entries message in the next
+ *  callback.
+ *
+ * @param[in] raft The Raft server making this callback.
+ * @param[in] user_data User data that is passed from Raft server.
+ * @param[in] node The node that we are sending this message to.
+ * @param[in] idx Index of first entry to fetch.
+ * @param[in] entries_n Length of entries (max. entries to fetch).
+ * @param[out] entries An initialized array of raft_entry_t*.
+ * @return Number of entries fetched
+ */
+typedef raft_index_t (
+*raft_get_entries_to_send_f
+)   (
+    raft_server_t *raft,
+    void *user_data,
+    raft_node_t *node,
+    raft_index_t idx,
+    raft_index_t entries_n,
+    raft_entry_t **entries
+    );
+
+/** Callback to retrieve monotonic timestamp in microseconds .
+ *
+ * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
+ * @return Timestamp in microseconds
+ */
+typedef raft_time_t (
+*raft_timestamp_f
+)   (
+    raft_server_t *raft,
+    void *user_data
+    );
+
 typedef struct
 {
     /** Callback for sending request vote messages */
@@ -703,6 +745,12 @@ typedef struct
 
     /** Callback for deciding whether to send raft_appendentries_req to a node. */
     raft_backpressure_f backpressure;
+
+    /** Callback for preparing entries to send in a raft_appendentries_req */
+    raft_get_entries_to_send_f get_entries_to_send;
+
+    /** Callback to retrieve monotonic timestamp in microseconds */
+    raft_timestamp_f timestamp;
 } raft_cbs_t;
 
 /** A generic notification callback used to allow Raft to notify caller
@@ -861,8 +909,8 @@ typedef struct raft_log_impl
      *  Caller must use raft_entry_release_list() when no longer requiring
      *    the returned entries.
      */
-    int (*get_batch) (void *log, raft_index_t idx, int entries_n,
-            raft_entry_t **entries);
+    raft_index_t (*get_batch) (void *log, raft_index_t idx,
+                              raft_index_t entries_n, raft_entry_t **entries);
 
     /** Get first entry's index.
      * @return
@@ -954,12 +1002,11 @@ raft_node_t* raft_add_non_voting_node(raft_server_t* me, void* udata, raft_node_
 void raft_remove_node(raft_server_t* me, raft_node_t* node);
 
 /** Process events that are dependent on time passing.
- * @param[in] msec_elapsed Time in milliseconds since the last call
  * @return
  *  0 on success;
  *  -1 on failure;
  *  RAFT_ERR_SHUTDOWN when server MUST shutdown */
-int raft_periodic(raft_server_t* me, int msec_elapsed);
+int raft_periodic(raft_server_t *me);
 
 /** Receive an appendentries message.
  *
@@ -1110,7 +1157,7 @@ int raft_is_candidate(raft_server_t* me);
 
 /**
  * @return currently elapsed timeout in milliseconds */
-int raft_get_timeout_elapsed(raft_server_t* me);
+raft_time_t raft_get_timeout_elapsed(raft_server_t* me);
 
 /**
  * @return index of last applied entry */
@@ -1143,6 +1190,14 @@ void raft_node_set_next_idx(raft_node_t* me, raft_index_t idx);
  * @param[in] idx The entry's index
  * @return entry from index */
 raft_entry_t* raft_get_entry_from_idx(raft_server_t* me, raft_index_t idx);
+
+/**
+ * @param[in] idx The entry's index
+ * @param[out] n_etys Number of returned entries
+ * @return entry batch from index. Caller must use raft_entry_release_list(). */
+raft_entry_t** raft_get_entries_from_idx(raft_server_t* me,
+                                         raft_index_t idx,
+                                         raft_index_t* n_etys);
 
 /**
  * @param[in] node The node's ID
@@ -1498,11 +1553,7 @@ extern const raft_log_impl_t raft_log_internal_impl;
 
 void raft_handle_append_cfg_change(raft_server_t* me, raft_entry_t* ety, raft_index_t idx);
 
-int raft_queue_read_request(raft_server_t* me, raft_read_request_callback_f cb, void *cb_arg);
-
-/** Attempt to process read queue.
- */
-void raft_process_read_queue(raft_server_t* me);
+int raft_recv_read_request(raft_server_t* me, raft_read_request_callback_f cb, void *cb_arg);
 
 /** Invoke a leadership transfer to targeted node
  *
@@ -1551,7 +1602,7 @@ raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me);
  *        HandleNetworkOperations();
  *
  *         for (int i = 0; i < new_readreq_count; i++)
- *             raft_queue_read_request(raft, read_requests[i]);
+ *             raft_recv_read_request(raft, read_requests[i]);
  *
  *         for (int i = 0; i < new_requests_count; i++)
  *             raft_recv_entry(raft, new_requests[i]);
@@ -1576,7 +1627,9 @@ raft_index_t raft_get_num_snapshottable_logs(raft_server_t* me);
  *
  * @param[in] sync_index Entry index of the last persisted entry. '0' to skip
  *                       updating persisted index.
- * @return    0 on success
+ * @return
+ *   0 on success
+ *   RAFT_ERR_SHUTDOWN when server MUST shutdown
  */
 int raft_flush(raft_server_t* me, raft_index_t sync_index);
 
@@ -1631,5 +1684,19 @@ raft_index_t raft_get_index_to_sync(raft_server_t *me);
  * @return        0 on success, RAFT_ERR_NOTFOUND if config is missing.
  */
 int raft_config(raft_server_t *me, int set, raft_config_e config, ...);
+
+/** Returns non-zero if there are read requests or entries ready to be executed.
+ *
+ *  If executing entries/read requests take longer than `request-timeout`,
+ *  raft_flush() will return early. In that case, application should call
+ *  raft_flush() again to continue operation later, preferably after processing
+ *  messages from the network. That way, server can send/receive heartbeat
+ *  messages and execute long running batch of operations without affecting
+ *  cluster availability.
+ *
+ *  @param[in] raft The Raft server
+ *  @return         0 if there is no pending operations, non-zero otherwise.
+ */
+int raft_pending_operations(raft_server_t *me);
 
 #endif /* RAFT_H_ */

@@ -719,7 +719,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
             msg->msg_id);
 
     argv[4] = nentries_str;
-    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%d", msg->n_entries);
+    argvlen[4] = snprintf(nentries_str, sizeof(nentries_str)-1, "%ld", msg->n_entries);
 
     int i;
     for (i = 0; i < msg->n_entries; i++) {
@@ -1089,6 +1089,14 @@ static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *r
     return 0;
 }
 
+static raft_time_t raftTimestamp(raft_server_t *raft, void *user_data)
+{
+    (void) raft;
+    (void) user_data;
+
+    return (raft_time_t) RedisModule_MonotonicMicroseconds();
+}
+
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
@@ -1107,7 +1115,8 @@ raft_cbs_t redis_raft_callbacks = {
     .notify_state_event = raftNotifyStateEvent,
     .send_timeoutnow = raftSendTimeoutNow,
     .notify_transfer_event = raftNotifyTransferEvent,
-    .backpressure = raftBackpressure
+    .backpressure = raftBackpressure,
+    .timestamp = raftTimestamp
 };
 
 RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
@@ -1261,7 +1270,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         } /* else we're still in progress */
     }
 
-    ret = raft_periodic(rr->raft, rr->config.periodic_interval);
+    ret = raft_periodic(rr->raft);
     if (ret == RAFT_ERR_SHUTDOWN) {
         shutdownAfterRemoval(rr);
     }

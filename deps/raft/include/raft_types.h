@@ -35,4 +35,9 @@ typedef int raft_node_id_t;
  */
 typedef unsigned long raft_msg_id_t;
 
+/**
+ * Time type.
+ */
+typedef long long raft_time_t;
+
 #endif  /* RAFT_DEFS_H_ */

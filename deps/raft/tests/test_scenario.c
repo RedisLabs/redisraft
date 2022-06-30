@@ -60,7 +60,7 @@ void TestRaft_scenario_leader_appears(CuTest * tc)
     }
 
     /* NOTE: important for 1st node to send vote request before others */
-    raft_periodic(r[0], 1000);
+    raft_periodic_internal(r[0], 1000);
 
     for (i = 0; i < 20; i++)
     {
@@ -74,7 +74,7 @@ one_more_time:
                 goto one_more_time;
 
         for (j = 0; j < 3; j++)
-            raft_periodic(r[j], 100);
+            raft_periodic_internal(r[j], 100);
     }
 
     int leaders = 0;

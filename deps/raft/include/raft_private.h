@@ -48,17 +48,29 @@ struct raft_server {
     /* idx of highest log entry applied to state machine */
     raft_index_t last_applied_idx;
 
+    /* term of the highest log entry applied to the state machine */
+    raft_term_t last_applied_term;
+
     /* follower/leader/candidate indicator */
     raft_state_e state;
 
     /* amount of time left till timeout */
-    int timeout_elapsed;
+    raft_time_t timeout_elapsed;
+
+    /* timestamp in milliseconds */
+    raft_time_t timestamp;
+
+    /* deadline to stop executing operations */
+    raft_time_t exec_deadline;
+
+    /* non-zero if there are ready to be executed operations. */
+    int pending_operations;
 
     raft_node_t** nodes;
     int num_nodes;
 
     /* timer interval to check if we still have quorum */
-    long quorum_timeout;
+    raft_time_t quorum_timeout;
 
     /* latest quorum id for the previous quorum_timeout round */
     raft_msg_id_t last_acked_msg_id;
@@ -101,9 +113,9 @@ struct raft_server {
     raft_read_request_t *read_queue_head;
     raft_read_request_t *read_queue_tail;
 
-    raft_node_id_t node_transferring_leader_to; // the node we are targeting for leadership
-    long transfer_leader_time; // how long we should wait for leadership transfer to take, before aborting
-    int sent_timeout_now; // if we've already sent a leadership transfer signal
+    raft_node_id_t node_transferring_leader_to; /* Leader transfer target.  */
+    raft_time_t transfer_leader_time;           /* Leader transfer timeout. */
+    int sent_timeout_now;     /* If we've already sent timeout_now message. */
 
 
     /* Index of the log entry that need to be written to the disk. Only useful
@@ -114,8 +126,8 @@ struct raft_server {
 
     /* Configuration parameters */
 
-    int election_timeout;  /* Timeout for a follower to start an election   */
-    int request_timeout;   /* Heartbeat timeout */
+    raft_time_t election_timeout; /* Timeout for a node to start an election */
+    raft_time_t request_timeout;  /* Heartbeat timeout */
     int nonblocking_apply; /* Apply entries even when snapshot is in progress */
     int auto_flush;        /* Automatically call raft_flush() */
     int log_enabled;       /* Enable library logs */
@@ -190,5 +202,9 @@ void raft_reset_transfer_leader(raft_server_t* me, int timed_out);
 raft_size_t raft_node_get_snapshot_offset(raft_node_t *me);
 
 void raft_node_set_snapshot_offset(raft_node_t *me, raft_size_t snapshot_offset);
+
+int raft_periodic_internal(raft_server_t *me, raft_time_t milliseconds);
+
+int raft_exec_operations(raft_server_t *me);
 
 #endif /* RAFT_PRIVATE_H_ */
