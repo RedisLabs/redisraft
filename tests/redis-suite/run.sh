@@ -4,7 +4,7 @@ REDIS_DIR=${REDIS_DIR:-${PWD}/../redis}
 
 export REDIS_SERVER_BINARY=${REDIS_DIR}/src/redis-server
 export REDIS_CLI_BINARY=${REDIS_DIR}/src/redis-cli
-export ADDITIONAL_OPTIONS="raft-log-fsync no"
+export ADDITIONAL_OPTIONS="--raft.log-fsync no"
 
 setup() {
     pushd ./utils/create-cluster

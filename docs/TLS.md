@@ -11,7 +11,7 @@ redis-server --tls-port <por> --port 0 --tls-cert-file <file> --tls-key-file <fi
 In addition, one has to pass the `tls-enabled yes` option to the redisraft module
 
 ```
---loadmodule ./redisraft.so <other options> tls-enabled yes
+--loadmodule ./redisraft.so <other options> --raft.tls-enabled yes
 ```
 
 ## Configuring RedisRaft TLS support

@@ -726,7 +726,7 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
     long long int num_entries = 0;
 
     RaftLog *log = RaftLogCreate(filename, rr->snapshot_info.dbid, last_term,
-                                 last_idx, rr->config);
+                                 last_idx, &rr->config);
     raft_index_t i;
     for (i = last_idx + 1; i <= RaftLogCurrentIdx(rr->log); i++) {
         num_entries++;
@@ -760,15 +760,15 @@ void RaftLogRemoveFiles(const char *filename)
 
 void RaftLogArchiveFiles(RedisRaftCtx *rr)
 {
-    char *idx_filename = getIndexFilename(rr->config->raft_log_filename);
+    char *idx_filename = getIndexFilename(rr->config.log_filename);
     unlink(idx_filename);
     RedisModule_Free(idx_filename);
 
-    size_t bak_filename_maxlen = strlen(rr->config->raft_log_filename) + 100;
+    size_t bak_filename_maxlen = strlen(rr->config.log_filename) + 100;
     char bak_filename[bak_filename_maxlen];
     snprintf(bak_filename, bak_filename_maxlen - 1,
-            "%s.%d.bak", rr->config->raft_log_filename, raft_get_nodeid(rr->raft));
-    rename(rr->config->raft_log_filename, bak_filename);
+            "%s.%d.bak", rr->config.log_filename, raft_get_nodeid(rr->raft));
+    rename(rr->config.log_filename, bak_filename);
 }
 
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries)
@@ -1045,7 +1045,7 @@ static raft_index_t logImplCount(void *rr_)
 static int logImplSync(void *rr_)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    return RaftLogSync(rr->log, rr->config->raft_log_fsync);
+    return RaftLogSync(rr->log, rr->config.log_fsync);
 }
 
 raft_log_impl_t RaftLogImpl = {

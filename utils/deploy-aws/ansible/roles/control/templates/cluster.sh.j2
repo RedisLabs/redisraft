@@ -74,18 +74,6 @@ run_command() {
     done
 }
 
-redis_config_set() {
-    echo ""
-    echo "=== Issuing CONFIG SET $* ==="
-    run_command CONFIG SET $*
-}
-
-redisraft_config_set() {
-    echo ""
-    echo "=== Issuing RAFT.CONFIG SET $* ==="
-    run_command RAFT.CONFIG SET $*
-}
-
 endpoints() {
     echo ""
     echo "NODE  ADDR            PORT"
@@ -105,11 +93,8 @@ usage() {
     echo "  cluster.sh endpoints"
     echo "      Print information about cluster endpoints."
     echo ""
-    echo "  cluster.sh redis-config-set [param] [value]"
-    echo "      Configure a Redis parameter across all cluster nodes."
-    echo ""
-    echo "  cluster.sh redisraft-config-set [param] [value]"
-    echo "      Configure a RedisRaft parameter across all cluster nodes."
+    echo "  cluster.sh call <cmd>"
+    echo "      Call a command across all cluster nodes."
     exit 2
 }
 
@@ -120,15 +105,9 @@ case "$1" in
     endpoints)
         endpoints
         ;;
-    redis-config-set)
+    call)
         shift
-        [ $# = 2 ] || usage
-        redis_config_set $*
-        ;;
-    redisraft-config-set)
-        shift
-        [ $# = 2 ] || usage
-        redisraft_config_set $*
+        run_command $*
         ;;
     *)
         usage

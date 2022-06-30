@@ -71,10 +71,10 @@ for n in $(seq ${nodes}); do
     raftlog=redisraft${n}.db
     rm -f ${raftlog} ${raftlog}.idx
     ${redis} --loadmodule ${raftmodule} \
-        id ${n} \
-        addr 127.0.0.1:${p} \
-        raft-log-filename redisraft${n}.db \
-        follower-proxy yes \
+        --raft.id ${n} \
+        --raft.addr 127.0.0.1:${p} \
+        --raft.log-filename redisraft${n}.db \
+        --raft.follower-proxy yes \
         ${module_args[@]} \
         --logfile redis${n}.log \
         --port ${p} \

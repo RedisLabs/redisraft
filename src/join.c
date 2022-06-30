@@ -64,7 +64,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
         strncpy(rr->snapshot_info.dbid, reply->element[1]->str, reply->element[1]->len);
         rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
-        rr->config->id = reply->element[0]->integer;
+        rr->config.id = reply->element[0]->integer;
         state->complete_callback(state->req);
         assert(rr->state == REDIS_RAFT_UP);
 
@@ -96,8 +96,8 @@ static void sendNodeAddRequest(Connection *conn)
     if (redisAsyncCommand(ConnGetRedisCtx(conn), handleNodeAddResponse, conn,
         "RAFT.NODE %s %d %s:%u",
         "ADD",
-        rr->config->id,
-        rr->config->addr.host, rr->config->addr.port) != REDIS_OK) {
+        rr->config.id,
+        rr->config.addr.host, rr->config.addr.port) != REDIS_OK) {
 
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
@@ -120,7 +120,6 @@ void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req,
     /* We just create the connection with an idle callback, which will
      * shortly fire and handle connection setup.
      */
-    char *username = rr->config->cluster_user;
-    char *password = rr->config->cluster_password;
-    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback, username, password);
+    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback,
+                          rr->config.cluster_user, rr->config.cluster_password);
 }

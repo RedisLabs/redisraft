@@ -137,7 +137,7 @@ def test_proxying(cluster):
     with raises(ResponseError, match='MOVED'):
         assert cluster.node(2).client.set('key', 'value')
     assert cluster.node(2).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
 
     # Basic sanity
     assert cluster.node(2).client.set('key', 'value2')
@@ -184,7 +184,7 @@ def test_readonly_commands(cluster):
     assert not conn.can_read(timeout=1)
 
     # Now configure non-quorum reads
-    cluster.node(1).raft_config_set('quorum-reads', 'no')
+    cluster.node(1).config_set('raft.quorum-reads', 'no')
     assert cluster.node(1).client.get('key') == b'value'
 
 
@@ -275,11 +275,11 @@ def test_proxying_with_interception(cluster):
     assert cluster.leader == 1
 
     assert cluster.node(1).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
     assert cluster.node(2).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
     assert cluster.node(3).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
 
     assert cluster.node(1).client.rpush('list-a', 'x') == 1
     assert cluster.node(1).client.rpush('list-a', 'x') == 2

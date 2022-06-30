@@ -14,87 +14,108 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <assert.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <net/if.h>
 #include <ifaddrs.h>
 #include <netdb.h>
+#include <limits.h>
 
 #include "redisraft.h"
 
-static const char *CONF_ID = "id";
-static const char *CONF_ADDR = "addr";
-static const char *CONF_RAFT_INTERVAL = "raft-interval";
-static const char *CONF_REQUEST_TIMEOUT = "request-timeout";
-static const char *CONF_ELECTION_TIMEOUT = "election-timeout";
-static const char *CONF_CONNECTION_TIMEOUT = "connection-timeout";
-static const char *CONF_JOIN_TIMEOUT = "join-timeout";
-static const char *CONF_RAFT_RESPONSE_TIMEOUT = "raft-response-timeout";
-static const char *CONF_PROXY_RESPONSE_TIMEOUT = "proxy-response-timeout";
-static const char *CONF_RECONNECT_INTERVAL = "reconnect-interval";
-static const char *CONF_RAFT_LOG_FILENAME = "raft-log-filename";
-static const char *CONF_RAFT_LOG_MAX_CACHE_SIZE = "raft-log-max-cache-size";
-static const char *CONF_RAFT_LOG_MAX_FILE_SIZE = "raft-log-max-file-size";
-static const char *CONF_RAFT_LOG_FSYNC = "raft-log-fsync";
-static const char *CONF_FOLLOWER_PROXY = "follower-proxy";
-static const char *CONF_QUORUM_READS = "quorum-reads";
-static const char *CONF_LOGLEVEL = "loglevel";
-static const char *CONF_TRACE = "trace";
-static const char *CONF_SHARDING = "sharding";
-static const char *CONF_SLOT_CONFIG = "slot-config";
-static const char *CONF_SHARDGROUP_UPDATE_INTERVAL = "shardgroup-update-interval";
-static const char *CONF_IGNORED_COMMANDS = "ignored-commands";
-static const char *CONF_EXTERNAL_SHARDING = "external-sharding";
-static const char *CONF_MAX_APPEND_REQ_IN_FLIGHT = "max-append-req-in-flight";
-static const char *CONF_TLS_ENABLED = "tls-enabled";
-static const char *CONF_CLUSTER_USER = "cluster-user";
-static const char *CONF_CLUSTER_PASSWORD = "cluster-password";
-static const char *CONF_SCAN_SIZE = "scan-size";
+static const char *trace_names[] = {
+    "off",
+    "node",
+    "conn",
+    "raftlib",
+    "raftlog",
+    "generic",
+    "all"
+};
 
-static RRStatus setRedisConfig(RedisModuleCtx *ctx, const char *param, const char *value)
+static const int trace_flags[] = {
+    TRACE_OFF,
+    TRACE_NODE,
+    TRACE_CONN,
+    TRACE_RAFTLIB,
+    TRACE_RAFTLOG,
+    TRACE_GENERIC,
+    TRACE_ALL
+};
+
+#define TRACE_FLAG_COUNT (sizeof(trace_flags) / sizeof(int))
+
+static const char *conf_id                         = "id";
+static const char *conf_addr                       = "addr";
+static const char *conf_periodic_interval          = "periodic-interval";
+static const char *conf_request_timeout            = "request-timeout";
+static const char *conf_election_timeout           = "election-timeout";
+static const char *conf_connection_timeout         = "connection-timeout";
+static const char *conf_join_timeout               = "join-timeout";
+static const char *conf_response_timeout           = "response-timeout";
+static const char *conf_proxy_response_timeout     = "proxy-response-timeout";
+static const char *conf_reconnect_interval         = "reconnect-interval";
+static const char *conf_log_filename               = "log-filename";
+static const char *conf_log_max_cache_size         = "log-max-cache-size";
+static const char *conf_log_max_file_size          = "log-max-file-size";
+static const char *conf_log_fsync                  = "log-fsync";
+static const char *conf_follower_proxy             = "follower-proxy";
+static const char *conf_quorum_reads               = "quorum-reads";
+static const char *conf_loglevel                   = "loglevel";
+static const char *conf_trace                      = "trace";
+static const char *conf_sharding                   = "sharding";
+static const char *conf_slot_config                = "slot-config";
+static const char *conf_shardgroup_update_interval = "shardgroup-update-interval";
+static const char *conf_ignored_commands           = "ignored-commands";
+static const char *conf_external_sharding          = "external-sharding";
+static const char *conf_max_append_req_in_flight   = "max-append-req-in-flight";
+static const char *conf_scan_size                  = "scan-size";
+static const char *conf_tls_enabled                = "tls-enabled";
+static const char *conf_cluster_user               = "cluster-user";
+static const char *conf_cluster_password           = "cluster-password";
+
+const char *err_init = "Configuration change is not allowed after init/join for this parameter";
+
+
+static int setRedisConfig(RedisModuleCtx *ctx,
+                          const char *param,
+                          const char *value)
 {
-    size_t len;
-    const char *str;
-    RedisModuleCallReply *reply = NULL;
     RRStatus ret = RR_OK;
+    RedisModuleCallReply *reply = NULL;
 
     enterRedisModuleCall();
-    if (!(reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value))) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-    str = RedisModule_CallReplyStringPtr(reply, &len);
-    if (len != 2 || memcmp(str, "OK", 2) != 0) {
-        ret = RR_ERROR;
-        goto exit;
-    }
-
-exit:
+    reply = RedisModule_Call(ctx, "CONFIG", "ccc", "SET", param, value);
     exitRedisModuleCall();
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
+
+    if (!reply) {
+        return RR_ERROR;
     }
 
+    size_t len;
+    const char *str = RedisModule_CallReplyStringPtr(reply, &len);
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING ||
+        len != 2 || memcmp(str, "OK", 2) != 0) {
+        ret = RR_ERROR;
+    }
+
+    RedisModule_FreeCallReply(reply);
     return ret;
 }
 
-char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
+static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
 {
     size_t len;
     const char *str;
     char *buf = NULL;
-    RedisModuleCallReply *reply = NULL, *reply_name = NULL;
+    RedisModuleCallReply *reply, *reply_name = NULL;
 
     enterRedisModuleCall();
-    if (!(reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name))) {
-        goto exit;
+    reply = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name);
+    exitRedisModuleCall();
+
+    if (!reply) {
+        return NULL;
     }
 
     if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY ||
@@ -103,7 +124,8 @@ char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     }
 
     reply_name = RedisModule_CallReplyArrayElement(reply, 1);
-    if (!reply_name || RedisModule_CallReplyType(reply_name) != REDISMODULE_REPLY_STRING) {
+    if (!reply_name ||
+        RedisModule_CallReplyType(reply_name) != REDISMODULE_REPLY_STRING) {
         goto exit;
     }
 
@@ -113,582 +135,485 @@ char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     buf[len] = '\0';
 
 exit:
-    exitRedisModuleCall();
     if (reply_name) {
         RedisModule_FreeCallReply(reply_name);
     }
-    if (reply) {
-        RedisModule_FreeCallReply(reply);
-    }
+    RedisModule_FreeCallReply(reply);
 
     return buf;
 }
 
-static RRStatus parseBool(const char *value, bool *result)
+static bool validSlotConfig(const char *slot_config)
 {
-    if (!strcmp(value, "yes")) {
-        *result = true;
-    } else if (!strcmp(value, "no")) {
-        *result = false;
-    } else {
-        return RR_ERROR;
-    }
-    return RR_OK;
-}
+    long val_l, val_h;
+    char *end, *pos;
 
-static int setLogLevel(const char *value)
-{
-    for (int i = 0; i < LOG_LEVEL_COUNT; i++) {
-        if (!strcasecmp(value, redis_raft_log_levels[i])) {
-            redis_raft_loglevel = i;
-            return 0;
+    if (*slot_config == '\0') {
+        return true;
+    }
+
+    pos = strchr(slot_config, ':');
+    if (pos) {
+        errno = 0;
+        val_l = strtol(slot_config, &end, 10);
+        if (errno != 0 || end != pos) {
+            return false;
+        }
+
+        errno = 0;
+        val_h = strtol(pos + 1, &end, 10);
+        if (errno != 0 ||  *end != '\0' || !HashSlotRangeValid(val_l, val_h)) {
+            return false;
+        }
+    } else {
+        errno = 0;
+        val_l = strtol(slot_config, &end, 10);
+        if (errno != 0 || *end != '\0' || !HashSlotValid(val_l)) {
+            return false;
         }
     }
 
-    return -1;
+    return true;
 }
 
-static const char *getLoglevelName(int level)
+#ifdef HAVE_TLS
+/* Callback for passing a keyfile password stored as a char* to OpenSSL */
+static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
 {
-    assert(level >= 0 && level < LOG_LEVEL_COUNT);
-    return redis_raft_log_levels[level];
-}
+    (void) rwflag;
+    const char *pass = u;
+    size_t pass_len;
 
-static int setTrace(const char *value)
-{
-    if (!strcasecmp(value, "off")) {
-        redis_raft_trace = TRACE_OFF;
-    } else if (!strcasecmp(value, "node")) {
-        redis_raft_trace ^= TRACE_NODE;
-    } else if (!strcasecmp(value, "conn")) {
-        redis_raft_trace ^= TRACE_CONN;
-    } else if (!strcasecmp(value, "raftlog")) {
-        redis_raft_trace ^= TRACE_RAFTLOG;
-    } else if (!strcasecmp(value, "raftlib")) {
-        redis_raft_trace ^= TRACE_RAFTLIB;
-    } else if (!strcasecmp(value, "generic")) {
-        redis_raft_trace ^= TRACE_GENERIC;
-    } else if (!strcasecmp(value, "all")) {
-        redis_raft_trace = TRACE_ALL;
-    }  else {
+    if (!pass) {
         return -1;
     }
 
-    return 0;
+    pass_len = strlen(pass);
+    if (pass_len > (size_t) size) {
+        return -1;
+    }
+    memcpy(buf, pass, pass_len);
+
+    return (int) pass_len;
 }
 
-static const char *getTraceFlags(char *buf, size_t size)
+static SSL_CTX *generateSSLContext(const char *cacert,
+                                   const char *cert,
+                                   const char *key,
+                                   const char *keypass)
 {
-    RedisModule_Assert(size >= 128);
-
-    size_t wr = 0;
-
-    if (redis_raft_trace == TRACE_OFF) {
-        *buf = '\0';
-        return buf;
+    if ((cert != NULL && key == NULL) || (key != NULL && cert == NULL)) {
+        LOG_WARNING("'tls-cert-file' or 'tls-key-file' is not configured.");
+        return NULL;
     }
 
-    if (redis_raft_trace & TRACE_NODE) {
-        wr += snprintf(buf + wr, size - wr, "node ");
-    }
-    if (redis_raft_trace & TRACE_CONN) {
-        wr += snprintf(buf + wr, size - wr, "conn ");
-    }
-    if (redis_raft_trace & TRACE_RAFTLOG) {
-        wr += snprintf(buf + wr, size - wr, "raftlog ");
-    }
-    if (redis_raft_trace & TRACE_RAFTLIB) {
-        wr += snprintf(buf + wr, size - wr, "raftlib ");
-    }
-    if (redis_raft_trace & TRACE_GENERIC) {
-        wr += snprintf(buf + wr, size - wr, "generic ");
+    SSL_CTX *ctx = SSL_CTX_new(SSLv23_client_method());
+    if (!ctx) {
+        LOG_WARNING("SSL_CTX_new(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
+        return NULL;
     }
 
-    /* Trim extra space at the end */
-    if (wr) {
-        buf[wr - 1] = '\0';
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+
+    if (keypass && *keypass != '\0') {
+        SSL_CTX_set_default_passwd_cb(ctx, tlsPasswordCallback);
+        SSL_CTX_set_default_passwd_cb_userdata(ctx, RedisModule_Strdup(keypass));
     }
 
-    return buf;
+    if (!SSL_CTX_load_verify_locations(ctx, cacert, NULL)) {
+        LOG_WARNING("SSL_CTX_load_verify_locations(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
+        goto error;
+    }
+
+    if (!SSL_CTX_use_certificate_chain_file(ctx, cert)) {
+        LOG_WARNING("SSL_CTX_use_certificate_chain_file(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
+        goto error;
+    }
+
+    if (!SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM)) {
+        LOG_WARNING("SSL_CTX_use_PrivateKey_file(): %s",
+                    ERR_reason_error_string(ERR_peek_last_error()));
+        goto error;
+    }
+
+    return ctx;
+
+error:
+    SSL_CTX_free(ctx);
+    return NULL;
 }
 
-int validSlotConfig(char *slot_config) {
-    if (*slot_config == 0) {
-        return 1;
-    }
+static RRStatus updateTLSConfig(RedisRaftConfig *config, RedisModuleCtx *ctx)
+{
+    int ret = RR_OK;
+    char *clientkey, *key, *keypass, *cacert, *cert;
 
-    int ret = 0;
-    char *tmp = RedisModule_Strdup(slot_config);
-    char *pos = tmp;
-    char *endptr;
-    long val_l, val_h;
-    if ((pos = strchr(tmp, ':'))) {
-        *pos = '\0';
-        val_l = strtol(tmp, &endptr, 10);
-        if (*endptr != 0) {
-            goto exit;
-        }
-        val_h = strtol(pos+1, &endptr, 10);
-        if (*endptr != 0) {
-            goto exit;
-        }
-        if (!HashSlotRangeValid(val_l, val_h)) {
-            goto exit;
-        }
+    cacert = getRedisConfig(ctx, "tls-ca-cert-file");
+
+    clientkey = getRedisConfig(ctx, "tls-client-key-file");
+    if (clientkey && *clientkey != '\0') {
+        key = getRedisConfig(ctx, "tls-client-key-file");
+        cert = getRedisConfig(ctx, "tls-client-cert-file");
+        keypass = getRedisConfig(ctx, "tls-client-key-file-pass");
     } else {
-        val_l = strtol(tmp, &endptr, 10);
-        if (*endptr != 0 || !HashSlotValid(val_l)) {
-            goto exit;
-        }
+        key = getRedisConfig(ctx, "tls-key-file");
+        cert = getRedisConfig(ctx, "tls-cert-file");
+        keypass = getRedisConfig(ctx, "tls-key-file-pass");
     }
 
-    ret = 1;
-
-exit:
-    RedisModule_Free(tmp);
-    return ret;
-}
-
-static RRStatus processConfigParam(const char *keyword, const char *value, RedisRaftConfig *target,
-                                   bool on_init, bool uninitialized, char *errbuf, int errbuflen)
-{
-    /* Parameters we don't accept as config set */
-    if (!on_init && (!strcmp(keyword, CONF_RAFT_LOG_FILENAME) ||
-                !strcmp(keyword, CONF_SLOT_CONFIG) ||
-                !strcmp(keyword, CONF_EXTERNAL_SHARDING))) {
-        snprintf(errbuf, errbuflen-1, "'%s' only supported at load time", keyword);
-        return RR_ERROR;
-    }
-
-    if (!uninitialized && !strcmp(keyword, CONF_ID)) {
-        snprintf(errbuf, errbuflen-1, "'%s' only supported at before cluster init/join", keyword);
-        return RR_ERROR;
-    }
-
-    if (!value) {
-        snprintf(errbuf, errbuflen-1, "'%s' requires a value", keyword);
-        return RR_ERROR;
-    }
-
-    if (!strcmp(keyword, CONF_ID)) {
-        char *errptr;
-        unsigned long idval = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !idval || idval > INT32_MAX)
-            goto invalid_value;
-        target->id = (raft_node_id_t) idval;
-    } else if (!strcmp(keyword, CONF_ADDR)) {
-        if (!NodeAddrParse(value, strlen(value), &target->addr))
-            goto invalid_value;
-    } else if (!strcmp(keyword, CONF_RAFT_LOG_FILENAME)) {
-        if (target->raft_log_filename) {
-            RedisModule_Free(target->raft_log_filename);
-        }
-        target->raft_log_filename = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_RAFT_INTERVAL)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || !val)
-            goto invalid_value;
-        target->raft_interval = (int)val;
-    } else if (!strcmp(keyword, CONF_REQUEST_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->request_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_ELECTION_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->election_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_CONNECTION_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->connection_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_JOIN_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->join_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_RAFT_RESPONSE_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->raft_response_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_PROXY_RESPONSE_TIMEOUT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->proxy_response_timeout = (int)val;
-    } else if (!strcmp(keyword, CONF_RECONNECT_INTERVAL)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0' || val <= 0)
-            goto invalid_value;
-        target->reconnect_interval = (int)val;
-    } else if (!strcmp(keyword, CONF_RAFT_LOG_MAX_CACHE_SIZE)) {
-        unsigned long val;
-        if (parseMemorySize(value, &val) != RR_OK)
-            goto invalid_value;
-        target->raft_log_max_cache_size = (int)val;
-    } else if (!strcmp(keyword, CONF_RAFT_LOG_MAX_FILE_SIZE)) {
-        unsigned long val;
-        if (parseMemorySize(value, &val) != RR_OK)
-            goto invalid_value;
-        target->raft_log_max_file_size = (int)val;
-    } else if (!strcmp(keyword, CONF_RAFT_LOG_FSYNC)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->raft_log_fsync = val;
-    } else if (!strcmp(keyword, CONF_FOLLOWER_PROXY)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->follower_proxy = val;
-    } else if (!strcmp(keyword, CONF_QUORUM_READS)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->quorum_reads = val;
-    } else if (!strcmp(keyword, CONF_LOGLEVEL)) {
-        if (setLogLevel(value) != 0) {
-            snprintf(errbuf, errbuflen,
-                     "invalid '%s', must be 'warning', 'notice', 'verbose' or 'debug'", keyword);
-            return RR_ERROR;
-        }
-    } else if (!strcmp(keyword, CONF_TRACE)) {
-        if (setTrace(value) != 0) {
-            snprintf(errbuf, errbuflen,
-                     "invalid '%s', must be 'node', 'conn', 'raftlog', 'raftlib', 'generic', 'all', or 'off'", keyword);
-            return RR_ERROR;
-        }
-    } else if (!strcmp(keyword, CONF_SHARDING)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->sharding = val;
-    } else if (!strcmp(keyword, CONF_EXTERNAL_SHARDING)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->external_sharding = val;
-    } else if (!strcmp(keyword, CONF_SLOT_CONFIG)) {
-        target->slot_config = RedisModule_Strdup(value);
-        if (!validSlotConfig(target->slot_config)) {
-            snprintf(errbuf, errbuflen-1, "invalid 'slot_config' value");
-            return RR_ERROR;
-        }
-    } else if (!strcmp(keyword, CONF_SHARDGROUP_UPDATE_INTERVAL)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0')
-            goto invalid_value;
-        target->shardgroup_update_interval = (int) val;
-    } else if (!strcmp(keyword, CONF_IGNORED_COMMANDS)) {
-        if (target->ignored_commands) {
-            RedisModule_Free(target->ignored_commands);
-        }
-        target->ignored_commands = RedisModule_Strdup(value);
-    } else if (!strcmp(keyword, CONF_MAX_APPEND_REQ_IN_FLIGHT)) {
-        char *errptr;
-        unsigned long val = strtoul(value, &errptr, 10);
-        if (*errptr != '\0')
-            goto invalid_value;
-        target->max_appendentries_inflight = (int) val;
-    } else if (!strcmp(keyword, CONF_TLS_ENABLED)) {
-        bool val;
-        if (parseBool(value, &val) != RR_OK)
-            goto invalid_value;
-        target->tls_enabled = val;
-    } else if (!strcmp(keyword, CONF_CLUSTER_PASSWORD)) {
-        if (strlen(value) > 0) {
-            if (target->cluster_password) {
-                RedisModule_Free(target->cluster_password);
-            }
-            target->cluster_password = RedisModule_Strdup(value);
-        } else {
-            goto invalid_value;
-        }
-    } else if (!strcmp(keyword, CONF_CLUSTER_USER)) {
-        if (strlen(value) > 0) {
-            if (target->cluster_user) {
-                RedisModule_Free(target->cluster_user);
-            }
-            target->cluster_user = RedisModule_Strdup(value);
-        } else {
-            goto invalid_value;
-        }
-    } else if (!strcmp(keyword, CONF_SCAN_SIZE)) {
-        if (strlen(value) > 0) {
-            if (target->scan_size) {
-                RedisModule_Free(target->scan_size);
-            }
-            target->scan_size = RedisModule_Strdup(value);
-        } else {
-            goto invalid_value;
-        }
-    } else {
-        snprintf(errbuf, errbuflen-1, "invalid parameter '%s'", keyword);
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-
-invalid_value:
-    snprintf(errbuf, errbuflen-1, "invalid '%s' value", keyword);
-    return RR_ERROR;
-}
-
-void ConfigSet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    char errbuf[256] = "ERR ";
-    char *pos = errbuf + strlen(errbuf);
-    const int cap  = (int)(sizeof(errbuf) - strlen(errbuf));
-    bool st = rr->state == REDIS_RAFT_UNINITIALIZED;
-
-    if (argc != 4) {
-        RedisModule_WrongArity(ctx);
-        return;
-    }
-
-    char *key = StrCreateFromString(argv[2]);
-    char *value = StrCreateFromString(argv[3]);
-
-    if (processConfigParam(key, value, rr->config, false, st, pos, cap) != RR_OK) {
-        RedisModule_ReplyWithError(ctx, errbuf);
+    SSL_CTX *ssl = generateSSLContext(cacert, cert, key, keypass);
+    if (!ssl) {
+        ret = RR_ERROR;
         goto out;
     }
 
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    if (config->ssl) {
+        RedisModule_Free(SSL_CTX_get_default_passwd_cb_userdata(config->ssl));
+        SSL_CTX_free(config->ssl);
+    }
+    config->ssl = ssl;
 
 out:
+    RedisModule_Free(cacert);
+    RedisModule_Free(cert);
     RedisModule_Free(key);
-    RedisModule_Free(value);
+    RedisModule_Free(keypass);
+    RedisModule_Free(clientkey);
+    return ret;
 }
 
-static void replyConfigStr(RedisModuleCtx *ctx, const char *name, const char *str)
-{
-    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));
-    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
-}
-
-static void replyConfigInt(RedisModuleCtx *ctx, const char *name, int val)
-{
-    char str[64];
-    snprintf(str, sizeof(str) - 1, "%d", val);
-
-    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));
-    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
-}
-
-static void replyConfigMemSize(RedisModuleCtx *ctx, const char *name, unsigned long val)
-{
-    char str[64];
-    formatExactMemorySize(val, str, sizeof(str));
-
-    RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name));
-    RedisModule_ReplyWithStringBuffer(ctx, str, strlen(str));
-}
-
-
-static void replyConfigBool(RedisModuleCtx *ctx, const char *name, bool val)
-{
-    replyConfigStr(ctx, name, val ? "yes" : "no");
-}
-
-void ConfigGet(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    RedisRaftConfig *config = rr->config;
-
-    if (argc != 3) {
-        RedisModule_WrongArity(ctx);
-        return;
-    }
-
-    int len = 0;
-    size_t pattern_len;
-    const char *pattern = RedisModule_StringPtrLen(argv[2], &pattern_len);
-
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    if (stringmatch(pattern, CONF_ID, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_ID, config->id);
-    }
-    if (stringmatch(pattern, CONF_RAFT_LOG_FILENAME, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_RAFT_LOG_FILENAME, config->raft_log_filename);
-    }
-    if (stringmatch(pattern, CONF_RAFT_INTERVAL, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_RAFT_INTERVAL, config->raft_interval);
-    }
-    if (stringmatch(pattern, CONF_REQUEST_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_REQUEST_TIMEOUT, config->request_timeout);
-    }
-    if (stringmatch(pattern, CONF_ELECTION_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_ELECTION_TIMEOUT, config->election_timeout);
-    }
-    if (stringmatch(pattern, CONF_CONNECTION_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_CONNECTION_TIMEOUT, config->connection_timeout);
-    }
-    if (stringmatch(pattern, CONF_JOIN_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_JOIN_TIMEOUT, config->join_timeout);
-    }
-    if (stringmatch(pattern, CONF_RAFT_RESPONSE_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_RAFT_RESPONSE_TIMEOUT, config->raft_response_timeout);
-    }
-    if (stringmatch(pattern, CONF_PROXY_RESPONSE_TIMEOUT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_PROXY_RESPONSE_TIMEOUT, config->proxy_response_timeout);
-    }
-    if (stringmatch(pattern, CONF_RECONNECT_INTERVAL, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_RECONNECT_INTERVAL, config->reconnect_interval);
-    }
-    if (stringmatch(pattern, CONF_RAFT_LOG_MAX_CACHE_SIZE, 1)) {
-        len++;
-        replyConfigMemSize(ctx, CONF_RAFT_LOG_MAX_CACHE_SIZE, config->raft_log_max_cache_size);
-    }
-    if (stringmatch(pattern, CONF_RAFT_LOG_MAX_FILE_SIZE, 1)) {
-        len++;
-        replyConfigMemSize(ctx, CONF_RAFT_LOG_MAX_FILE_SIZE, config->raft_log_max_file_size);
-    }
-    if (stringmatch(pattern, CONF_RAFT_LOG_FSYNC, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_RAFT_LOG_FSYNC, config->raft_log_fsync);
-    }
-    if (stringmatch(pattern, CONF_FOLLOWER_PROXY, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_FOLLOWER_PROXY, config->follower_proxy);
-    }
-    if (stringmatch(pattern, CONF_QUORUM_READS, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_QUORUM_READS, config->quorum_reads);
-    }
-    if (stringmatch(pattern, CONF_ADDR, 1)) {
-        len++;
-        char buf[300];
-        snprintf(buf, sizeof(buf)-1, "%s:%u", config->addr.host, config->addr.port);
-        replyConfigStr(ctx, CONF_ADDR, buf);
-    }
-    if (stringmatch(pattern, CONF_LOGLEVEL, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_LOGLEVEL, getLoglevelName(redis_raft_loglevel));
-    }
-    if (stringmatch(pattern, CONF_TRACE, 1)) {
-        len++;
-        char buf[512];
-        replyConfigStr(ctx, CONF_TRACE, getTraceFlags(buf, sizeof(buf)));
-    }
-    if (stringmatch(pattern, CONF_SHARDING, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_SHARDING, config->sharding);
-    }
-    if (stringmatch(pattern, CONF_EXTERNAL_SHARDING, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_EXTERNAL_SHARDING, config->external_sharding);
-    }
-    if (stringmatch(pattern, CONF_SLOT_CONFIG, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_SLOT_CONFIG, config->slot_config);
-    }
-    if (stringmatch(pattern, CONF_SHARDGROUP_UPDATE_INTERVAL, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_SHARDGROUP_UPDATE_INTERVAL, config->shardgroup_update_interval);
-    }
-    if (stringmatch(pattern, CONF_IGNORED_COMMANDS, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_IGNORED_COMMANDS, config->ignored_commands ? config->ignored_commands : "");
-    }
-    if (stringmatch(pattern, CONF_MAX_APPEND_REQ_IN_FLIGHT, 1)) {
-        len++;
-        replyConfigInt(ctx, CONF_MAX_APPEND_REQ_IN_FLIGHT, config->max_appendentries_inflight);
-    }
-    if (stringmatch(pattern, CONF_TLS_ENABLED, 1)) {
-        len++;
-        replyConfigBool(ctx, CONF_TLS_ENABLED, config->tls_enabled);
-    }
-    if (stringmatch(pattern, CONF_CLUSTER_USER, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_CLUSTER_USER, config->cluster_user ? config->cluster_user : "");
-    }
-    if (stringmatch(pattern, CONF_SCAN_SIZE, 1)) {
-        len++;
-        replyConfigStr(ctx, CONF_SCAN_SIZE, config->scan_size);
-    }
-    RedisModule_ReplySetArrayLength(ctx, len * 2);
-}
-
-void ConfigUpdateTLS(RedisModuleCtx *ctx, RedisRaftConfig *config)
-{
-    RedisModule_Free(config->tls_cert);
-    RedisModule_Free(config->tls_ca_cert);
-    RedisModule_Free(config->tls_key);
-    RedisModule_Free(config->tls_key_pass);
-
-    config->tls_ca_cert = getRedisConfig(ctx, "tls-ca-cert-file");
-
-    char *key = getRedisConfig(ctx, "tls-client-key-file");
-    if (key && *key != '\0') {
-        config->tls_cert = getRedisConfig(ctx, "tls-client-cert-file");
-        config->tls_key = getRedisConfig(ctx, "tls-client-key-file");
-        config->tls_key_pass = getRedisConfig(ctx, "tls-client-key-file-pass");
-    } else {
-        config->tls_cert = getRedisConfig(ctx, "tls-cert-file");
-        config->tls_key = getRedisConfig(ctx, "tls-key-file");
-        config->tls_key_pass = getRedisConfig(ctx, "tls-key-file-pass");
-    }
-
-    RedisModule_Free(key);
-}
-
-void ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
-{
-    UNUSED(ctx);
-
-    memset(config, 0, sizeof(RedisRaftConfig));
-
-    config->raft_log_filename = RedisModule_Strdup(REDIS_RAFT_DEFAULT_LOG_FILENAME);
-    config->raft_interval = REDIS_RAFT_DEFAULT_INTERVAL;
-    config->request_timeout = REDIS_RAFT_DEFAULT_REQUEST_TIMEOUT;
-    config->election_timeout = REDIS_RAFT_DEFAULT_ELECTION_TIMEOUT;
-    config->connection_timeout = REDIS_RAFT_DEFAULT_CONNECTION_TIMEOUT;
-    config->join_timeout = REDIS_RAFT_DEFAULT_JOIN_TIMEOUT;
-    config->reconnect_interval = REDIS_RAFT_DEFAULT_RECONNECT_INTERVAL;
-    config->raft_response_timeout = REDIS_RAFT_DEFAULT_RAFT_RESPONSE_TIMEOUT;
-    config->proxy_response_timeout = REDIS_RAFT_DEFAULT_PROXY_RESPONSE_TIMEOUT;
-    config->raft_log_max_cache_size = REDIS_RAFT_DEFAULT_LOG_MAX_CACHE_SIZE;
-    config->raft_log_max_file_size = REDIS_RAFT_DEFAULT_LOG_MAX_FILE_SIZE;
-    config->raft_log_fsync = true;
-    config->quorum_reads = true;
-    config->sharding = false;
-    config->external_sharding = false;
-    config->slot_config = "0:16383";
-    config->shardgroup_update_interval = REDIS_RAFT_DEFAULT_SHARDGROUP_UPDATE_INTERVAL;
-    config->ignored_commands = NULL;
-    config->max_appendentries_inflight = REDIS_RAFT_DEFAULT_MAX_APPENDENTRIES;
-    config->cluster_user = RedisModule_Strdup("default");
-    config->cluster_password = NULL;
-    config->scan_size = RedisModule_Strdup(REDIS_RAFT_DEFAULT_SCAN_SIZE);
-
-#ifdef HAVE_TLS
-    ConfigUpdateTLS(ctx, config);
 #endif
+
+static RedisModuleString *getString(const char *name, void *privdata)
+{
+    RedisRaftConfig *c = privdata;
+    RedisModuleString *ret = NULL;
+
+    if (strcasecmp(name, conf_log_filename) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s", c->log_filename);
+    } else if (strcasecmp(name, conf_addr) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s:%u", c->addr.host, c->addr.port);
+    } else if (strcasecmp(name, conf_slot_config) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s", c->slot_config);
+    } else if (strcasecmp(name, conf_ignored_commands) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s", c->ignored_commands);
+    } else if (strcasecmp(name, conf_cluster_user) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s", c->cluster_user);
+    } else if (strcasecmp(name, conf_cluster_password) == 0) {
+        ret = RedisModule_CreateStringPrintf(NULL, "%s", c->cluster_password);
+    }
+
+    if (ret) {
+        /*
+         * Config API assumes string configurations are RedisModuleStrings
+         * inside the module. Modules are supposed to return a pointer to
+         * a config object on each "get" callback. In RedisRaft, we prefer
+         * C strings for string configurations as it is simpler to use. So, we
+         * create RedisModuleString on the fly in this callback. Config API
+         * wouldn't free this object as it assumes we return a pointer to a
+         * config variable. Due to this limitation, we need to keep a pointer in
+         * a temporary variable to avoid leaks. On each call, we deallocate the
+         * previous value and assign a new config object we are about to return.
+         * Related issue: https://github.com/redis/redis/issues/10749
+         */
+        RedisModule_FreeString(NULL, c->str_conf_ref);
+        c->str_conf_ref = ret;
+    }
+
+    return ret;
+}
+
+static int setString(const char *name,
+                     RedisModuleString *val,
+                     void *privdata,
+                     RedisModuleString **err)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RedisRaftConfig *c = privdata;
+
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        if (!strcasecmp(name, conf_addr) ||
+            !strcasecmp(name, conf_slot_config) ||
+            !strcasecmp(name, conf_log_filename)) {
+            *err = RedisModule_CreateString(NULL, err_init, strlen(err_init));
+            return REDISMODULE_ERR;
+        }
+    }
+
+    size_t len;
+    const char *value = RedisModule_StringPtrLen(val, &len);
+
+    if (strcasecmp(name, conf_log_filename) == 0) {
+        RedisModule_Free(c->log_filename);
+        c->log_filename = RedisModule_Strdup(value);
+    } else if (strcasecmp(name, conf_addr) == 0) {
+        if (*value == '\0') {
+            c->addr = (NodeAddr) {0};
+        } else if (!NodeAddrParse(value, len, &c->addr)) {
+            *err = RedisModule_CreateStringPrintf(NULL, "Address is invalid. It must be in the form of 10.0.0.3:8000");
+            return REDISMODULE_ERR;
+        }
+    } else if (strcasecmp(name, conf_slot_config) == 0) {
+        if (!validSlotConfig(value)) {
+            *err = RedisModule_CreateStringPrintf(NULL, "Not a valid slot config");
+            return REDISMODULE_ERR;
+        }
+        RedisModule_Free(c->slot_config);
+        c->slot_config = RedisModule_Strdup(value);
+    } else if (strcasecmp(name, conf_ignored_commands) == 0) {
+        if (CommandSpecSet(rr->ctx, value) != RR_OK) {
+            *err = RedisModule_CreateStringPrintf(NULL, "Failed to set internal command table");
+            return REDISMODULE_ERR;
+        }
+        RedisModule_Free(c->ignored_commands);
+        c->ignored_commands = RedisModule_Strdup(value);
+    } else if (strcasecmp(name, conf_cluster_user) == 0) {
+        RedisModule_Free(c->cluster_user);
+        c->cluster_user = RedisModule_Strdup(value);
+    } else if (strcasecmp(name, conf_cluster_password) == 0) {
+        RedisModule_Free(c->cluster_password);
+        c->cluster_password = RedisModule_Strdup(value);
+    } else {
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
+static int getEnum(const char *name, void *privdata)
+{
+    (void) privdata;
+
+    if (strcasecmp(name, conf_loglevel) == 0) {
+        return redisraft_loglevel;
+    } else if (strcasecmp(name, conf_trace) == 0) {
+        return redisraft_trace;
+    }
+
+    return REDISMODULE_ERR;
+}
+
+static int setEnum(const char *name, int val, void *privdata, RedisModuleString **err)
+{
+    (void) err;
+    (void) privdata;
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (strcasecmp(name, conf_loglevel) == 0) {
+        redisraft_loglevel = val;
+    } else if (strcasecmp(name, conf_trace) == 0) {
+        if (val == TRACE_OFF || val == TRACE_ALL) {
+            redisraft_trace = val;
+        } else {
+            redisraft_trace ^= val;
+        }
+
+        if (rr->state == REDIS_RAFT_UP) {
+            int flag = redisraft_trace & TRACE_RAFTLIB ? 1 : 0;
+            raft_config(rr->raft, 1, RAFT_CONFIG_LOG_ENABLED, flag);
+        }
+    } else {
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
+static int getBool(const char *name, void *privdata)
+{
+    RedisRaftConfig *c = privdata;
+
+    if (strcasecmp(name, conf_log_fsync) == 0) {
+        return c->log_fsync;
+    } else if (strcasecmp(name, conf_follower_proxy) == 0) {
+        return c->follower_proxy;
+    } else if (strcasecmp(name, conf_quorum_reads) == 0) {
+        return c->quorum_reads;
+    } else if (strcasecmp(name, conf_sharding) == 0) {
+        return c->sharding;
+    } else if (strcasecmp(name, conf_external_sharding) == 0) {
+        return c->external_sharding;
+    } else if (strcasecmp(name, conf_tls_enabled) == 0){
+        return c->tls_enabled;
+    }
+
+    return REDISMODULE_ERR;
+}
+
+static const char *handleTlsEnabled(RedisRaftConfig *conf, int enabled)
+{
+#ifdef HAVE_TLS
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (enabled) {
+        if (updateTLSConfig(conf, rr->ctx) != RR_OK) {
+            return "Failed to configure TLS";
+        }
+    } else {
+        if (conf->ssl) {
+            RedisModule_Free(SSL_CTX_get_default_passwd_cb_userdata(conf->ssl));
+            SSL_CTX_free(conf->ssl);
+            conf->ssl = NULL;
+        }
+    }
+#else
+    (void) conf;
+
+    if (enabled) {
+        return "Build RedisRaft with TLS to enable it";
+    }
+#endif
+
+    return NULL;
+}
+
+static int setBool(const char *name, int val, void *pr, RedisModuleString **err)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RedisRaftConfig *c = pr;
+
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        if (!strcasecmp(name, conf_external_sharding)) {
+            *err = RedisModule_CreateString(NULL, err_init, strlen(err_init));
+            return REDISMODULE_ERR;
+        }
+    }
+
+    if (strcasecmp(name, conf_log_fsync) == 0) {
+        c->log_fsync = val;
+    } else if (strcasecmp(name, conf_follower_proxy) == 0) {
+        c->follower_proxy = val;
+    } else if (strcasecmp(name, conf_quorum_reads) == 0) {
+        c->quorum_reads = val;
+    } else if (strcasecmp(name, conf_sharding) == 0) {
+        c->sharding = val;
+    } else if (strcasecmp(name, conf_external_sharding) == 0) {
+        c->external_sharding = val;
+    } else if (strcasecmp(name, conf_tls_enabled) == 0) {
+        const char *errmsg = handleTlsEnabled(c, val);
+        if (errmsg) {
+            *err = RedisModule_CreateString(NULL, errmsg, strlen(errmsg));
+            return REDISMODULE_ERR;
+        }
+        c->tls_enabled = val;
+    } else {
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
+static long long getNumeric(const char *name, void *privdata)
+{
+    RedisRaftConfig *c = privdata;
+
+    if (strcasecmp(name, conf_id) == 0) {
+        return c->id;
+    } else if (strcasecmp(name, conf_periodic_interval) == 0) {
+        return c->periodic_interval;
+    } else if (strcasecmp(name, conf_request_timeout) == 0) {
+        return c->request_timeout;
+    } else if (strcasecmp(name, conf_election_timeout) == 0) {
+        return c->election_timeout;
+    } else if (strcasecmp(name, conf_connection_timeout) == 0) {
+        return c->connection_timeout;
+    } else if (strcasecmp(name, conf_join_timeout) == 0) {
+        return c->join_timeout;
+    } else if (strcasecmp(name, conf_response_timeout) == 0) {
+        return c->response_timeout;
+    } else if (strcasecmp(name, conf_proxy_response_timeout) == 0) {
+        return c->proxy_response_timeout;
+    } else if (strcasecmp(name, conf_reconnect_interval) == 0) {
+        return c->reconnect_interval;
+    } else if (strcasecmp(name, conf_log_max_file_size) == 0) {
+        return (long long) c->log_max_file_size;
+    } else if (strcasecmp(name, conf_log_max_cache_size) == 0) {
+        return (long long) c->log_max_cache_size;
+    } else if (strcasecmp(name, conf_shardgroup_update_interval) == 0) {
+        return c->shardgroup_update_interval;
+    } else if (strcasecmp(name, conf_max_append_req_in_flight) == 0) {
+        return c->max_appendentries_inflight;
+    } else if (strcasecmp(name, conf_scan_size) == 0) {
+        return c->scan_size;
+    }
+
+    return REDISMODULE_ERR;
 }
 
 
+static int setNumeric(const char *name, long long val, void *priv,
+                      RedisModuleString **err)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RedisRaftConfig *c = priv;
+
+    if (rr->state != REDIS_RAFT_UNINITIALIZED) {
+        if (!strcasecmp(name, conf_id)) {
+            *err = RedisModule_CreateString(NULL, err_init, strlen(err_init));
+            return REDISMODULE_ERR;
+        }
+    }
+
+    if (strcasecmp(name, conf_id) == 0) {
+        c->id = (raft_node_id_t) val;
+    } else if (strcasecmp(name, conf_periodic_interval) == 0) {
+        c->periodic_interval = (int) val;
+    } else if (strcasecmp(name, conf_request_timeout) == 0) {
+        int rc;
+        int timeout = (int) val;
+
+        if (rr->state == REDIS_RAFT_UP) {
+            rc = raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, timeout);
+            if (rc != 0) {
+                *err = RedisModule_CreateStringPrintf(NULL, "Failed to configure request timeout: internal error");
+                return REDISMODULE_ERR;
+            }
+        }
+        c->request_timeout = timeout;
+    } else if (strcasecmp(name, conf_election_timeout) == 0) {
+        int rc;
+        int timeout = (int) val;
+
+        if (rr->state == REDIS_RAFT_UP) {
+            rc = raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, timeout);
+            if (rc != 0) {
+                *err = RedisModule_CreateStringPrintf(NULL, "Failed to configure election timeout: internal error");
+                return REDISMODULE_ERR;
+            }
+        }
+        c->election_timeout = timeout;
+    } else if (strcasecmp(name, conf_connection_timeout) == 0) {
+        c->connection_timeout = (int) val;
+    } else if (strcasecmp(name, conf_join_timeout) == 0) {
+        c->join_timeout = (int) val;
+    } else if (strcasecmp(name, conf_response_timeout) == 0) {
+        c->response_timeout = (int) val;
+    } else if (strcasecmp(name, conf_proxy_response_timeout) == 0) {
+        c->proxy_response_timeout = (int) val;
+    } else if (strcasecmp(name, conf_reconnect_interval) == 0) {
+        c->reconnect_interval = (int) val;
+    } else if (strcasecmp(name, conf_log_max_cache_size) == 0) {
+        c->log_max_cache_size = val;
+    } else if (strcasecmp(name, conf_log_max_file_size) == 0) {
+        c->log_max_file_size = val;
+    } else if (strcasecmp(name, conf_shardgroup_update_interval) == 0) {
+        c->shardgroup_update_interval = (int) val;
+    } else if (strcasecmp(name, conf_max_append_req_in_flight) == 0) {
+        c->max_appendentries_inflight = (int) val;
+    } else if (strcasecmp(name, conf_scan_size) == 0) {
+        c->scan_size = (int) val;
+    } else {
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* Get address from first non-internal interface */
 static RRStatus getInterfaceAddr(NodeAddr *addr)
 {
     struct ifaddrs *addrs, *ent = NULL;
@@ -720,64 +645,175 @@ static RRStatus getInterfaceAddr(NodeAddr *addr)
     return ret != 0 ? RR_ERROR : RR_OK;
 }
 
-RRStatus ConfigReadFromRedis(RedisRaftCtx *rr)
-{
-    rr->config->rdb_filename = getRedisConfig(rr->ctx, "dbfilename");
-    assert(rr->config->rdb_filename != NULL);
-
-    /* If 'addr' was not set explicitly, try to guess it */
-    if (!rr->config->addr.host[0]) {
-        /* Get port from Redis */
-        char *port_str = getRedisConfig(rr->ctx, "port");
-        assert(port_str != NULL);
-
-        rr->config->addr.port = strtoul(port_str, NULL, 10);
-        RedisModule_Free(port_str);
-
-        /* Get address from first non-internal interface */
-        if (getInterfaceAddr(&rr->config->addr) == RR_ERROR) {
-            PANIC("Failed to determine local address, please use addr=.");
-        }
-    }
-
-    return RR_OK;
-}
-
-RRStatus ConfigureRedis(RedisModuleCtx *ctx)
+static int validateRedisConfig(RedisModuleCtx *ctx)
 {
     if (setRedisConfig(ctx, "save", "") != RR_OK) {
+        LOG_WARNING("Failed to set Redis 'save' configuration!");
         return RR_ERROR;
     }
 
+    char *cfg = getRedisConfig(ctx, "cluster_enabled");
+    if (cfg && *cfg != '0') {
+        LOG_WARNING("RedisRaft requires Redis not be started with 'cluster_enabled'!");
+        RedisModule_Free(cfg);
+        return RR_ERROR;
+    }
+    RedisModule_Free(cfg);
+
+    char *filename = getRedisConfig(ctx, "dbfilename");
+    if (!filename || *filename == '\0') {
+        LOG_WARNING("'dbfilename' configuration is missing!");
+        RedisModule_Free(filename);
+        return RR_ERROR;
+    }
+    RedisModule_Free(filename);
+
     return RR_OK;
 }
 
-RRStatus ConfigParseArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisRaftConfig *target)
+/* If 'addr' was not set explicitly, try to guess it */
+static int getListenAddr(RedisRaftConfig *c, RedisModuleCtx *ctx)
 {
-    int i;
+    char *port = getRedisConfig(ctx, "port");
+    if (!port || *port == '\0' || getInterfaceAddr(&c->addr) != RR_OK) {
+        RedisModule_Free(port);
+        LOG_WARNING("Failed to determine local address, please set 'raft.addr'.");
+        return RR_ERROR;
+    }
+    c->addr.port = strtoul(port, NULL, 10);
 
-    for (i = 0; i < argc; i++) {
-        size_t kwlen;
-        const char *kw = RedisModule_StringPtrLen(argv[i], &kwlen);
+    RedisModule_Free(port);
+    return RR_OK;
+}
 
-        if (i + 1 >= argc) {
-            LOG_WARNING("No argument specified for keyword '%.*s'",
-                        (int) kwlen, kw);
-            return RR_ERROR;
-        }
+RRStatus ConfigInit(RedisRaftConfig *c, RedisModuleCtx *ctx)
+{
+    int ret = 0;
 
-        size_t vallen;
-        const char *val = RedisModule_StringPtrLen(argv[i + 1], &vallen);
-        i++;
+    *c = (RedisRaftConfig) {
+        .str_conf_ref = RedisModule_CreateString(NULL, "", 0)
+    };
 
-        char errbuf[256];
-        if (processConfigParam(kw, val, target, true, true,
-                    errbuf, sizeof(errbuf)) != RR_OK) {
-            LOG_WARNING("%s", errbuf);
-            return RR_ERROR;
+    if (validateRedisConfig(ctx) != RR_OK) {
+        goto err;
+    }
+                                                  /* name */                   /* default-value */   /* flags */               /* min - max value */
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_id,                         0,                REDISMODULE_CONFIG_DEFAULT,   0, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_periodic_interval,          100,              REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_request_timeout,            200,              REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_election_timeout,           1000,             REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_connection_timeout,         3000,             REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_join_timeout,               120000,           REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_response_timeout,           1000,             REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_proxy_response_timeout,     10000,            REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_reconnect_interval,         100,              REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_shardgroup_update_interval, 5000,             REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_max_append_req_in_flight,   2,                REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_cache_size,         64000000,         REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_file_size,          128000000,        REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_scan_size,                  1000,             REDISMODULE_CONFIG_DEFAULT,   1, LLONG_MAX, getNumeric, setNumeric, NULL, c);
+
+                                                  /* name */                   /* default-value */   /* flags */
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_log_fsync,                  true,             REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_follower_proxy,             false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_quorum_reads,               true,             REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_sharding,                   false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_external_sharding,          false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_tls_enabled,                false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+
+                                                  /* name */                   /* default-value */   /* flags */
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_log_filename,               "redisraft.db",   REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_addr,                       "",               REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_slot_config,                "0:16383",        REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_ignored_commands,           "",               REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_cluster_user,               "default",        REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
+    ret |= RedisModule_RegisterStringConfig(ctx,  conf_cluster_password,           "",               REDISMODULE_CONFIG_SENSITIVE |
+                                                                                                     REDISMODULE_CONFIG_HIDDEN,                  getString,  setString,  NULL, c);
+
+                                                   /* name */                  /* default-value */   /* flags */
+    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_loglevel,                   LOG_LEVEL_NOTICE, REDISMODULE_CONFIG_DEFAULT,  redisraft_loglevels, redisraft_loglevel_enums, LOG_LEVEL_COUNT,  getEnum, setEnum, NULL, c);
+    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_trace,                      TRACE_OFF,        REDISMODULE_CONFIG_BITFLAGS, trace_names,         trace_flags,              TRACE_FLAG_COUNT, getEnum, setEnum, NULL, c);
+
+    ret |= RedisModule_LoadConfigs(ctx);
+    if (ret != REDISMODULE_OK) {
+        LOG_WARNING("Failed to register configurations.");
+        goto err;
+    }
+
+    c->rdb_filename = getRedisConfig(ctx, "dbfilename");
+
+    if (c->addr.host[0] == '\0') {
+        if (getListenAddr(c, ctx) != RR_OK) {
+            goto err;
         }
     }
 
     return RR_OK;
+
+err:
+    ConfigFree(c);
+    return RR_ERROR;
 }
 
+void ConfigFree(RedisRaftConfig *c)
+{
+    if (c->str_conf_ref) {
+        RedisModule_FreeString(NULL, c->str_conf_ref);
+    }
+
+    RedisModule_Free(c->rdb_filename);
+    RedisModule_Free(c->log_filename);
+    RedisModule_Free(c->ignored_commands);
+    RedisModule_Free(c->cluster_user);
+    RedisModule_Free(c->cluster_password);
+    RedisModule_Free(c->slot_config);
+
+#ifdef HAVE_TLS
+    if (c->ssl) {
+        RedisModule_Free(SSL_CTX_get_default_passwd_cb_userdata(c->ssl));
+        SSL_CTX_free(c->ssl);
+    }
+#endif
+
+    *c = (RedisRaftConfig) {0};
+}
+
+void ConfigRedisEventCallback(RedisModuleCtx *ctx,
+                              RedisModuleEvent eid,
+                              uint64_t event,
+                              void *data)
+{
+    if (eid.id != REDISMODULE_EVENT_CONFIG ||
+        event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+        return;
+    }
+
+#ifndef HAVE_TLS
+    (void) ctx;
+    (void) data;
+#else
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (!rr->config.tls_enabled) {
+        return;
+    }
+
+    RedisModuleConfigChangeV1 *ei = data;
+
+    for (unsigned int i = 0; i < ei->num_changes; i++) {
+        const char *conf = ei->config_names[i];
+
+        if (!strcmp(conf, "tls-ca-cert-file") ||
+            !strcmp(conf, "tls-cert-file") ||
+            !strcmp(conf, "tls-key-file") ||
+            !strcmp(conf, "tls-key-file-pass") ||
+            !strcmp(conf, "tls-client-cert-file") ||
+            !strcmp(conf, "tls-client-key-file") ||
+            !strcmp(conf, "tls-client-key-file-pass")) {
+
+            updateTLSConfig(&rr->config, ctx);
+            break;
+        }
+    }
+#endif
+}

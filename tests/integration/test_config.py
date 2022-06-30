@@ -5,10 +5,9 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
+import pytest
 from redis import ResponseError
 from pytest import raises
-
-from .sandbox import RedisRaft
 
 
 def test_config_sanity(cluster):
@@ -17,39 +16,152 @@ def test_config_sanity(cluster):
     """
 
     r1 = cluster.add_node()
-    r1.raft_config_set('raft-interval', 999)
-    assert r1.raft_config_get('raft-interval') == {'raft-interval': '999'}
 
-    r1.raft_config_set('request-timeout', 888)
-    assert r1.raft_config_get('request-timeout') == {'request-timeout': '888'}
+    def verify(name, value):
+        r1.config_set(name, value)
+        assert r1.config_get(name) == {name: str(value)}
 
-    r1.raft_config_set('election-timeout', 777)
-    assert (r1.raft_config_get('election-timeout') ==
-            {'election-timeout': '777'})
+    verify('raft.periodic-interval', 999)
+    verify('raft.request-timeout', 999)
+    verify('raft.election-timeout', 999)
+    verify('raft.connection-timeout', 999)
+    verify('raft.join-timeout', 999)
+    verify('raft.response-timeout', 999)
+    verify('raft.proxy-response-timeout', 999)
+    verify('raft.reconnect-interval', 999)
+    verify('raft.shardgroup-update-interval', 999)
+    verify('raft.max-append-req-in-flight', 999)
+    verify('raft.log-max-cache-size', 999)
+    verify('raft.log-max-file-size', 999)
+    verify('raft.scan-size', 999)
 
-    r1.raft_config_set('reconnect-interval', 111)
-    assert (r1.raft_config_get('reconnect-interval') ==
-            {'reconnect-interval': '111'})
+    verify('raft.log-fsync', 'yes')
+    verify('raft.log-fsync', 'no')
+    verify('raft.follower-proxy', 'yes')
+    verify('raft.follower-proxy', 'no')
+    verify('raft.quorum-reads', 'yes')
+    verify('raft.quorum-reads', 'no')
+    verify('raft.sharding', 'yes')
+    verify('raft.sharding', 'no')
+    verify('raft.tls-enabled', 'no')
 
-    r1.raft_config_set('raft-log-max-file-size', '64mb')
-    assert (r1.raft_config_get('raft-log-max-file-size') ==
-            {'raft-log-max-file-size': '64MB'})
+    verify('raft.ignored-commands', 'get')
+    verify('raft.cluster-user', 'username')
+    verify('raft.cluster-password', 'password')
 
-    r1.raft_config_set('loglevel', 'debug')
-    assert r1.raft_config_get('loglevel') == {'loglevel': 'debug'}
+    verify('raft.loglevel', 'debug')
+    verify('raft.loglevel', 'verbose')
+    verify('raft.loglevel', 'notice')
+    verify('raft.loglevel', 'warning')
+
+    verify('raft.trace', 'node conn')
 
 
-def test_config_startup_only_params(cluster):
+@pytest.mark.skipif("config.getoption('tls')")
+def test_config_tls_enabled_without_tls_build(cluster):
     """
-    Configuration startup-only params.
+    Enabling tls returns error if RedisRaft was built without TLS support
     """
 
     r1 = cluster.add_node()
-    with raises(ResponseError, match='.*only supported at load time'):
-        r1.raft_config_set('external-sharding', 'yes')
 
-    with raises(ResponseError, match='.*only supported at load time'):
-        r1.raft_config_set('raft-log-filename', 'filename')
+    # Disable TLS should work
+    r1.config_set('raft.tls-enabled', 'no')
+
+    with raises(ResponseError, match='Build RedisRaft with TLS'):
+        r1.config_set('raft.tls-enabled', 'yes')
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_config_tls_enabled_with_tls_build(cluster):
+    """
+    Enabling/disabling tls returns ok if RedisRaft was built with TLS support
+    """
+    cluster.create(3)
+    r1 = cluster.add_node()
+
+    def verify(name, value):
+        r1.config_set(name, value)
+        assert r1.config_get(name) == {name: str(value)}
+
+    # Enable/Disable TLS should work
+    verify('raft.tls-enabled', 'no')
+    verify('raft.tls-enabled', 'yes')
+    verify('raft.tls-enabled', 'no')
+    verify('raft.tls-enabled', 'yes')
+    verify('raft.tls-enabled', 'no')
+    verify('raft.tls-enabled', 'yes')
+
+
+def test_config_before_init(cluster):
+    """
+    Test configuration parameters that are only allowed before init/join
+    """
+
+    node = cluster.add_node(cluster_setup=False)
+    node.start()
+
+    def verify(name, value):
+        node.config_set(name, value)
+        assert node.config_get(name) == {name: str(value)}
+
+    def verify_failure(name, value):
+        with raises(ResponseError, match='not allowed after init/join'):
+            node.config_set(name, value)
+
+    verify('raft.id', '100000')
+    verify('raft.addr', '80.80.80.80:80')
+    verify('raft.external-sharding', 'yes')
+    verify('raft.log-filename', 'newfile.db')
+    verify('raft.slot-config', '0:10000')
+
+    node.cluster('init')
+
+    verify_failure('raft.id', '50000')
+    verify_failure('raft.addr', '199.10.10.10:2220')
+    verify_failure('raft.external-sharding', 'no')
+    verify_failure('raft.log-filename', 'anotherfile.db')
+    verify_failure('raft.slot-config', '10:20000')
+
+
+def test_config_args(cluster):
+    """
+    Test configuration via module arguments
+    """
+
+    raft_args = {'periodic-interval':          8001,
+                 'request-timeout':            8002,
+                 'election-timeout':           8003,
+                 'connection-timeout':         8004,
+                 'join-timeout':               8005,
+                 'response-timeout':           8006,
+                 'proxy-response-timeout':     8007,
+                 'reconnect-interval':         8008,
+                 'shardgroup-update-interval': 8009,
+                 'max-append-req-in-flight':   8010,
+                 'log-max-cache-size':         8011,
+                 'log-max-file-size':          8012,
+                 'scan-size':                  8013,
+                 'log-fsync':                  'no',
+                 'follower-proxy':             'yes',
+                 'quorum-reads':               'no',
+                 'sharding':                   'yes',
+                 'external-sharding':          'yes',
+                 'tls-enabled':                'no',
+                 'log-filename':               'filename8001.log',
+                 'addr':                       '80.80.80.80:1002',
+                 'slot-config':                '0:8001',
+                 'ignored-commands':           'cmd1,cmd2',
+                 'cluster-user':               'user1',
+                 'cluster-password':           'password1',
+                 'loglevel':                   'warning',
+                 'trace':                      'raftlib'}
+
+    r1 = cluster.add_node(raft_args, cluster_setup=False)
+    r1.start()
+
+    for key, value in raft_args.items():
+        assert r1.config_get('raft.' + key) == {'raft.' + key: str(value)}
 
 
 def test_invalid_configs(cluster):
@@ -58,30 +170,43 @@ def test_invalid_configs(cluster):
     """
 
     r1 = cluster.add_node()
-    with raises(ResponseError, match='.*invalid.*'):
-        r1.raft_config_set('addr', 'host')
 
-    with raises(ResponseError, match='.*invalid.*'):
-        r1.raft_config_set('addr', 'host:0')
+    def verify_failure(name, value):
+        with raises(ResponseError, match='.*failed.*'):
+            r1.config_set(name, value)
 
-    with raises(ResponseError, match='.*invalid.*'):
-        r1.raft_config_set('addr', 'host:99999')
+    verify_failure('raft.periodic-interval', 0)
+    verify_failure('raft.periodic-interval', -1)
+    verify_failure('raft.request-timeout', 0)
+    verify_failure('raft.request-timeout', -1)
+    verify_failure('raft.election-timeout', 0)
+    verify_failure('raft.election-timeout', -1)
+    verify_failure('raft.connection-timeout', 0)
+    verify_failure('raft.connection-timeout', -1)
+    verify_failure('raft.join-timeout', 0)
+    verify_failure('raft.join-timeout', -1)
+    verify_failure('raft.response-timeout', 0)
+    verify_failure('raft.response-timeout', -1)
+    verify_failure('raft.proxy-response-timeout', 0)
+    verify_failure('raft.proxy-response-timeout', -1)
+    verify_failure('raft.reconnect-interval', 0)
+    verify_failure('raft.reconnect-interval', -1)
+    verify_failure('raft.shardgroup-update-interval', 0)
+    verify_failure('raft.shardgroup-update-interval', -1)
+    verify_failure('raft.max-append-req-in-flight', 0)
+    verify_failure('raft.max-append-req-in-flight', -1)
+    verify_failure('raft.log-max-cache-size', -1)
+    verify_failure('raft.log-max-file-size', -1)
+    verify_failure('raft.scan-size', -1)
 
-    with raises(ResponseError, match='.*invalid .*value'):
-        r1.raft_config_set('request-timeout', 'nonint')
+    verify_failure('raft.log-fsync', 'someinvalidvalue')
+    verify_failure('raft.follower-proxy', 'someinvalidvalue')
+    verify_failure('raft.quorum-reads', 'someinvalidvalue')
+    verify_failure('raft.sharding', 'someinvalidvalue')
+    verify_failure('raft.tls-enabled', 'someinvalidvalue')
 
-
-def test_prevent_config_id_after_init(cluster):
-    node = RedisRaft(1, cluster.base_port + 1, cluster.config)
-    cluster.nodes[1] = node
-    node.cleanup()
-    node.start()
-    assert node.raft_config_get("id")['id'] == '1'
-    node.raft_config_set("id", 123)
-    assert node.raft_config_get("id")['id'] == '123'
-    node.cluster('init')
-    with raises(ResponseError, match='only supported at before cluster init/join'):
-        node.raft_config_set("id", "456")
+    verify_failure('raft.loglevel', 'somelevel')
+    verify_failure('raft.trace', 'sometracelevel')
 
 
 def test_ignored_commands(cluster):
@@ -89,20 +214,33 @@ def test_ignored_commands(cluster):
     ignored commands
     """
     # create a non initialized single node cluster
-    cluster.nodes = {1: RedisRaft(1, cluster.base_port + 1,
-                                  config=cluster.config,
-                                  raft_args={"ignored-commands": "ignored,mycommand"},
-                                  cluster_id=cluster.cluster_id)}
-
-    cluster.node(1).cleanup()
-    cluster.node(1).start()
+    node = cluster.add_node(
+        raft_args={"ignored-commands": "cmd1,cmd2"},
+        cluster_setup=False)
+    node.start()
 
     # ignored commands should give a non-existent command redis error
     with raises(ResponseError, match="unknown command"):
-        cluster.node(1).client.execute_command("ignored", "test", "command")
+        node.client.execute_command("cmd1", "test", "command")
     with raises(ResponseError, match="unknown command"):
-        cluster.node(1).client.execute_command("mycommand", "to", "ignore")
+        node.client.execute_command("cmd2", "to", "ignore")
 
     # while not ignored commands should give an uninitialized cluster error
     with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
-        cluster.node(1).client.execute_command("set", "a", "b")
+        node.client.execute_command("set", "a", "b")
+
+    node.config_set('raft.ignored-commands', 'cmd3,cmd4')
+
+    # ignored commands should give a non-existent command redis error
+    with raises(ResponseError, match="unknown command"):
+        node.client.execute_command("cmd3", "test", "command")
+    with raises(ResponseError, match="unknown command"):
+        node.client.execute_command("cmd4", "to", "ignore")
+
+    # while not ignored commands should give an uninitialized cluster error
+    with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
+        node.client.execute_command("set", "a", "b")
+    with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
+        node.client.execute_command("cmd1", "a", "b")
+    with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
+        node.client.execute_command("cmd2", "a", "b")
