@@ -27,7 +27,7 @@ calc_hash_slot_config() {
         local end_slot=$((start_slot + slots_per_group - 1))
     fi
 
-    echo "slot-config $start_slot:$end_slot"
+    echo "--raft.slot-config $start_slot:$end_slot"
 }
 
 setup() {

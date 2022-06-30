@@ -7,5 +7,5 @@ install_dir: /usr/local
 runtime_dir: /var/lib/redisraft
 runtime_user: redisraft
 redisraft_config:
-  raft-log-fsync: "yes"
-  quorum-reads: "yes"
+  raft.log-fsync: "yes"
+  raft.quorum-reads: "yes"

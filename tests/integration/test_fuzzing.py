@@ -48,7 +48,7 @@ def test_fuzzing_with_restarts_and_rewrites(cluster):
     # Randomize max log entries
     for node in cluster.nodes.values():
         node.client.execute_command(
-            'RAFT.CONFIG', 'SET', 'raft-log-max-file-size',
+            'CONFIG', 'SET', 'raft.log-max-file-size',
             str(random.randint(1000, 2000)))
 
     for i in range(cycles):
@@ -181,7 +181,7 @@ def test_stability_with_snapshots_and_restarts(cluster, workload):
     duration = 300
 
     cluster.create(5, raft_args={'follower-proxy': 'yes',
-                                 'raft-log-max-file-size': '2000'})
+                                 'log-max-file-size': '2000'})
 
     workload.start(thread_count, cluster, MultiWithLargeReply)
 

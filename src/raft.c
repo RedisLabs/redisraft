@@ -44,10 +44,10 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
-    if (rr->config->raft_log_filename) {
+    if (rr->config.log_filename) {
         RaftLogArchiveFiles(rr);
     }
-    if (rr->config->rdb_filename) {
+    if (rr->config.rdb_filename) {
         archiveSnapshot(rr);
     }
 
@@ -801,7 +801,7 @@ static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t 
         return 0;
     }
 
-    if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
+    if (RaftMetaWrite(&rr->meta, rr->config.log_filename,
                       raft_get_current_term(raft), vote) != RR_OK) {
         LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
@@ -817,8 +817,7 @@ static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t ter
         return 0;
     }
 
-    if (RaftMetaWrite(&rr->meta, rr->config->raft_log_filename,
-                      term, vote) != RR_OK) {
+    if (RaftMetaWrite(&rr->meta, rr->config.log_filename, term, vote) != RR_OK) {
         LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
     }
@@ -1082,7 +1081,7 @@ static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *r
 {
     RedisRaftCtx *rr = &redis_raft;
     Node *node = raft_node_get_udata(raft_node);
-    if (node->pending_raft_response_num >= rr->config->max_appendentries_inflight) {
+    if (node->pending_raft_response_num >= rr->config.max_appendentries_inflight) {
         /* Don't send append req to this node */
         return 1;
     }
@@ -1191,12 +1190,12 @@ static void handleLoadingState(RedisRaftCtx *rr)
         /* If id is configured, confirm the log matches.  If not, we set it from
          * the log.
          */
-        if (!rr->config->id) {
-            rr->config->id = rr->log->node_id;
+        if (!rr->config.id) {
+            rr->config.id = rr->log->node_id;
         } else {
-            if (rr->config->id != rr->log->node_id) {
+            if (rr->config.id != rr->log->node_id) {
                 PANIC("Raft log node id [%d] does not match configured id [%d]",
-                        rr->log->node_id, rr->config->id);
+                        rr->log->node_id, rr->config.id);
             }
         }
 
@@ -1233,7 +1232,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
     RedisRaftCtx *rr = arg;
     int ret;
 
-    RedisModule_CreateTimer(rr->ctx, redis_raft.config->raft_interval,
+    RedisModule_CreateTimer(rr->ctx, rr->config.periodic_interval,
                             callRaftPeriodic, rr);
 
     /* If we're in LOADING state, we need to wait for Redis to finish loading before
@@ -1262,7 +1261,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         } /* else we're still in progress */
     }
 
-    ret = raft_periodic(rr->raft, rr->config->raft_interval);
+    ret = raft_periodic(rr->raft, rr->config.periodic_interval);
     if (ret == RAFT_ERR_SHUTDOWN) {
         shutdownAfterRemoval(rr);
     }
@@ -1270,21 +1269,21 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
     assert(ret == 0);
 
     /* Compact cache */
-    if (rr->config->raft_log_max_cache_size) {
-        EntryCacheCompact(rr->logcache, rr->config->raft_log_max_cache_size);
+    if (rr->config.log_max_cache_size) {
+        EntryCacheCompact(rr->logcache, rr->config.log_max_cache_size);
     }
 
     /* Initiate snapshot if log size exceeds raft-log-file-max */
-    if (!rr->snapshot_in_progress && rr->config->raft_log_max_file_size &&
+    if (!rr->snapshot_in_progress && rr->config.log_max_file_size &&
             raft_get_num_snapshottable_logs(rr->raft) > 0 &&
-            rr->log->file_size > rr->config->raft_log_max_file_size) {
+            rr->log->file_size > rr->config.log_max_file_size) {
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
                 rr->log->file_size);
         initiateSnapshot(rr);
     }
 
     /* Call cluster */
-    if (rr->config->sharding) {
+    if (rr->config.sharding) {
         ShardingPeriodicCall(rr);
     }
 }
@@ -1294,10 +1293,11 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
  */
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg)
 {
+    (void) ctx;
     RedisRaftCtx *rr = arg;
-    RedisModule_CreateTimer(rr->ctx, redis_raft.config->reconnect_interval,
-                            callHandleNodeStates, rr);
 
+    RedisModule_CreateTimer(rr->ctx, rr->config.reconnect_interval,
+                            callHandleNodeStates, rr);
     HandleIdleConnections(rr);
     HandleNodeStates(rr);
 }
@@ -1380,8 +1380,8 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
         PANIC("Failed to initialize Raft library");
     }
 
-    int eltimeo = rr->config->election_timeout;
-    int reqtimeo = rr->config->request_timeout;
+    int eltimeo = rr->config.election_timeout;
+    int reqtimeo = rr->config.request_timeout;
 
     if (raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, eltimeo) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, reqtimeo) != 0 ||
@@ -1392,9 +1392,9 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 
     raft_set_callbacks(rr->raft, &redis_raft_callbacks, rr);
 
-    node = raft_add_non_voting_node(rr->raft, NULL, rr->config->id, 1);
+    node = raft_add_non_voting_node(rr->raft, NULL, rr->config.id, 1);
     if (!node) {
-        PANIC("Failed to create local Raft node [id %d]", rr->config->id);
+        PANIC("Failed to create local Raft node [id %d]", rr->config.id);
     }
 
     if (cluster_init) {
@@ -1404,8 +1404,8 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
         }
 
         RaftCfgChange cfg = {
-            .id = rr->config->id,
-            .addr = rr->config->addr
+            .id = rr->config.id,
+            .addr = rr->config.addr
         };
 
         raft_entry_resp_t resp = {0};
@@ -1445,12 +1445,17 @@ static void configureFromSnapshot(RedisRaftCtx *rr)
             rr->snapshot_info.last_applied_idx);
 }
 
-RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *config)
+RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    memset(rr, 0, sizeof(RedisRaftCtx));
+    *rr = (RedisRaftCtx) {
+            .state = REDIS_RAFT_UNINITIALIZED,
+            .ctx = RedisModule_GetDetachedThreadSafeContext(ctx)
+    };
 
-    rr->ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
-    rr->config = config;
+    if (ConfigInit(&rr->config, ctx) != RR_OK) {
+        RedisModule_FreeThreadSafeContext(rr->ctx);
+        return RR_ERROR;
+    }
 
     /* for backwards compatibility with older redis version that don't support "0v"m */
     if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
@@ -1461,11 +1466,7 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
 
     /* Client state for MULTI/ASKING support */
     rr->client_state = RedisModule_CreateDict(ctx);
-
-    /* Read configuration from Redis */
-    if (ConfigReadFromRedis(rr) == RR_ERROR) {
-        PANIC("Raft initialization failed: invalid Redis configuration!");
-    }
+    rr->locked_keys = RedisModule_CreateDict(ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr);
@@ -1481,16 +1482,17 @@ RRStatus RedisRaftInit(RedisModuleCtx *ctx, RedisRaftCtx *rr, RedisRaftConfig *c
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
-    if (RaftMetaRead(&rr->meta, rr->config->raft_log_filename) == RR_OK &&
-        (rr->log = RaftLogOpen(rr->config->raft_log_filename, rr->config, 0)) != NULL) {
-        rr->state = REDIS_RAFT_LOADING;
-    } else {
-        rr->state = REDIS_RAFT_UNINITIALIZED;
+    if (RaftMetaRead(&rr->meta, rr->config.log_filename) == RR_OK) {
+        rr->log = RaftLogOpen(rr->config.log_filename, &rr->config, 0);
+        if (rr->log) {
+            rr->state = REDIS_RAFT_LOADING;
+        }
     }
 
+    RedisModule_CreateTimer(ctx, rr->config.periodic_interval, callRaftPeriodic, rr);
+    RedisModule_CreateTimer(ctx, rr->config.reconnect_interval, callHandleNodeStates, rr);
     threadPoolInit(&rr->thread_pool, 5);
-
-    rr->locked_keys = RedisModule_CreateDict(ctx);
+    fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
 
     return RR_OK;
 }
@@ -1771,7 +1773,7 @@ void handleBeforeSleep(RedisRaftCtx *rr)
     if (next > 0) {
         fflush(rr->log->file);
 
-        if (rr->config->raft_log_fsync) {
+        if (rr->config.log_fsync) {
             /* Trigger async fsync() for the current index */
             fsyncThreadAddTask(&rr->fsyncThread, fileno(rr->log->file), next);
         } else {

@@ -7,4 +7,10 @@ supervised auto
 port {{ item['port'] }}
 protected-mode no
 dbfilename redis.rdb
-loadmodule {{ install_dir }}/lib/redisraft.so addr {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ item['port'] }} slot-config {{ item['slot-config'] }} sharding yes {% for k, v in redisraft_config.items() -%} {{ k }} {{ v }} {% endfor %}
+loadmodule {{ install_dir }}/lib/redisraft.so
+raft.addr {{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}:{{ item['port'] }}
+raft.slot-config {{ item['slot-config'] }}
+raft.sharding yes
+{% for k, v in redisraft_config.items() -%}
+{{ k }} {{ v }}
+{% endfor %}

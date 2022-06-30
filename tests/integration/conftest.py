@@ -37,7 +37,7 @@ def pytest_addoption(parser):
         help='Do not clean up temporary test files.')
     parser.addoption(
         '--fsync', default=False, action='store_true',
-        help='Use raft-log-fsync')
+        help='Use log-fsync')
     parser.addoption(
         '--tls', default=False, action='store_true',
         help='Use tls')

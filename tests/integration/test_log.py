@@ -67,7 +67,7 @@ def test_raft_log_max_file_size(cluster):
 
     r1 = cluster.add_node()
     assert r1.info()['raft_log_entries'] == 1
-    assert r1.raft_config_set('raft-log-max-file-size', '1kb')
+    assert r1.config_set('raft.log-max-file-size', '1kb')
     for _ in range(10):
         assert r1.client.set('testkey', 'x'*500)
 
@@ -83,7 +83,7 @@ def test_raft_log_max_cache_size(cluster):
     r1 = cluster.add_node()
     assert r1.info()['raft_cache_entries'] == 1
 
-    assert r1.raft_config_set('raft-log-max-cache-size', '1kb')
+    assert r1.config_set('raft.log-max-cache-size', '1kb')
     assert r1.client.set('testkey', 'testvalue')
 
     info = r1.info()
@@ -109,7 +109,7 @@ def test_reply_to_cache_invalidated_entry(cluster):
     assert cluster.leader == 1
 
     # Configure a small cache
-    assert cluster.node(1).raft_config_set('raft-log-max-cache-size', '1kb')
+    assert cluster.node(1).config_set('raft.log-max-cache-size', '1kb')
 
     # Break cluster to avoid commits
     cluster.node(2).terminate()
