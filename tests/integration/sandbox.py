@@ -81,15 +81,16 @@ class RedisRaft(object):
         if password:
             self.args += ['--requirepass', password]
 
+        self.cacert = os.getcwd() + '/tests/tls/ca.crt'
         self.cert = os.getcwd() + '/tests/tls/redis.crt'
         self.key = os.getcwd() + '/tests/tls/redis.key'
-        self.cacert = os.getcwd() + '/tests/tls/ca.crt'
 
         if config.tls:
             self.args += ['--tls-port', str(port),
+                          '--tls-ca-cert-file', self.cacert,
                           '--tls-cert-file', self.cert,
                           '--tls-key-file', self.key,
-                          '--tls-ca-cert-file', self.cacert]
+                          '--tls-key-file-pass', 'redisraft']
 
         self.args += redis_args if redis_args else []
         self.args += ['--loadmodule', os.path.abspath(config.raftmodule)]
@@ -106,8 +107,8 @@ class RedisRaft(object):
             raft_args['id'] = str(_id)
 
         default_args = {'addr': self.address,
-                        'raft-log-filename': self._raftlog,
-                        'raft-log-fsync': 'yes' if config.fsync else 'no',
+                        'log-filename': self._raftlog,
+                        'log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel,
                         'tls-enabled': 'yes' if config.tls else 'no'}
 
@@ -115,20 +116,25 @@ class RedisRaft(object):
             if defkey not in raft_args:
                 raft_args[defkey] = defval
 
+        raft_args = {'--raft.' + k: v for k, v in raft_args.items()}
         self.raft_args = [str(x) for x in
                           itertools.chain.from_iterable(raft_args.items())]
+
+        client_cacert = os.getcwd() + '/tests/tls/ca.crt'
+        client_cert = os.getcwd() + '/tests/tls/client.crt'
+        client_key = os.getcwd() + '/tests/tls/client.key'
 
         self.client = redis.Redis(host='localhost', port=self.port,
                                   password=password,
                                   ssl=config.tls,
-                                  ssl_certfile=self.cert,
-                                  ssl_keyfile=self.key,
-                                  ssl_ca_certs=self.cacert)
+                                  ssl_certfile=client_cert,
+                                  ssl_keyfile=client_key,
+                                  ssl_ca_certs=client_cacert)
 
         self.client.connection_pool.connection_kwargs['parser_class'] = \
             redis.connection.PythonParser
         self.client.set_response_callback('info raft', redis.client.parse_info)
-        self.client.set_response_callback('raft.config get',
+        self.client.set_response_callback('config get',
                                           redis.client.parse_config_get)
         self.stdout = None
         self.stderr = None
@@ -309,11 +315,11 @@ class RedisRaft(object):
     def execute(self, *cmd):
         return self.client.execute_command(*cmd)
 
-    def raft_config_set(self, key, val):
-        return self.client.execute_command('raft.config', 'set', key, val)
+    def config_set(self, key, val):
+        return self.client.config_set(key, val)
 
-    def raft_config_get(self, key):
-        return self.client.execute_command('raft.config get', key)
+    def config_get(self, key):
+        return self.client.config_get(key)
 
     def info(self):
         return self.client.execute_command('info raft')

@@ -13,13 +13,20 @@ generate_cert() {
     local name="$2"
     local cn="$3"
     local opts="$4"
+    local use_passphrase="$5"
+
+    if [ "$use_passphrase" == true ]; then
+        local gen_opts="-aes256 -passout pass:redisraft"
+        local req_opts="-passin pass:redisraft"
+    fi
 
     local keyfile="${dir}/${name}.key"
     local certfile="${dir}/${name}.crt"
 
-    [ -f $keyfile ] || openssl genrsa -out $keyfile 2048
+    [ -f $keyfile ] || openssl genrsa $gen_opts -out $keyfile 2048
     openssl req \
         -new -sha256 \
+        $req_opts \
         -subj "/O=Redis Test/CN=$cn" \
         -key $keyfile | \
         openssl x509 \
@@ -55,8 +62,8 @@ keyUsage = digitalSignature, keyEncipherment
 nsCertType = client
 _END_
 
-generate_cert "$DIR" server "Server-only" "-extfile ${DIR}/openssl.cnf -extensions server_cert"
-generate_cert "$DIR" client "Client-only" "-extfile ${DIR}/openssl.cnf -extensions client_cert"
-generate_cert "$DIR" redis "Generic-cert"
+generate_cert "$DIR" client "Client-only" "-extfile ${DIR}/openssl.cnf -extensions client_cert" false
+generate_cert "$DIR" server "Server-only" "-extfile ${DIR}/openssl.cnf -extensions server_cert" true
+generate_cert "$DIR" redis "Generic-cert" "" true
 
 [ -f $DIR/redis.dh ] || openssl dhparam -out $DIR/redis.dh 2048

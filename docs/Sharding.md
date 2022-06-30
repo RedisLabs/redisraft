@@ -239,7 +239,7 @@ configuration of 5 shards and also disable `fsync` to favor performance over
 safety. Our `config.sh` will look like so:
 
     NUM_GROUPS=5
-    ADDITIONAL_OPTIONS="raft-log-fsync no"
+    ADDITIONAL_OPTIONS="--raft.log-fsync no"
 
 Next, we execute `create-shard-groups` to set up our environment:
 

@@ -31,9 +31,9 @@ start_instance() {
         --dbfilename dump-${port}.rdb \
         --daemonize yes \
         --loadmodule ${REDISRAFT} \
-            raft-log-filename raftlog-${port}.db \
-            addr ${HOST}:${port} \
-            sharding ${SHARDING} \
+        --raft.log-filename raftlog-${port}.db \
+        --raft.addr ${HOST}:${port} \
+        --raft.sharding ${SHARDING} \
         ${ADDITIONAL_OPTIONS}
 }
 

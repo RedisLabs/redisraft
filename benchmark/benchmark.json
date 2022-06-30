@@ -30,7 +30,7 @@
             "args": [
                 "--redis", "../redis/src/redis-server",
                 "--raftmodule", "redisraft.so",
-                "--modulearg", "raft-log-fsync", "no",
+                "--modulearg", "--raft.log-fsync", "no",
                 "--nodes", "3"
             ]
         },

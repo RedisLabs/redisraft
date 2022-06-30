@@ -91,7 +91,7 @@ def test_multi_exec_proxying(cluster):
     cluster.create(3)
     assert cluster.leader == 1
     assert cluster.node(2).client.execute_command(
-        'RAFT.CONFIG', 'SET', 'follower-proxy', 'yes') == b'OK'
+        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
 
     # Basic sanity
     n2 = cluster.node(2)

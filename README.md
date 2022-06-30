@@ -51,7 +51,8 @@ To create a three-node cluster, start the first node:
     redis-server \
         --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename raftlog1.db addr localhost:5001
+        --raft.log-filename raftlog1.db \
+        --raft.addr localhost:5001
 
 Then initialize the cluster:
 
@@ -62,7 +63,8 @@ Now start the second node, and run the `RAFT.CLUSTER JOIN` command to join it to
     redis-server \
         --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename raftlog2.db addr localhost:5002
+        --raft.log-filename raftlog2.db \
+        --raft.addr localhost:5002
 
     redis-cli -p 5002 RAFT.CLUSTER JOIN localhost:5001
 
@@ -71,7 +73,8 @@ Now add the third node in the same way:
     redis-server \
         --port 5003 --dbfilename raft3.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename raftlog3.db addr localhost:5003
+        --raft.log-filename raftlog3.db 
+        --raft.addr localhost:5003
 
     redis-cli -p 5003 RAFT.CLUSTER JOIN localhost:5001
 

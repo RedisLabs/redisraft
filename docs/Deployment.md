@@ -71,14 +71,15 @@ For example, here's how to start a Redis instance and configure RedisRaft via th
     redis-server \
         --bind 0.0.0.0 --port 5001 --dbfilename raft1.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename raftlog1.db addr 127.0.0.1:5001
+        --raft.log-filename raftlog1.db \
+        --raft.addr 127.0.0.1:5001
 
 Note the following:
 * Here, the `--bind` and `--port` configure Redis to accept incoming connections on all network interfaces (by binding to `0.0.0.0`, disabling Redis protected mode) and to listen on port 5001.
 * The `--dbfilename` argument sets the name of the RDB file used for Raft snapshots.
-* The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `raft-log-filename` and `addr`).
-* The module-specific `raft-log-filename` argument set the name of the RedisRaft log file.
-* The module-specific `addr` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
+* The `--loadmodule` argument loads the RedisRaft module and accepts additional RedisRaft configuration directives (in this case, `--raft.log-filename` and `--raft.addr`).
+* The module-specific `--raft.log-filename` argument set the name of the RedisRaft log file.
+* The module-specific `--raft.addr` argument indicates how RedisRaft should advertise itself to other nodes. This is an optional argument. If not supplied, `--raft.addr` is inferred from the system's network interfaces and the Redis configuration. In this case we use `localhost`, as we're going to run our nodes as local processes for demonstration purposes. In a real production deployment, you want to run all of your nodes on separate machines / racks / availability zones, etc.
 
 ### Redis Configuration
 
@@ -212,8 +213,9 @@ Configuration
 
 RedisRaft has its own set of configuration parameters, which can be set in two different ways:
 
-1. You can pass them in as module arguments in the form of `param`=`value` pairs.
-2. You can run `RAFT.CONFIG SET` and `RAFT.CONFIG GET`, which behave just like the Redis `CONFIG SET` and `CONFIG GET` commands.
+1. You can pass them in as command line arguments in the form of `--raft.param value` pairs.
+2. You can add them to config file in the form of `raft.param value`.
+3. You can run `CONFIG SET` and `CONFIG GET` in the form of `CONFIG SET raft.param value`.
 
 RedisRaft supports the following configuration options:
 
@@ -233,7 +235,7 @@ The address and port on which the node will be advertised. Other nodes must be a
 
 *Default*: When not specified, `addr` will be set to the first non-local network interface as its host and will use the value of the Redis `port` for the port.
 
-### `raft-log-filename`
+### `log-filename`
 
 The name of the Raft log file.
 
@@ -241,7 +243,7 @@ RedisRaft uses this as the base name of the Raft log files, and creates addition
 
 *Default*: `redisraft.db.`
 
-### `raft-interval`
+### `periodic-interval`
 
 The number of milliseconds between internal RedisRaft cluster events such as heartbeats, message retransmissions, and re-election announcements.
 
@@ -259,7 +261,7 @@ The number of milliseconds to wait before sending an AppendEntries request as a 
 
 The number of milliseconds the cluster will wait for a heartbeat from the leader before assuming it is down and initiating a re-election.
 
-This value should be sufficiently greater than `raft-interval` and
+This value should be sufficiently greater than `periodic-interval` and
 `request-timeout` to avoid prematurely initiating an election, which will result in cluster instability.
 
 *Default*: 1000
@@ -272,9 +274,9 @@ The number of milliseconds the cluster will wait for connections to other nodes 
 
 ### `join-timeout`
 
-The number of seconds the node will continue to try and connect (for join and shard group link operations) to the cluster using the provided and discovered nodes, looping through them until a connection is made, or the timeout is reached.
+The number of milliseconds the node will continue to try and connect (for join and shard group link operations) to the cluster using the provided and discovered nodes, looping through them until a connection is made, or the timeout is reached.
 
-*Defaults*: 120
+*Defaults*: 120000
 
 ### `reconnect-interval`
 
@@ -288,7 +290,7 @@ The number of milliseconds to wait for a response to a proxy request sent to a l
 
 *Default*: 10000
 
-### `raft-response-timeout`
+### `response-timeout`
 
 The number of millieconds to wait for a response to a Raft message exchanged between nodes, before giving up and dropping the connection.
 
@@ -306,13 +308,13 @@ If disabled, commands issued against a follower node will reply with a redirect 
 
 *Default*: no
 
-### `raft-log-max-file-size`
+### `log-max-file-size`
 
 The maximum desired Raft log file size (in bytes). Once the file has grown beyond this size, the cluster will initiate local compaction.
 
 *Default*: 64000000 (64MB)
 
-### `raft-log-max-cache-size`
+### `log-max-cache-size`
 
 The memory limit for the in-memory Raft log cache.
 
@@ -320,7 +322,7 @@ RedisRaft keeps an in-memory cache of the most recent Raft log entries. Once the
 
 *Default*: 8000000 (8MB)
 
-### `raft-log-fsync`
+### `log-fsync`
 
 Determines if Raft log file writes must be synced. See [FSync Control](#fsync-control) for more information.
 

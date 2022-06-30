@@ -34,7 +34,7 @@ void initSnapshotTransferData(RedisRaftCtx *ctx)
 
     /* Generate temp file name for incoming snapshots */
     snprintf(ctx->incoming_snapshot_file, sizeof(ctx->incoming_snapshot_file),
-             "%s.tmp.recv", ctx->config->rdb_filename);
+             "%s.tmp.recv", ctx->config.rdb_filename);
 
     /* Delete if there is a partial incoming snapshot file from previous run */
     int ret = unlink(ctx->incoming_snapshot_file);
@@ -61,12 +61,12 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
 
     releaseSnapshotMmap(ctx);
 
-    int fd = open(ctx->config->rdb_filename, O_RDONLY, mode);
+    int fd = open(ctx->config.rdb_filename, O_RDONLY, mode);
     if (fd == -1) {
-        PANIC("Cannot open rdb file at : %s \n", ctx->config->rdb_filename);
+        PANIC("Cannot open rdb file at : %s \n", ctx->config.rdb_filename);
     }
 
-    int rc = stat(ctx->config->rdb_filename, &st);
+    int rc = stat(ctx->config.rdb_filename, &st);
     if (rc != 0) {
         PANIC("stat failed: %s \n", strerror(errno));
     }
@@ -190,7 +190,7 @@ static SnapshotCfgEntry *generateSnapshotCfgEntryList(RedisRaftCtx *rr)
 
         NodeAddr *na = NULL;
         if (raft_node_get_id(rnode) == raft_get_nodeid(rr->raft)) {
-            na = &rr->config->addr;
+            na = &rr->config.addr;
         } else if (node != NULL) {
             na = &node->addr;
         } else {
@@ -253,7 +253,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     char temp_log_filename[256];
     snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
-        rr->config->raft_log_filename);
+        rr->config.log_filename);
 
     assert(rr->snapshot_in_progress);
 
@@ -265,7 +265,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     num_log_entries = RaftLogRewrite(rr, temp_log_filename,
         rr->last_snapshot_idx, rr->last_snapshot_term);
 
-    new_log = RaftLogOpen(temp_log_filename, rr->config, RAFTLOG_KEEP_INDEX);
+    new_log = RaftLogOpen(temp_log_filename, &rr->config, RAFTLOG_KEEP_INDEX);
     if (!new_log) {
         LOG_WARNING("Failed to open log after rewrite: %s", strerror(errno));
         cancelSnapshot(rr, sr);
@@ -281,9 +281,9 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * we'll have to do is skip redundant log entries.
      */
 
-    if (rename(sr->rdb_filename, rr->config->rdb_filename) < 0) {
+    if (rename(sr->rdb_filename, rr->config.rdb_filename) < 0) {
         LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
-                    sr->rdb_filename, rr->config->rdb_filename, strerror(errno));
+                    sr->rdb_filename, rr->config.rdb_filename, strerror(errno));
         RaftLogClose(new_log);
         cancelSnapshot(rr, sr);
         return -1;
@@ -425,7 +425,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         SnapshotResult sr = { .magic = SNAPSHOT_RESULT_MAGIC};
 
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
-                 rr->config->rdb_filename, (int) getpid());
+                 rr->config.rdb_filename, (int) getpid());
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
@@ -548,10 +548,10 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
         return -1;
     }
 
-    ret = rename(rr->incoming_snapshot_file, rr->config->rdb_filename);
+    ret = rename(rr->incoming_snapshot_file, rr->config.rdb_filename);
     if (ret != 0) {
         LOG_WARNING("rename(): %s to %s failed with error : %s \n",
-                    rr->incoming_snapshot_file, rr->config->rdb_filename, strerror(errno));
+                    rr->incoming_snapshot_file, rr->config.rdb_filename, strerror(errno));
         return -1;
     }
 
@@ -565,7 +565,7 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
     RedisModule_ResetDataset(0, 0);
     rr->snapshot_info.loaded = false;
 
-    if (rdbLoad(rr->config->rdb_filename, NULL, 0) != 0 ||
+    if (rdbLoad(rr->config.rdb_filename, NULL, 0) != 0 ||
         !rr->snapshot_info.loaded) {
         PANIC("Failed to load snapshot");
     }
@@ -577,11 +577,11 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
     if (rr->log) {
         fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
         RaftLogClose(rr->log);
-        rr->log = RaftLogCreate(rr->config->raft_log_filename,
+        rr->log = RaftLogCreate(rr->config.log_filename,
                 rr->snapshot_info.dbid,
                 rr->snapshot_info.last_applied_term,
                 rr->snapshot_info.last_applied_idx,
-                rr->config);
+                &rr->config);
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
@@ -863,10 +863,10 @@ int raftSendSnapshot(raft_server_t* raft,
 
 void archiveSnapshot(RedisRaftCtx *rr)
 {
-    size_t bak_rdb_filename_maxlen = strlen(rr->config->rdb_filename);
+    size_t bak_rdb_filename_maxlen = strlen(rr->config.rdb_filename);
     char bak_rdb_filename[bak_rdb_filename_maxlen];
 
     snprintf(bak_rdb_filename, bak_rdb_filename_maxlen - 1,
-            "%s.bak.%d", rr->config->rdb_filename, raft_get_nodeid(rr->raft));
-    rename(rr->config->rdb_filename, bak_rdb_filename);
+            "%s.bak.%d", rr->config.rdb_filename, raft_get_nodeid(rr->raft));
+    rename(rr->config.rdb_filename, bak_rdb_filename);
 }

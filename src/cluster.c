@@ -521,7 +521,7 @@ static void establishShardGroupConn(Connection *conn)
      * time to update.
      */
     if (!raft_is_leader(rr->raft) ||
-        RedisModule_Milliseconds() - sg->last_updated < rr->config->shardgroup_update_interval) {
+        RedisModule_Milliseconds() - sg->last_updated < rr->config.shardgroup_update_interval) {
        return;
     }
 
@@ -569,7 +569,7 @@ void ShardingPeriodicCall(RedisRaftCtx *rr)
 
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
         while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
-            if (!sg->nodes_num || !sg->conn || mstime - sg->last_updated < rr->config->shardgroup_update_interval ||
+            if (!sg->nodes_num || !sg->conn || mstime - sg->last_updated < rr->config.shardgroup_update_interval ||
                 !ConnIsConnected(sg->conn) || sg->update_in_progress) {
                 continue;
             }
@@ -817,10 +817,10 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
      * this is the shardgroup entry for our local cluster so it can be skipped.
      * */
     /* TODO: perhaps should only be called if using built in sharding mechanism */
-    if (!rr->config->external_sharding && sg->nodes_num > 0) {
-        char *username = rr->config->cluster_user;
-        char *password = rr->config->cluster_password;
-        sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL, username, password);
+    if (!rr->config.external_sharding && sg->nodes_num > 0) {
+        sg->conn = ConnCreate(rr, sg, establishShardGroupConn, NULL,
+                              rr->config.cluster_user,
+                              rr->config.cluster_password);
     }
 
     if (!si->is_sharding) {
@@ -1174,7 +1174,7 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
     if (node) {
         addr = &node->addr;
     } else if (raft_get_my_node(rr->raft) == raft_node) {
-        addr = &rr->config->addr;
+        addr = &rr->config.addr;
     } else {
         return 0;
     }
@@ -1304,7 +1304,7 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     if (node) {
         addr = &node->addr;
     } else if (raft_get_my_node(rr->raft) == raft_node) {
-        addr = &rr->config->addr;
+        addr = &rr->config.addr;
     } else {
         return;
     }
@@ -1626,9 +1626,8 @@ void ShardGroupLink(RedisRaftCtx *rr,
     st->connect_callback = linkSendRequest;
     st->start = time(NULL);
     st->req = RaftReqInit(ctx, RR_SHARDGROUP_LINK);
-    char *username = rr->config->cluster_user;
-    char *password = rr->config->cluster_password;
-    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback, username, password);
+    st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback,
+                          rr->config.cluster_user, rr->config.cluster_password);
 }
 
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
@@ -1662,7 +1661,7 @@ void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
         NodeAddr addr;
         if (raft_node == raft_get_my_node(rr->raft)) {
-            addr = rr->config->addr;
+            addr = rr->config.addr;
         } else {
             Node *node = raft_node_get_udata(raft_node);
             if (!node) {

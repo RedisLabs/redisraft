@@ -90,6 +90,7 @@ static void nodeFreeCallback(void *privdata)
 Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
 {
     Node *node = RedisModule_Calloc(1, sizeof(Node));
+
     STAILQ_INIT(&node->pending_responses);
 
     node->id = id;
@@ -99,10 +100,9 @@ Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
     node->addr.port = addr->port;
 
     LIST_INSERT_HEAD(&node_list, node, entries);
-    char *username = rr->config->cluster_user;
-    char *password = rr->config->cluster_password;
-    node->conn = ConnCreate(node->rr, node, nodeIdleCallback, nodeFreeCallback, username, password);
 
+    node->conn = ConnCreate(node->rr, node, nodeIdleCallback, nodeFreeCallback,
+                            rr->config.cluster_user, rr->config.cluster_password);
     return node;
 }
 
@@ -168,9 +168,9 @@ void HandleNodeStates(RedisRaftCtx *rr)
             long timeout;
 
             if (raft_is_leader(rr->raft)) {
-                timeout = rr->config->raft_response_timeout;
+                timeout = rr->config.response_timeout;
             } else {
-                timeout = resp->proxy ? rr->config->proxy_response_timeout : rr->config->raft_response_timeout;
+                timeout = resp->proxy ? rr->config.proxy_response_timeout : rr->config.response_timeout;
             }
 
             if (timeout && resp->request_time + timeout < RedisModule_Milliseconds()) {

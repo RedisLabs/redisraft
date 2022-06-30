@@ -56,6 +56,7 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
     conn->idle_callback = idle_cb;
     conn->free_callback = free_cb;
     conn->id = ++id;
+
     if (username) {
         conn->username = RedisModule_Strdup(username);
     }
@@ -63,7 +64,12 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
         conn->password = RedisModule_Strdup(password);
     }
 
-    conn->timeout.tv_usec = rr->config->connection_timeout;
+    int timeout_millis = rr->config.connection_timeout;
+
+    conn->timeout = (struct timeval) {
+            .tv_sec = timeout_millis / 1000,
+            .tv_usec = (timeout_millis % 1000) * 1000
+    };
 
     CONN_TRACE(conn, "Connection created.");
 
@@ -325,8 +331,8 @@ static void handleResolved(void *arg)
 
 
 #ifdef HAVE_TLS
-    if (conn->rr->config->tls_enabled) {
-        SSL *ssl = SSL_new(conn->rr->ssl);
+    if (conn->rr->config.tls_enabled) {
+        SSL *ssl = SSL_new(conn->rr->config.ssl);
         if (!ssl) {
             unsigned long e = ERR_peek_last_error();
             CONN_LOG_WARNING(conn, "Couldn't create SSL object: %s", ERR_reason_error_string(e));

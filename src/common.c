@@ -239,8 +239,8 @@ void joinLinkIdleCallback(Connection *conn)
         goto exit_fail;
     }
 
-    if (difftime(now, state->start) > rr->config->join_timeout) {
-        LOG_WARNING("Cluster %s: timed out, took longer than %d seconds", state->type, rr->config->join_timeout);
+    if (difftime(now, state->start) > rr->config.join_timeout) {
+        LOG_WARNING("Cluster %s: timed out, took longer than %d seconds", state->type, rr->config.join_timeout);
         goto exit_fail;
     }
 

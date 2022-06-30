@@ -5,12 +5,96 @@
  *
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
-/* ------------------------------------ Command Classification ------------------------------------ */
 
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
 #include "redisraft.h"
+
+
+static const CommandSpec commands[] = {
+        /* Core Redis Commands */
+        { "time",                         CMD_SPEC_DONT_INTERCEPT | CMD_SPEC_RANDOM },
+        { "sync",                         CMD_SPEC_UNSUPPORTED },
+        { "psync",                        CMD_SPEC_UNSUPPORTED },
+        { "reset",                        CMD_SPEC_UNSUPPORTED },
+        { "bgrewriteaof",                 CMD_SPEC_UNSUPPORTED },
+        { "slaveof",                      CMD_SPEC_UNSUPPORTED },
+        { "replicaof",                    CMD_SPEC_UNSUPPORTED },
+        { "debug",                        CMD_SPEC_UNSUPPORTED },
+        { "watch",                        CMD_SPEC_UNSUPPORTED },
+        { "unwatch",                      CMD_SPEC_UNSUPPORTED },
+        { "save",                         CMD_SPEC_UNSUPPORTED },
+        { "bgsave",                       CMD_SPEC_UNSUPPORTED },
+
+        /* Blocking commands not supported */
+        { "brpop",                        CMD_SPEC_UNSUPPORTED },
+        { "brpoplpush",                   CMD_SPEC_UNSUPPORTED },
+        { "blmove",                       CMD_SPEC_UNSUPPORTED },
+        { "blpop",                        CMD_SPEC_UNSUPPORTED },
+        { "blmpop",                       CMD_SPEC_UNSUPPORTED },
+        { "bzpopmin",                     CMD_SPEC_UNSUPPORTED },
+        { "bzpopmax",                     CMD_SPEC_UNSUPPORTED },
+        { "bzmpop",                       CMD_SPEC_UNSUPPORTED },
+
+        /* Stream commands not supported */
+        { "xadd",                         CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+        { "xrange",                       CMD_SPEC_UNSUPPORTED },
+        { "xrevrange",                    CMD_SPEC_UNSUPPORTED },
+        { "xlen",                         CMD_SPEC_UNSUPPORTED },
+        { "xread",                        CMD_SPEC_UNSUPPORTED },
+        { "xreadgroup",                   CMD_SPEC_UNSUPPORTED },
+        { "xgroup",                       CMD_SPEC_UNSUPPORTED },
+        { "xsetid",                       CMD_SPEC_UNSUPPORTED },
+        { "xack",                         CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+        { "xpending",                     CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+        { "xclaim",                       CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+        { "xautoclaim",                   CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+        { "xinfo",                        CMD_SPEC_UNSUPPORTED },
+        { "xdel",                         CMD_SPEC_UNSUPPORTED },
+        { "xtrim",                        CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+
+        /* Pubsub commands not supported */
+        { "subscribe",                    CMD_SPEC_DONT_INTERCEPT },
+        { "psubscribe",                   CMD_SPEC_DONT_INTERCEPT },
+        { "unsubscribe",                  CMD_SPEC_DONT_INTERCEPT },
+        { "punsubscribe",                 CMD_SPEC_DONT_INTERCEPT },
+        { "publish",                      CMD_SPEC_DONT_INTERCEPT },
+        { "pubsub",                       CMD_SPEC_DONT_INTERCEPT },
+
+        /* Admin commands - bypassed */
+        { "auth",                         CMD_SPEC_DONT_INTERCEPT },
+        { "ping",                         CMD_SPEC_DONT_INTERCEPT },
+        { "hello",                        CMD_SPEC_DONT_INTERCEPT },
+        { "module",                       CMD_SPEC_DONT_INTERCEPT },
+        { "client",                       CMD_SPEC_DONT_INTERCEPT },
+        { "config",                       CMD_SPEC_DONT_INTERCEPT },
+        { "monitor",                      CMD_SPEC_DONT_INTERCEPT },
+        { "command",                      CMD_SPEC_DONT_INTERCEPT },
+        { "shutdown",                     CMD_SPEC_DONT_INTERCEPT },
+        { "quit",                         CMD_SPEC_DONT_INTERCEPT },
+        { "slowlog",                      CMD_SPEC_DONT_INTERCEPT },
+        { "acl",                          CMD_SPEC_DONT_INTERCEPT },
+
+        /* RedisRaft Commands */
+        { "raft",                         CMD_SPEC_DONT_INTERCEPT },
+        { "raft.entry",                   CMD_SPEC_DONT_INTERCEPT },
+        { "raft.cluster",                 CMD_SPEC_DONT_INTERCEPT },
+        { "raft.shardgroup",              CMD_SPEC_DONT_INTERCEPT },
+        { "raft.node",                    CMD_SPEC_DONT_INTERCEPT },
+        { "raft.ae",                      CMD_SPEC_DONT_INTERCEPT },
+        { "raft.requestvote",             CMD_SPEC_DONT_INTERCEPT },
+        { "raft.snapshot",                CMD_SPEC_DONT_INTERCEPT },
+        { "raft.debug",                   CMD_SPEC_DONT_INTERCEPT },
+        { "raft.nodeshutdown",            CMD_SPEC_DONT_INTERCEPT },
+        { "raft.transfer_leader",         CMD_SPEC_DONT_INTERCEPT },
+        { "raft.timeout_now",             CMD_SPEC_DONT_INTERCEPT },
+        { "raft._sort_reply",             CMD_SPEC_DONT_INTERCEPT },
+        { "raft._reject_random_command",  CMD_SPEC_DONT_INTERCEPT },
+        { "raft.import",                  CMD_SPEC_DONT_INTERCEPT },
+        { "raft.scan",                    CMD_SPEC_READONLY },
+        { NULL,0 }
+};
 
 static RedisModuleDict *commandSpecDict = NULL;
 
@@ -145,117 +229,76 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
     RedisModule_FreeCallReply(reply);
 }
 
-RRStatus CommandSpecInit(RedisModuleCtx *ctx, RedisRaftConfig *config)
+static void freeCommandSpecDict(RedisModuleDict *dict)
 {
-    static CommandSpec commands[] = {
-            /* Core Redis Commands */
-            { "time",                   CMD_SPEC_DONT_INTERCEPT | CMD_SPEC_RANDOM },
-            { "sync",                   CMD_SPEC_UNSUPPORTED },
-            { "psync",                  CMD_SPEC_UNSUPPORTED },
-            { "reset",                  CMD_SPEC_UNSUPPORTED },
-            { "bgrewriteaof",           CMD_SPEC_UNSUPPORTED },
-            { "slaveof",                CMD_SPEC_UNSUPPORTED },
-            { "replicaof",              CMD_SPEC_UNSUPPORTED },
-            { "debug",                  CMD_SPEC_UNSUPPORTED },
-            { "watch",                  CMD_SPEC_UNSUPPORTED },
-            { "unwatch",                CMD_SPEC_UNSUPPORTED },
-            { "save",                   CMD_SPEC_UNSUPPORTED },
-            { "bgsave",                 CMD_SPEC_UNSUPPORTED },
-            /* Blocking commands not supported */
-            { "brpop",                  CMD_SPEC_UNSUPPORTED },
-            { "brpoplpush",             CMD_SPEC_UNSUPPORTED },
-            { "blmove",                 CMD_SPEC_UNSUPPORTED },
-            { "blpop",                  CMD_SPEC_UNSUPPORTED },
-            { "blmpop",                 CMD_SPEC_UNSUPPORTED },
-            { "bzpopmin",               CMD_SPEC_UNSUPPORTED },
-            { "bzpopmax",               CMD_SPEC_UNSUPPORTED },
-            { "bzmpop",                 CMD_SPEC_UNSUPPORTED },
-            /* Stream commands not supported */
-            { "xadd",                   CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            { "xrange",                 CMD_SPEC_UNSUPPORTED },
-            { "xrevrange",              CMD_SPEC_UNSUPPORTED },
-            { "xlen",                   CMD_SPEC_UNSUPPORTED },
-            { "xread",                  CMD_SPEC_UNSUPPORTED },
-            { "xreadgroup",             CMD_SPEC_UNSUPPORTED },
-            { "xgroup",                 CMD_SPEC_UNSUPPORTED },
-            { "xsetid",                 CMD_SPEC_UNSUPPORTED },
-            { "xack",                   CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            { "xpending",               CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            { "xclaim",                 CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            { "xautoclaim",             CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            { "xinfo",                  CMD_SPEC_UNSUPPORTED },
-            { "xdel",                   CMD_SPEC_UNSUPPORTED },
-            { "xtrim",                  CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-            /* Admin commands - bypassed */
-            { "auth",                   CMD_SPEC_DONT_INTERCEPT },
-            { "ping",                   CMD_SPEC_DONT_INTERCEPT },
-            { "hello",                  CMD_SPEC_DONT_INTERCEPT },
-            { "module",                 CMD_SPEC_DONT_INTERCEPT },
-            { "client",                 CMD_SPEC_DONT_INTERCEPT },
-            { "config",                 CMD_SPEC_DONT_INTERCEPT },
-            { "monitor",                CMD_SPEC_DONT_INTERCEPT },
-            { "command",                CMD_SPEC_DONT_INTERCEPT },
-            { "shutdown",               CMD_SPEC_DONT_INTERCEPT },
-            { "quit",                   CMD_SPEC_DONT_INTERCEPT },
-            { "subscribe",              CMD_SPEC_DONT_INTERCEPT },
-            { "psubscribe",             CMD_SPEC_DONT_INTERCEPT },
-            { "unsubscribe",            CMD_SPEC_DONT_INTERCEPT },
-            { "punsubscribe",           CMD_SPEC_DONT_INTERCEPT },
-            { "publish",                CMD_SPEC_DONT_INTERCEPT },
-            { "pubsub",                 CMD_SPEC_DONT_INTERCEPT },
-            { "slowlog",                CMD_SPEC_DONT_INTERCEPT },
-            { "acl",                    CMD_SPEC_DONT_INTERCEPT },
+    CommandSpec *cs;
 
-            /* RedisRaft Commands */
-            { "raft",                         CMD_SPEC_DONT_INTERCEPT },
-            { "raft.entry",                   CMD_SPEC_DONT_INTERCEPT },
-            { "raft.config",                  CMD_SPEC_DONT_INTERCEPT },
-            { "raft.cluster",                 CMD_SPEC_DONT_INTERCEPT },
-            { "raft.shardgroup",              CMD_SPEC_DONT_INTERCEPT },
-            { "raft.node",                    CMD_SPEC_DONT_INTERCEPT },
-            { "raft.ae",                      CMD_SPEC_DONT_INTERCEPT },
-            { "raft.requestvote",             CMD_SPEC_DONT_INTERCEPT },
-            { "raft.snapshot",                CMD_SPEC_DONT_INTERCEPT },
-            { "raft.debug",                   CMD_SPEC_DONT_INTERCEPT },
-            { "raft.nodeshutdown",            CMD_SPEC_DONT_INTERCEPT },
-            { "raft.transfer_leader",         CMD_SPEC_DONT_INTERCEPT },
-            { "raft.timeout_now",             CMD_SPEC_DONT_INTERCEPT },
-            { "raft._sort_reply",             CMD_SPEC_DONT_INTERCEPT },
-            { "raft._reject_random_command",  CMD_SPEC_DONT_INTERCEPT },
-            { "raft.import",                  CMD_SPEC_DONT_INTERCEPT },
-            { "raft.scan",                    CMD_SPEC_READONLY },
-            { NULL,0 }
-    };
+    if (!dict) {
+        return;
+    }
 
-    commandSpecDict = RedisModule_CreateDict(ctx);
+    RedisModuleDictIter *it = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
+    while (RedisModule_DictNextC(it, NULL, (void **) &cs) != NULL) {
+        RedisModule_Free(cs->name);
+        RedisModule_Free(cs);
+    }
+    RedisModule_DictIteratorStop(it);
+    RedisModule_FreeDict(NULL, dict);
+}
+
+RRStatus CommandSpecSet(RedisModuleCtx *ctx, const char *ignored_commands)
+{
+    RedisModuleDict *dict = RedisModule_CreateDict(ctx);
+
     for (int i = 0; commands[i].name != NULL; i++) {
-        if (RedisModule_DictSetC(commandSpecDict, commands[i].name,
-            strlen(commands[i].name), &commands[i]) != REDISMODULE_OK) {
-                RedisModule_FreeDict(ctx, commandSpecDict);
-                return RR_ERROR;
+        CommandSpec *cs = RedisModule_Alloc(sizeof(*cs));
+        cs->name = RedisModule_Strdup(commands[i].name);
+        cs->flags = commands[i].flags;
+
+        int ret = RedisModule_DictSetC(dict, cs->name, strlen(cs->name), cs);
+        if (ret != REDISMODULE_OK) {
+            goto error;
         }
     }
 
-    if (config->ignored_commands) {
-        char *temp = RedisModule_Strdup(config->ignored_commands);
-        char *tok = strtok(temp, ",");
-        while (tok != NULL) {
-            CommandSpec * dont_intercept = RedisModule_Alloc(sizeof(CommandSpec));
-            dont_intercept->name = RedisModule_Strdup(tok);
-            dont_intercept->flags = CMD_SPEC_DONT_INTERCEPT;
+    if (ignored_commands) {
+        char *tok, *s = NULL;
+        char *tmp = RedisModule_Strdup(ignored_commands);
 
-            if (RedisModule_DictSetC(commandSpecDict, tok,
-                                     strlen(tok), dont_intercept) != REDISMODULE_OK) {
-                RedisModule_Free(temp);
-                return RR_ERROR;
+        for (tok = strtok_r(tmp, ",", &s); tok; tok = strtok_r(NULL, ",", &s)) {
+            int nokey = 0;
+            CommandSpec *cs;
+
+            cs = RedisModule_DictGetC(dict, tok, strlen(tok), &nokey);
+            if (!nokey) {
+                cs->flags = CMD_SPEC_DONT_INTERCEPT;
+                continue;
             }
-            tok = strtok(NULL, ",");
+
+            cs = RedisModule_Calloc(1, sizeof(*cs));
+            cs->name = RedisModule_Strdup(tok);
+            cs->flags = CMD_SPEC_DONT_INTERCEPT;
+
+            int ret = RedisModule_DictSetC(dict, tok, strlen(tok), cs);
+            if (ret != REDISMODULE_OK) {
+                RedisModule_Free(cs->name);
+                RedisModule_Free(cs);
+                RedisModule_Free(tmp);
+                goto error;
+            }
         }
-        RedisModule_Free(temp);
+        RedisModule_Free(tmp);
     }
 
+    freeCommandSpecDict(commandSpecDict);
+    commandSpecDict = dict;
     populateCommandSpecFromRedis(ctx);
+
     return RR_OK;
+
+error:
+    freeCommandSpecDict(dict);
+    return RR_ERROR;
 }
 
 /* Look up the specified command in the command spec table and return the

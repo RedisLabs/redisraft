@@ -55,13 +55,9 @@ You can then run a quick benchmark:
 
 ### Changing configuration
 
-To change a RedisRaft configuration parameter across all nodes, use:
+To change a configuration parameter across all nodes, use:
 
-    ./cluster.sh redisraft-config-set <param> <value>
-
-To change a Redis configuration parameter across all nodes, use:
-
-    ./cluster.sh redis-config-set <param> <value>
+    ./cluster.sh config set <param> <value>
 
 Tearing down
 ------------

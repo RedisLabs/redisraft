@@ -15,20 +15,27 @@
 #include "redisraft.h"
 #include "entrycache.h"
 
-RedisModuleCtx *redis_raft_log_ctx = NULL;
+RedisModuleCtx *redisraft_log_ctx = NULL;
 
-int redis_raft_trace = TRACE_OFF;
-int redis_raft_loglevel = LOG_LEVEL_NOTICE;
+int redisraft_trace = TRACE_OFF;
+int redisraft_loglevel = LOG_LEVEL_NOTICE;
 
-const char *redis_raft_log_levels[] = {
+const char *redisraft_loglevels[] = {
     REDISMODULE_LOGLEVEL_DEBUG,
     REDISMODULE_LOGLEVEL_VERBOSE,
     REDISMODULE_LOGLEVEL_NOTICE,
     REDISMODULE_LOGLEVEL_WARNING
 };
 
+int redisraft_loglevel_enums[] = {
+        LOG_LEVEL_DEBUG,
+        LOG_LEVEL_VERBOSE,
+        LOG_LEVEL_NOTICE,
+        LOG_LEVEL_WARNING,
+        LOG_LEVEL_COUNT
+};
+
 RedisRaftCtx redis_raft = { 0 };
-static RedisRaftConfig config;
 
 /* This is needed for newer pthread versions to properly link and work */
 #ifdef LINUX
@@ -296,7 +303,7 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
-        target_node_id != rr->config->id) {
+        target_node_id != rr->config.id) {
 
         RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
         return REDISMODULE_OK;
@@ -627,7 +634,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     }
 
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
-        if (rr->config->quorum_reads) {
+        if (rr->config.quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
             RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
             raft_queue_read_request(rr->raft, handleReadOnlyCommand, req);
@@ -725,7 +732,7 @@ static void handleNonLeaderCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, Node *
     }
 
     /* forward commands to the leader in follower_proxy state */
-    if (rr->config->follower_proxy) {
+    if (rr->config.follower_proxy) {
         if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
             RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
         }
@@ -832,7 +839,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
-        target_node_id != rr->config->id) {
+        target_node_id != rr->config.id) {
             RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
             return REDISMODULE_OK;
     }
@@ -917,48 +924,6 @@ out:
     return REDISMODULE_OK;
 }
 
-/* RAFT.CONFIG GET [wildcard]
- *   Query Raft configuration parameters.
- *
- * RAFT.CONFIG SET [param] [value]
- *   Set a Raft configuration parameter.
- *
- * This is basically identical to Redis CONFIG GET / CONFIG SET, for
- * Raft specific configuration.
- */
-static int cmdRaftConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    RedisRaftCtx *rr = &redis_raft;
-
-    if (argc < 2) {
-        RedisModule_WrongArity(ctx);
-        return REDISMODULE_OK;
-    }
-
-    size_t cmd_len;
-    const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
-
-    if (!strncasecmp(cmd, "SET", cmd_len)) {
-        if (argc != 4) {
-            RedisModule_WrongArity(ctx);
-            return REDISMODULE_OK;
-        }
-
-        ConfigSet(rr, ctx, argv, argc);
-    } else if (!strncasecmp(cmd, "GET", cmd_len)) {
-        if (argc != 3) {
-            RedisModule_WrongArity(ctx);
-            return REDISMODULE_OK;
-        }
-
-        ConfigGet(rr, ctx, argv, argc);
-    } else {
-        RedisModule_ReplyWithError(ctx, "ERR Unknown RAFT.CONFIG subcommand or wrong number of arguments");
-    }
-
-    return REDISMODULE_OK;
-}
-
 /* RAFT.SNAPSHOT [target-node-id] [src_node_id]
  *               [term]:[leader_id]:[msg_id]:[snapshot_index]:[snapshot_term]:[chunk_offset]:[last_chunk]
  *               [chunk_data]
@@ -989,7 +954,7 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     int target_node_id;
     if (RedisModuleStringToInt(argv[1], &target_node_id) != REDISMODULE_OK ||
-        target_node_id != rr->config->id) {
+        target_node_id != rr->config.id) {
 
         RedisModule_ReplyWithError(ctx, "ERR invalid or incorrect target node id");
         return REDISMODULE_OK;
@@ -1052,23 +1017,23 @@ static void clusterInit(const char *cluster_id)
     rr->snapshot_info.used_node_ids = NULL;
 
     /* If node id was not specified, make up one */
-    if (!rr->config->id) {
-        rr->config->id = makeRandomNodeId(rr);
+    if (!rr->config.id) {
+        rr->config.id = makeRandomNodeId(rr);
     }
 
-    rr->log = RaftLogCreate(rr->config->raft_log_filename,
-                            rr->snapshot_info.dbid, 1, 0, rr->config);
+    rr->log = RaftLogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
+                            1, 0, &rr->config);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
 
-    addUsedNodeId(rr, rr->config->id);
+    addUsedNodeId(rr, rr->config.id);
     RaftLibraryInit(rr, true);
     initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);
 
     LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s",
-               rr->config->id, rr->snapshot_info.dbid);
+               rr->config.id, rr->snapshot_info.dbid);
 }
 
 static void clusterJoinCompleted(RaftReq *req)
@@ -1078,11 +1043,11 @@ static void clusterJoinCompleted(RaftReq *req)
     /* Initialize Raft log.  We delay this operation as we want to create the
      * log with the proper dbid which is only received now.
      */
-    rr->log = RaftLogCreate(rr->config->raft_log_filename,
+    rr->log = RaftLogCreate(rr->config.log_filename,
                             rr->snapshot_info.dbid,
                             rr->snapshot_info.last_applied_term,
                             rr->snapshot_info.last_applied_idx,
-                            rr->config);
+                            &rr->config);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
@@ -1211,7 +1176,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
-    if (!rr->config->sharding) {
+    if (!rr->config.sharding) {
         RedisModule_ReplyWithError(ctx, "ERR RedisRaft sharding not enabled");
         return REDISMODULE_OK;
     }
@@ -1518,7 +1483,7 @@ static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
 
     long long node_id;
     if (RedisModule_StringToLongLong(argv[1], &node_id) != REDISMODULE_OK ||
-        node_id != rr->config->id) {
+        node_id != rr->config.id) {
         RedisModule_ReplyWithError(ctx, "invalid node id");
         return REDISMODULE_OK;
     }
@@ -1584,7 +1549,7 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
     }
 
     RedisModuleCallReply *reply;
-    if (!(reply = RedisModule_Call(ctx, "scan", "ccc", cursor, "count", rr->config->scan_size))) {
+    if (!(reply = RedisModule_Call(ctx, "scan", "ccl", cursor, "count", rr->config.scan_size))) {
         RedisModule_ReplyWithError(ctx, "ERR scan failed");
         return REDISMODULE_OK;
     }
@@ -1638,117 +1603,6 @@ static int cmdRaftScan(RedisModuleCtx *ctx,
 exit:
     RedisModule_FreeCallReply(reply);
     return REDISMODULE_OK;
-}
-
-#ifdef HAVE_TLS
-/* Callback for passing a keyfile password stored as a char * to OpenSSL,  copied from redis */
-static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
-{
-    const char *pass = u;
-    size_t pass_len;
-
-    if (!pass) {
-        return -1;
-    }
-    pass_len = strlen(pass);
-    if (pass_len > (size_t) size) {
-        return -1;
-    }
-    memcpy(buf, pass, pass_len);
-
-    return (int) pass_len;
-}
-
-SSL_CTX *generateSSLContext(RedisRaftCtx *rr)
-{
-    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
-    if (!ssl_ctx) {
-        LOG_WARNING("SSL_CTX_new(): %s",
-                    ERR_reason_error_string(ERR_peek_last_error()));
-        return NULL;
-    }
-
-    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-
-    if ((rr->config->tls_cert != NULL && rr->config->tls_key == NULL) ||
-            (rr->config->tls_key != NULL && rr->config->tls_cert == NULL)) {
-        LOG_WARNING("'tls-cert-file' or 'tls-key-file' is not configured.");
-        goto error;
-    }
-
-    if (!SSL_CTX_load_verify_locations(ssl_ctx, rr->config->tls_ca_cert, NULL)) {
-        LOG_WARNING("SSL_CTX_load_verify_locations(): %s",
-                    ERR_reason_error_string(ERR_peek_last_error()));
-        goto error;
-    }
-
-    if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, rr->config->tls_cert)) {
-        LOG_WARNING("SSL_CTX_use_certificate_chain_file(): %s",
-                    ERR_reason_error_string(ERR_peek_last_error()));
-        goto error;
-    }
-
-    if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, rr->config->tls_key, SSL_FILETYPE_PEM)) {
-        LOG_WARNING("SSL_CTX_use_PrivateKey_file(): %s",
-                    ERR_reason_error_string(ERR_peek_last_error()));
-        goto error;
-    }
-
-    if (rr->config->tls_key_pass && *rr->config->tls_key_pass != '\0') {
-        SSL_CTX_set_default_passwd_cb(ssl_ctx, tlsPasswordCallback);
-        SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, rr->config->tls_key_pass);
-    }
-
-    return ssl_ctx;
-
-error:
-    SSL_CTX_free(ssl_ctx);
-    return NULL;
-}
-#endif
-
-
-void handleConfigChangeEvent(RedisModuleCtx *ctx,
-                             RedisModuleEvent eid, uint64_t event, void *data)
-{
-    if (eid.id != REDISMODULE_EVENT_CONFIG ||
-        event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
-        return;
-    }
-
-#ifdef HAVE_TLS
-    RedisRaftCtx *rr = &redis_raft;
-
-    if (!rr->config->tls_enabled) {
-        return;
-    }
-
-    RedisModuleConfigChangeV1 *ei = data;
-
-    for (unsigned int i = 0; i < ei->num_changes; i++) {
-        const char *conf = ei->config_names[i];
-
-        if (!strcmp(conf, "tls-ca-cert-file") ||
-            !strcmp(conf, "tls-key-file") ||
-            !strcmp(conf, "tls-key-file-pass") ||
-            !strcmp(conf, "tls-client-key-file") ||
-            !strcmp(conf, "tls-client-key-file-pass") ||
-            !strcmp(conf, "tls-cert-file") ||
-            !strcmp(conf, "tls-client-cert-file")) {
-
-            ConfigUpdateTLS(ctx, rr->config);
-
-            SSL_CTX *new_ctx = generateSSLContext(rr);
-            if (new_ctx) {
-                SSL_CTX_free(rr->ssl);
-                rr->ssl = new_ctx;
-            }
-
-            break;
-        }
-    }
-#endif
 }
 
 void handleClientEvent(RedisModuleCtx *ctx,
@@ -1825,7 +1679,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
 
     RedisModule_InfoAddSection(ctx, "general");
     RedisModule_InfoAddFieldCString(ctx, "dbid", rr->snapshot_info.dbid);
-    RedisModule_InfoAddFieldLongLong(ctx, "node_id", rr->config->id);
+    RedisModule_InfoAddFieldLongLong(ctx, "node_id", rr->config.id);
     RedisModule_InfoAddFieldCString(ctx, "state", getStateStr(rr));
     RedisModule_InfoAddFieldCString(ctx, "role", rr->raft ? raft_get_state_str(rr->raft) : "(none)");
 
@@ -1914,11 +1768,6 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft.entry",
                 cmdRaftEntry, "write", 0, 0, 0) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    if (RedisModule_CreateCommand(ctx, "raft.config",
-                cmdRaftConfig, "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
@@ -2037,58 +1886,15 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     }
 
     /* Create a logging context */
-    redis_raft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+    redisraft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
     RedisModule_RegisterInfoFunc(ctx, handleInfo);
-
-    /* Sanity check that not running with cluster_enabled */
-    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "cluster");
-    int cluster_enabled = (int) RedisModule_ServerInfoGetFieldSigned(info, "cluster_enabled", NULL);
-    RedisModule_FreeServerInfo(ctx, info);
-    if (cluster_enabled) {
-        LOG_WARNING("Redis Raft requires Redis not be started with cluster_enabled!");
-        return REDISMODULE_ERR;
-    }
-
-    /* Report arguments */
-    size_t str_len = 1024;
-    char *str = RedisModule_Calloc(1, str_len);
-    int i;
-    for (i = 0; i < argc; i++) {
-        size_t slen;
-        const char *s = RedisModule_StringPtrLen(argv[i], &slen);
-        str = catsnprintf(str, &str_len, "%s%.*s", i == 0 ? "" : " ", (int) slen, s);
-    }
-
-    LOG_NOTICE("RedisRaft starting, arguments: %s", str);
-    RedisModule_Free(str);
-
-    /* Initialize and validate configuration */
-    ConfigInit(ctx, &config);
-    if (ConfigParseArgs(ctx, argv, argc, &config) == RR_ERROR) {
-        return REDISMODULE_ERR;
-    }
-
-    /* Configure Redis */
-    if (ConfigureRedis(ctx) == RR_ERROR) {
-        LOG_WARNING("Failed to set Redis configuration!");
-        return REDISMODULE_ERR;
-    }
-
-    if (CommandSpecInit(ctx, &config) == RR_ERROR) {
-        LOG_WARNING("Failed to initialize internal command table");
-        return REDISMODULE_ERR;
-    }
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to register commands");
         return REDISMODULE_ERR;
     }
 
-    if (RedisRaftInit(ctx, &redis_raft, &config) == RR_ERROR) {
-        return REDISMODULE_ERR;
-    }
-
-    redis_raft.registered_filter = RedisModule_RegisterCommandFilter(ctx,
+    redis_raft.cmd_filter = RedisModule_RegisterCommandFilter(ctx,
         interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
@@ -2098,31 +1904,26 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
-                                           beforeSleep) != REDISMODULE_OK) {
+                beforeSleep) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config,
-                                           handleConfigChangeEvent) != REDISMODULE_OK) {
+                ConfigRedisEventCallback) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
 
     RedisRaftCtx *rr = &redis_raft;
 
-#ifdef HAVE_TLS
-    if (rr->config->tls_enabled) {
-        rr->ssl = generateSSLContext(rr);
+    if (RedisRaftInit(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_ERR;
     }
-#endif
 
-    RedisModule_CreateTimer(ctx, rr->config->raft_interval, callRaftPeriodic, rr);
-    RedisModule_CreateTimer(ctx, rr->config->reconnect_interval, callHandleNodeStates, rr);
+    rr->cmd_filter = RedisModule_RegisterCommandFilter(ctx, interceptRedisCommands, 0);
 
     LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
-
-    fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
 
     return REDISMODULE_OK;
 }
