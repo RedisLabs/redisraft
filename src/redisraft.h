@@ -337,7 +337,8 @@ typedef struct RedisRaftConfig {
     int reconnect_interval;             /* Milliseconds to wait to reconnect to a node if connection drops */
     int proxy_response_timeout;         /* Milliseconds to wait for a response to a proxy request */
     int response_timeout;               /* Milliseconds to wait for a response to a Raft message */
-    int max_appendentries_inflight;     /* Max appendreq count in flight between nodes. */
+    long long append_req_max_count;     /* Max in-flight appendreq message count between two nodes. */
+    long long append_req_max_size;      /* Max appendreq message size in bytes. Just an approximation. */
     long long scan_size;                /* how many keys to fetch at a time internally for raft.scan */
 
     /* Cache and file compaction */

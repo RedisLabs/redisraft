@@ -1081,7 +1081,7 @@ static int raftBackpressure(raft_server_t *raft, void *user_data, raft_node_t *r
 {
     RedisRaftCtx *rr = &redis_raft;
     Node *node = raft_node_get_udata(raft_node);
-    if (node->pending_raft_response_num >= rr->config.max_appendentries_inflight) {
+    if (node->pending_raft_response_num >= rr->config.append_req_max_count) {
         /* Don't send append req to this node */
         return 1;
     }
@@ -1095,6 +1095,35 @@ static raft_time_t raftTimestamp(raft_server_t *raft, void *user_data)
     (void) user_data;
 
     return (raft_time_t) RedisModule_MonotonicMicroseconds();
+}
+
+static raft_index_t raftGetEntriesToSend(raft_server_t *raft, void *user_data,
+                                         raft_node_t *node, raft_index_t idx,
+                                         raft_index_t entries_n,
+                                         raft_entry_t **entries)
+{
+    (void) node;
+    (void) user_data;
+
+    raft_index_t i;
+    long long serialized_size = 0;
+    RedisRaftCtx *rr = &redis_raft;
+
+    for (i = 0; i < entries_n; i++) {
+        raft_entry_t *e = raft_get_entry_from_idx(raft, idx + i);
+        if (!e) {
+            break;
+        }
+        serialized_size += e->data_len;
+        /* A single entry can be larger than the limit, so, we always allow the
+         * first entry. */
+        if (i != 0 && serialized_size > rr->config.append_req_max_size) {
+            break;
+        }
+        entries[i] = e;
+    }
+
+    return i;
 }
 
 raft_cbs_t redis_raft_callbacks = {
@@ -1116,7 +1145,8 @@ raft_cbs_t redis_raft_callbacks = {
     .send_timeoutnow = raftSendTimeoutNow,
     .notify_transfer_event = raftNotifyTransferEvent,
     .backpressure = raftBackpressure,
-    .timestamp = raftTimestamp
+    .timestamp = raftTimestamp,
+    .get_entries_to_send = raftGetEntriesToSend,
 };
 
 RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
