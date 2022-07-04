@@ -404,9 +404,6 @@ typedef struct RedisRaftCtx {
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
     RedisModuleDict *locked_keys;                /* keys thar have been locked for migration */
-#ifdef HAVE_TLS
-    SSL_CTX *ssl;                                /* OpenSSL context for use by hiredis */
-#endif
 
 } RedisRaftCtx;
 
