@@ -130,6 +130,9 @@ static char *getRedisConfig(RedisModuleCtx *ctx, const char *name)
     }
 
     str = RedisModule_CallReplyStringPtr(reply_name, &len);
+    if (len == 0) {
+        goto exit;
+    }
     buf = RedisModule_Alloc(len + 1);
     memcpy(buf, str, len);
     buf[len] = '\0';
@@ -197,7 +200,8 @@ static int tlsPasswordCallback(char *buf, int size, int rwflag, void *u)
     return (int) pass_len;
 }
 
-static SSL_CTX *generateSSLContext(const char *cacert,
+static SSL_CTX *generateSSLContext(const char *cacert_filename,
+                                   const char *capath,
                                    const char *cert,
                                    const char *key,
                                    const char *keypass)
@@ -222,7 +226,7 @@ static SSL_CTX *generateSSLContext(const char *cacert,
         SSL_CTX_set_default_passwd_cb_userdata(ctx, RedisModule_Strdup(keypass));
     }
 
-    if (!SSL_CTX_load_verify_locations(ctx, cacert, NULL)) {
+    if (!SSL_CTX_load_verify_locations(ctx, cacert_filename, capath)) {
         LOG_WARNING("SSL_CTX_load_verify_locations(): %s",
                     ERR_reason_error_string(ERR_peek_last_error()));
         goto error;
@@ -250,9 +254,10 @@ error:
 static RRStatus updateTLSConfig(RedisRaftConfig *config, RedisModuleCtx *ctx)
 {
     int ret = RR_OK;
-    char *clientkey, *key, *keypass, *cacert, *cert;
+    char *clientkey, *key, *keypass, *cacert_filename, *capath, *cert;
 
-    cacert = getRedisConfig(ctx, "tls-ca-cert-file");
+    cacert_filename = getRedisConfig(ctx, "tls-ca-cert-file");
+    capath = getRedisConfig(ctx, "tls-ca-cert-dir");
 
     clientkey = getRedisConfig(ctx, "tls-client-key-file");
     if (clientkey && *clientkey != '\0') {
@@ -265,7 +270,7 @@ static RRStatus updateTLSConfig(RedisRaftConfig *config, RedisModuleCtx *ctx)
         keypass = getRedisConfig(ctx, "tls-key-file-pass");
     }
 
-    SSL_CTX *ssl = generateSSLContext(cacert, cert, key, keypass);
+    SSL_CTX *ssl = generateSSLContext(cacert_filename, capath, cert, key, keypass);
     if (!ssl) {
         ret = RR_ERROR;
         goto out;
@@ -278,7 +283,8 @@ static RRStatus updateTLSConfig(RedisRaftConfig *config, RedisModuleCtx *ctx)
     config->ssl = ssl;
 
 out:
-    RedisModule_Free(cacert);
+    RedisModule_Free(cacert_filename);
+    RedisModule_Free(capath);
     RedisModule_Free(cert);
     RedisModule_Free(key);
     RedisModule_Free(keypass);
@@ -804,6 +810,7 @@ void ConfigRedisEventCallback(RedisModuleCtx *ctx,
         const char *conf = ei->config_names[i];
 
         if (!strcmp(conf, "tls-ca-cert-file") ||
+            !strcmp(conf, "tls-ca-cert-dir") ||
             !strcmp(conf, "tls-cert-file") ||
             !strcmp(conf, "tls-key-file") ||
             !strcmp(conf, "tls-key-file-pass") ||

@@ -109,7 +109,7 @@ def test_reelection_basic_flow(cluster):
     assert cluster.execute('set', 'key2', 'value')
 
 
-@pytest.mark.skipif("config.getoption('tls')")
+@pytest.mark.skipif("config.getoption('tls_mode') != 'None'")
 def test_resp3(cluster):
     cluster.create(3)
 
@@ -413,7 +413,7 @@ def test_rolled_back_read_only_multi_reply(cluster):
 
 
 def test_tls_reconfig(cluster):
-    if not cluster.config.tls:
+    if cluster.config.tls_mode == 'None':
         return
 
     cluster.create(3)

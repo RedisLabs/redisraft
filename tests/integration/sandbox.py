@@ -73,7 +73,7 @@ class RedisRaft(object):
         self.keepfiles = config.keepfiles
         self.args = config.args.copy() if config.args else []
 
-        self.args += ['--port', str(0) if config.tls else str(port),
+        self.args += ['--port', str(0) if config.tls_mode != 'None' else str(port),
                       '--bind', '0.0.0.0',
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename,
@@ -82,12 +82,16 @@ class RedisRaft(object):
             self.args += ['--requirepass', password]
 
         self.cacert = os.getcwd() + '/tests/tls/ca.crt'
+        self.cacert_dir = os.getcwd() + '/tests/tls'
         self.cert = os.getcwd() + '/tests/tls/redis.crt'
         self.key = os.getcwd() + '/tests/tls/redis.key'
 
-        if config.tls:
+        if config.tls_mode != 'None':
+            if config.tls_mode == 'Dir' or config.tls_mode == 'Both':
+                self.args += ['--tls-ca-cert-dir', self.cacert_dir]
+            if config.tls_mode == 'File' or config.tls_mode == 'Both':
+                self.args += ['--tls-ca-cert-file', self.cacert]
             self.args += ['--tls-port', str(port),
-                          '--tls-ca-cert-file', self.cacert,
                           '--tls-cert-file', self.cert,
                           '--tls-key-file', self.key,
                           '--tls-key-file-pass', 'redisraft']
@@ -110,7 +114,7 @@ class RedisRaft(object):
                         'log-filename': self._raftlog,
                         'log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel,
-                        'tls-enabled': 'yes' if config.tls else 'no'}
+                        'tls-enabled': 'yes' if config.tls_mode != 'None' else 'no'}
 
         for defkey, defval in default_args.items():
             if defkey not in raft_args:
@@ -126,7 +130,7 @@ class RedisRaft(object):
 
         self.client = redis.Redis(host='localhost', port=self.port,
                                   password=password,
-                                  ssl=config.tls,
+                                  ssl=config.tls_mode != 'None',
                                   ssl_certfile=client_cert,
                                   ssl_keyfile=client_key,
                                   ssl_ca_certs=client_cacert)
