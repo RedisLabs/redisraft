@@ -281,7 +281,9 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
     }
 
     if (HashSlotCompute(rr, cmds, &slot) != RR_OK) {
-        replyCrossSlot(ctx);
+        if (ctx) {
+            replyCrossSlot(ctx);
+        }
         return RR_ERROR;
     }
 

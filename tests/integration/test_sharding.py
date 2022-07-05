@@ -72,6 +72,9 @@ def test_cross_slot_violation(cluster):
     with raises(ResponseError, match='CROSSSLOT'):
         txn.execute()
 
+    # Wait followers just to be sure crossslot command does not cause a problem.
+    cluster.wait_for_unanimity()
+
 
 def test_shard_group_sanity(cluster):
     # Create a cluster with just a single slot
