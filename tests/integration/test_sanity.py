@@ -429,3 +429,21 @@ def test_tls_reconfig(cluster):
     commit_idx = cluster.leader_node().commit_index()
     cluster.node(3).wait_for_commit_index(commit_idx, gt_ok=True)
     cluster.node(3).wait_for_log_applied()
+
+
+def test_appendentries_size_limit(cluster):
+    """
+    Test appendentries message max size limit.
+    """
+    cluster.create(1)
+
+    for i in range(10000):
+        cluster.execute('set', 'x', 1)
+
+    cluster.node(1).execute('config', 'set', 'raft.append-req-max-size', '1kb')
+
+    n2 = cluster.add_node()
+    cluster.wait_for_unanimity()
+
+    # Verify n2 received multiple appendreq messages rather than just 1
+    assert n2.info()['raft_appendreq_with_entry_received'] > 10
