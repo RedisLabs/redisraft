@@ -10,6 +10,8 @@
 #ifndef RAFT_H_
 #define RAFT_H_
 
+#include <stddef.h>
+
 #include "raft_types.h"
 
 typedef enum {

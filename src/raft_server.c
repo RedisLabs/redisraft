@@ -645,7 +645,11 @@ int raft_periodic_internal(raft_server_t *me,
             return e;
     }
 
-    return raft_exec_operations(me);
+    if (me->auto_flush) {
+        return raft_exec_operations(me);
+    }
+
+    return 0;
 }
 
 raft_entry_t* raft_get_entry_from_idx(raft_server_t* me, raft_index_t etyidx)
@@ -2230,8 +2234,11 @@ int raft_pending_operations(raft_server_t *me)
 
 int raft_exec_operations(raft_server_t *me)
 {
+    /* Operations should take less than `request-timeout`. If we block here more
+     * than request-timeout, it means this server won't generate responses on
+     * time for the existing requests. */
+    me->exec_deadline = raft_time_millis(me) + (me->request_timeout / 2);
     me->pending_operations = 0;
-    me->exec_deadline = raft_time_millis(me) + me->request_timeout;
 
     int e = raft_apply_all(me);
     if (e != 0) {
