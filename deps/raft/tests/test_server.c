@@ -4776,10 +4776,12 @@ void TestRaft_recv_appendentries_does_not_change_next_idx(CuTest *tc)
     CuAssertIntEquals(tc, 21, raft_node_get_next_msgid(node));
 }
 
+#define OPERATION_DURATION 10000 /* milliseconds */
+
 raft_time_t timestamp(raft_server_t *raft, void *user_data)
 {
     raft_time_t *time = user_data;
-    *time += 10000;
+    *time += OPERATION_DURATION;
     return *time;
 }
 
@@ -4800,9 +4802,21 @@ void TestRaft_apply_entry_timeout(CuTest *tc)
     __RAFT_APPEND_ENTRIES_SEQ_ID(r, 21, 0, 1, "");
     raft_set_commit_idx(r, 21);
 
+    /* Each execution iteration will apply 5 entries as we throttle when we
+     * reach 'RAFT_CONFIG_REQUEST_TIMEOUT / 2'.
+     * So, each iteration is '100 / 2 = 50 milliseconds'.
+     * Each operation is 10 milliseconds. */
+    raft_exec_operations(r);
+    CuAssertIntEquals(tc, 1, raft_pending_operations(r));
+    CuAssertIntEquals(tc, 5, raft_get_last_applied_idx(r));
+
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 1, raft_pending_operations(r));
     CuAssertIntEquals(tc, 10, raft_get_last_applied_idx(r));
+
+    raft_exec_operations(r);
+    CuAssertIntEquals(tc, 1, raft_pending_operations(r));
+    CuAssertIntEquals(tc, 15, raft_get_last_applied_idx(r));
 
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 1, raft_pending_operations(r));
@@ -4845,9 +4859,21 @@ void TestRaft_apply_read_request_timeout(CuTest *tc)
         raft_recv_read_request(r, read_request, &remaining);
     }
 
+    /* Each execution iteration will execute 5 operations as we throttle when we
+     * reach 'RAFT_CONFIG_REQUEST_TIMEOUT / 2'.
+     * So, each iteration is '100 / 2 = 50 milliseconds'.
+     * Each operation is 10 milliseconds. */
+    raft_exec_operations(r);
+    CuAssertIntEquals(tc, 1, raft_pending_operations(r));
+    CuAssertIntEquals(tc, 15, remaining);
+
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 1, raft_pending_operations(r));
     CuAssertIntEquals(tc, 10, remaining);
+
+    raft_exec_operations(r);
+    CuAssertIntEquals(tc, 1, raft_pending_operations(r));
+    CuAssertIntEquals(tc, 5, remaining);
 
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 0, raft_pending_operations(r));
