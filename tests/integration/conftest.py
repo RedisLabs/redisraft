@@ -41,6 +41,9 @@ def pytest_addoption(parser):
     parser.addoption(
         '--tls-mode', default='None',
         help='TLS mode [None|File|Dir|Both]')
+    parser.addoption(
+        '--tls-build', default=False, action='store_true',
+        help='indicates TLS build')
 
 
 def create_config(pytest_config):
@@ -56,6 +59,7 @@ def create_config(pytest_config):
     config.keepfiles = pytest_config.getoption('--keep-files')
     config.fsync = pytest_config.getoption('--fsync')
     config.tls_mode = pytest_config.getoption('--tls-mode')
+    config.tls_build = pytest_config.getoption('--tls-build')
 
     if pytest_config.getoption('--valgrind'):
         if config.args is None:

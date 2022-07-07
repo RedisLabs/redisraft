@@ -57,7 +57,7 @@ def test_config_sanity(cluster):
     verify('raft.trace', 'node conn')
 
 
-@pytest.mark.skipif("config.getoption('tls_mode') != 'None'")
+@pytest.mark.skipif("config.getoption('tls_build')")
 def test_config_tls_enabled_without_tls_build(cluster):
     """
     Enabling tls returns error if RedisRaft was built without TLS support
@@ -72,7 +72,7 @@ def test_config_tls_enabled_without_tls_build(cluster):
         r1.config_set('raft.tls-enabled', 'yes')
 
 
-@pytest.mark.skipif("config.getoption('tls_mode') == 'None'")
+@pytest.mark.skipif("not config.getoption('tls_build')")
 def test_config_tls_enabled_with_tls_build(cluster):
     """
     Enabling/disabling tls returns ok if RedisRaft was built with TLS support

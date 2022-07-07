@@ -155,7 +155,8 @@ jobs:
     runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'macos')
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && 
+      !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     strategy:
       matrix:
@@ -175,7 +176,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls-mode=${{ matrix.tls_mode }} -v"
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls-mode=${{ matrix.tls_mode }} --tls-build -v"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -210,7 +211,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls-mode=${{ matrix.tls_mode }} -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls-mode=${{ matrix.tls_mode }} --tls-build -v" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
