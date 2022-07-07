@@ -28,3 +28,5 @@ utils/create-cluster/*.db.idx
 venv
 buildinfo.h
 build/*
+jepsen/docker/store/*
+tests/tls/*
