@@ -5,7 +5,7 @@ RedisRaft's TLS support mirrors Redis's native TLS support.
 One runs the underlying redis server in the same manner that one would run a redis server with TLS
 
 ```
-redis-server --tls-port <por> --port 0 --tls-cert-file <file> --tls-key-file <file> --tls-ca-cert-file <file> | --tls-ca-cert-dir <dir> 
+redis-server --tls-port <por> --port 0 --tls-cert-file <file> --tls-key-file <file> --tls-ca-cert-file <file> --tls-ca-cert-dir <dir> 
 ```
 
 In addition, one has to pass the `tls-enabled yes` option to the redisraft module

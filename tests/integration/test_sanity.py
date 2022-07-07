@@ -109,7 +109,7 @@ def test_reelection_basic_flow(cluster):
     assert cluster.execute('set', 'key2', 'value')
 
 
-@pytest.mark.skipif("config.getoption('tls_mode') != 'None'")
+@pytest.mark.skipif("config.getoption('tls')")
 def test_resp3(cluster):
     cluster.create(3)
 
@@ -413,7 +413,7 @@ def test_rolled_back_read_only_multi_reply(cluster):
 
 
 def test_tls_reconfig(cluster):
-    if cluster.config.tls_mode == 'None':
+    if not cluster.config.tls:
         return
 
     cluster.create(3)
@@ -429,3 +429,24 @@ def test_tls_reconfig(cluster):
     commit_idx = cluster.leader_node().commit_index()
     cluster.node(3).wait_for_commit_index(commit_idx, gt_ok=True)
     cluster.node(3).wait_for_log_applied()
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_dir(cluster):
+    cluster.create(3, tls_ca_cert_location='dir')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_file(cluster):
+    cluster.create(3, tls_ca_cert_location='file')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_file(cluster):
+    cluster.create(3, tls_ca_cert_location='both')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'

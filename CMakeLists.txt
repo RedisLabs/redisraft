@@ -12,7 +12,7 @@
 #        mkdir build && cd build && cmake .. -DSANITIZER=address
 #        make && make tests
 # TLS:
-#        mkdir build && cd build && cmake .. -DBUILD_TLS=1 -DPYTEST_OPTS="--tls-mode=[None|File|Dir|Both] --tls-build -v"
+#        mkdir build && cd build && cmake .. -DBUILD_TLS=1 -DPYTEST_OPTS="--tls -v"
 #        make && make tests
 
 cmake_policy(SET CMP0048 NEW)

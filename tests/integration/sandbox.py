@@ -56,7 +56,7 @@ class PipeLogger(threading.Thread):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
-                 use_id_arg=True, cluster_id=0, password=None):
+                 use_id_arg=True, cluster_id=0, password=None, tls_ca_cert_location=None):
         self.id = _id
         self.cluster_id = cluster_id
         self.guid = str(uuid.uuid4())
@@ -73,7 +73,7 @@ class RedisRaft(object):
         self.keepfiles = config.keepfiles
         self.args = config.args.copy() if config.args else []
 
-        self.args += ['--port', str(0) if config.tls_mode != 'None' else str(port),
+        self.args += ['--port', str(0) if config.tls else str(port),
                       '--bind', '0.0.0.0',
                       '--dir', self.serverdir,
                       '--dbfilename', self._dbfilename,
@@ -86,10 +86,11 @@ class RedisRaft(object):
         self.cert = os.getcwd() + '/tests/tls/redis.crt'
         self.key = os.getcwd() + '/tests/tls/redis.key'
 
-        if config.tls_mode != 'None':
-            if config.tls_mode == 'Dir' or config.tls_mode == 'Both':
+        if config.tls:
+            if tls_ca_cert_location == 'dir' or tls_ca_cert_location == 'both':
                 self.args += ['--tls-ca-cert-dir', self.cacert_dir]
-            if config.tls_mode == 'File' or config.tls_mode == 'Both':
+            # default behaviour - only file configuration
+            if not tls_ca_cert_location or tls_ca_cert_location == 'file' or tls_ca_cert_location == 'both':
                 self.args += ['--tls-ca-cert-file', self.cacert]
             self.args += ['--tls-port', str(port),
                           '--tls-cert-file', self.cert,
@@ -114,7 +115,7 @@ class RedisRaft(object):
                         'log-filename': self._raftlog,
                         'log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel,
-                        'tls-enabled': 'yes' if config.tls_mode != 'None' else 'no'}
+                        'tls-enabled': 'yes' if config.tls else 'no'}
 
         for defkey, defval in default_args.items():
             if defkey not in raft_args:
@@ -130,7 +131,7 @@ class RedisRaft(object):
 
         self.client = redis.Redis(host='localhost', port=self.port,
                                   password=password,
-                                  ssl=config.tls_mode != 'None',
+                                  ssl=config.tls,
                                   ssl_certfile=client_cert,
                                   ssl_keyfile=client_key,
                                   ssl_ca_certs=client_cacert)
@@ -503,7 +504,7 @@ class Cluster(object):
         return [n.address for n in self.nodes.values()]
 
     def create(self, node_count, raft_args=None, cluster_id=None, password=None,
-               prepopulate_log=0):
+               prepopulate_log=0, tls_ca_cert_location=None):
         if raft_args is None:
             raft_args = {}
         self.raft_args = raft_args.copy()
@@ -512,7 +513,8 @@ class Cluster(object):
                                    config=self.config,
                                    raft_args=raft_args,
                                    cluster_id=self.cluster_id,
-                                   password=password)
+                                   password=password,
+                                   tls_ca_cert_location=tls_ca_cert_location)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():
@@ -541,7 +543,7 @@ class Cluster(object):
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
                  node_id=None, use_cluster_args=False, single_run=False,
-                 join_addr_list=None, redis_args=None, **kwargs):
+                 join_addr_list=None, redis_args=None, tls_ca_cert_location=None,**kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -552,7 +554,7 @@ class Cluster(object):
         node = None
         try:
             node = RedisRaft(_id, port, self.config, redis_args,
-                             raft_args=_raft_args, **kwargs)
+                             raft_args=_raft_args, tls_ca_cert_location=tls_ca_cert_location, **kwargs)
             if cluster_setup:
                 if self.nodes:
                     if join_addr_list is None:
