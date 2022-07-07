@@ -446,7 +446,7 @@ def test_tls_ca_cert_file(cluster):
 
 
 @pytest.mark.skipif("not config.getoption('tls')")
-def test_tls_ca_cert_file(cluster):
+def test_tls_ca_cert_both(cluster):
     cluster.create(3, tls_ca_cert_location='both')
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
