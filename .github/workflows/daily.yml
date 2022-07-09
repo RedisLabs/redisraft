@@ -155,7 +155,8 @@ jobs:
     runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'macos')
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && 
+      !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
       - name: prep

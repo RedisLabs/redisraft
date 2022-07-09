@@ -67,3 +67,5 @@ generate_cert "$DIR" server "Server-only" "-extfile ${DIR}/openssl.cnf -extensio
 generate_cert "$DIR" redis "Generic-cert" "" true
 
 [ -f $DIR/redis.dh ] || openssl dhparam -out $DIR/redis.dh 2048
+
+c_rehash ${DIR}

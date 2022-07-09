@@ -431,6 +431,27 @@ def test_tls_reconfig(cluster):
     cluster.node(3).wait_for_log_applied()
 
 
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_dir(cluster):
+    cluster.create(3, tls_ca_cert_location='dir')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_file(cluster):
+    cluster.create(3, tls_ca_cert_location='file')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+
+@pytest.mark.skipif("not config.getoption('tls')")
+def test_tls_ca_cert_both(cluster):
+    cluster.create(3, tls_ca_cert_location='both')
+    assert cluster.execute('set', 'key', 'value')
+    assert cluster.execute('get', 'key') == b'value'
+
+
 def test_appendentries_size_limit(cluster):
     """
     Test appendentries message max size limit.
