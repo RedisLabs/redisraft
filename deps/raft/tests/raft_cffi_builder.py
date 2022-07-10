@@ -1,14 +1,25 @@
 import argparse
+import os
 import subprocess
 import cffi
 
+
 def load(fname):
-    return '\n'.join(
-        [line for line in subprocess.check_output(
-            ["gcc", "-E", fname]).decode('utf-8').split('\n')])
+    tmpfile = 'tests/raft_cffi_tmp.h'
+    # Strip C standard library headers as cffi cannot parse them
+    with open(fname, "r") as f:
+        lines = f.readlines()
+    with open(tmpfile, "w+") as f:
+        for line in lines:
+            if '#include <std' not in line:
+                f.write(line)
+
+    output = subprocess.check_output(["gcc", "-Iinclude/", "-E", tmpfile])
+    os.unlink(tmpfile)
+    return '\n'.join([line for line in output.decode('utf-8').split('\n')])
+
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--libdir', type=str, default='.')
     parser.add_argument('--libname', type=str, default='raft')
@@ -48,8 +59,7 @@ if __name__ == '__main__':
         include_dirs=[args.includedir],
         extra_compile_args=["-UNDEBUG"],
         extra_link_args=["-L{}".format(args.libdir)]
-        )
-
+    )
 
     ffibuilder.cdef('void *malloc(size_t __size);')
     ffibuilder.cdef(load('include/raft.h'))

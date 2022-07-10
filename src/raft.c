@@ -1806,10 +1806,6 @@ void handleBeforeSleep(RedisRaftCtx *rr)
         return;
     }
 
-    if (!raft_is_leader(rr->raft)) {
-        return;
-    }
-
     raft_index_t next = raft_get_index_to_sync(rr->raft);
     if (next > 0) {
         fflush(rr->log->file);
