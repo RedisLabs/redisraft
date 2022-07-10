@@ -70,6 +70,27 @@ def test_snapshot_delivery(cluster):
     assert n3.raft_debug_exec('GET', 'testkey') == b'5'
 
 
+def test_snapshot_delivery_in_chunks(cluster):
+    """
+    Ability to properly deliver snapshot in chunks.
+    """
+
+    r1 = cluster.add_node()
+    r1.config_set('raft.snapshot-req-max-size', 128)
+
+    for i in range(2000):
+        r1.execute('set', i, i)
+
+    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert r1.info()['raft_log_entries'] == 0
+
+    r2 = cluster.add_node()
+    cluster.wait_for_unanimity()
+
+    # r2 should receive many chunks as max size is quite low.
+    assert r2.info()['raft_snapshotreq_received'] > 100
+
+
 def test_log_fixup_after_snapshot_delivery(cluster):
     """
     Log must be restarted when loading a snapshot.

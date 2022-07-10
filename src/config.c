@@ -69,6 +69,8 @@ static const char *conf_ignored_commands           = "ignored-commands";
 static const char *conf_external_sharding          = "external-sharding";
 static const char *conf_append_req_max_count       = "append-req-max-count";
 static const char *conf_append_req_max_size        = "append-req-max-size";
+static const char *conf_snapshot_req_max_count     = "snapshot-req-max-count";
+static const char *conf_snapshot_req_max_size      = "snapshot-req-max-size";
 static const char *conf_scan_size                  = "scan-size";
 static const char *conf_tls_enabled                = "tls-enabled";
 static const char *conf_cluster_user               = "cluster-user";
@@ -546,6 +548,10 @@ static long long getNumeric(const char *name, void *privdata)
         return c->append_req_max_count;
     } else if (strcasecmp(name, conf_append_req_max_size) == 0) {
         return c->append_req_max_size;
+    } else if (strcasecmp(name, conf_snapshot_req_max_count) == 0) {
+        return c->snapshot_req_max_count;
+    } else if (strcasecmp(name, conf_snapshot_req_max_size) == 0) {
+        return c->snapshot_req_max_size;
     } else if (strcasecmp(name, conf_scan_size) == 0) {
         return c->scan_size;
     }
@@ -615,6 +621,10 @@ static int setNumeric(const char *name, long long val, void *priv,
         c->append_req_max_count = val;
     } else if (strcasecmp(name, conf_append_req_max_size) == 0) {
         c->append_req_max_size = val;
+    } else if (strcasecmp(name, conf_snapshot_req_max_count) == 0) {
+        c->snapshot_req_max_count = val;
+    } else if (strcasecmp(name, conf_snapshot_req_max_size) == 0) {
+        c->snapshot_req_max_size = val;
     } else if (strcasecmp(name, conf_scan_size) == 0) {
         c->scan_size = val;
     } else {
@@ -721,6 +731,8 @@ RRStatus ConfigInit(RedisRaftConfig *c, RedisModuleCtx *ctx)
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_shardgroup_update_interval, 5000,             REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_append_req_max_count,       2,                REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_append_req_max_size,        2097152,          REDISMODULE_CONFIG_MEMORY,    1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_snapshot_req_max_count,     32,               REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_snapshot_req_max_size,      65536,            REDISMODULE_CONFIG_MEMORY,    1, INT_MAX,   getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_cache_size,         64000000,         REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_file_size,          128000000,        REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_scan_size,                  1000,             REDISMODULE_CONFIG_DEFAULT,   1, LLONG_MAX, getNumeric, setNumeric, NULL, c);
