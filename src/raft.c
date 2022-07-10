@@ -1782,16 +1782,16 @@ void handleFsyncCompleted(void *result)
     RedisRaftCtx *rr = &redis_raft;
 
     rr->log->fsync_count++;
+    rr->log->fsync_index = rs->fsync_index;
     rr->log->fsync_total += rs->time;
     rr->log->fsync_max = MAX(rs->time, rr->log->fsync_max);
 
-    int e = raft_flush(rr->raft, rs->fsync_index);
-    if (e == RAFT_ERR_SHUTDOWN) {
-        shutdownAfterRemoval(rr);
-    }
-    RedisModule_Assert(e == 0);
-
     RedisModule_Free(rs);
+}
+
+static void noopCallback(void *result)
+{
+    (void) result;
 }
 
 /* Redis thread callback, called just before Redis main thread goes to sleep,
@@ -1800,12 +1800,11 @@ void handleFsyncCompleted(void *result)
  * entries and check for committing/applying new entries. */
 void handleBeforeSleep(RedisRaftCtx *rr)
 {
-    raft_index_t flushed = 0;
-
     if (rr->state != REDIS_RAFT_UP) {
         return;
     }
 
+    raft_index_t flushed = rr->log->fsync_index;
     raft_index_t next = raft_get_index_to_sync(rr->raft);
     if (next > 0) {
         fflush(rr->log->file);
@@ -1824,4 +1823,13 @@ void handleBeforeSleep(RedisRaftCtx *rr)
         shutdownAfterRemoval(rr);
     }
     RedisModule_Assert(e == 0);
+
+    if (raft_pending_operations(rr->raft)) {
+      /* If there are pending operations, we need to call raft_flush() again.
+       * We'll do it in the next iteration as we want to process messages
+       * from the network first. Here, we just wake up the event loop.
+       * In the next iteration, beforeSleep() callback will be called again. */
+      rr->exec_throttled++;
+      RedisModule_EventLoopAddOneShot(noopCallback, NULL);
+    }
 }
