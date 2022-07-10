@@ -30,7 +30,8 @@ def test_config_sanity(cluster):
     verify('raft.proxy-response-timeout', 999)
     verify('raft.reconnect-interval', 999)
     verify('raft.shardgroup-update-interval', 999)
-    verify('raft.max-append-req-in-flight', 999)
+    verify('raft.append-req-max-count', 999)
+    verify('raft.append-req-max-size', 999)
     verify('raft.log-max-cache-size', 999)
     verify('raft.log-max-file-size', 999)
     verify('raft.scan-size', 999)
@@ -138,7 +139,8 @@ def test_config_args(cluster):
                  'proxy-response-timeout':     8007,
                  'reconnect-interval':         8008,
                  'shardgroup-update-interval': 8009,
-                 'max-append-req-in-flight':   8010,
+                 'append-req-max-count':       8010,
+                 'append-req-max-size':        8099,
                  'log-max-cache-size':         8011,
                  'log-max-file-size':          8012,
                  'scan-size':                  8013,
@@ -193,8 +195,10 @@ def test_invalid_configs(cluster):
     verify_failure('raft.reconnect-interval', -1)
     verify_failure('raft.shardgroup-update-interval', 0)
     verify_failure('raft.shardgroup-update-interval', -1)
-    verify_failure('raft.max-append-req-in-flight', 0)
-    verify_failure('raft.max-append-req-in-flight', -1)
+    verify_failure('raft.append-req-max-count', 0)
+    verify_failure('raft.append-req-max-count', -1)
+    verify_failure('raft.append-req-max-size', 0)
+    verify_failure('raft.append-req-max-size', -1)
     verify_failure('raft.log-max-cache-size', -1)
     verify_failure('raft.log-max-file-size', -1)
     verify_failure('raft.scan-size', -1)

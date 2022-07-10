@@ -337,7 +337,8 @@ typedef struct RedisRaftConfig {
     int reconnect_interval;             /* Milliseconds to wait to reconnect to a node if connection drops */
     int proxy_response_timeout;         /* Milliseconds to wait for a response to a proxy request */
     int response_timeout;               /* Milliseconds to wait for a response to a Raft message */
-    int max_appendentries_inflight;     /* Max appendreq count in flight between nodes. */
+    long long append_req_max_count;     /* Max in-flight appendreq message count between two nodes. */
+    long long append_req_max_size;      /* Max appendreq message size in bytes. Just an approximation. */
     long long scan_size;                /* how many keys to fetch at a time internally for raft.scan */
 
     /* Cache and file compaction */
@@ -401,6 +402,9 @@ typedef struct RedisRaftCtx {
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
     unsigned long snapshots_loaded;              /* Number of snapshots loaded */
     unsigned long snapshots_created;             /* Number of snapshots created */
+    unsigned long appendreq_received;            /* Number of received appendreq messages */
+    unsigned long appendreq_with_entry_received; /* Number of received appendreq messages with at least one entry in them */
+
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
     RedisModuleDict *locked_keys;                /* keys thar have been locked for migration */

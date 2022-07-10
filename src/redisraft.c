@@ -901,6 +901,9 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         msg.entries[i] = e;
     }
 
+    rr->appendreq_received++;
+    rr->appendreq_with_entry_received += (msg.n_entries > 0) ? 1 : 0;
+
     raft_appendentries_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, src_node_id);
 
@@ -1756,6 +1759,10 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_reqs", rr->proxy_failed_reqs);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_failed_responses", rr->proxy_failed_responses);
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_outstanding_reqs", rr->proxy_outstanding_reqs);
+
+    RedisModule_InfoAddSection(ctx, "stats");
+    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", rr->appendreq_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)

@@ -450,3 +450,21 @@ def test_tls_ca_cert_both(cluster):
     cluster.create(3, tls_ca_cert_location='both')
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
+
+
+def test_appendentries_size_limit(cluster):
+    """
+    Test appendentries message max size limit.
+    """
+    cluster.create(1)
+
+    for i in range(10000):
+        cluster.execute('set', 'x', 1)
+
+    cluster.node(1).execute('config', 'set', 'raft.append-req-max-size', '1kb')
+
+    n2 = cluster.add_node()
+    cluster.wait_for_unanimity()
+
+    # Verify n2 received multiple appendreq messages rather than just 1
+    assert n2.info()['raft_appendreq_with_entry_received'] > 10
