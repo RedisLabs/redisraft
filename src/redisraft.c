@@ -850,7 +850,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
 
     long long n_entries;
-    if (RedisModule_StringToLongLong(argv[4], &n_entries) != REDIS_OK) {
+    if (RedisModule_StringToLongLong(argv[4], &n_entries) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "invalid n_entries value");
         return REDISMODULE_OK;
     }
