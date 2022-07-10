@@ -385,7 +385,6 @@ typedef struct RedisRaftCtx {
     RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
-    RedisModuleCommandFilter *cmd_filter;        /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;               /* A dict that tracks different client states */
 

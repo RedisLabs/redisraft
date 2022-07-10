@@ -1881,15 +1881,14 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     /* Create a logging context */
     redisraft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+
     RedisModule_RegisterInfoFunc(ctx, handleInfo);
+    RedisModule_RegisterCommandFilter(ctx, interceptRedisCommands, 0);
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to register commands");
         return REDISMODULE_ERR;
     }
-
-    redis_raft.cmd_filter = RedisModule_RegisterCommandFilter(ctx,
-        interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientEvent) != REDISMODULE_OK) {
@@ -1914,8 +1913,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     if (RedisRaftInit(rr, ctx) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
-
-    rr->cmd_filter = RedisModule_RegisterCommandFilter(ctx, interceptRedisCommands, 0);
 
     LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
 
