@@ -998,6 +998,8 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     raft_snapshot_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) src_node_id);
 
+    rr->snapshotreq_received++;
+
     if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {
         RedisModule_ReplyWithError(ctx, "ERR operation failed");
         return REDISMODULE_OK;
@@ -1763,6 +1765,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddSection(ctx, "stats");
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", rr->appendreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", rr->snapshotreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
 }
 

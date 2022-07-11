@@ -86,16 +86,20 @@ int raftGetSnapshotChunk(raft_server_t* raft, void *user_data,
                          raft_node_t* raft_node, unsigned long long offset,
                          raft_snapshot_chunk_t* chunk)
 {
-    const unsigned int MAX_CHUNK_SIZE = 32 * 1024;
+
     RedisRaftCtx *rr = user_data;
     Node *node = raft_node_get_udata(raft_node);
 
-    /* To apply some backpressure, we allow maximum 32 messages on the fly */
-    if (node->pending_raft_response_num >= 32 || !ConnIsConnected(node->conn)) {
+    /* To apply some backpressure, we limit max message count on the fly */
+    if (!ConnIsConnected(node->conn) ||
+        node->pending_raft_response_num >= rr->config.snapshot_req_max_count) {
         return RAFT_ERR_DONE;
     }
 
-    chunk->len = MIN(MAX_CHUNK_SIZE, rr->outgoing_snapshot_file.len - offset);
+    const raft_size_t max_chunk_size = rr->config.snapshot_req_max_size;
+    const raft_size_t remaining_bytes = rr->outgoing_snapshot_file.len - offset;
+
+    chunk->len = MIN(max_chunk_size, remaining_bytes);
     if (chunk->len == 0) {
         /* All chunks are sent */
         return RAFT_ERR_DONE;
