@@ -221,7 +221,7 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
         RedisModuleString *name_str = RedisModule_CreateStringFromCallReply(name);
         CommandSpec *cs = getOrCreateCommandSpec(name_str, true);
         RedisModule_Assert(cs != NULL);
-        RedisModule_Free(name_str);
+        RedisModule_FreeString(NULL, name_str);
 
         cs->flags |= cmdspec_flags;
     }
