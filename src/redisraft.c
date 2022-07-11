@@ -1763,6 +1763,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddSection(ctx, "stats");
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", rr->appendreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)

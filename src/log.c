@@ -560,6 +560,7 @@ RRStatus RaftLogSync(RaftLog *log, bool sync)
     log->fsync_count++;
     log->fsync_total += took;
     log->fsync_max = MAX(took, log->fsync_max);
+    log->fsync_index = log->index;
 
     return RR_OK;
 }
