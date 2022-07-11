@@ -15,15 +15,18 @@ int redis_raft_in_rm_call = 0;
 
 const char *getStateStr(RedisRaftCtx *rr)
 {
-    static const char *state_str[] = { "uninitialized", "up", "loading", "joining" };
-    static const char *invalid = "<invalid>";
-
-    if (rr->state < REDIS_RAFT_UNINITIALIZED ||
-        rr->state > REDIS_RAFT_JOINING) {
-            return invalid;
+    switch (rr->state) {
+        case REDIS_RAFT_UNINITIALIZED:
+            return "uninitialized";
+        case REDIS_RAFT_UP:
+            return "up";
+        case REDIS_RAFT_LOADING:
+            return "loading";
+        case REDIS_RAFT_JOINING:
+            return "joining";
+        default:
+            return "<invalid>";
     }
-
-    return state_str[rr->state];
 }
 
 /* Convert a Raft library error code to an error reply.

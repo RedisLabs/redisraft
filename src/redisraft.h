@@ -387,7 +387,6 @@ typedef struct RedisRaftCtx {
     RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
     struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
     struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
-    RedisModuleCommandFilter *cmd_filter;        /* Command filter is used for intercepting redis commands */
     struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;               /* A dict that tracks different client states */
 
@@ -407,6 +406,8 @@ typedef struct RedisRaftCtx {
     unsigned long appendreq_received;            /* Number of received appendreq messages */
     unsigned long appendreq_with_entry_received; /* Number of received appendreq messages with at least one entry in them */
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
+    unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
+
 
     char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;                            /* handling a lua script */
@@ -648,6 +649,7 @@ typedef struct RaftLog {
     FILE                *file;
     FILE                *idxfile;
     off_t               idxoffset;              /* Index file position */
+    raft_index_t        fsync_index;            /* Last entry index included in the latest fsync() call */
     uint64_t            fsync_count;            /* Count of fsync() calls */
     uint64_t            fsync_max;              /* Slowest fsync() call in microseconds */
     uint64_t            fsync_total;            /* Total time fsync() calls consumed in microseconds */

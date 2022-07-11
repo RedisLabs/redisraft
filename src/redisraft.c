@@ -850,7 +850,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
 
     long long n_entries;
-    if (RedisModule_StringToLongLong(argv[4], &n_entries) != REDIS_OK) {
+    if (RedisModule_StringToLongLong(argv[4], &n_entries) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "invalid n_entries value");
         return REDISMODULE_OK;
     }
@@ -1766,6 +1766,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", rr->appendreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", rr->snapshotreq_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
@@ -1884,15 +1885,14 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     /* Create a logging context */
     redisraft_log_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+
     RedisModule_RegisterInfoFunc(ctx, handleInfo);
+    RedisModule_RegisterCommandFilter(ctx, interceptRedisCommands, 0);
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to register commands");
         return REDISMODULE_ERR;
     }
-
-    redis_raft.cmd_filter = RedisModule_RegisterCommandFilter(ctx,
-        interceptRedisCommands, 0);
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                 handleClientEvent) != REDISMODULE_OK) {
@@ -1917,8 +1917,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     if (RedisRaftInit(rr, ctx) == RR_ERROR) {
         return REDISMODULE_ERR;
     }
-
-    rr->cmd_filter = RedisModule_RegisterCommandFilter(ctx, interceptRedisCommands, 0);
 
     LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
 

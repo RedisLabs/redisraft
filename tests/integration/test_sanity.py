@@ -468,3 +468,36 @@ def test_appendentries_size_limit(cluster):
 
     # Verify n2 received multiple appendreq messages rather than just 1
     assert n2.info()['raft_appendreq_with_entry_received'] > 10
+
+
+def test_throttle_applying_entries(cluster):
+    """
+    Test slow running operations will not cause timeouts and new elections.
+    """
+    cluster.create(2)
+
+    # Create some entries.
+    for i in range(60):
+        cluster.execute('set', 'key', 'value')
+
+    # Restart nodes with delay_apply config.
+    cluster.terminate()
+    cluster.node(1).start()
+    cluster.node(1).execute('raft.debug', 'delay_apply', 100000)
+    cluster.node(1).pause()
+
+    cluster.node(2).start()
+    cluster.node(2).execute('raft.debug', 'delay_apply', 100000)
+
+    # Resume node-1, so, nodes will elect a leader and start applying entries.
+    cluster.node(1).resume()
+
+    cluster.node(1).wait_for_election()
+    term = cluster.node(1).info()['raft_current_term']
+    cluster.wait_for_unanimity()
+
+    # Term should stay same as we expect no election will occur.
+    assert cluster.node(1).info()['raft_current_term'] == term
+
+    assert cluster.node(1).info()['raft_exec_throttled'] > 0
+    assert cluster.node(2).info()['raft_exec_throttled'] > 0
