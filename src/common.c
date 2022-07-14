@@ -6,10 +6,10 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include "redisraft.h"
+
 #include <string.h>
 #include <strings.h>
-
-#include "redisraft.h"
 
 int redis_raft_in_rm_call = 0;
 
@@ -204,7 +204,6 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
             break;
     }
     return RR_OK;
-
 }
 
 /* Parse a -MOVED reply and update the returned address in addr.
@@ -304,5 +303,5 @@ void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node)
  */
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
-    snprintf(output, RAFT_SHARDGROUP_NODEID_LEN+1, "%.32s%08x", dbid, raft_id);
+    snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
 }

@@ -1,7 +1,8 @@
 #include "redisraft.h"
+
+#include <errno.h>
 #include <pthread.h>
 #include <string.h>
-#include <errno.h>
 
 /* Add fsync task. requested_index should be the latest entry index in the file.
  * This index will be reported on `on_complete` callback.
@@ -38,7 +39,7 @@ void fsyncThreadWaitUntilCompleted(FsyncThread *th)
     pthread_mutex_unlock(&th->mtx);
 }
 
-static void* fsyncLoop(void *arg)
+static void *fsyncLoop(void *arg)
 {
     int rc, fd;
     raft_index_t request_idx;
@@ -98,9 +99,9 @@ void fsyncThreadStart(FsyncThread *th, void (*on_complete)(void *result))
     int rc;
     pthread_attr_t attr;
 
-    *th = (FsyncThread) {
+    *th = (FsyncThread){
         .mtx = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER,
-        .on_complete = on_complete
+        .on_complete = on_complete,
     };
 
     rc = pthread_cond_init(&th->cond, NULL);

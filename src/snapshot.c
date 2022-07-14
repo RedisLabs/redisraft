@@ -6,15 +6,15 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
-#include <stdlib.h>
+#include "entrycache.h"
+#include "redisraft.h"
+
 #include <assert.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-
-#include "redisraft.h"
-#include "entrycache.h"
 
 /* These are ugly hacks to work around missing Redis Module API calls!
  *
@@ -71,7 +71,7 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
         PANIC("stat failed: %s \n", strerror(errno));
     }
 
-    void* p = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+    void *p = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
     if (p == MAP_FAILED) {
         PANIC("mmap failed: %s \n", strerror(errno));
     }
@@ -82,9 +82,9 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
     ctx->outgoing_snapshot_file.len = st.st_size;
 }
 
-int raftGetSnapshotChunk(raft_server_t* raft, void *user_data,
-                         raft_node_t* raft_node, unsigned long long offset,
-                         raft_snapshot_chunk_t* chunk)
+int raftGetSnapshotChunk(raft_server_t *raft, void *user_data,
+                         raft_node_t *raft_node, unsigned long long offset,
+                         raft_snapshot_chunk_t *chunk)
 {
 
     RedisRaftCtx *rr = user_data;
@@ -105,19 +105,18 @@ int raftGetSnapshotChunk(raft_server_t* raft, void *user_data,
         return RAFT_ERR_DONE;
     }
 
-    chunk->data = (char*) rr->outgoing_snapshot_file.mmap + offset;
+    chunk->data = (char *) rr->outgoing_snapshot_file.mmap + offset;
     chunk->last_chunk = (offset + chunk->len == rr->outgoing_snapshot_file.len);
 
     return 0;
 }
 
-int raftStoreSnapshotChunk(raft_server_t* raft, void *user_data,
+int raftStoreSnapshotChunk(raft_server_t *raft, void *user_data,
                            raft_index_t snapshot_index,
                            raft_size_t offset,
-                           raft_snapshot_chunk_t* chunk)
+                           raft_snapshot_chunk_t *chunk)
 {
     RedisRaftCtx *rr = user_data;
-
 
     if (offset == 0) {
         rr->incoming_snapshot_idx = snapshot_index;
@@ -160,7 +159,7 @@ int raftStoreSnapshotChunk(raft_server_t* raft, void *user_data,
     return 0;
 }
 
-int raftClearSnapshot(raft_server_t* raft, void *user_data)
+int raftClearSnapshot(raft_server_t *raft, void *user_data)
 {
     RedisRaftCtx *rr = user_data;
 
@@ -233,7 +232,6 @@ static void freeNodeIdEntryList(NodeIdEntry *head)
     }
 }
 
-
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
@@ -257,7 +255,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     char temp_log_filename[256];
     snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
-        rr->config.log_filename);
+             rr->config.log_filename);
 
     assert(rr->snapshot_in_progress);
 
@@ -267,7 +265,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * log file.
      */
     num_log_entries = RaftLogRewrite(rr, temp_log_filename,
-        rr->last_snapshot_idx, rr->last_snapshot_term);
+                                     rr->last_snapshot_idx,
+                                     rr->last_snapshot_term);
 
     new_log = RaftLogOpen(temp_log_filename, &rr->config, RAFTLOG_KEEP_INDEX);
     if (!new_log) {
@@ -277,7 +276,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     }
 
     LOG_VERBOSE("Log rewrite complete, %lu entries rewritten (from idx %lu).",
-            num_log_entries, raft_get_snapshot_last_idx(rr->raft));
+                num_log_entries, raft_get_snapshot_last_idx(rr->raft));
 
     /* We now have to switch temp files. We need to rename two files in a non-atomic
      * operation, so order is critical and we must rename the snapshot file first.
@@ -364,7 +363,7 @@ exit:
 RRStatus initiateSnapshot(RedisRaftCtx *rr)
 {
     if (rr->snapshot_in_progress) {
-       return RR_ERROR;
+        return RR_ERROR;
     }
 
     if (rr->debug_req) {
@@ -378,8 +377,8 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     }
     LOG_DEBUG("Snapshot scope: first_entry_idx=%lu, current_idx=%lu",
-            raft_get_first_entry_idx(rr->raft),
-            raft_get_current_idx(rr->raft));
+              raft_get_first_entry_idx(rr->raft),
+              raft_get_current_idx(rr->raft));
 
     rr->last_snapshot_idx = rr->snapshot_info.last_applied_idx;
     rr->last_snapshot_term = rr->snapshot_info.last_applied_term;
@@ -396,7 +395,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
      *    since and rotate.
      */
 
-    int snapshot_fds[2];    /* [0] our side, [1] child's side */
+    int snapshot_fds[2]; /* [0] our side, [1] child's side */
     if (pipe(snapshot_fds) < 0) {
         LOG_WARNING("Failed to create snapshot child pipe: %s", strerror(errno));
         cancelSnapshot(rr, NULL);
@@ -426,7 +425,9 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     } else if (!child) {
         /* Report result */
-        SnapshotResult sr = { .magic = SNAPSHOT_RESULT_MAGIC};
+        SnapshotResult sr = {
+            .magic = SNAPSHOT_RESULT_MAGIC,
+        };
 
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
                  rr->config.rdb_filename, (int) getpid());
@@ -501,12 +502,11 @@ static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
     RedisModule_Assert(rn != NULL);
 
     LOG_DEBUG("Snapshot Load: adding node %d: %s:%d: voting=%s",
-        cfg->id,
-        cfg->addr.host,
-        cfg->addr.port,
-        cfg->voting ? "yes" : "no");
+              cfg->id,
+              cfg->addr.host,
+              cfg->addr.port,
+              cfg->voting ? "yes" : "no");
 }
-
 
 /* Load node configuration from snapshot metadata.
  *
@@ -542,7 +542,7 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
  * 4. Reconfigure nodes based on the snapshot metadata configuration.
  * 5. Create a new snapshot memory map.
  */
-int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, raft_term_t term)
+int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_index_t index, raft_term_t term)
 {
     int ret;
     RedisRaftCtx *rr = user_data;
@@ -582,10 +582,10 @@ int raftLoadSnapshot(raft_server_t* raft, void *user_data, raft_index_t index, r
         fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
         RaftLogClose(rr->log);
         rr->log = RaftLogCreate(rr->config.log_filename,
-                rr->snapshot_info.dbid,
-                rr->snapshot_info.last_applied_term,
-                rr->snapshot_info.last_applied_idx,
-                &rr->config);
+                                rr->snapshot_info.dbid,
+                                rr->snapshot_info.last_applied_term,
+                                rr->snapshot_info.last_applied_idx,
+                                &rr->config);
         EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     }
 
@@ -763,7 +763,7 @@ RedisModuleTypeMethods RedisRaftTypeMethods = {
     .aof_rewrite = aofRewriteCallback,
     .aux_load = rdbLoadSnapshotInfo,
     .aux_save = rdbSaveSnapshotInfo,
-    .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB
+    .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
 };
 
 static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata)
@@ -797,7 +797,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
         .msg_id = reply->element[1]->integer,
         .offset = reply->element[2]->integer,
         .success = reply->element[3]->integer,
-        .last_chunk = reply->element[4]->integer
+        .last_chunk = reply->element[4]->integer,
     };
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
@@ -812,10 +812,10 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
     }
 }
 
-int raftSendSnapshot(raft_server_t* raft,
+int raftSendSnapshot(raft_server_t *raft,
                      void *user_data,
-                     raft_node_t* raft_node,
-                     raft_snapshot_req_t* msg)
+                     raft_node_t *raft_node,
+                     raft_snapshot_req_t *msg)
 {
     Node *node = raft_node_get_udata(raft_node);
 
@@ -840,7 +840,7 @@ int raftSendSnapshot(raft_server_t* raft,
         target_node_id,
         source_node_id,
         msgstr,
-        msg->chunk.data
+        msg->chunk.data,
     };
 
     size_t args_len[] = {
@@ -855,8 +855,10 @@ int raftSendSnapshot(raft_server_t* raft,
         return -1;
     }
 
-    if (redisAsyncCommandArgv(ConnGetRedisCtx(node->conn),
-                handleSnapshotResponse, node, 5, args, args_len) != REDIS_OK) {
+    int ret = redisAsyncCommandArgv(ConnGetRedisCtx(node->conn),
+                                    handleSnapshotResponse, node, 5,
+                                    args, args_len);
+    if (ret != REDIS_OK) {
         return -1;
     }
 
@@ -871,6 +873,6 @@ void archiveSnapshot(RedisRaftCtx *rr)
     char bak_rdb_filename[bak_rdb_filename_maxlen];
 
     snprintf(bak_rdb_filename, bak_rdb_filename_maxlen - 1,
-            "%s.bak.%d", rr->config.rdb_filename, raft_get_nodeid(rr->raft));
+             "%s.bak.%d", rr->config.rdb_filename, raft_get_nodeid(rr->raft));
     rename(rr->config.rdb_filename, bak_rdb_filename);
 }

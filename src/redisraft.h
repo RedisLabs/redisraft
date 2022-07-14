@@ -9,40 +9,41 @@
 #ifndef REDISRAFT_H
 #define REDISRAFT_H
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <errno.h>
-#include <unistd.h>
-#include <time.h>
-#include <netinet/in.h>
-
 #include "hiredis/hiredis.h"
-#ifdef HAVE_TLS
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include "hiredis/hiredis_ssl.h"
-#endif
-#include "hiredis/async.h"
-#include "redismodule.h"
-#include "raft.h"
-#include "queue.h"
 
+#include <errno.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+#ifdef HAVE_TLS
+#include "hiredis/hiredis_ssl.h"
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#endif
+#include "raft.h"
 #include "version.h"
 
-#define UNUSED(x)   ((void) (x))
+#include "common/queue.h"
+#include "common/redismodule.h"
+#include "hiredis/async.h"
+
+#define UNUSED(x) ((void) (x))
 
 /* Disable GNU attributes for non-GNU compilers */
 #ifndef __GNUC__
-    #define __attribute__(a)
+#define __attribute__(a)
 #endif
 
 #ifndef MIN
-    #define MIN(a,b) (((a)<(b))?(a):(b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
 #ifndef MAX
-    #define MAX(a,b) (((a)<(b))?(b):(a))
+#define MAX(a, b) (((a) < (b)) ? (b) : (a))
 #endif
 
 /* --------------- Forward declarations -------------- */
@@ -55,8 +56,8 @@ struct Connection;
 struct ShardingInfo;
 struct ShardGroup;
 
-#define REDIS_RAFT_DATATYPE_NAME     "redisraft"
-#define REDIS_RAFT_DATATYPE_ENCVER   1
+#define REDIS_RAFT_DATATYPE_NAME   "redisraft"
+#define REDIS_RAFT_DATATYPE_ENCVER 1
 
 extern int redisraft_trace;
 extern int redisraft_loglevel;
@@ -70,66 +71,65 @@ extern RedisModuleCtx *redisraft_log_ctx;
 #define LOG_LEVEL_WARNING 3
 #define LOG_LEVEL_COUNT   (LOG_LEVEL_WARNING + 1)
 
-#define TRACE_OFF         0
-#define TRACE_NODE        1
-#define TRACE_CONN        2
-#define TRACE_RAFTLIB     4
-#define TRACE_RAFTLOG     8
-#define TRACE_GENERIC     16
-#define TRACE_ALL         ((TRACE_GENERIC * 2) - 1)
+#define TRACE_OFF     0
+#define TRACE_NODE    1
+#define TRACE_CONN    2
+#define TRACE_RAFTLIB 4
+#define TRACE_RAFTLOG 8
+#define TRACE_GENERIC 16
+#define TRACE_ALL     ((TRACE_GENERIC * 2) - 1)
 
-#define LOG(level, fmt, ...)                                                   \
-    do {                                                                       \
-       if (level >= redisraft_loglevel) {                                      \
-            RedisModule_Log(redisraft_log_ctx,                                 \
-                            redisraft_loglevels[level], fmt, ##__VA_ARGS__);   \
-       }                                                                       \
-    } while(0)
+#define LOG(level, fmt, ...)                                                 \
+    do {                                                                     \
+        if (level >= redisraft_loglevel) {                                   \
+            RedisModule_Log(redisraft_log_ctx,                               \
+                            redisraft_loglevels[level], fmt, ##__VA_ARGS__); \
+        }                                                                    \
+    } while (0)
 
-#define LOG_DEBUG(fmt, ...) LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...)   LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
 #define LOG_VERBOSE(fmt, ...) LOG(LOG_LEVEL_VERBOSE, fmt, ##__VA_ARGS__)
-#define LOG_NOTICE(fmt, ...) LOG(LOG_LEVEL_NOTICE, fmt, ##__VA_ARGS__)
+#define LOG_NOTICE(fmt, ...)  LOG(LOG_LEVEL_NOTICE, fmt, ##__VA_ARGS__)
 #define LOG_WARNING(fmt, ...) LOG(LOG_LEVEL_WARNING, fmt, ##__VA_ARGS__)
 
-
-#define PANIC(fmt, ...)                                                        \
-    do {                                                                       \
-        LOG_WARNING("\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"                      \
-                    "REDIS RAFT PANIC\n"                                       \
-                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n"                        \
-                    fmt, ##__VA_ARGS__);                                       \
-        abort();                                                               \
+#define PANIC(fmt, ...)                                      \
+    do {                                                     \
+        LOG_WARNING("\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"    \
+                    "REDIS RAFT PANIC\n"                     \
+                    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n" fmt, \
+                    ##__VA_ARGS__);                          \
+        abort();                                             \
     } while (0)
 
-#define TRACE_MODULE(MODULE,fmt,...)                                           \
-    do {                                                                       \
-         if (redisraft_trace & TRACE_##MODULE) {                               \
-            LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__);                          \
-         }                                                                     \
+#define TRACE_MODULE(MODULE, fmt, ...)                \
+    do {                                              \
+        if (redisraft_trace & TRACE_##MODULE) {       \
+            LOG(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__); \
+        }                                             \
     } while (0)
 
-#define TRACE(fmt,...) TRACE_MODULE(GENERIC, fmt, ##__VA_ARGS__)
+#define TRACE(fmt, ...) TRACE_MODULE(GENERIC, fmt, ##__VA_ARGS__)
 
 #define NODE_TRACE(node, fmt, ...) \
-    TRACE_MODULE(NODE, "<node {%p:%d}> "fmt, (node), (node) ? (node)->id : 0, ##__VA_ARGS__)
+    TRACE_MODULE(NODE, "<node {%p:%d}> " fmt, (node), (node) ? (node)->id : 0, ##__VA_ARGS__)
 
 #define NODE_LOG(level, node, fmt, ...) \
     LOG(level, "<{node:%d}> " fmt, (node) ? (node)->id : 0, ##__VA_ARGS__)
 
-#define NODE_LOG_DEBUG(node, fmt, ...) NODE_LOG(LOG_LEVEL_DEBUG, node, fmt, ##__VA_ARGS__)
+#define NODE_LOG_DEBUG(node, fmt, ...)   NODE_LOG(LOG_LEVEL_DEBUG, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_VERBOSE(node, fmt, ...) NODE_LOG(LOG_LEVEL_VERBOSE, node, fmt, ##__VA_ARGS__)
-#define NODE_LOG_NOTICE(node, fmt, ...) NODE_LOG(LOG_LEVEL_NOTICE, node, fmt, ##__VA_ARGS__)
+#define NODE_LOG_NOTICE(node, fmt, ...)  NODE_LOG(LOG_LEVEL_NOTICE, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_WARNING(node, fmt, ...) NODE_LOG(LOG_LEVEL_WARNING, node, fmt, ##__VA_ARGS__)
 
 /* -------------------- Connections -------------------- */
 
 /* Longest length of a NodeAddr string, including null terminator */
-#define NODEADDR_MAXLEN      (255 + 1 + 5 + 1)
+#define NODEADDR_MAXLEN (255 + 1 + 5 + 1)
 
 /* Node address specifier. */
 typedef struct node_addr {
     uint16_t port;
-    char host[256];             /* Hostname or IP address */
+    char host[256]; /* Hostname or IP address */
 } NodeAddr;
 
 /* A singly linked list of NodeAddr elements */
@@ -150,7 +150,7 @@ typedef void (*ConnectionCallbackFunc)(struct Connection *conn);
 typedef void (*ConnectionFreeFunc)(void *privdata);
 
 /* Connection flags for Connection.flags */
-#define CONN_TERMINATING    (1 << 0)
+#define CONN_TERMINATING (1 << 0)
 
 /* A connection represents a single outgoing Redis connection, such as the
  * one used to communicate with another node.
@@ -161,20 +161,20 @@ typedef void (*ConnectionFreeFunc)(void *privdata);
  */
 
 typedef struct Connection {
-    unsigned long id;                   /* Unique connection ID */
-    ConnState state;
-    unsigned int flags;
-    NodeAddr addr;                      /* Address of last ConnConnect() */
-    char ipaddr[INET6_ADDRSTRLEN+1];    /* Resolved IP address */
-    redisAsyncContext *rc;              /* hiredis async context */
-    struct RedisRaftCtx *rr;            /* Pointer back to redis_raft */
-    long long last_connected_time;      /* Last connection time */
-    unsigned long int connect_oks;      /* Successful connects */
-    unsigned long int connect_errors;   /* Connection errors since last connection */
-    struct timeval timeout;             /* Timeout to use if not null */
-    char *username;                     /* username to use if specified */
-    char *password;                     /* password to use if specified */
-    void *privdata;                     /* User provided pointer */
+    unsigned long id;                  /* Unique connection ID */
+    ConnState state;                   /* Connected, disconnected etc. */
+    unsigned int flags;                /* Additional flags about connection state */
+    NodeAddr addr;                     /* Address of last ConnConnect() */
+    char ipaddr[INET6_ADDRSTRLEN + 1]; /* Resolved IP address */
+    redisAsyncContext *rc;             /* hiredis async context */
+    struct RedisRaftCtx *rr;           /* Pointer back to redis_raft */
+    long long last_connected_time;     /* Last connection time */
+    unsigned long int connect_oks;     /* Successful connects */
+    unsigned long int connect_errors;  /* Connection errors since last connection */
+    struct timeval timeout;            /* Timeout to use if not null */
+    char *username;                    /* username to use if specified */
+    char *password;                    /* password to use if specified */
+    void *privdata;                    /* User provided pointer */
 
     struct AddrinfoResult {
         int rc;
@@ -207,19 +207,19 @@ typedef struct Connection {
 
 /* General state of the module */
 typedef enum RedisRaftState {
-    REDIS_RAFT_UNINITIALIZED,       /* Waiting for RAFT.CLUSTER command */
-    REDIS_RAFT_UP,                  /* Up and running */
-    REDIS_RAFT_LOADING,             /* Loading (or attempting) RDB/Raft Log on startup */
-    REDIS_RAFT_JOINING              /* Processing a RAFT.CLUSTER JOIN command */
+    REDIS_RAFT_UNINITIALIZED, /* Waiting for RAFT.CLUSTER command */
+    REDIS_RAFT_UP,            /* Up and running */
+    REDIS_RAFT_LOADING,       /* Loading (or attempting) RDB/Raft Log on startup */
+    REDIS_RAFT_JOINING        /* Processing a RAFT.CLUSTER JOIN command */
 } RedisRaftState;
 
 /* A node configuration entry that describes the known configuration of a specific
  * node at the time of snapshot.
  */
 typedef struct SnapshotCfgEntry {
-    raft_node_id_t  id;
-    int             voting;
-    NodeAddr        addr;
+    raft_node_id_t id;
+    int voting;
+    NodeAddr addr;
     struct SnapshotCfgEntry *next;
 } SnapshotCfgEntry;
 
@@ -228,8 +228,8 @@ typedef struct NodeIdEntry {
     struct NodeIdEntry *next;
 } NodeIdEntry;
 
-#define RAFT_DBID_LEN               32
-#define RAFT_SHARDGROUP_NODEID_LEN  40  /* Combined DBID_LEN + 32-bit node id */
+#define RAFT_DBID_LEN              32
+#define RAFT_SHARDGROUP_NODEID_LEN 40 /* Combined DBID_LEN + 32-bit node id */
 
 /* Snapshot metadata.  There is a single instance of this struct available at all times,
  * which is accessed as follows:
@@ -242,11 +242,11 @@ typedef struct NodeIdEntry {
  */
 typedef struct RaftSnapshotInfo {
     bool loaded;
-    char dbid[RAFT_DBID_LEN+1];
+    char dbid[RAFT_DBID_LEN + 1];
     raft_term_t last_applied_term;
     raft_index_t last_applied_idx;
     SnapshotCfgEntry *cfg;
-    NodeIdEntry *used_node_ids;  /* All node ids that are, or have ever been, part of this cluster */
+    NodeIdEntry *used_node_ids; /* All node ids that are, or have ever been, part of this cluster */
 } RaftSnapshotInfo;
 
 typedef struct SnapshotFile {
@@ -255,8 +255,8 @@ typedef struct SnapshotFile {
 } SnapshotFile;
 
 typedef struct RaftMeta {
-    raft_term_t term;                           /* Last term we're aware of */
-    raft_node_id_t vote;                        /* Our vote in the last term, or -1 */
+    raft_term_t term;    /* Last term we're aware of */
+    raft_node_id_t vote; /* Our vote in the last term, or -1 */
 } RaftMeta;
 
 /* threadpool.c */
@@ -287,8 +287,7 @@ typedef struct FsyncThreadResult {
 } FsyncThreadResult;
 
 /* fsync.c */
-typedef struct FsyncThread
-{
+typedef struct FsyncThread {
     pthread_t id;
     pthread_cond_t cond;
     pthread_mutex_t mtx;
@@ -308,7 +307,7 @@ void fsyncThreadAddTask(FsyncThread *th, int fd, raft_index_t requested_index);
 void fsyncThreadWaitUntilCompleted(FsyncThread *th);
 
 typedef enum {
-    DEBUG_MIGRATION_NONE                    = 0,
+    DEBUG_MIGRATION_NONE = 0,
     DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
     DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
     DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
@@ -316,84 +315,84 @@ typedef enum {
 } MigrationDebug;
 
 typedef struct RedisRaftConfig {
-    RedisModuleString *str_conf_ref;    /* Reference of the last string config that we pass to Redis module API */
+    RedisModuleString *str_conf_ref; /* Reference of the last string config that we pass to Redis module API */
 
-    raft_node_id_t id;                  /* Local node Id */
-    NodeAddr addr;                      /* Address of local node, if specified */
-    char *rdb_filename;                 /* Original Redis dbfilename */
-    char *log_filename;                 /* Raft log file name, derived from dbfilename */
-    bool follower_proxy;                /* Do follower nodes proxy requests to leader? */
-    bool quorum_reads;                  /* Reads have to go through quorum */
-    char *ignored_commands;             /* Comma delimited list of commands that should not be intercepted */
-    char *cluster_user;                 /* ACL user to use for internode communication */
-    char *cluster_password;             /* Password used for internode communication */
+    raft_node_id_t id;      /* Local node Id */
+    NodeAddr addr;          /* Address of local node, if specified */
+    char *rdb_filename;     /* Original Redis dbfilename */
+    char *log_filename;     /* Raft log file name, derived from dbfilename */
+    bool follower_proxy;    /* Do follower nodes proxy requests to leader? */
+    bool quorum_reads;      /* Reads have to go through quorum */
+    char *ignored_commands; /* Comma delimited list of commands that should not be intercepted */
+    char *cluster_user;     /* ACL user to use for internode communication */
+    char *cluster_password; /* Password used for internode communication */
 
     /* Tuning */
-    int periodic_interval;              /* raft_periodic() interval */
-    int request_timeout;                /* Milliseconds before sending a heartbeat message to the followers */
-    int election_timeout;               /* Milliseconds before starting an election if there is no leader */
-    int connection_timeout;             /* Milliseconds the node will continue to try connecting to another node */
-    int join_timeout;                   /* Milliseconds the node will continue to try joining a cluster */
-    int reconnect_interval;             /* Milliseconds to wait to reconnect to a node if connection drops */
-    int proxy_response_timeout;         /* Milliseconds to wait for a response to a proxy request */
-    int response_timeout;               /* Milliseconds to wait for a response to a Raft message */
-    long long append_req_max_count;     /* Max in-flight appendreq message count between two nodes. */
-    long long append_req_max_size;      /* Max appendreq message size in bytes. Just an approximation. */
-    long long snapshot_req_max_count;   /* Max in-flight snapshotreq message count between two nodes. */
-    long long snapshot_req_max_size;    /* Max snapshotreq message size in bytes. Just an approximation. */
-    long long scan_size;                /* how many keys to fetch at a time internally for raft.scan */
+    int periodic_interval;            /* raft_periodic() interval */
+    int request_timeout;              /* Milliseconds before sending a heartbeat message to the followers */
+    int election_timeout;             /* Milliseconds before starting an election if there is no leader */
+    int connection_timeout;           /* Milliseconds the node will continue to try connecting to another node */
+    int join_timeout;                 /* Milliseconds the node will continue to try joining a cluster */
+    int reconnect_interval;           /* Milliseconds to wait to reconnect to a node if connection drops */
+    int proxy_response_timeout;       /* Milliseconds to wait for a response to a proxy request */
+    int response_timeout;             /* Milliseconds to wait for a response to a Raft message */
+    long long append_req_max_count;   /* Max in-flight appendreq message count between two nodes. */
+    long long append_req_max_size;    /* Max appendreq message size in bytes. Just an approximation. */
+    long long snapshot_req_max_count; /* Max in-flight snapshotreq message count between two nodes. */
+    long long snapshot_req_max_size;  /* Max snapshotreq message size in bytes. Just an approximation. */
+    long long scan_size;              /* how many keys to fetch at a time internally for raft.scan */
 
     /* Cache and file compaction */
-    unsigned long log_max_cache_size;   /* The memory limit for the in-memory Raft log cache */
-    unsigned long log_max_file_size;    /* The maximum desired Raft log file size in bytes */
-    bool log_fsync;                     /* Call fsync() for the raft log file */
+    unsigned long log_max_cache_size; /* The memory limit for the in-memory Raft log cache */
+    unsigned long log_max_file_size;  /* The maximum desired Raft log file size in bytes */
+    bool log_fsync;                   /* Call fsync() for the raft log file */
 
     /* Cluster mode */
-    bool sharding;                      /* Are we running in a sharding configuration? */
-    char *slot_config;                  /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
-    int shardgroup_update_interval;     /* Milliseconds between shardgroup updates */
-    int external_sharding;              /* use external sharding orchestrator only */
+    bool sharding;                  /* Are we running in a sharding configuration? */
+    char *slot_config;              /* Defining multiple slot ranges (# or #:#) that are delimited by ',' */
+    int shardgroup_update_interval; /* Milliseconds between shardgroup updates */
+    int external_sharding;          /* use external sharding orchestrator only */
 
     /* TLS */
-    bool tls_enabled;                   /* Use TLS for all inter cluster communication */
+    bool tls_enabled; /* Use TLS for all inter cluster communication */
 
 #ifdef HAVE_TLS
-    SSL_CTX *ssl;                       /* OpenSSL context for use by hiredis */
+    SSL_CTX *ssl; /* OpenSSL context for use by hiredis */
 #endif
 
 } RedisRaftConfig;
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
-    void *raft;                                  /* Raft library context */
-    RedisModuleCtx *ctx;                         /* Redis module thread-safe context; only used to push
+    void *raft;                          /* Raft library context */
+    RedisModuleCtx *ctx;                 /* Redis module thread-safe context; only used to push
                                                     commands we get from the leader. */
-    RedisRaftState state;                        /* Raft module state */
-    ThreadPool thread_pool;                      /* Thread pool for slow operations */
-    FsyncThread fsyncThread;                     /* Thread to call fsync on raft log file */
-    struct RaftLog *log;                         /* Raft persistent log; May be NULL if not used */
-    struct RaftMeta meta;                        /* Raft metadata for voted_for and term */
-    struct EntryCache *logcache;                 /* Log entry cache to keep entries in memory for faster access */
-    struct RedisRaftConfig config;               /* User provided configuration */
-    bool snapshot_in_progress;                   /* Indicates we're creating a snapshot in the background */
-    raft_index_t incoming_snapshot_idx;          /* Incoming snapshot's last included idx to verify chunks
+    RedisRaftState state;                /* Raft module state */
+    ThreadPool thread_pool;              /* Thread pool for slow operations */
+    FsyncThread fsyncThread;             /* Thread to call fsync on raft log file */
+    struct RaftLog *log;                 /* Raft persistent log; May be NULL if not used */
+    struct RaftMeta meta;                /* Raft metadata for voted_for and term */
+    struct EntryCache *logcache;         /* Log entry cache to keep entries in memory for faster access */
+    struct RedisRaftConfig config;       /* User provided configuration */
+    bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
+    raft_index_t incoming_snapshot_idx;  /* Incoming snapshot's last included idx to verify chunks
                                                     belong to the same snapshot */
-    char incoming_snapshot_file[256];            /* File name for incoming snapshots. When received fully,
+    char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
                                                     it will be renamed to the original rdb file */
-    raft_index_t last_snapshot_idx;              /* Last included idx of the snapshot operation currently in progress */
-    raft_term_t last_snapshot_term;              /* Last included term of the snapshot operation currently in progress */
-    int snapshot_child_fd;                       /* Pipe connected to snapshot child process */
-    SnapshotFile outgoing_snapshot_file;         /* Snapshot file memory map to send to followers */
-    RaftSnapshotInfo snapshot_info;              /* Current snapshot info */
-    struct RaftReq *transfer_req;                /* RaftReq if a leader transfer is in progress */
-    struct RaftReq *migrate_req;                 /* RaftReq if a migration transfer is in progress */
-    struct ShardingInfo *sharding_info;          /* Information about sharding, when cluster mode is enabled */
-    RedisModuleDict *client_state;               /* A dict that tracks different client states */
+    raft_index_t last_snapshot_idx;      /* Last included idx of the snapshot operation currently in progress */
+    raft_term_t last_snapshot_term;      /* Last included term of the snapshot operation currently in progress */
+    int snapshot_child_fd;               /* Pipe connected to snapshot child process */
+    SnapshotFile outgoing_snapshot_file; /* Snapshot file memory map to send to followers */
+    RaftSnapshotInfo snapshot_info;      /* Current snapshot info */
+    struct RaftReq *transfer_req;        /* RaftReq if a leader transfer is in progress */
+    struct RaftReq *migrate_req;         /* RaftReq if a migration transfer is in progress */
+    struct ShardingInfo *sharding_info;  /* Information about sharding, when cluster mode is enabled */
+    RedisModuleDict *client_state;       /* A dict that tracks different client states */
 
     /* Debug - Testing */
-    struct RaftReq *debug_req;                   /* Current RAFT.DEBUG request context, if processing one */
-    long long debug_delay_apply;                 /* If not zero, sleep microseconds before the execution of a command */
-    MigrationDebug migration_debug;             /* for debugging migration, places to inject error */
+    struct RaftReq *debug_req;      /* Current RAFT.DEBUG request context, if processing one */
+    long long debug_delay_apply;    /* If not zero, sleep microseconds before the execution of a command */
+    MigrationDebug migration_debug; /* for debugging migration, places to inject error */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -408,10 +407,9 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-
-    char *resp_call_fmt;                         /* Format string to use in RedisModule_Call(), Redis version-specific */
-    int entered_eval;                            /* handling a lua script */
-    RedisModuleDict *locked_keys;                /* keys thar have been locked for migration */
+    char *resp_call_fmt;          /* Format string to use in RedisModule_Call(), Redis version-specific */
+    int entered_eval;             /* handling a lua script */
+    RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
 
 } RedisRaftCtx;
 
@@ -419,10 +417,10 @@ extern RedisRaftCtx redis_raft;
 
 extern raft_log_impl_t RaftLogImpl;
 
-#define REDIS_RAFT_HASH_SLOTS                         16384
-#define REDIS_RAFT_HASH_MIN_SLOT                      0
-#define REDIS_RAFT_HASH_MAX_SLOT                      16383
-#define REDIS_RAFT_MAX_SLOT_CHARS                     5
+#define REDIS_RAFT_HASH_SLOTS     16384
+#define REDIS_RAFT_HASH_MIN_SLOT  0
+#define REDIS_RAFT_HASH_MAX_SLOT  16383
+#define REDIS_RAFT_MAX_SLOT_CHARS 5
 
 static inline bool HashSlotValid(long slot)
 {
@@ -449,12 +447,12 @@ typedef struct PendingResponse {
 
 /* Maintains all state about peer nodes */
 typedef struct Node {
-    raft_node_id_t id;              /* Raft unique node ID */
-    RedisRaftCtx *rr;               /* RedisRaftCtx handle */
-    Connection *conn;               /* Connection to node */
-    NodeAddr addr;                  /* Node's address */
-    long pending_raft_response_num;     /* Number of pending Raft responses */
-    long pending_proxy_response_num;    /* Number of pending proxy responses */
+    raft_node_id_t id;               /* Raft unique node ID */
+    RedisRaftCtx *rr;                /* RedisRaftCtx handle */
+    Connection *conn;                /* Connection to node */
+    NodeAddr addr;                   /* Node's address */
+    long pending_raft_response_num;  /* Number of pending Raft responses */
+    long pending_proxy_response_num; /* Number of pending proxy responses */
     STAILQ_HEAD(pending_responses, PendingResponse) pending_responses;
     LIST_ENTRY(Node) entries;
 } Node;
@@ -464,7 +462,7 @@ typedef struct Node {
  * Elsewhere we stick to it.
  */
 typedef enum RRStatus {
-    RR_OK       = 0,
+    RR_OK = 0,
     RR_ERROR
 } RRStatus;
 
@@ -499,24 +497,24 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    bool asking;        /* if this command array is in an asking mode */
-    int size;           /* Size of allocated array */
-    int len;            /* Number of elements in array */
+    bool asking; /* if this command array is in an asking mode */
+    int size;    /* Size of allocated array */
+    int len;     /* Number of elements in array */
     RaftRedisCommand **commands;
 } RaftRedisCommandArray;
 
 /* Max length of a ShardGroupNode string, including newline and null terminator */
-#define SHARDGROUPNODE_MAXLEN   (RAFT_SHARDGROUP_NODEID_LEN+1 + NODEADDR_MAXLEN + 2)
+#define SHARDGROUPNODE_MAXLEN (RAFT_SHARDGROUP_NODEID_LEN + 1 + NODEADDR_MAXLEN + 2)
 
 /* Describes a node in a ShardGroup (foreign RedisRaft cluster). */
 typedef struct ShardGroupNode {
-    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1]; /* Combined dbid + node_id */
-    NodeAddr addr;                              /* Node address and port */
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1]; /* Combined dbid + node_id */
+    NodeAddr addr;                                /* Node address and port */
 } ShardGroupNode;
 
 /* Max length of a ShardGroup string, including newline and null terminator
  * but excluding nodes and shard groups */
-#define SHARDGROUP_MAXLEN       (10 + 1 + 10 + 1 + 1)
+#define SHARDGROUP_MAXLEN (10 + 1 + 10 + 1 + 1)
 
 typedef enum SlotRangeType {
     SLOTRANGE_TYPE_UNDEF = 0,
@@ -526,7 +524,8 @@ typedef enum SlotRangeType {
     SLOTRANGE_TYPE_MAX
 } SlotRangeType;
 
-static inline bool SlotRangeTypeValid(enum SlotRangeType val) {
+static inline bool SlotRangeTypeValid(enum SlotRangeType val)
+{
     return (val > SLOTRANGE_TYPE_UNDEF && val < SLOTRANGE_TYPE_MAX);
 }
 
@@ -544,31 +543,31 @@ typedef struct ShardGroupSlotRange {
  */
 typedef struct ShardGroup {
     /* Configuration */
-    char id[RAFT_DBID_LEN+1];            /* Local shardgroup identifier */
-    unsigned int slot_ranges_num;        /* Number of slot ranges */
-    ShardGroupSlotRange *slot_ranges;    /* individual slot ranges */
-    unsigned int nodes_num;              /* Number of nodes listed */
-    ShardGroupNode *nodes;               /* Nodes array */
+    char id[RAFT_DBID_LEN + 1];       /* Local shardgroup identifier */
+    unsigned int slot_ranges_num;     /* Number of slot ranges */
+    ShardGroupSlotRange *slot_ranges; /* individual slot ranges */
+    unsigned int nodes_num;           /* Number of nodes listed */
+    ShardGroupNode *nodes;            /* Nodes array */
 
     /* Runtime state */
-    unsigned int next_redir;             /* Round-robin -MOVED index */
+    unsigned int next_redir; /* Round-robin -MOVED index */
 
     /* Synchronization state */
-    unsigned int node_conn_idx;          /* Next node to connect to, when looking for a live one */
-    NodeAddr conn_addr;                  /* Address to use on next connect, if use_conn_addr is set */
-    bool use_conn_addr;                  /* Should we use conn_addr? Otherwise iterate node_conn_idx? */
-    Connection *conn;                    /* Connection we use */
-    long long last_updated;              /* Last time of successful update (mstime) */
-    bool update_in_progress;             /* Are we currently updating? */
-    bool local;                          /* ShardGroup struct that corresponds to local cluster */
+    unsigned int node_conn_idx; /* Next node to connect to, when looking for a live one */
+    NodeAddr conn_addr;         /* Address to use on next connect, if use_conn_addr is set */
+    bool use_conn_addr;         /* Should we use conn_addr? Otherwise iterate node_conn_idx? */
+    Connection *conn;           /* Connection we use */
+    long long last_updated;     /* Last time of successful update (mstime) */
+    bool update_in_progress;    /* Are we currently updating? */
+    bool local;                 /* ShardGroup struct that corresponds to local cluster */
 } ShardGroup;
 
-#define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM+1)
-#define RAFT_LOGTYPE_UPDATE_SHARDGROUP   (RAFT_LOGTYPE_NUM+2)
-#define RAFT_LOGTYPE_REPLACE_SHARDGROUPS (RAFT_LOGTYPE_NUM+3)
-#define RAFT_LOGTYPE_LOCK_KEYS           (RAFT_LOGTYPE_NUM+4)
-#define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM+5)
-#define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM+6)
+#define RAFT_LOGTYPE_ADD_SHARDGROUP      (RAFT_LOGTYPE_NUM + 1)
+#define RAFT_LOGTYPE_UPDATE_SHARDGROUP   (RAFT_LOGTYPE_NUM + 2)
+#define RAFT_LOGTYPE_REPLACE_SHARDGROUPS (RAFT_LOGTYPE_NUM + 3)
+#define RAFT_LOGTYPE_LOCK_KEYS           (RAFT_LOGTYPE_NUM + 4)
+#define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM + 5)
+#define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM + 6)
 
 #define MAX_AUTH_STRING_ARG_LENGTH 255
 
@@ -576,9 +575,9 @@ typedef struct ShardGroup {
  * RedisRaft clusters operate together to perform sharding.
  */
 typedef struct ShardingInfo {
-    unsigned int shard_groups_num;       /* Number of shard groups */
-    RedisModuleDict *shard_group_map;    /* shard group id -> (ShardGroup *) */
-    bool is_sharding;                    /* set when we are in a sharding mode */
+    unsigned int shard_groups_num;    /* Number of shard groups */
+    RedisModuleDict *shard_group_map; /* shard group id -> (ShardGroup *) */
+    bool is_sharding;                 /* set when we are in a sharding mode */
 
     /* Maps hash slots to ShardGroups indexes.
      *
@@ -605,6 +604,7 @@ typedef struct RaftReq {
     int type;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
+
     union {
         struct {
             Node *proxy_node;
@@ -612,15 +612,18 @@ typedef struct RaftReq {
             RaftRedisCommandArray cmds;
             raft_entry_resp_t response;
         } redis;
+
         struct {
             int fail;
             int delay;
         } debug;
+
         ImportKeys import_keys;
+
         struct {
-            char shard_group_id[RAFT_DBID_LEN+1];
-            char auth_username[MAX_AUTH_STRING_ARG_LENGTH+1];
-            char auth_password[MAX_AUTH_STRING_ARG_LENGTH+1];
+            char shard_group_id[RAFT_DBID_LEN + 1];
+            char auth_username[MAX_AUTH_STRING_ARG_LENGTH + 1];
+            char auth_password[MAX_AUTH_STRING_ARG_LENGTH + 1];
             size_t num_keys;
             RedisModuleString **keys;
             RedisModuleString **keys_serialized;
@@ -631,32 +634,32 @@ typedef struct RaftReq {
     } r;
 } RaftReq;
 
-#define RAFTLOG_VERSION     1
+#define RAFTLOG_VERSION 1
 
 /* Flags for RaftLogOpen */
-#define RAFTLOG_KEEP_INDEX  1                   /* Index was written by this process, safe to use. */
+#define RAFTLOG_KEEP_INDEX 1 /* Index was written by this process, safe to use. */
 
 typedef struct RaftLog {
-    uint32_t            version;                /* Log file format version */
-    char                dbid[RAFT_DBID_LEN+1];  /* DB unique ID */
-    raft_node_id_t      node_id;                /* Node ID */
-    raft_index_t        num_entries;            /* Entries in log */
-    raft_term_t         snapshot_last_term;     /* Last term included in snapshot */
-    raft_index_t        snapshot_last_idx;      /* Last index included in snapshot */
-    raft_index_t        index;                  /* Index of last entry */
-    size_t              file_size;              /* File size at the time of last write */
-    const char          *filename;
-    FILE                *file;
-    FILE                *idxfile;
-    off_t               idxoffset;              /* Index file position */
-    raft_index_t        fsync_index;            /* Last entry index included in the latest fsync() call */
-    uint64_t            fsync_count;            /* Count of fsync() calls */
-    uint64_t            fsync_max;              /* Slowest fsync() call in microseconds */
-    uint64_t            fsync_total;            /* Total time fsync() calls consumed in microseconds */
+    uint32_t version;               /* Log file format version */
+    char dbid[RAFT_DBID_LEN + 1];   /* DB unique ID */
+    raft_node_id_t node_id;         /* Node ID */
+    raft_index_t num_entries;       /* Entries in log */
+    raft_term_t snapshot_last_term; /* Last term included in snapshot */
+    raft_index_t snapshot_last_idx; /* Last index included in snapshot */
+    raft_index_t index;             /* Index of last entry */
+    size_t file_size;               /* File size at the time of last write */
+    const char *filename;           /* Log file name */
+    FILE *file;                     /* Log file */
+    FILE *idxfile;                  /* Index file */
+    off_t idxoffset;                /* Index file position */
+    raft_index_t fsync_index;       /* Last entry index included in the latest fsync() call */
+    uint64_t fsync_count;           /* Count of fsync() calls */
+    uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
+    uint64_t fsync_total;           /* Total time fsync() calls consumed in microseconds */
 } RaftLog;
 
+#define SNAPSHOT_RESULT_MAGIC 0x70616e73 /* "snap" */
 
-#define SNAPSHOT_RESULT_MAGIC    0x70616e73  /* "snap" */
 typedef struct SnapshotResult {
     int magic;
     int success;
@@ -669,16 +672,16 @@ typedef struct SnapshotResult {
  * handled.
  */
 typedef struct {
-    char *name;                 /* Command name */
-    unsigned int flags;         /* Command flags, see CMD_SPEC_* */
+    char *name;         /* Command name */
+    unsigned int flags; /* Command flags, see CMD_SPEC_* */
 } CommandSpec;
 
-#define CMD_SPEC_READONLY       (1<<1)      /* Command is a read-only command */
-#define CMD_SPEC_WRITE          (1<<2)      /* Command is a (potentially) write command */
-#define CMD_SPEC_UNSUPPORTED    (1<<3)      /* Command is not supported, should be rejected */
-#define CMD_SPEC_DONT_INTERCEPT (1<<4)      /* Command should not be intercepted to RAFT */
-#define CMD_SPEC_SORT_REPLY     (1<<5)      /* Command output should be sorted within a lua script */
-#define CMD_SPEC_RANDOM         (1<<6)      /* Commands that are always random */
+#define CMD_SPEC_READONLY       (1 << 1) /* Command is a read-only command */
+#define CMD_SPEC_WRITE          (1 << 2) /* Command is a (potentially) write command */
+#define CMD_SPEC_UNSUPPORTED    (1 << 3) /* Command is not supported, should be rejected */
+#define CMD_SPEC_DONT_INTERCEPT (1 << 4) /* Command should not be intercepted to RAFT */
+#define CMD_SPEC_SORT_REPLY     (1 << 5) /* Command output should be sorted within a lua script */
+#define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -693,17 +696,20 @@ typedef struct {
  * acquired, and unless the called command is known to be excluded from raftizing.
  */
 
-extern int redis_raft_in_rm_call;   /* defined in common.c */
+extern int redis_raft_in_rm_call; /* defined in common.c */
 
-static inline void enterRedisModuleCall(void) {
+static inline void enterRedisModuleCall(void)
+{
     redis_raft_in_rm_call++;
 }
 
-static inline void exitRedisModuleCall(void) {
+static inline void exitRedisModuleCall(void)
+{
     redis_raft_in_rm_call--;
 }
 
-static inline int checkInRedisModuleCall(void) {
+static inline int checkInRedisModuleCall(void)
+{
     return redis_raft_in_rm_call;
 }
 
@@ -711,11 +717,11 @@ typedef struct JoinLinkState {
     NodeAddrListElement *addr;
     NodeAddrListElement *addr_iter;
     Connection *conn;
-    time_t start;                       /* Timestamp in seconds when we initiated the join. */
-    RaftReq *req;                       /* Original RaftReq, so we can return a reply */
-    bool failed;                        /* unrecoverable failure */
-    const char *type;                   /* error message to print if exhaust time */
-    bool started;                       /* we have started connecting */
+    time_t start;     /* Timestamp in seconds when we initiated the join. */
+    RaftReq *req;     /* Original RaftReq, so we can return a reply */
+    bool failed;      /* unrecoverable failure */
+    const char *type; /* error message to print if exhaust time */
+    bool started;     /* we have started connecting */
     ConnectionCallbackFunc connect_callback;
     ConnectionCallbackFunc fail_callback;
     void (*complete_callback)(RaftReq *req);
@@ -798,7 +804,7 @@ void handleFsyncCompleted(void *arg);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
-char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)  __attribute__((format(printf, 3, 4)));
+char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
 char *StrCreate(const void *buf, size_t len);
 char *StrCreateFromString(RedisModuleString *str);
@@ -927,4 +933,4 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
 
-#endif  /* _REDISRAFT_H */
+#endif

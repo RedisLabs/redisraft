@@ -6,20 +6,18 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <unistd.h>
-#include <string.h>
-#include <strings.h>
-#include <stdlib.h>
+#include "entrycache.h"
+#include "redisraft.h"
 
 #include <assert.h>
-
-#include "redisraft.h"
-#include "entrycache.h"
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <unistd.h>
 
 #define ENTRY_CACHE_INIT_SIZE 512
 
-#define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> "fmt, ##__VA_ARGS__)
-
+#define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
 
 void RaftLogClose(RaftLog *log)
 {
@@ -58,7 +56,7 @@ static int writeBuffer(FILE *logfile, const void *buf, size_t buf_len)
     if ((n = fprintf(logfile, "$%zu\r\n", buf_len)) <= 0 ||
         fwrite(buf, 1, buf_len, logfile) < buf_len ||
         fwrite(crlf, 1, 2, logfile) < 2) {
-            return -1;
+        return -1;
     }
 
     return n + buf_len + 2;
@@ -101,7 +99,6 @@ static int writeInteger(FILE *logfile, long value, int pad)
 
     return n;
 }
-
 
 typedef struct RawElement {
     void *ptr;
@@ -258,14 +255,14 @@ int writeLogHeader(FILE *logfile, RaftLog *log)
         writeUnsignedInteger(logfile, log->node_id, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_term, 20) < 0 ||
         writeUnsignedInteger(logfile, log->snapshot_last_idx, 20) < 0) {
-            return -1;
+        return -1;
     }
 
     return 0;
 }
 
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term,
-        raft_index_t snapshot_index, RedisRaftConfig *config)
+                       raft_index_t snapshot_index, RedisRaftConfig *config)
 {
     RaftLog *log = prepareLog(filename, 0);
     if (!log) {
@@ -444,7 +441,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 
     /* Read Header */
     RawLogEntry *re = NULL;
-    if (readRawLogEntry(log->file, &re) < 0 || handleHeader(log, re) < 0)  {
+    if (readRawLogEntry(log->file, &re) < 0 || handleHeader(log, re) < 0) {
         freeRawLogEntry(re);
         LOG_NOTICE("Failed to read Raft log header");
         return -1;
@@ -491,7 +488,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
             ret = cb_ret;
             break;
         }
-    } while(1);
+    } while (1);
 
     if (ret > 0) {
         log->num_entries = ret;
@@ -716,7 +713,6 @@ raft_index_t RaftLogCount(RaftLog *log)
  * Log compaction.
  */
 
-
 /* Rewrite the current log state into a new file:
  * 1. Latest snapshot info
  * 2. All entries
@@ -768,7 +764,7 @@ void RaftLogArchiveFiles(RedisRaftCtx *rr)
     size_t bak_filename_maxlen = strlen(rr->config.log_filename) + 100;
     char bak_filename[bak_filename_maxlen];
     snprintf(bak_filename, bak_filename_maxlen - 1,
-            "%s.%d.bak", rr->config.log_filename, raft_get_nodeid(rr->raft));
+             "%s.%d.bak", rr->config.log_filename, raft_get_nodeid(rr->raft));
     rename(rr->config.log_filename, bak_filename);
 }
 
@@ -790,7 +786,7 @@ RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long 
     char *new_idx_filename = getIndexFilename(new_log->filename);
     if (rename(new_idx_filename, log_idx_filename) < 0) {
         PANIC("Failed to switch Raft log index: %s to %s: %s",
-               new_idx_filename, log_idx_filename, strerror(errno));
+              new_idx_filename, log_idx_filename, strerror(errno));
     }
 
     RedisModule_Free(log_idx_filename);
@@ -806,13 +802,13 @@ RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long 
     return RR_OK;
 }
 
-char* raftMetaFilename(char* buf, size_t size, const char *filename)
+char *raftMetaFilename(char *buf, size_t size, const char *filename)
 {
     snprintf(buf, size, "%s.meta", filename);
     return buf;
 }
 
-int RaftMetaRead(RaftMeta *meta, const char* filename)
+int RaftMetaRead(RaftMeta *meta, const char *filename)
 {
     int rc = RR_ERROR;
     char buf[1024];
@@ -830,7 +826,7 @@ int RaftMetaRead(RaftMeta *meta, const char* filename)
 
     if (readRawLogEntry(fp, &e) < 0) {
         LOG_WARNING("Failed to read Raft meta: %s",
-                  errno ? strerror(errno) : "invalid data");
+                    errno ? strerror(errno) : "invalid data");
         goto out;
     }
 
@@ -873,7 +869,7 @@ out:
     return rc;
 }
 
-int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_node_id_t vote)
+int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote)
 {
     int rc = RR_ERROR;
     char orig[1024];
@@ -892,7 +888,7 @@ int RaftMetaWrite(RaftMeta *meta, const char* filename, raft_term_t term, raft_n
         writeUnsignedInteger(fp, RAFTLOG_VERSION, 4) < 0 ||
         writeUnsignedInteger(fp, term, 20) < 0 ||
         writeInteger(fp, vote, 11) < 0) {
-            goto out;
+        goto out;
     }
 
     fclose(fp);
@@ -1061,5 +1057,5 @@ raft_log_impl_t RaftLogImpl = {
     .first_idx = logImplFirstIdx,
     .current_idx = logImplCurrentIdx,
     .count = logImplCount,
-    .sync = logImplSync
+    .sync = logImplSync,
 };

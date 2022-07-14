@@ -6,15 +6,12 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <stdarg.h>
+#include "../src/redisraft.h"
+
 #include <stddef.h>
-#include <setjmp.h>
-#include <unistd.h>
 #include <string.h>
 
 #include "cmocka.h"
-
-#include "../src/redisraft.h"
 
 static void setupRedisCommand(RaftRedisCommand *target, const char **argv, int argc)
 {
@@ -29,18 +26,17 @@ static void setupRedisCommand(RaftRedisCommand *target, const char **argv, int a
     }
 }
 
-
 static void test_serialize_redis_command(void **state)
 {
-    const char *cmd1_argv[] = { "SET", "key", "value" };
-    const char *cmd2_argv[] = { "GET", "mykey" };
-    const char *cmd3_argv[] = { "PING" };
+    const char *cmd1_argv[] = {"SET", "key", "value"};
+    const char *cmd2_argv[] = {"GET", "mykey"};
+    const char *cmd3_argv[] = {"PING"};
 
-    RaftRedisCommandArray cmd_array = { 0 };
+    RaftRedisCommandArray cmd_array = {0};
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd1_argv, 3);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd2_argv, 2);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd3_argv, 1);
-    
+
     const char *expected = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
 
     raft_entry_t *e = RaftRedisCommandArraySerialize(&cmd_array);
@@ -57,9 +53,9 @@ static void test_deserialize_redis_command(void **state)
     const char *serialized = "*3\n$3\nSET\n$3\nkey\n$5\nvalue\n";
     int serialized_len = strlen(serialized);
 
-    RaftRedisCommand target = { 0 };
+    RaftRedisCommand target = {0};
     assert_int_equal(RaftRedisCommandDeserialize(&target, serialized, serialized_len),
-            serialized_len);
+                     serialized_len);
     RaftRedisCommandFree(&target);
 }
 
@@ -68,7 +64,7 @@ static void test_deserialize_redis_command_array(void **state)
     const char *serialized = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
     int serialized_len = strlen(serialized);
 
-    RaftRedisCommandArray cmd_array = { 0 };
+    RaftRedisCommandArray cmd_array = {0};
     cmd_array.len = 5; /* free would be called to reset it */
     assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array, serialized, serialized_len), RR_OK);
     assert_int_equal(cmd_array.len, 3);
@@ -78,7 +74,8 @@ static void test_deserialize_redis_command_array(void **state)
 
 static void test_deserialize_corrupted_data(void **state)
 {
-    RaftRedisCommand target = { 0 };
+    size_t ret;
+    RaftRedisCommand target = {0};
 
     /* empty */
     const char *d_null = "";
@@ -88,91 +85,98 @@ static void test_deserialize_corrupted_data(void **state)
 
     /* bad prefix */
     const char *d_bad_prefix = "$50\n";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_bad_prefix, strlen(d_bad_prefix)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_bad_prefix,
+                                      strlen(d_bad_prefix));
+    assert_int_equal(ret, 0);
 
     /* non-numeric mbulk */
     const char *d_non_numeric_mbulk = "$-50\n";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_non_numeric_mbulk, strlen(d_non_numeric_mbulk)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_non_numeric_mbulk,
+                                      strlen(d_non_numeric_mbulk));
+    assert_int_equal(ret, 0);
 
     /* zero mbulk */
     const char *d_zero_mbulk = "*0\n";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_zero_mbulk, strlen(d_zero_mbulk)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_zero_mbulk,
+                                      strlen(d_zero_mbulk));
+    assert_int_equal(ret, 0);
 
     /* truncated mbulk */
     const char *d_truncated_mbulk = "*5";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_truncated_mbulk, strlen(d_truncated_mbulk)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_truncated_mbulk,
+                                      strlen(d_truncated_mbulk));
+    assert_int_equal(ret, 0);
 
     /* ---- arguments ---- */
 
     /* bad argument length */
     const char *d_bad_arg_len = "*1\n$bad\n";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_bad_arg_len, strlen(d_bad_arg_len)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_bad_arg_len,
+                                      strlen(d_bad_arg_len));
+    assert_int_equal(ret, 0);
 
     /* zero argument length */
     const char *d_zero_arg_len = "*1\n$0\n";
-    assert_int_equal(RaftRedisCommandDeserialize(&target,
-                d_zero_arg_len, strlen(d_zero_arg_len)), 0);
+    ret = RaftRedisCommandDeserialize(&target, d_zero_arg_len,
+                                      strlen(d_zero_arg_len));
+    assert_int_equal(ret, 0);
 
     /* ---- command array issues ---- */
 
-    RaftRedisCommandArray cmd_array = { 0 };
+    int rc;
+    RaftRedisCommandArray cmd_array = {0};
 
     /* bad command count */
     const char *d_bad_array_len = "$1\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
-                d_bad_array_len, strlen(d_bad_array_len)), RR_ERROR);
+    rc = RaftRedisCommandArrayDeserialize(&cmd_array, d_bad_array_len,
+                                          strlen(d_bad_array_len));
+    assert_int_equal(rc, RR_ERROR);
 
     /* empty command array */
     const char *d_zero_array_len = "*0\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
-                d_zero_array_len, strlen(d_zero_array_len)), RR_ERROR);
+    rc = RaftRedisCommandArrayDeserialize(&cmd_array, d_zero_array_len,
+                                          strlen(d_zero_array_len));
+    assert_int_equal(rc, RR_ERROR);
 
     /* empty command */
     const char *d_array_empty_command = "*1\n*0\n";
-    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array,
-                d_array_empty_command, strlen(d_array_empty_command)), RR_ERROR);
+    rc = RaftRedisCommandArrayDeserialize(&cmd_array, d_array_empty_command,
+                                          strlen(d_array_empty_command));
+    assert_int_equal(rc, RR_ERROR);
 }
 
 static void test_serialize_shardgroup(void **state)
 {
     ShardGroupNode nodes[3] = {
-        { .node_id = "12345678901234567890123456789012aabbccdd",
-          .addr = { .host = "1.1.1.1", .port = 1111 }
-        },
-        { .node_id = "12345678901234567890123456789012aabbccee",
-          .addr = { .host = "2.2.2.2", .port = 2222 }
-        },
-        { .node_id = "12345678901234567890123456789012aabbccff",
-          .addr = { .host = "3.3.3.3", .port = 3333 }
-        }
+        {.node_id = "12345678901234567890123456789012aabbccdd",
+         .addr = {.host = "1.1.1.1", .port = 1111}},
+        {.node_id = "12345678901234567890123456789012aabbccee",
+         .addr = {.host = "2.2.2.2", .port = 2222}},
+        {.node_id = "12345678901234567890123456789012aabbccff",
+         .addr = {.host = "3.3.3.3", .port = 3333}},
     };
     ShardGroupSlotRange r = {
-            .start_slot = 1,
-            .end_slot = 1000,
-            .type = SLOTRANGE_TYPE_STABLE,
-            .migration_session_key = 123
+        .start_slot = 1,
+        .end_slot = 1000,
+        .type = SLOTRANGE_TYPE_STABLE,
+        .migration_session_key = 123,
     };
     ShardGroup sg = {
         .id = "12345678901234567890123456789012",
         .slot_ranges_num = 1,
         .slot_ranges = &r,
         .nodes_num = 3,
-        .nodes = nodes
+        .nodes = nodes,
     };
 
     char *str = ShardGroupSerialize(&sg);
     assert_string_equal(str,
-            "12345678901234567890123456789012\n"
-            "1\n3\n"
-            "1\n1000\n1\n123\n"
-            "12345678901234567890123456789012aabbccdd\n1.1.1.1:1111\n"
-            "12345678901234567890123456789012aabbccee\n2.2.2.2:2222\n"
-            "12345678901234567890123456789012aabbccff\n3.3.3.3:3333\n");
+                        "12345678901234567890123456789012\n"
+                        "1\n3\n"
+                        "1\n1000\n1\n123\n"
+                        "12345678901234567890123456789012aabbccdd\n1.1.1.1:1111\n"
+                        "12345678901234567890123456789012aabbccee\n2.2.2.2:2222\n"
+                        "12345678901234567890123456789012aabbccff\n3.3.3.3:3333\n");
 
     test_free(str);
 }
@@ -180,14 +184,14 @@ static void test_serialize_shardgroup(void **state)
 static void test_deserialize_shardgroup(void **state)
 {
     const char *s1 = "12345678901234567890123456789012\n"
-            "1\n3\n"
-            "1\n1000\n1\n123\n"
-            "12345678901234567890123456789012aabbccdd\n1.1.1.1:1111\n"
-            "12345678901234567890123456789012aabbccee\n2.2.2.2:2222\n"
-            "12345678901234567890123456789012aabbccff\n3.3.3.3:3333\n";
+                     "1\n3\n"
+                     "1\n1000\n1\n123\n"
+                     "12345678901234567890123456789012aabbccdd\n1.1.1.1:1111\n"
+                     "12345678901234567890123456789012aabbccee\n2.2.2.2:2222\n"
+                     "12345678901234567890123456789012aabbccff\n3.3.3.3:3333\n";
 
     /* Happy path */
-    ShardGroup * sg = ShardGroupDeserialize(s1, strlen(s1));
+    ShardGroup *sg = ShardGroupDeserialize(s1, strlen(s1));
     assert_ptr_not_equal(sg, NULL);
     assert_string_equal(sg->id, "12345678901234567890123456789012");
     assert_int_equal(sg->slot_ranges_num, 1);
@@ -237,5 +241,5 @@ const struct CMUnitTest serialization_tests[] = {
     cmocka_unit_test(test_deserialize_corrupted_data),
     cmocka_unit_test(test_serialize_shardgroup),
     cmocka_unit_test(test_deserialize_shardgroup),
-    { .test_func = NULL }
+    {.test_func = NULL},
 };

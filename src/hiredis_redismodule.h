@@ -3,9 +3,10 @@
 
 #include "redisraft.h"
 
-#include <sys/types.h>
-#include "hiredis/hiredis.h"
 #include "hiredis/async.h"
+#include "hiredis/hiredis.h"
+
+#include <sys/types.h>
 
 typedef struct redisAeEvents {
     redisAsyncContext *context;
@@ -13,60 +14,70 @@ typedef struct redisAeEvents {
     int reading, writing;
 } redisAeEvents;
 
-static void redisModuleReadEvent(int fd, void *privdata, int mask) {
-    ((void)fd); ((void)mask);
+static void redisModuleReadEvent(int fd, void *privdata, int mask)
+{
+    ((void) fd);
+    ((void) mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
+    redisAeEvents *e = (redisAeEvents *) privdata;
     redisAsyncHandleRead(e->context);
 }
 
-static void redisModuleWriteEvent(int fd, void *privdata, int mask) {
-    ((void)fd); ((void)mask);
+static void redisModuleWriteEvent(int fd, void *privdata, int mask)
+{
+    ((void) fd);
+    ((void) mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
+    redisAeEvents *e = (redisAeEvents *) privdata;
     redisAsyncHandleWrite(e->context);
 }
 
-static void redisModuleAddRead(void *privdata) {
-    redisAeEvents *e = (redisAeEvents*)privdata;
+static void redisModuleAddRead(void *privdata)
+{
+    redisAeEvents *e = (redisAeEvents *) privdata;
     if (!e->reading) {
         e->reading = 1;
-        RedisModule_EventLoopAdd(e->fd,REDISMODULE_EVENTLOOP_READABLE,redisModuleReadEvent,e);
+        RedisModule_EventLoopAdd(e->fd, REDISMODULE_EVENTLOOP_READABLE, redisModuleReadEvent, e);
     }
 }
 
-static void redisModuleDelRead(void *privdata) {
-    redisAeEvents *e = (redisAeEvents*)privdata;
+static void redisModuleDelRead(void *privdata)
+{
+    redisAeEvents *e = (redisAeEvents *) privdata;
     if (e->reading) {
         e->reading = 0;
-        RedisModule_EventLoopDel(e->fd,REDISMODULE_EVENTLOOP_READABLE);
+        RedisModule_EventLoopDel(e->fd, REDISMODULE_EVENTLOOP_READABLE);
     }
 }
 
-static void redisModuleAddWrite(void *privdata) {
-    redisAeEvents *e = (redisAeEvents*)privdata;
+static void redisModuleAddWrite(void *privdata)
+{
+    redisAeEvents *e = (redisAeEvents *) privdata;
     if (!e->writing) {
         e->writing = 1;
-        RedisModule_EventLoopAdd(e->fd,REDISMODULE_EVENTLOOP_WRITABLE,redisModuleWriteEvent,e);
+        RedisModule_EventLoopAdd(e->fd, REDISMODULE_EVENTLOOP_WRITABLE, redisModuleWriteEvent, e);
     }
 }
 
-static void redisModuleDelWrite(void *privdata) {
-    redisAeEvents *e = (redisAeEvents*)privdata;
+static void redisModuleDelWrite(void *privdata)
+{
+    redisAeEvents *e = (redisAeEvents *) privdata;
     if (e->writing) {
         e->writing = 0;
-        RedisModule_EventLoopDel(e->fd,REDISMODULE_EVENTLOOP_WRITABLE);
+        RedisModule_EventLoopDel(e->fd, REDISMODULE_EVENTLOOP_WRITABLE);
     }
 }
 
-static void redisModuleCleanup(void *privdata) {
-    redisAeEvents *e = (redisAeEvents*)privdata;
+static void redisModuleCleanup(void *privdata)
+{
+    redisAeEvents *e = (redisAeEvents *) privdata;
     redisModuleDelRead(privdata);
     redisModuleDelWrite(privdata);
     hi_free(e);
 }
 
-static int redisModuleAttach(redisAsyncContext *ac) {
+static int redisModuleAttach(redisAsyncContext *ac)
+{
     redisContext *c = &(ac->c);
     redisAeEvents *e;
 
@@ -75,7 +86,7 @@ static int redisModuleAttach(redisAsyncContext *ac) {
         return REDIS_ERR;
 
     /* Create container for context and r/w events */
-    e = (redisAeEvents*)hi_malloc(sizeof(*e));
+    e = (redisAeEvents *) hi_malloc(sizeof(*e));
     if (e == NULL)
         return REDIS_ERR;
 

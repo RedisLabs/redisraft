@@ -1,6 +1,7 @@
-#include <string.h>
-#include <pthread.h>
 #include "redisraft.h"
+
+#include <pthread.h>
+#include <string.h>
 
 /* Thread main loop */
 static void *loop(void *arg)
@@ -63,7 +64,7 @@ void threadPoolInit(ThreadPool *pool, int thread_count)
     }
 }
 
- /* Add task to the pool. A random thread will call the callback with the arg
+/* Add task to the pool. A random thread will call the callback with the arg
   * provided */
 void threadPoolAdd(ThreadPool *pool, void *arg, void (*run)(void *arg))
 {
@@ -95,7 +96,7 @@ void threadPoolShutdown(ThreadPool *pool)
     }
 
     struct Task *it, *tmp;
-    STAILQ_FOREACH_SAFE(it, &pool->tasks, entry, tmp) {
+    STAILQ_FOREACH_SAFE (it, &pool->tasks, entry, tmp) {
         STAILQ_REMOVE(&pool->tasks, it, Task, entry);
         RedisModule_Free(it);
     }

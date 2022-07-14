@@ -170,13 +170,13 @@ add_dependencies(coverage-report coverage)
 
 # ------------------------ Library build start  ------------------------------ #
 add_library(redisraft MODULE
+        deps/common/crc16.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
         src/common.c
         src/config.c
         src/connection.c
-        src/crc16.c
         src/entrycache.c
         src/fsync.c
         src/join.c
@@ -226,13 +226,13 @@ target_include_directories(redisraft PUBLIC
 
 # ---------------------------- Test Start ------------------------------------ #
 add_executable(main
+        deps/common/crc16.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
         src/common.c
         src/config.c
         src/connection.c
-        src/crc16.c
         src/entrycache.c
         src/fsync.c
         src/join.c
@@ -250,12 +250,12 @@ add_executable(main
         src/sort.c
         src/threadpool.c
         src/util.c
-        tests/main.c
-        tests/test_log.c
-        tests/test_serialization.c
-        tests/test_util.c)
+        tests/unit/main.c
+        tests/unit/test_log.c
+        tests/unit/test_serialization.c
+        tests/unit/test_util.c)
 
-target_compile_options(main PUBLIC -include dut_premble.h)
+target_compile_options(main PUBLIC -include unit/dut_premble.h)
 target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl)
 if (BUILD_TLS)
     target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)

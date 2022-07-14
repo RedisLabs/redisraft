@@ -6,94 +6,94 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
-#include <strings.h>
-#include <ctype.h>
 #include "redisraft.h"
 
+#include <ctype.h>
+#include <string.h>
+#include <strings.h>
 
 static const CommandSpec commands[] = {
-        /* Core Redis Commands */
-        { "time",                         CMD_SPEC_DONT_INTERCEPT | CMD_SPEC_RANDOM },
-        { "sync",                         CMD_SPEC_UNSUPPORTED },
-        { "psync",                        CMD_SPEC_UNSUPPORTED },
-        { "reset",                        CMD_SPEC_UNSUPPORTED },
-        { "bgrewriteaof",                 CMD_SPEC_UNSUPPORTED },
-        { "slaveof",                      CMD_SPEC_UNSUPPORTED },
-        { "replicaof",                    CMD_SPEC_UNSUPPORTED },
-        { "debug",                        CMD_SPEC_UNSUPPORTED },
-        { "watch",                        CMD_SPEC_UNSUPPORTED },
-        { "unwatch",                      CMD_SPEC_UNSUPPORTED },
-        { "save",                         CMD_SPEC_UNSUPPORTED },
-        { "bgsave",                       CMD_SPEC_UNSUPPORTED },
+  /* Core Redis Commands */
+    {"time",                        CMD_SPEC_DONT_INTERCEPT | CMD_SPEC_RANDOM},
+    {"sync",                        CMD_SPEC_UNSUPPORTED                     },
+    {"psync",                       CMD_SPEC_UNSUPPORTED                     },
+    {"reset",                       CMD_SPEC_UNSUPPORTED                     },
+    {"bgrewriteaof",                CMD_SPEC_UNSUPPORTED                     },
+    {"slaveof",                     CMD_SPEC_UNSUPPORTED                     },
+    {"replicaof",                   CMD_SPEC_UNSUPPORTED                     },
+    {"debug",                       CMD_SPEC_UNSUPPORTED                     },
+    {"watch",                       CMD_SPEC_UNSUPPORTED                     },
+    {"unwatch",                     CMD_SPEC_UNSUPPORTED                     },
+    {"save",                        CMD_SPEC_UNSUPPORTED                     },
+    {"bgsave",                      CMD_SPEC_UNSUPPORTED                     },
 
-        /* Blocking commands not supported */
-        { "brpop",                        CMD_SPEC_UNSUPPORTED },
-        { "brpoplpush",                   CMD_SPEC_UNSUPPORTED },
-        { "blmove",                       CMD_SPEC_UNSUPPORTED },
-        { "blpop",                        CMD_SPEC_UNSUPPORTED },
-        { "blmpop",                       CMD_SPEC_UNSUPPORTED },
-        { "bzpopmin",                     CMD_SPEC_UNSUPPORTED },
-        { "bzpopmax",                     CMD_SPEC_UNSUPPORTED },
-        { "bzmpop",                       CMD_SPEC_UNSUPPORTED },
+ /* Blocking commands not supported */
+    {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
+    {"brpoplpush",                  CMD_SPEC_UNSUPPORTED                     },
+    {"blmove",                      CMD_SPEC_UNSUPPORTED                     },
+    {"blpop",                       CMD_SPEC_UNSUPPORTED                     },
+    {"blmpop",                      CMD_SPEC_UNSUPPORTED                     },
+    {"bzpopmin",                    CMD_SPEC_UNSUPPORTED                     },
+    {"bzpopmax",                    CMD_SPEC_UNSUPPORTED                     },
+    {"bzmpop",                      CMD_SPEC_UNSUPPORTED                     },
 
-        /* Stream commands not supported */
-        { "xadd",                         CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-        { "xrange",                       CMD_SPEC_UNSUPPORTED },
-        { "xrevrange",                    CMD_SPEC_UNSUPPORTED },
-        { "xlen",                         CMD_SPEC_UNSUPPORTED },
-        { "xread",                        CMD_SPEC_UNSUPPORTED },
-        { "xreadgroup",                   CMD_SPEC_UNSUPPORTED },
-        { "xgroup",                       CMD_SPEC_UNSUPPORTED },
-        { "xsetid",                       CMD_SPEC_UNSUPPORTED },
-        { "xack",                         CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-        { "xpending",                     CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-        { "xclaim",                       CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-        { "xautoclaim",                   CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
-        { "xinfo",                        CMD_SPEC_UNSUPPORTED },
-        { "xdel",                         CMD_SPEC_UNSUPPORTED },
-        { "xtrim",                        CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM },
+ /* Stream commands not supported */
+    {"xadd",                        CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
+    {"xrange",                      CMD_SPEC_UNSUPPORTED                     },
+    {"xrevrange",                   CMD_SPEC_UNSUPPORTED                     },
+    {"xlen",                        CMD_SPEC_UNSUPPORTED                     },
+    {"xread",                       CMD_SPEC_UNSUPPORTED                     },
+    {"xreadgroup",                  CMD_SPEC_UNSUPPORTED                     },
+    {"xgroup",                      CMD_SPEC_UNSUPPORTED                     },
+    {"xsetid",                      CMD_SPEC_UNSUPPORTED                     },
+    {"xack",                        CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
+    {"xpending",                    CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
+    {"xclaim",                      CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
+    {"xautoclaim",                  CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
+    {"xinfo",                       CMD_SPEC_UNSUPPORTED                     },
+    {"xdel",                        CMD_SPEC_UNSUPPORTED                     },
+    {"xtrim",                       CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
 
-        /* Pubsub commands not supported */
-        { "subscribe",                    CMD_SPEC_DONT_INTERCEPT },
-        { "psubscribe",                   CMD_SPEC_DONT_INTERCEPT },
-        { "unsubscribe",                  CMD_SPEC_DONT_INTERCEPT },
-        { "punsubscribe",                 CMD_SPEC_DONT_INTERCEPT },
-        { "publish",                      CMD_SPEC_DONT_INTERCEPT },
-        { "pubsub",                       CMD_SPEC_DONT_INTERCEPT },
+ /* Pubsub commands not supported */
+    {"subscribe",                   CMD_SPEC_DONT_INTERCEPT                  },
+    {"psubscribe",                  CMD_SPEC_DONT_INTERCEPT                  },
+    {"unsubscribe",                 CMD_SPEC_DONT_INTERCEPT                  },
+    {"punsubscribe",                CMD_SPEC_DONT_INTERCEPT                  },
+    {"publish",                     CMD_SPEC_DONT_INTERCEPT                  },
+    {"pubsub",                      CMD_SPEC_DONT_INTERCEPT                  },
 
-        /* Admin commands - bypassed */
-        { "auth",                         CMD_SPEC_DONT_INTERCEPT },
-        { "ping",                         CMD_SPEC_DONT_INTERCEPT },
-        { "hello",                        CMD_SPEC_DONT_INTERCEPT },
-        { "module",                       CMD_SPEC_DONT_INTERCEPT },
-        { "client",                       CMD_SPEC_DONT_INTERCEPT },
-        { "config",                       CMD_SPEC_DONT_INTERCEPT },
-        { "monitor",                      CMD_SPEC_DONT_INTERCEPT },
-        { "command",                      CMD_SPEC_DONT_INTERCEPT },
-        { "shutdown",                     CMD_SPEC_DONT_INTERCEPT },
-        { "quit",                         CMD_SPEC_DONT_INTERCEPT },
-        { "slowlog",                      CMD_SPEC_DONT_INTERCEPT },
-        { "acl",                          CMD_SPEC_DONT_INTERCEPT },
+ /* Admin commands - bypassed */
+    {"auth",                        CMD_SPEC_DONT_INTERCEPT                  },
+    {"ping",                        CMD_SPEC_DONT_INTERCEPT                  },
+    {"hello",                       CMD_SPEC_DONT_INTERCEPT                  },
+    {"module",                      CMD_SPEC_DONT_INTERCEPT                  },
+    {"client",                      CMD_SPEC_DONT_INTERCEPT                  },
+    {"config",                      CMD_SPEC_DONT_INTERCEPT                  },
+    {"monitor",                     CMD_SPEC_DONT_INTERCEPT                  },
+    {"command",                     CMD_SPEC_DONT_INTERCEPT                  },
+    {"shutdown",                    CMD_SPEC_DONT_INTERCEPT                  },
+    {"quit",                        CMD_SPEC_DONT_INTERCEPT                  },
+    {"slowlog",                     CMD_SPEC_DONT_INTERCEPT                  },
+    {"acl",                         CMD_SPEC_DONT_INTERCEPT                  },
 
-        /* RedisRaft Commands */
-        { "raft",                         CMD_SPEC_DONT_INTERCEPT },
-        { "raft.entry",                   CMD_SPEC_DONT_INTERCEPT },
-        { "raft.cluster",                 CMD_SPEC_DONT_INTERCEPT },
-        { "raft.shardgroup",              CMD_SPEC_DONT_INTERCEPT },
-        { "raft.node",                    CMD_SPEC_DONT_INTERCEPT },
-        { "raft.ae",                      CMD_SPEC_DONT_INTERCEPT },
-        { "raft.requestvote",             CMD_SPEC_DONT_INTERCEPT },
-        { "raft.snapshot",                CMD_SPEC_DONT_INTERCEPT },
-        { "raft.debug",                   CMD_SPEC_DONT_INTERCEPT },
-        { "raft.nodeshutdown",            CMD_SPEC_DONT_INTERCEPT },
-        { "raft.transfer_leader",         CMD_SPEC_DONT_INTERCEPT },
-        { "raft.timeout_now",             CMD_SPEC_DONT_INTERCEPT },
-        { "raft._sort_reply",             CMD_SPEC_DONT_INTERCEPT },
-        { "raft._reject_random_command",  CMD_SPEC_DONT_INTERCEPT },
-        { "raft.import",                  CMD_SPEC_DONT_INTERCEPT },
-        { "raft.scan",                    CMD_SPEC_READONLY },
-        { NULL,0 }
+ /* RedisRaft Commands */
+    {"raft",                        CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.entry",                  CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.cluster",                CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.shardgroup",             CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.node",                   CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.ae",                     CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.requestvote",            CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.snapshot",               CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.debug",                  CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.nodeshutdown",           CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.transfer_leader",        CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.timeout_now",            CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft._sort_reply",            CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft._reject_random_command", CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.import",                 CMD_SPEC_DONT_INTERCEPT                  },
+    {"raft.scan",                   CMD_SPEC_READONLY                        },
+    {NULL,                          0                                        }
 };
 
 static RedisModuleDict *commandSpecDict = NULL;
@@ -142,16 +142,14 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
     reply = RedisModule_Call(ctx, "COMMAND", "");
     RedisModule_Assert(reply != NULL);
-    RedisModule_Assert(RedisModule_CallReplyType(reply)
-        == REDISMODULE_REPLY_ARRAY);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
 
     for (size_t i = 0; i < RedisModule_CallReplyLength(reply); i++) {
         unsigned int cmdspec_flags = 0;
 
         RedisModuleCallReply *cmd = RedisModule_CallReplyArrayElement(reply, i);
         RedisModule_Assert(cmd != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(cmd)
-            == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(cmd) == REDISMODULE_REPLY_ARRAY);
 
         /* Scan flags (element #3) and map:
          * "readonly" => CMD_SPEC_READONLY
@@ -160,21 +158,18 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
         RedisModuleCallReply *flags = RedisModule_CallReplyArrayElement(cmd, 2);
         RedisModule_Assert(flags != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(flags)
-            == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(flags) == REDISMODULE_REPLY_ARRAY);
 
         for (size_t j = 0; j < RedisModule_CallReplyLength(flags); j++) {
             RedisModuleCallReply *flag = RedisModule_CallReplyArrayElement(flags, j);
             RedisModule_Assert(flag != NULL);
-            RedisModule_Assert(RedisModule_CallReplyType(flag)
-                == REDISMODULE_REPLY_STRING);
+            RedisModule_Assert(RedisModule_CallReplyType(flag) == REDISMODULE_REPLY_STRING);
 
             size_t len;
             const char *str = RedisModule_CallReplyStringPtr(flag, &len);
 
-            if (len == strlen(readonly_flag) &&
-                memcmp(str, readonly_flag, len) == 0) {
-                    cmdspec_flags |= CMD_SPEC_READONLY;
+            if (strncmp(str, readonly_flag, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_READONLY;
             }
         }
 
@@ -187,24 +182,20 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
         RedisModuleCallReply *hints = RedisModule_CallReplyArrayElement(cmd, 7);
         RedisModule_Assert(hints != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(hints)
-            == REDISMODULE_REPLY_ARRAY);
+        RedisModule_Assert(RedisModule_CallReplyType(hints) == REDISMODULE_REPLY_ARRAY);
 
         for (size_t j = 0; j < RedisModule_CallReplyLength(hints); j++) {
             RedisModuleCallReply *hint = RedisModule_CallReplyArrayElement(hints, j);
             RedisModule_Assert(hint != NULL);
-            RedisModule_Assert(RedisModule_CallReplyType(hint)
-                == REDISMODULE_REPLY_STRING);
+            RedisModule_Assert(RedisModule_CallReplyType(hint) == REDISMODULE_REPLY_STRING);
 
             size_t len;
             const char *str = RedisModule_CallReplyStringPtr(hint, &len);
 
-            if (len == strlen(random_hint) &&
-                memcmp(str, random_hint, len) == 0) {
-                    cmdspec_flags |= CMD_SPEC_RANDOM;
-            } else if (len == strlen(sort_reply_hint) &&
-                       memcmp(str, sort_reply_hint, len) == 0) {
-                            cmdspec_flags |= CMD_SPEC_SORT_REPLY;
+            if (strncmp(str, random_hint, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_RANDOM;
+            } else if (strncmp(str, sort_reply_hint, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_SORT_REPLY;
             }
         }
 
@@ -215,8 +206,7 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
         RedisModuleCallReply *name = RedisModule_CallReplyArrayElement(cmd, 0);
         RedisModule_Assert(name != NULL);
-        RedisModule_Assert(RedisModule_CallReplyType(name)
-            == REDISMODULE_REPLY_STRING);
+        RedisModule_Assert(RedisModule_CallReplyType(name) == REDISMODULE_REPLY_STRING);
 
         RedisModuleString *name_str = RedisModule_CreateStringFromCallReply(name);
         CommandSpec *cs = getOrCreateCommandSpec(name_str, true);

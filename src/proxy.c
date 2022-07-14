@@ -16,7 +16,7 @@ static RRStatus hiredisReplyToModule(redisReply *reply, RedisModuleCtx *ctx)
             break;
         case REDIS_REPLY_ARRAY:
             RedisModule_ReplyWithArray(ctx, reply->elements);
-            for (size_t i = 0 ; i < reply->elements; i++) {
+            for (size_t i = 0; i < reply->elements; i++) {
                 if (hiredisReplyToModule(reply->element[i], ctx) != RR_OK) {
                     RedisModule_ReplyWithError(ctx, "ERR bad reply from leader");
                 }
@@ -87,8 +87,8 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
     req->r.redis.proxy_node = leader;
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(cmds);
-    int ret = redisAsyncCommand(rc, handleProxiedCommandResponse,
-        req, "RAFT.ENTRY %b", entry->data, entry->data_len);
+    int ret = redisAsyncCommand(rc, handleProxiedCommandResponse, req,
+                                "RAFT.ENTRY %b", entry->data, entry->data_len);
     raft_entry_release(entry);
 
     if (ret != REDIS_OK) {
@@ -103,4 +103,3 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
 
     return RR_OK;
 }
-

@@ -6,8 +6,9 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
 #include "redisraft.h"
+
+#include <string.h>
 
 /* We maintain a list of Nodes which correlate with the nodes maintained by the
  * Raft library.
@@ -106,7 +107,6 @@ Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
     return node;
 }
 
-
 /* Track a new pending response for a request that was sent to the node.
  * This is used to track connection liveness and decide when it should be
  * dropped.
@@ -128,7 +128,7 @@ void NodeAddPendingResponse(Node *node, bool proxy)
     STAILQ_INSERT_TAIL(&node->pending_responses, resp, entries);
 
     NODE_TRACE(node, "NodeAddPendingResponse: id=%d, type=%s, request_time=%lld",
-            resp->id, proxy ? "proxy" : "raft", resp->request_time);
+               resp->id, proxy ? "proxy" : "raft", resp->request_time);
 }
 
 /* Acknowledge a response that has been received and remove it from the
@@ -146,8 +146,8 @@ void NodeDismissPendingResponse(Node *node)
     }
 
     NODE_TRACE(node, "NodeDismissPendingResponse: id=%d, type=%s, latency=%lld",
-            resp->id, resp->proxy ? "proxy" : "raft",
-            RedisModule_Milliseconds() - resp->request_time);
+               resp->id, resp->proxy ? "proxy" : "raft",
+               RedisModule_Milliseconds() - resp->request_time);
 
     RedisModule_Free(resp);
 }
@@ -162,7 +162,7 @@ void HandleNodeStates(RedisRaftCtx *rr)
 
     /* Iterate nodes and find nodes that require reconnection */
     Node *node, *tmp;
-    LIST_FOREACH_SAFE(node, &node_list, entries, tmp) {
+    LIST_FOREACH_SAFE (node, &node_list, entries, tmp) {
         if (ConnIsConnected(node->conn) && !STAILQ_EMPTY(&node->pending_responses)) {
             PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
             long timeout;
@@ -175,10 +175,9 @@ void HandleNodeStates(RedisRaftCtx *rr)
 
             if (timeout && resp->request_time + timeout < RedisModule_Milliseconds()) {
                 NODE_TRACE(node, "Pending %s response timeout expired, reconnecting.",
-                        resp->proxy ? "proxy" : "raft");
+                           resp->proxy ? "proxy" : "raft");
                 ConnMarkDisconnected(node->conn);
             }
         }
     }
 }
-
