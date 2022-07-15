@@ -91,6 +91,38 @@ def test_snapshot_delivery_in_chunks(cluster):
     assert r2.info()['raft_snapshotreq_received'] > 100
 
 
+def test_big_snapshot_delivery(cluster):
+    """
+    Ability to properly deliver and load a big snapshot file (~5 Mb on disk).
+    """
+
+    cluster.create(3)
+    n1 = cluster.node(1)
+
+    for i in range(1000):
+        pipe = n1.client.pipeline(transaction=True)
+        for j in range(1000):
+            pipe.rpush('list-%s' % i, 'elem-%s' % j)
+        pipe.execute()
+
+    cluster.node(3).terminate()
+
+    # Create a new snapshot
+    n1.client.incr('testkey')
+    assert n1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n1.info()['raft_log_entries'] == 0
+
+    # Test delivery to the existing node
+    cluster.node(3).start()
+
+    # Test delivery to the new node
+    cluster.add_node()
+
+    cluster.wait_for_unanimity()
+    assert cluster.node(3).info()['raft_snapshots_loaded'] > 0
+    assert cluster.node(4).info()['raft_snapshots_loaded'] > 0
+
+
 def test_log_fixup_after_snapshot_delivery(cluster):
     """
     Log must be restarted when loading a snapshot.
