@@ -6,14 +6,13 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include "raft.h"
+
 #include <stdarg.h>
 #include <stddef.h>
-#include <setjmp.h>
-#include <unistd.h>
 #include <stdio.h>
 
 #include "cmocka.h"
-#include "raft.h"
 
 extern struct CMUnitTest log_tests[];
 extern struct CMUnitTest util_tests[];
@@ -27,7 +26,9 @@ int tests_count(struct CMUnitTest *tests)
 {
     int count = 0;
 
-    while (tests[count].test_func != NULL) count++;
+    while (tests[count].test_func != NULL) {
+        count++;
+    }
     return count;
 }
 
@@ -58,13 +59,12 @@ static void *__raft_calloc_stub(size_t nmemb, size_t size)
 int main(int argc, char *argv[])
 {
     raft_set_heap_functions(__raft_malloc_stub, __raft_calloc_stub,
-            __raft_realloc_stub, __raft_free_stub);
+                            __raft_realloc_stub, __raft_free_stub);
 
     return _cmocka_run_group_tests(
-            "log", log_tests, tests_count(log_tests), NULL, NULL) ||
+               "log", log_tests, tests_count(log_tests), NULL, NULL) ||
            _cmocka_run_group_tests(
-            "util", util_tests, tests_count(util_tests), NULL, NULL) ||
+               "util", util_tests, tests_count(util_tests), NULL, NULL) ||
            _cmocka_run_group_tests(
-            "serialization", serialization_tests, tests_count(serialization_tests), NULL, NULL);
-
+               "serialization", serialization_tests, tests_count(serialization_tests), NULL, NULL);
 }

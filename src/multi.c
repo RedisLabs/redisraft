@@ -32,9 +32,9 @@
  *    time of EXEC.
  */
 
-#include <strings.h>
-
 #include "redisraft.h"
+
+#include <strings.h>
 
 bool MultiHandleCommand(RedisRaftCtx *rr,
                         RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)

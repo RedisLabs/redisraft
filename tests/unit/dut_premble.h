@@ -6,22 +6,23 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stddef.h>
-#include <setjmp.h>
 #include <string.h>
+
 #include "cmocka.h"
 
-#define RedisModule_Alloc(size)             test_malloc(size)
-#define RedisModule_Calloc(nmemb, size)     test_calloc(nmemb, size)
-#define RedisModule_Realloc(ptr, size)      test_realloc(ptr, size)
-#define RedisModule_Free(ptr)               test_free(ptr)
+#define RedisModule_Alloc(size)         test_malloc(size)
+#define RedisModule_Calloc(nmemb, size) test_calloc(nmemb, size)
+#define RedisModule_Realloc(ptr, size)  test_realloc(ptr, size)
+#define RedisModule_Free(ptr)           test_free(ptr)
 
 struct RedisModuleString;
 
 static inline const char *mock_StringPtrLen(const struct RedisModuleString *s, size_t *len)
 {
-    *len = strlen((char *)s);
+    *len = strlen((char *) s);
     return (const char *) s;
 }
 
@@ -42,8 +43,8 @@ static inline char *mock_Strdup(const char *s)
     return buf;
 }
 
-#define RedisModule_StringPtrLen(__s, __len)            mock_StringPtrLen(__s, __len)
-#define RedisModule_CreateString(__ctx, __s, __len)     mock_CreateString(__s, __len)
-#define RedisModule_FreeString(__ctx, __s)              test_free(__s)
-#define RedisModule_MonotonicMicroseconds()             0
-#define RedisModule_Strdup(__s)                         mock_Strdup(__s)
+#define RedisModule_StringPtrLen(__s, __len)        mock_StringPtrLen(__s, __len)
+#define RedisModule_CreateString(__ctx, __s, __len) mock_CreateString(__s, __len)
+#define RedisModule_FreeString(__ctx, __s)          test_free(__s)
+#define RedisModule_MonotonicMicroseconds()         0
+#define RedisModule_Strdup(__s)                     mock_Strdup(__s)

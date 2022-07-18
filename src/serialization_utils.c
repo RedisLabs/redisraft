@@ -6,20 +6,30 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
 #include "redisraft.h"
+
+#include <string.h>
 
 /* Return expected length of a serialized integer value as decimal digits + 2 byte overhead */
 int calcIntSerializedLen(size_t val)
 {
-    if (val < 10) return 3;
-    if (val < 100) return 4;
-    if (val < 1000) return 5;
-    if (val < 10000) return 6;
-    if (val < 100000) return 7;
-    if (val < 1000000) return 8;
-    if (val < 10000000) return 9;
-    return 22;
+    if (val < 10) {
+        return 3;
+    } else if (val < 100) {
+        return 4;
+    } else if (val < 1000) {
+        return 5;
+    } else if (val < 10000) {
+        return 6;
+    } else if (val < 100000) {
+        return 7;
+    } else if (val < 1000000) {
+        return 8;
+    } else if (val < 10000000) {
+        return 9;
+    } else {
+        return 22;
+    }
 }
 
 /* returns the expected length of a serialized RedisModuleString */
@@ -47,7 +57,8 @@ int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val)
         return -1;
     }
 
-    ptr++; sz--;
+    ptr++;
+    sz--;
     while (*ptr != '\n') {
         if (*ptr < '0' || *ptr > '9') {
             return -1;
@@ -104,7 +115,8 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str)
     if (n == -1) {
         return -1;
     }
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
     if (len >= sz) {
         return -1;
     }
@@ -129,7 +141,8 @@ int encodeString(char *p, size_t sz, RedisModuleString *str)
     if (n == -1) {
         return -1;
     }
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
 
     if (len >= sz) {
         return -1;

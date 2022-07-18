@@ -71,3 +71,18 @@ jobs:
         run: |
           cd build
           make tests
+
+  test-style:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install build dependencies
+        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov clang-format colordiff
+      - name: Check Style - src
+        run: |
+          clang-format -n -Werror -style=file:src/.clang-format src/* || true
+          colordiff -u <(cat src/*) <(clang-format -style=file:src/.clang-format src/*)
+      - name: CheckStyle - unit tests
+        run: |
+          clang-format -n -Werror -style=file:tests/unit/.clang-format tests/unit/* || true
+          colordiff -u <(cat tests/unit/*) <(clang-format -style=file:tests/unit/.clang-format tests/unit/*)

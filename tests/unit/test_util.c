@@ -6,12 +6,12 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include "../src/redisraft.h"
+
 #include <stddef.h>
 #include <strings.h>
 
 #include "cmocka.h"
-
-#include "../src/redisraft.h"
 
 static void test_raftreq_str(void **state)
 {
@@ -49,17 +49,17 @@ static void test_parse_slots(void **state)
         assert_int_equal(slots[i], 0);
     }
     assert_int_equal(slots[16], 1);
-    for (size_t i = 17; i < 58 ; i++) {
+    for (size_t i = 17; i < 58; i++) {
         assert_int_equal(slots[i], 0);
     }
-    for (size_t i = 58; i < 63 ; i++) {
+    for (size_t i = 58; i < 63; i++) {
         assert_int_equal(slots[i], 1);
     }
-    for (size_t i = 63; i < 100 ; i++) {
+    for (size_t i = 63; i < 100; i++) {
         assert_int_equal(slots[i], 0);
     }
     assert_int_equal(slots[100], 1);
-    for (size_t i = 101; i < REDIS_RAFT_HASH_SLOTS ; i++) {
+    for (size_t i = 101; i < REDIS_RAFT_HASH_SLOTS; i++) {
         assert_int_equal(slots[i], 0);
     }
 }
@@ -67,5 +67,5 @@ static void test_parse_slots(void **state)
 const struct CMUnitTest util_tests[] = {
     cmocka_unit_test(test_raftreq_str),
     cmocka_unit_test(test_parse_slots),
-    { .test_func = NULL }
+    {.test_func = NULL},
 };

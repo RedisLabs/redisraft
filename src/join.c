@@ -16,9 +16,10 @@
  * are processed by adding the new node address to our list.
  */
 
-#include <string.h>
-#include <assert.h>
 #include "redisraft.h"
+
+#include <assert.h>
+#include <string.h>
 
 /* Callback for the RAFT.NODE ADD command.
  */
@@ -86,6 +87,7 @@ static void failed_join_callback(Connection *conn)
  */
 static void sendNodeAddRequest(Connection *conn)
 {
+    int ret;
     RedisRaftCtx *rr = ConnGetRedisRaftCtx(conn);
 
     /* Connection is not good?  Terminate and continue */
@@ -93,19 +95,17 @@ static void sendNodeAddRequest(Connection *conn)
         return;
     }
 
-    if (redisAsyncCommand(ConnGetRedisCtx(conn), handleNodeAddResponse, conn,
-        "RAFT.NODE %s %d %s:%u",
-        "ADD",
-        rr->config.id,
-        rr->config.addr.host, rr->config.addr.port) != REDIS_OK) {
-
+    ret = redisAsyncCommand(ConnGetRedisCtx(conn), handleNodeAddResponse, conn,
+                            "RAFT.NODE ADD %d %s:%u", rr->config.id,
+                            rr->config.addr.host, rr->config.addr.port);
+    if (ret != REDIS_OK) {
         redisAsyncDisconnect(ConnGetRedisCtx(conn));
         ConnMarkDisconnected(conn);
     }
 }
 
 void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req,
-                  void (*complete_callback)(RaftReq *req))
+                 void (*complete_callback)(RaftReq *req))
 {
     JoinLinkState *st = RedisModule_Calloc(1, sizeof(*st));
 

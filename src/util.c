@@ -6,13 +6,14 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include "redisraft.h"
+
+#include "common/crc16.h"
+
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <stdlib.h>
-#include <ctype.h>
-
-#include "redisraft.h"
-#include "crc16.h"
 
 int RedisModuleStringToInt(RedisModuleString *str, int *value)
 {
@@ -79,7 +80,7 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
 }
 
 /* This function assumes that the rr->config->slot_config has already been validated as valid */
-ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
+ShardGroup *CreateAndFillShard(RedisRaftCtx *rr)
 {
     ShardGroup *sg = ShardGroupCreate();
 
@@ -90,7 +91,7 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
     char *str = RedisModule_Strdup(rr->config.slot_config);
     sg->slot_ranges_num = 1;
     char *pos = str;
-    while ((pos = strchr(pos+1, ','))) {
+    while ((pos = strchr(pos + 1, ','))) {
         sg->slot_ranges_num++;
     }
     sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
@@ -103,7 +104,7 @@ ShardGroup * CreateAndFillShard(RedisRaftCtx *rr)
             *pos = '\0';
             val = strtoul(token, NULL, 10);
             sg->slot_ranges[i].start_slot = val;
-            val = strtoul(pos+1, NULL, 10);
+            val = strtoul(pos + 1, NULL, 10);
             sg->slot_ranges[i].end_slot = val;
         } else {
             val = strtoul(token, NULL, 10);
@@ -121,7 +122,8 @@ exit:
     return sg;
 }
 
-void AddBasicLocalShardGroup(RedisRaftCtx *rr) {
+void AddBasicLocalShardGroup(RedisRaftCtx *rr)
+{
     ShardGroup *sg = CreateAndFillShard(rr);
     RedisModule_Assert(sg != NULL);
 
@@ -171,22 +173,32 @@ unsigned int keyHashSlot(const char *key, size_t keylen)
 {
     size_t s, e; /* start-end indexes of { and } */
 
-    for (s = 0; s < keylen; s++)
-        if (key[s] == '{') break;
+    for (s = 0; s < keylen; s++) {
+        if (key[s] == '{') {
+            break;
+        }
+    }
 
     /* No '{' ? Hash the whole key. This is the base case. */
-    if (s == keylen) return crc16_ccitt(key,keylen) & 0x3FFF;
+    if (s == keylen) {
+        return crc16_ccitt(key, keylen) & 0x3FFF;
+    }
 
     /* '{' found? Check if we have the corresponding '}'. */
-    for (e = s+1; e < keylen; e++)
-        if (key[e] == '}') break;
+    for (e = s + 1; e < keylen; e++) {
+        if (key[e] == '}') {
+            break;
+        }
+    }
 
     /* No '}' or nothing between {} ? Hash the whole key. */
-    if (e == keylen || e == s+1) return crc16_ccitt(key,keylen) & 0x3FFF;
+    if (e == keylen || e == s + 1) {
+        return crc16_ccitt(key, keylen) & 0x3FFF;
+    }
 
     /* If we are here there is both a { and a } on its right. Hash
      * what is in the middle between { and }. */
-    return crc16_ccitt(key+s+1,e-s-1) & 0x3FFF;
+    return crc16_ccitt(key + s + 1, e - s - 1) & 0x3FFF;
 }
 
 unsigned int keyHashSlotRedisString(RedisModuleString *str)

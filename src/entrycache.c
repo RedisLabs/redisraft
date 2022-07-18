@@ -6,11 +6,11 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <memory.h>
-
 #include "entrycache.h"
-#include "redismodule.h"
 
+#include "common/redismodule.h"
+
+#include <memory.h>
 
 EntryCache *EntryCacheNew(raft_index_t initial_size)
 {

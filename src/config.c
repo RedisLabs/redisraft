@@ -11,16 +11,16 @@
 #define _DARWIN_C_SOURCE
 #endif
 
+#include "redisraft.h"
+
+#include <ifaddrs.h>
+#include <limits.h>
+#include <net/if.h>
+#include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
-#include <net/if.h>
-#include <ifaddrs.h>
-#include <netdb.h>
-#include <limits.h>
-
-#include "redisraft.h"
 
 static const char *trace_names[] = {
     "off",
@@ -29,7 +29,7 @@ static const char *trace_names[] = {
     "raftlib",
     "raftlog",
     "generic",
-    "all"
+    "all",
 };
 
 static const int trace_flags[] = {
@@ -39,45 +39,44 @@ static const int trace_flags[] = {
     TRACE_RAFTLIB,
     TRACE_RAFTLOG,
     TRACE_GENERIC,
-    TRACE_ALL
+    TRACE_ALL,
 };
 
 #define TRACE_FLAG_COUNT (sizeof(trace_flags) / sizeof(int))
 
-static const char *conf_id                         = "id";
-static const char *conf_addr                       = "addr";
-static const char *conf_periodic_interval          = "periodic-interval";
-static const char *conf_request_timeout            = "request-timeout";
-static const char *conf_election_timeout           = "election-timeout";
-static const char *conf_connection_timeout         = "connection-timeout";
-static const char *conf_join_timeout               = "join-timeout";
-static const char *conf_response_timeout           = "response-timeout";
-static const char *conf_proxy_response_timeout     = "proxy-response-timeout";
-static const char *conf_reconnect_interval         = "reconnect-interval";
-static const char *conf_log_filename               = "log-filename";
-static const char *conf_log_max_cache_size         = "log-max-cache-size";
-static const char *conf_log_max_file_size          = "log-max-file-size";
-static const char *conf_log_fsync                  = "log-fsync";
-static const char *conf_follower_proxy             = "follower-proxy";
-static const char *conf_quorum_reads               = "quorum-reads";
-static const char *conf_loglevel                   = "loglevel";
-static const char *conf_trace                      = "trace";
-static const char *conf_sharding                   = "sharding";
-static const char *conf_slot_config                = "slot-config";
+static const char *conf_id = "id";
+static const char *conf_addr = "addr";
+static const char *conf_periodic_interval = "periodic-interval";
+static const char *conf_request_timeout = "request-timeout";
+static const char *conf_election_timeout = "election-timeout";
+static const char *conf_connection_timeout = "connection-timeout";
+static const char *conf_join_timeout = "join-timeout";
+static const char *conf_response_timeout = "response-timeout";
+static const char *conf_proxy_response_timeout = "proxy-response-timeout";
+static const char *conf_reconnect_interval = "reconnect-interval";
+static const char *conf_log_filename = "log-filename";
+static const char *conf_log_max_cache_size = "log-max-cache-size";
+static const char *conf_log_max_file_size = "log-max-file-size";
+static const char *conf_log_fsync = "log-fsync";
+static const char *conf_follower_proxy = "follower-proxy";
+static const char *conf_quorum_reads = "quorum-reads";
+static const char *conf_loglevel = "loglevel";
+static const char *conf_trace = "trace";
+static const char *conf_sharding = "sharding";
+static const char *conf_slot_config = "slot-config";
 static const char *conf_shardgroup_update_interval = "shardgroup-update-interval";
-static const char *conf_ignored_commands           = "ignored-commands";
-static const char *conf_external_sharding          = "external-sharding";
-static const char *conf_append_req_max_count       = "append-req-max-count";
-static const char *conf_append_req_max_size        = "append-req-max-size";
-static const char *conf_snapshot_req_max_count     = "snapshot-req-max-count";
-static const char *conf_snapshot_req_max_size      = "snapshot-req-max-size";
-static const char *conf_scan_size                  = "scan-size";
-static const char *conf_tls_enabled                = "tls-enabled";
-static const char *conf_cluster_user               = "cluster-user";
-static const char *conf_cluster_password           = "cluster-password";
+static const char *conf_ignored_commands = "ignored-commands";
+static const char *conf_external_sharding = "external-sharding";
+static const char *conf_append_req_max_count = "append-req-max-count";
+static const char *conf_append_req_max_size = "append-req-max-size";
+static const char *conf_snapshot_req_max_count = "snapshot-req-max-count";
+static const char *conf_snapshot_req_max_size = "snapshot-req-max-size";
+static const char *conf_scan_size = "scan-size";
+static const char *conf_tls_enabled = "tls-enabled";
+static const char *conf_cluster_user = "cluster-user";
+static const char *conf_cluster_password = "cluster-password";
 
 const char *err_init = "Configuration change is not allowed after init/join for this parameter";
-
 
 static int setRedisConfig(RedisModuleCtx *ctx,
                           const char *param,
@@ -168,7 +167,7 @@ static bool validSlotConfig(const char *slot_config)
 
         errno = 0;
         val_h = strtol(pos + 1, &end, 10);
-        if (errno != 0 ||  *end != '\0' || !HashSlotRangeValid(val_l, val_h)) {
+        if (errno != 0 || *end != '\0' || !HashSlotRangeValid(val_l, val_h)) {
             return false;
         }
     } else {
@@ -361,7 +360,7 @@ static int setString(const char *name,
         c->log_filename = RedisModule_Strdup(value);
     } else if (strcasecmp(name, conf_addr) == 0) {
         if (*value == '\0') {
-            c->addr = (NodeAddr) {0};
+            c->addr = (NodeAddr){0};
         } else if (!NodeAddrParse(value, len, &c->addr)) {
             *err = RedisModule_CreateStringPrintf(NULL, "Address is invalid. It must be in the form of 10.0.0.3:8000");
             return REDISMODULE_ERR;
@@ -446,7 +445,7 @@ static int getBool(const char *name, void *privdata)
         return c->sharding;
     } else if (strcasecmp(name, conf_external_sharding) == 0) {
         return c->external_sharding;
-    } else if (strcasecmp(name, conf_tls_enabled) == 0){
+    } else if (strcasecmp(name, conf_tls_enabled) == 0) {
         return c->tls_enabled;
     }
 
@@ -559,7 +558,6 @@ static long long getNumeric(const char *name, void *privdata)
     return REDISMODULE_ERR;
 }
 
-
 static int setNumeric(const char *name, long long val, void *priv,
                       RedisModuleString **err)
 {
@@ -646,8 +644,8 @@ static RRStatus getInterfaceAddr(NodeAddr *addr)
     for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
         /* Skip loopback and non-IP interfaces */
         if (!(ent->ifa_flags & IFF_LOOPBACK) &&
-             (ent->ifa_addr->sa_family == AF_INET ||
-              ent->ifa_addr->sa_family == AF_INET6)) {
+            (ent->ifa_addr->sa_family == AF_INET ||
+             ent->ifa_addr->sa_family == AF_INET6)) {
             break;
         }
     }
@@ -657,7 +655,8 @@ static RRStatus getInterfaceAddr(NodeAddr *addr)
     }
 
     size_t size = ent->ifa_addr->sa_family == AF_INET ?
-                      sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+                      sizeof(struct sockaddr_in) :
+                      sizeof(struct sockaddr_in6);
 
     int ret = getnameinfo(ent->ifa_addr, size, addr->host, sizeof(addr->host),
                           NULL, 0, NI_NUMERICHOST);
@@ -711,13 +710,15 @@ RRStatus ConfigInit(RedisRaftConfig *c, RedisModuleCtx *ctx)
 {
     int ret = 0;
 
-    *c = (RedisRaftConfig) {
-        .str_conf_ref = RedisModule_CreateString(NULL, "", 0)
+    *c = (RedisRaftConfig){
+        .str_conf_ref = RedisModule_CreateString(NULL, "", 0),
     };
 
     if (validateRedisConfig(ctx) != RR_OK) {
         goto err;
     }
+
+    /* clang-format off */
                                                   /* name */                   /* default-value */   /* flags */               /* min - max value */
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_id,                         0,                REDISMODULE_CONFIG_DEFAULT,   0, INT_MAX,   getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_periodic_interval,          100,              REDISMODULE_CONFIG_DEFAULT,   1, INT_MAX,   getNumeric, setNumeric, NULL, c);
@@ -757,6 +758,7 @@ RRStatus ConfigInit(RedisRaftConfig *c, RedisModuleCtx *ctx)
                                                    /* name */                  /* default-value */   /* flags */
     ret |= RedisModule_RegisterEnumConfig(ctx,    conf_loglevel,                   LOG_LEVEL_NOTICE, REDISMODULE_CONFIG_DEFAULT,  redisraft_loglevels, redisraft_loglevel_enums, LOG_LEVEL_COUNT,  getEnum, setEnum, NULL, c);
     ret |= RedisModule_RegisterEnumConfig(ctx,    conf_trace,                      TRACE_OFF,        REDISMODULE_CONFIG_BITFLAGS, trace_names,         trace_flags,              TRACE_FLAG_COUNT, getEnum, setEnum, NULL, c);
+    /* clang-format on */
 
     ret |= RedisModule_LoadConfigs(ctx);
     if (ret != REDISMODULE_OK) {
@@ -799,7 +801,7 @@ void ConfigFree(RedisRaftConfig *c)
     }
 #endif
 
-    *c = (RedisRaftConfig) {0};
+    *c = (RedisRaftConfig){0};
 }
 
 void ConfigRedisEventCallback(RedisModuleCtx *ctx,

@@ -6,11 +6,11 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
+#include "redisraft.h"
+
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <stdlib.h>
-
-#include "redisraft.h"
 
 /* -----------------------------------------------------------------------------
  * ShardGroup Handling
@@ -31,8 +31,8 @@
 char *ShardGroupSerialize(ShardGroup *sg)
 {
     size_t buf_size = SHARDGROUP_MAXLEN +
-            (SHARDGROUPNODE_MAXLEN * sg->nodes_num) + 1 +
-            (SLOT_RANGE_MAXLEN * sg->slot_ranges_num) + 1;
+                      (SHARDGROUPNODE_MAXLEN * sg->nodes_num) + 1 +
+                      (SLOT_RANGE_MAXLEN * sg->slot_ranges_num) + 1;
     char *buf = RedisModule_Calloc(1, buf_size);
 
     /* shard group id */
@@ -102,7 +102,7 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len)
 
     sg->nodes_num = strtoul(s, &endptr, 10);
     RedisModule_Assert(endptr == nl);
-    s = nl+1;
+    s = nl + 1;
 
     /* Read in slot ranges */
     sg->slot_ranges = RedisModule_Calloc(sg->slot_ranges_num, sizeof(ShardGroupSlotRange));
@@ -166,7 +166,7 @@ ShardGroup *ShardGroupDeserialize(const char *buf, size_t buf_len)
         /* Parse node address */
         s = nl + 1;
         nl = memchr(s, '\n', end - s);
-        if (!nl || !NodeAddrParse(s, nl-s, &n->addr)) {
+        if (!nl || !NodeAddrParse(s, nl - s, &n->addr)) {
             goto error;
         }
 
@@ -184,7 +184,8 @@ error:
  * Basically just zero-initializing everything, but a place holder
  * for the future.
  */
-void ShardGroupInit(ShardGroup *sg) {
+void ShardGroupInit(ShardGroup *sg)
+{
     memset(sg, 0, sizeof(ShardGroup));
 }
 
@@ -208,14 +209,16 @@ void ShardGroupTerm(ShardGroup *sg)
     }
 }
 
-ShardGroup *ShardGroupCreate() {
+ShardGroup *ShardGroupCreate()
+{
     ShardGroup *sg = RedisModule_Calloc(1, sizeof(*sg));
     ShardGroupInit(sg);
     return sg;
 }
 
 /* Unlike C heap function, this should only be passed non NULL (valid) pointers */
-void ShardGroupFree(ShardGroup *sg) {
+void ShardGroupFree(ShardGroup *sg)
+{
     RedisModule_Assert(sg != NULL);
 
     ShardGroupTerm(sg);
@@ -273,8 +276,8 @@ RRStatus parseShardGroupReply(redisReply *reply, ShardGroup *sg)
     /* check if it has 2 elements and both are arrays */
     if (reply->elements != 3 ||
         reply->element[0]->type != REDIS_REPLY_STRING || /* shardgroup_id */
-        reply->element[1]->type != REDIS_REPLY_ARRAY || /* slots array */
-        reply->element[2]->type != REDIS_REPLY_ARRAY) { /* nodes array */
+        reply->element[1]->type != REDIS_REPLY_ARRAY ||  /* slots array */
+        reply->element[2]->type != REDIS_REPLY_ARRAY) {  /* nodes array */
         return RR_ERROR;
     }
 
@@ -495,7 +498,7 @@ static void sendShardGroupRequest(Connection *conn)
     /* Request configuration */
     redisAsyncContext *rc = ConnGetRedisCtx(conn);
     if (redisAsyncCommand(rc, handleShardGroupResponse, conn,
-                "RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
+                          "RAFT.SHARDGROUP %s", "GET") != REDIS_OK) {
 
         redisAsyncDisconnect(rc);
         ConnMarkDisconnected(conn);
@@ -522,7 +525,7 @@ static void establishShardGroupConn(Connection *conn)
      */
     if (!raft_is_leader(rr->raft) ||
         RedisModule_Milliseconds() - sg->last_updated < rr->config.shardgroup_update_interval) {
-       return;
+        return;
     }
 
     if (sg->use_conn_addr) {
@@ -1009,9 +1012,9 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx,
     }
 
     /* basic validation, no shard groups have slotranges that overlap another */
-    ShardGroup *stable[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
-    ShardGroup *importing[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
-    ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT+1] = {0};
+    ShardGroup *stable[REDIS_RAFT_HASH_MAX_SLOT + 1] = {0};
+    ShardGroup *importing[REDIS_RAFT_HASH_MAX_SLOT + 1] = {0};
+    ShardGroup *migrating[REDIS_RAFT_HASH_MAX_SLOT + 1] = {0};
 
     for (int j = 0; j < num_shards; j++) {
         ShardGroup *sg = shards[j];
@@ -1166,7 +1169,7 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
 {
     Node *node = raft_node_get_udata(raft_node);
     NodeAddr *addr;
-    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
 
     /* Stale nodes should not exist but we prefer to be defensive.
      * Our own node doesn't have a connection so we don't expect a Node object.
@@ -1189,7 +1192,7 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
     RedisModule_ReplyWithCString(ctx, addr->host);
     RedisModule_ReplyWithLongLong(ctx, addr->port);
 
-    raftNodeToString(node_id,  rr->log->dbid, raft_node);
+    raftNodeToString(node_id, rr->log->dbid, raft_node);
     RedisModule_ReplyWithCString(ctx, node_id);
 
     return 1;
@@ -1232,7 +1235,7 @@ RedisModuleString *generateSlots(RedisModuleCtx *ctx, ShardGroup *sg)
             continue;
         }
 
-        char slot_str[REDIS_RAFT_MAX_SLOT_CHARS*2 + 1 + 1] = {0};
+        char slot_str[REDIS_RAFT_MAX_SLOT_CHARS * 2 + 1 + 1] = {0};
 
         char *slot_ptr = slot_str;
         if (!first_slot) {
@@ -1265,20 +1268,20 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     const char *slots_str;
 
     slots_str = RedisModule_StringPtrLen(slots, &slots_len);
-    const char *master = (master_node_id != NULL)? master_node_id : "-";
-    RedisModuleString* str = RedisModule_CreateStringPrintf(NULL,
-                                                           "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
-                                                           node_id,
-                                                           addr->host,
-                                                           addr->port,
-                                                           addr->port,
-                                                           flags,
-                                                           master,
-                                                           ping_sent,
-                                                           pong_recv,
-                                                           epoch,
-                                                           link_state,
-                                                           (int) slots_len, slots_str);
+    const char *master = (master_node_id != NULL) ? master_node_id : "-";
+    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL,
+                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
+                                                            node_id,
+                                                            addr->host,
+                                                            addr->port,
+                                                            addr->port,
+                                                            flags,
+                                                            master,
+                                                            ping_sent,
+                                                            pong_recv,
+                                                            epoch,
+                                                            link_state,
+                                                            (int) slots_len, slots_str);
 
     temp = RedisModule_StringPtrLen(str, &len);
     RedisModule_StringAppendBuffer(NULL, ret, temp, len);
@@ -1319,15 +1322,14 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     int ping_sent = 0;
     int pong_recv = 0;
 
-    char node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
-    raftNodeToString(node_id,  rr->log->dbid, raft_node);
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
+    raftNodeToString(node_id, rr->log->dbid, raft_node);
 
-    char master_node_id[RAFT_SHARDGROUP_NODEID_LEN+1];
+    char master_node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
     if (!leader) {
-        raftNodeIdToString(master_node_id,  rr->log->dbid, raft_get_leader_id(rr->raft));
+        raftNodeIdToString(master_node_id, rr->log->dbid, raft_get_leader_id(rr->raft));
         master = master_node_id;
     }
-
 
     raft_term_t epoch = raft_get_current_term(redis_raft.raft);
     char *link_state = "connected";
@@ -1539,7 +1541,6 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
             }
         } else {
             LOG_WARNING("RAFT.SHARDGROUP GET failed: %s", reply->str);
-
         }
     } else {
         ShardGroup recv_sg;
@@ -1556,7 +1557,7 @@ static void linkHandleResponse(redisAsyncContext *c, void *r, void *privdata)
                 LOG_VERBOSE("Shardgroup link: %s:%u: received configuration, propagating to Raft log.",
                             state->addr_iter->addr.host, state->addr_iter->addr.port);
                 if (ShardGroupAppendLogEntry(ConnGetRedisRaftCtx(conn), &recv_sg,
-                                         RAFT_LOGTYPE_ADD_SHARDGROUP, state->req) == RR_OK) {
+                                             RAFT_LOGTYPE_ADD_SHARDGROUP, state->req) == RR_OK) {
                     state->req = NULL;
 
                     ConnAsyncTerminate(conn);
@@ -1613,7 +1614,7 @@ void ShardGroupLink(RedisRaftCtx *rr,
     NodeAddr addr = {0};
 
     if (!NodeAddrParse(str, len, &addr)) {
-        RedisModule_ReplyWithError(ctx, "invalid address/port specified") ;
+        RedisModule_ReplyWithError(ctx, "invalid address/port specified");
         return;
     }
 

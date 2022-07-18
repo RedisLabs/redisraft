@@ -6,16 +6,17 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
-#include <stdlib.h>
 #include "redisraft.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 /* Attempt to parse a node address in the form of <addr>:<port>
  * and populate the result NodeAddr. Returns true if successful.
  */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result)
 {
-    char buf[32] = { 0 };
+    char buf[32] = {0};
     char *endptr;
     unsigned long l;
 
@@ -44,7 +45,7 @@ bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result
     /* Get addr */
     size_t addrlen = colon - node_addr;
     if (addrlen >= sizeof(result->host)) {
-        addrlen = sizeof(result->host)-1;
+        addrlen = sizeof(result->host) - 1;
     }
     memcpy(result->host, node_addr, addrlen);
     result->host[addrlen] = '\0';

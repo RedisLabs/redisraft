@@ -6,8 +6,9 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <string.h>
 #include "redisraft.h"
+
+#include <string.h>
 
 /* RaftRedisCommand represents a single Redis command to execute.  Every Raft log entry
  * contains a serialized list of commands in Redis multi-bulk compatible encoding (using \n
@@ -122,12 +123,14 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
     /* Encode Asking */
     n = encodeInteger('*', p, sz, source->asking);
     RedisModule_Assert(n != -1);
-    p +=n; sz -= n;
+    p += n;
+    sz -= n;
 
     /* Encode count */
     n = encodeInteger('*', p, sz, source->len);
     RedisModule_Assert(n != -1);
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
 
     /* Encode entries */
     for (i = 0; i < source->len; i++) {
@@ -135,7 +138,8 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
         n = encodeInteger('*', p, sz, src->argc);
         RedisModule_Assert(n != -1);
-        p += n; sz -= n;
+        p += n;
+        sz -= n;
 
         for (j = 0; j < src->argc; j++) {
             const char *e = RedisModule_StringPtrLen(src->argv[j], &len);
@@ -143,7 +147,8 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
             n = encodeInteger('$', p, sz, len);
             RedisModule_Assert(n != -1);
-            p += n; sz -= n;
+            p += n;
+            sz -= n;
 
             memcpy(p, e, len);
             p += len;
@@ -166,7 +171,8 @@ size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, si
     if ((n = decodeInteger(p, buf_size, '*', &len)) < 0 || !len) {
         return 0;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
     target->argc = len;
     target->argv = RedisModule_Calloc(len, sizeof(RedisModuleString *));
 
@@ -175,7 +181,8 @@ size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, si
         if ((n = decodeInteger(p, buf_size, '$', &len)) < 0) {
             goto error;
         }
-        p += n; buf_size -= n;
+        p += n;
+        buf_size -= n;
         if (buf_size <= len) {
             goto error;
         }
@@ -185,7 +192,7 @@ size_t RaftRedisCommandDeserialize(RaftRedisCommand *target, const void *buf, si
         buf_size -= (len + 1);
     }
 
-    return p - (char*) buf;
+    return p - (char *) buf;
 
 error:
     RaftRedisCommandFree(target);
@@ -207,19 +214,21 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     if ((n = decodeInteger(p, buf_size, '*', &asking)) < 0) {
         return RR_ERROR;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
     target->asking = asking;
 
     /* Read command count */
     if ((n = decodeInteger(p, buf_size, '*', &commands_num)) < 0 ||
-            !commands_num) {
+        !commands_num) {
         return RR_ERROR;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
 
     /* Allocate array */
     target->len = target->size = commands_num;
-    target->commands = RedisModule_Calloc(commands_num, sizeof(RaftRedisCommand*));
+    target->commands = RedisModule_Calloc(commands_num, sizeof(RaftRedisCommand *));
     for (size_t i = 0; i < commands_num; i++) {
         target->commands[i] = RedisModule_Calloc(1, sizeof(RaftRedisCommand));
         size_t len = RaftRedisCommandDeserialize(target->commands[i], p, buf_size);
@@ -248,7 +257,8 @@ RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t 
     if ((n = decodeInteger(p, buf_size, '*', &term)) < 0 || !term) {
         return RR_ERROR;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
     target->term = term;
 
     /* Read migration_session_key */
@@ -256,7 +266,8 @@ RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t 
     if ((n = decodeInteger(p, buf_size, '*', &migration_session_key)) < 0) {
         return RR_ERROR;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
     target->migration_session_key = (unsigned long long) migration_session_key;
 
     /* Read number of keys serialized in import entry */
@@ -264,23 +275,26 @@ RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t 
     if ((n = decodeInteger(p, buf_size, '*', &num_keys)) < 0 || !num_keys) {
         return RR_ERROR;
     }
-    p += n; buf_size -= n;
+    p += n;
+    buf_size -= n;
     target->num_keys = num_keys;
 
-    target->key_names = RedisModule_Calloc(num_keys, sizeof(RedisModuleString*));
-    target->key_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString*));
+    target->key_names = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
+    target->key_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
 
     for (size_t i = 0; i < num_keys; i++) {
         n = decodeString(p, buf_size, &target->key_names[i]);
         if (n < 0 || !target->key_names[i]) {
             return RR_ERROR;
         }
-        p += n; buf_size -= n;
+        p += n;
+        buf_size -= n;
         n = decodeString(p, buf_size, &target->key_serialized[i]);
         if (n < 0 || !target->key_serialized[i]) {
             return RR_ERROR;
         }
-        p += n; buf_size -= n;
+        p += n;
+        buf_size -= n;
     }
 
     return RR_OK;
@@ -305,25 +319,30 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
     /* Encode term */
     n = encodeInteger('*', p, sz, import_keys->term);
     RedisModule_Assert(n != -1);
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
 
     /* encode migration_session_key */
     n = encodeInteger('*', p, sz, import_keys->migration_session_key);
     RedisModule_Assert(n != -1);
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
 
     /* encode num_keys */
     n = encodeInteger('*', p, sz, import_keys->num_keys);
     RedisModule_Assert(n != -1);
-    p += n; sz -= n;
+    p += n;
+    sz -= n;
 
     for (size_t i = 0; i < import_keys->num_keys; i++) {
         n = encodeString(p, sz, import_keys->key_names[i]);
         RedisModule_Assert(n != -1);
-        p += n; sz -= n;
+        p += n;
+        sz -= n;
         n = encodeString(p, sz, import_keys->key_serialized[i]);
         RedisModule_Assert(n != -1);
-        p += n; sz -= n;
+        p += n;
+        sz -= n;
     }
 
     return ety;

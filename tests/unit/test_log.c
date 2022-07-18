@@ -6,26 +6,23 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <stdarg.h>
+#include "../src/entrycache.h"
+#include "../src/redisraft.h"
+
 #include <stddef.h>
-#include <setjmp.h>
-#include <unistd.h>
-#include <string.h>
 #include <stdlib.h>
-#include <sys/time.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "cmocka.h"
 
-#include "../src/redisraft.h"
-#include "../src/entrycache.h"
-
 #define LOGNAME "test.log.db"
-#define DBID "01234567890123456789012345678901"
+#define DBID    "01234567890123456789012345678901"
 
 static int setup_create_log(void **state)
 {
     RedisRaftConfig cfg = {
-        .id = 1
+        .id = 1,
     };
 
     *state = RaftLogCreate(LOGNAME, DBID, 1, 0, &cfg);
@@ -60,7 +57,6 @@ static raft_entry_t *__make_entry_value(int id, const char *value)
     strcpy(e->data, value);
     return e;
 }
-
 
 static raft_entry_t *__make_entry(int id)
 {
@@ -519,7 +515,7 @@ static void test_entry_cache_fuzzer(void **state)
 
 static int cleanup_meta(void **state)
 {
-    unlink(LOGNAME".meta");
+    unlink(LOGNAME ".meta");
     return 0;
 }
 
@@ -542,30 +538,30 @@ static void test_meta_persistence(void **state)
 
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
-            test_log_load_entries, setup_create_log, teardown_log),
+        test_log_load_entries, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_random_access, setup_create_log, teardown_log),
+        test_log_random_access, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_random_access_with_snapshot, setup_create_log, teardown_log),
+        test_log_random_access_with_snapshot, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_write_after_read, setup_create_log, teardown_log),
+        test_log_write_after_read, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_index_rebuild, setup_create_log, teardown_log),
+        test_log_index_rebuild, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_delete, setup_create_log, teardown_log),
+        test_log_delete, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_log_fuzzer, setup_create_log, teardown_log),
+        test_log_fuzzer, setup_create_log, teardown_log),
     cmocka_unit_test_setup_teardown(
-            test_entry_cache_sanity, NULL, NULL),
+        test_entry_cache_sanity, NULL, NULL),
     cmocka_unit_test_setup_teardown(
-            test_entry_cache_start_index_change, NULL, NULL),
+        test_entry_cache_start_index_change, NULL, NULL),
     cmocka_unit_test_setup_teardown(
-            test_entry_cache_delete_head, NULL, NULL),
+        test_entry_cache_delete_head, NULL, NULL),
     cmocka_unit_test_setup_teardown(
-            test_entry_cache_delete_tail, NULL, NULL),
+        test_entry_cache_delete_tail, NULL, NULL),
     cmocka_unit_test_setup_teardown(
-            test_entry_cache_fuzzer, NULL, NULL),
+        test_entry_cache_fuzzer, NULL, NULL),
     cmocka_unit_test_setup_teardown(
-            test_meta_persistence, cleanup_meta, cleanup_meta),
-    { .test_func = NULL }
+        test_meta_persistence, cleanup_meta, cleanup_meta),
+    {.test_func = NULL},
 };

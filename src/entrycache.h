@@ -9,16 +9,16 @@
 #ifndef REDISRAFT_ENTRYCACHE_H
 #define REDISRAFT_ENTRYCACHE_H
 
-#include <stdlib.h>
-
 #include "raft.h"
 
+#include <stdlib.h>
+
 typedef struct EntryCache {
-    raft_index_t size;                  /* Size of ptrs */
-    raft_index_t len;                   /* Number of entries in cache */
-    raft_index_t start_idx;             /* Log index of first entry */
-    raft_index_t start;                 /* ptrs array index of first entry */
-    unsigned long int entries_memsize;  /* Total memory used by entries */
+    raft_index_t size;                 /* Size of ptrs */
+    raft_index_t len;                  /* Number of entries in cache */
+    raft_index_t start_idx;            /* Log index of first entry */
+    raft_index_t start;                /* ptrs array index of first entry */
+    unsigned long int entries_memsize; /* Total memory used by entries */
     raft_entry_t **ptrs;
 } EntryCache;
 

@@ -6,12 +6,12 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include <strings.h>
-
 #include "redisraft.h"
 
+#include <strings.h>
+
 /* Sort Redis array type responses (arrays, sets....) */
-static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
+static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
     int reply_type = RedisModule_CallReplyType(reply);
@@ -41,8 +41,7 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
         RedisModule_DictReplaceC(dict, (char *) entry_str, entry_len, (void *) val);
     }
 
-    switch (reply_type)
-    {
+    switch (reply_type) {
         case REDISMODULE_REPLY_ARRAY:
             if (RedisModule_ReplyWithArray(ctx, len) != REDISMODULE_OK) {
                 RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
@@ -76,7 +75,7 @@ early_exit:
 }
 
 /* Sort Redis key/value responses, that are sorted on the key */
-static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
+static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
 {
     size_t len = RedisModule_CallReplyLength(reply);
     RedisModuleDict *dict = RedisModule_CreateDict(ctx);
@@ -105,7 +104,7 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply * reply)
     void *value;
     size_t count = 0;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while((key = RedisModule_DictNextC(iter, &key_len, &value)) != NULL) {
+    while ((key = RedisModule_DictNextC(iter, &key_len, &value)) != NULL) {
         count++;
         RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         RedisModule_ReplyWithCallReply(ctx, value);
@@ -131,7 +130,7 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     enterRedisModuleCall();
     int entered_eval = redis_raft.entered_eval;
     redis_raft.entered_eval = 0;
-    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, cmd_str, "3v", &argv[1], argc-1);
+    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, cmd_str, "3v", &argv[1], argc - 1);
     exitRedisModuleCall();
     redis_raft.entered_eval = entered_eval;
 

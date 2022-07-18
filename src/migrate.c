@@ -1,6 +1,6 @@
-#include <string.h>
-
 #include "redisraft.h"
+
+#include <string.h>
 
 static bool validSlotMigrationSessionKey(RedisRaftCtx *rr, unsigned int slot, unsigned long long migration_session_key)
 {
@@ -86,7 +86,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* 2  'static' strings need for restore command */
-    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", strlen("0")); /* ttl of zero */
+    RedisModuleString *zero = RedisModule_CreateString(rr->ctx, "0", strlen("0"));                /* ttl of zero */
     RedisModuleString *replace = RedisModule_CreateString(rr->ctx, "REPLACE", strlen("REPLACE")); /* overwrite on import */
 
     for (size_t i = 0; i < import_keys.num_keys; i++) {
@@ -158,14 +158,14 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     req->r.import_keys.term = (raft_term_t) term;
     req->r.import_keys.migration_session_key = migration_session_key;
 
-    int num_keys = (argc -3) / 2;
+    int num_keys = (argc - 3) / 2;
     req->r.import_keys.num_keys = num_keys;
     req->r.import_keys.key_names = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
     req->r.import_keys.key_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
 
     for (int i = 0; i < num_keys; i++) {
-        req->r.import_keys.key_names[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i*2)]);
-        req->r.import_keys.key_serialized[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i*2) + 1]);
+        req->r.import_keys.key_names[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i * 2)]);
+        req->r.import_keys.key_serialized[i] = RedisModule_HoldString(rr->ctx, argv[3 + (i * 2) + 1]);
     }
 
     raft_entry_t *entry = RaftRedisSerializeImport(&req->r.import_keys);
@@ -292,14 +292,14 @@ static void transferKeys(Connection *conn)
 
         size_t key_len;
         const char *key = RedisModule_StringPtrLen(req->r.migrate_keys.keys[i], &key_len);
-        argv[3 + (i*2)] = RedisModule_Strdup(key);
-        argv_len[3+ (i*2)] = key_len;
+        argv[3 + (i * 2)] = RedisModule_Strdup(key);
+        argv_len[3 + (i * 2)] = key_len;
 
         size_t str_len;
         const char *str = RedisModule_StringPtrLen(req->r.migrate_keys.keys_serialized[i], &str_len);
-        argv[3 + (i*2) + 1] = RedisModule_Alloc(str_len);
-        memcpy(argv[3 + (i*2) + 1], str, str_len);
-        argv_len[3 + (i*2) + 1] = str_len;
+        argv[3 + (i * 2) + 1] = RedisModule_Alloc(str_len);
+        memcpy(argv[3 + (i * 2) + 1], str, str_len);
+        argv_len[3 + (i * 2) + 1] = str_len;
     }
 
     if (redisAsyncCommandArgv(ConnGetRedisCtx(conn), transferKeysResponse, conn, argc, (const char **) argv, argv_len) != REDIS_OK) {

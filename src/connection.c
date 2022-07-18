@@ -6,20 +6,20 @@
  * RedisRaft is licensed under the Redis Source Available License (RSAL).
  */
 
-#include "redisraft.h"
 #include "hiredis_redismodule.h"
+#include "redisraft.h"
 
+#include <arpa/inet.h>
 #include <assert.h>
 #include <netdb.h>
-#include <arpa/inet.h>
 #include <string.h>
 
 #define CONN_LOG(level, conn, fmt, ...) \
     LOG(level, "{conn:%lu} " fmt, conn ? conn->id : 0, ##__VA_ARGS__)
 
-#define CONN_LOG_DEBUG(conn, fmt, ...) CONN_LOG(LOG_LEVEL_DEBUG, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_DEBUG(conn, fmt, ...)   CONN_LOG(LOG_LEVEL_DEBUG, conn, fmt, ##__VA_ARGS__)
 #define CONN_LOG_VERBOSE(conn, fmt, ...) CONN_LOG(LOG_LEVEL_VERBOSE, conn, fmt, ##__VA_ARGS__)
-#define CONN_LOG_NOTICE(conn, fmt, ...) CONN_LOG(LOG_LEVEL_NOTICE, conn, fmt, ##__VA_ARGS__)
+#define CONN_LOG_NOTICE(conn, fmt, ...)  CONN_LOG(LOG_LEVEL_NOTICE, conn, fmt, ##__VA_ARGS__)
 #define CONN_LOG_WARNING(conn, fmt, ...) CONN_LOG(LOG_LEVEL_WARNING, conn, fmt, ##__VA_ARGS__)
 
 #define CONN_TRACE(node, fmt, ...) \
@@ -30,7 +30,7 @@ static const char *ConnStateStr[] = {
     "resolving",
     "connecting",
     "connected",
-    "connect_error"
+    "connect_error",
 };
 
 /* A list of all connections */
@@ -66,9 +66,9 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
 
     int timeout_millis = rr->config.connection_timeout;
 
-    conn->timeout = (struct timeval) {
-            .tv_sec = timeout_millis / 1000,
-            .tv_usec = (timeout_millis % 1000) * 1000
+    conn->timeout = (struct timeval){
+        .tv_sec = timeout_millis / 1000,
+        .tv_usec = (timeout_millis % 1000) * 1000,
     };
 
     CONN_TRACE(conn, "Connection created.");
@@ -109,8 +109,8 @@ static void connDataCleanupCallback(void *privdata)
     Connection *conn = (Connection *) privdata;
 
     CONN_TRACE(conn, "connDataCleanupCallback: flags=%d, rc=%p",
-         conn ? conn->flags : 0,
-         conn ? conn->rc : NULL);
+               conn ? conn->flags : 0,
+               conn ? conn->rc : NULL);
 
     /* If we got called hiredis is tearing down the context, make sure
      * we drop the reference to it.
@@ -156,7 +156,6 @@ static void connectionSuccess(Connection *conn)
     if (conn->connect_callback) {
         conn->connect_callback(conn);
     }
-
 }
 
 static void connectionFailure(Connection *conn)
@@ -238,7 +237,7 @@ fail:
  * Depending on status, state transitions to CONN_CONNECTED or CONN_CONNECT_ERROR.
  * User callback is called in all cases except when the connection has already been terminated externally
  */
-static void handleConnectedWithoutAuth(Connection *conn, int status) 
+static void handleConnectedWithoutAuth(Connection *conn, int status)
 {
     if (status == REDIS_OK) {
         connectionSuccess(conn);
@@ -273,12 +272,11 @@ static void handleDisconnected(const redisAsyncContext *c, int status)
     UNUSED(status);
     Connection *conn = (Connection *) c->data;
 
-    CONN_TRACE(conn, "handleDisconnected: rc=%p",
-        conn ? conn->rc : NULL);
+    CONN_TRACE(conn, "handleDisconnected: rc=%p", conn ? conn->rc : NULL);
 
     if (conn) {
         conn->state = CONN_DISCONNECTED;
-        conn->rc = NULL;    /* FIXME: Need this? */
+        conn->rc = NULL; /* FIXME: Need this? */
     }
 }
 
@@ -288,9 +286,9 @@ static void handleResolved(void *arg)
     Connection *conn = arg;
 
     CONN_TRACE(conn, "handleResolved: flags=%d, state=%s, rc=%p",
-        conn->flags,
-        ConnStateStr[conn->state],
-        conn->rc);
+               conn->flags,
+               ConnStateStr[conn->state],
+               conn->rc);
 
     struct AddrinfoResult *res = &conn->addrinfo_result;
 
@@ -309,7 +307,7 @@ static void handleResolved(void *arg)
         goto fail;
     }
 
-    void* addr = &((struct sockaddr_in *)res->addr->ai_addr)->sin_addr;
+    void *addr = &((struct sockaddr_in *) res->addr->ai_addr)->sin_addr;
     inet_ntop(AF_INET, addr, conn->ipaddr, INET_ADDRSTRLEN);
     freeaddrinfo(res->addr);
 
@@ -329,14 +327,13 @@ static void handleResolved(void *arg)
         goto fail;
     }
 
-
 #ifdef HAVE_TLS
     if (conn->rr->config.tls_enabled) {
         SSL *ssl = SSL_new(conn->rr->config.ssl);
         if (!ssl) {
             unsigned long e = ERR_peek_last_error();
             CONN_LOG_WARNING(conn, "Couldn't create SSL object: %s", ERR_reason_error_string(e));
-	        goto fail;
+            goto fail;
         }
         int result = redisInitiateSSL(&conn->rc->c, ssl);
         if (result != REDIS_OK) {
@@ -378,7 +375,7 @@ void ConnGetAddrinfo(void *arg)
         .ai_family = PF_INET,
         .ai_socktype = SOCK_STREAM,
         .ai_protocol = IPPROTO_TCP,
-        .ai_flags = 0
+        .ai_flags = 0,
     };
 
     struct addrinfo *addr = NULL;
@@ -457,7 +454,7 @@ void HandleIdleConnections(RedisRaftCtx *rr)
         return;
 
     Connection *conn, *tmp;
-    LIST_FOREACH_SAFE(conn, &conn_list, entries, tmp) {
+    LIST_FOREACH_SAFE (conn, &conn_list, entries, tmp) {
         /* Idle connections are either terminating and should be reaped,
          * or waiting for an idle callback which can re-connect them.
          */
@@ -482,4 +479,3 @@ void HandleIdleConnections(RedisRaftCtx *rr)
         }
     }
 }
-
