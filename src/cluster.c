@@ -1737,8 +1737,8 @@ void ShardGroupReplace(RedisRaftCtx *rr,
     ret = ShardGroupsAppendLogEntry(rr, num_elems, sg,
                                     RAFT_LOGTYPE_REPLACE_SHARDGROUPS, req);
     if (ret != RR_OK) {
-        RaftReqFree(req);
         RedisModule_ReplyWithError(req->ctx, "failed, please check logs.");
+        RaftReqFree(req);
         goto out;
     }
 
