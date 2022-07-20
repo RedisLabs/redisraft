@@ -1511,7 +1511,7 @@ RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->locked_keys = RedisModule_CreateDict(ctx);
 
     /* caching deny_oom flag command attributes */
-    rr->command_deny_oom_dict = RedisModule_CreateDict(ctx);
+    updateAllDenyOomStatus(rr, ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr);
@@ -1538,7 +1538,6 @@ RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_CreateTimer(ctx, rr->config.reconnect_interval, callHandleNodeStates, rr);
     threadPoolInit(&rr->thread_pool, 5);
     fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
-
 
     return RR_OK;
 }

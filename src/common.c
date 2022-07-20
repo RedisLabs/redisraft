@@ -10,6 +10,7 @@
 
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 
 int redis_raft_in_rm_call = 0;
 
@@ -304,4 +305,108 @@ void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node)
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
     snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
+}
+
+/*
+ * Dump and Parse the command array for deny-oom status
+ */
+void updateAllDenyOomStatus(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    enterRedisModuleCall();
+    RedisModuleCallReply * reply = RedisModule_Call(ctx, "command", "");
+    exitRedisModuleCall();
+
+    RedisModule_Assert(reply);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+
+    if (rr->command_deny_oom_dict) {
+        RedisModule_FreeDict(ctx, rr->command_deny_oom_dict);
+    }
+
+    rr->command_deny_oom_dict = RedisModule_CreateDict(ctx);
+
+    size_t num_commands = RedisModule_CallReplyLength(reply);
+    for (size_t i = 0; i < num_commands; i++) {
+        RedisModuleCallReply *command = RedisModule_CallReplyArrayElement(reply, i);
+
+        if (RedisModule_CallReplyType(command) != REDISMODULE_REPLY_ARRAY) {
+            LOG_WARNING("updateAllDenyOomStatus: command info returned unexpected element type at %d", (int) i);
+            continue;
+        }
+
+        size_t command_array_len = RedisModule_CallReplyLength(command);
+        if ( command_array_len < 3) {
+            LOG_WARNING("updateAllDenyOomStatus: command returned unexpected element length (%d) at %d",
+                        (int) command_array_len , (int) i);
+            continue;
+        }
+
+        RedisModuleCallReply *cmd_name = RedisModule_CallReplyArrayElement(command, 0);
+        size_t cmd_len;
+        const char *cmd_str = RedisModule_CallReplyStringPtr(cmd_name, &cmd_len);
+
+        RedisModuleCallReply *attributes = RedisModule_CallReplyArrayElement(command, 2);
+        bool set = false;
+        for (size_t i = 0; i < RedisModule_CallReplyLength(attributes); i++) {
+            RedisModuleCallReply *option = RedisModule_CallReplyArrayElement(attributes, i);
+            size_t option_len;
+            const char *option_str = RedisModule_CallReplyStringPtr(option, &option_len);
+            if (strncmp("denyoom", option_str, option_len) == 0) {
+                RedisModule_DictReplaceC(rr->command_deny_oom_dict, (char *) cmd_str, cmd_len, (void *) 1);
+                set = true;
+            }
+        }
+        if (!set) {
+            RedisModule_DictSetC(rr->command_deny_oom_dict, (char *) cmd_str, cmd_len, (void *) 0);
+        }
+    }
+
+    RedisModule_FreeCallReply(reply);
+}
+
+/*
+ * returns the deny_oom status for a particular set of commands
+ */
+bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
+    for (int i = 0; i < cmds->len; i++) {
+        RaftRedisCommand * cmd = cmds->commands[i];
+
+        if (cmd->argc < 1) {
+            continue;
+        }
+
+        size_t cmd_len;
+        const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+        char buf[64];
+        char *lcmd = toLowerString(cmd_str, cmd_len, buf);
+
+        int nokey;
+        void *ret = RedisModule_DictGetC(rr->command_deny_oom_dict, lcmd, cmd_len, &nokey);
+        if (lcmd != buf) {
+            RedisModule_Free(lcmd);
+        }
+        if (ret) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* need to be able to normalize redis strings for dict lookups */
+char *toLowerString(const char *cmd_str, size_t cmd_len, char *buf) {
+    char *lcmd = buf;
+
+    if (cmd_len >= sizeof(buf)) {
+        lcmd = RedisModule_Alloc(cmd_len + 1);
+    }
+
+    for (size_t i = 0; i < cmd_len; i++) {
+        lcmd[i] = (char) tolower(cmd_str[i]);
+    }
+
+    lcmd[cmd_len] = '\0';
+
+    return lcmd;
 }

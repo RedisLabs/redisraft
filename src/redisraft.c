@@ -598,70 +598,6 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-static bool getDenyOomStatus(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
-{
-    for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand * cmd = cmds->commands[i];
-
-        if (cmd->argc < 1) {
-            continue;
-        }
-
-        size_t cmd_len;
-        const char * cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-
-        int nokey;
-        if (RedisModule_DictGetC(rr->command_deny_oom_dict, (char *) cmd_str, cmd_len, &nokey)) {
-            return true;
-        } else if (nokey) {
-            enterRedisModuleCall();
-            RedisModuleCallReply * reply;
-            if (!(reply = RedisModule_Call(ctx, "command", "cv", "info", cmd->argv, 1))) {
-                LOG_WARNING("getDenyOomStatus: command info %s failed to execute", cmd_str);
-                continue;
-            }
-            exitRedisModuleCall();
-            if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ARRAY) {
-                LOG_WARNING("getDenyOomStatus: command info %s returned unexpected type", cmd_str);
-                RedisModule_FreeCallReply(reply);
-                continue;
-            }
-            if (RedisModule_CallReplyLength(reply) != 1) {
-                LOG_WARNING("getDenyOomStatus: command info %s returned unexpected length", cmd_str);
-                RedisModule_FreeCallReply(reply);
-                continue;
-            }
-            RedisModuleCallReply * element = RedisModule_CallReplyArrayElement(reply, 0);
-            if (RedisModule_CallReplyType(element) != REDISMODULE_REPLY_ARRAY) {
-                LOG_WARNING("getDenyOomStatus: command info %s returned unexpected element type", cmd_str);
-                RedisModule_FreeCallReply(reply);
-                continue;
-            }
-            if (RedisModule_CallReplyLength(element) < 3) {
-                LOG_WARNING("getDenyOomStatus: command info %s returned unexpected element length", cmd_str);
-                RedisModule_FreeCallReply(reply);
-                continue;
-            }
-            element = RedisModule_CallReplyArrayElement(element, 2);
-            for (size_t i = 0; i < RedisModule_CallReplyLength(element); i++) {
-                RedisModuleCallReply * option = RedisModule_CallReplyArrayElement(element, i);
-                size_t option_len;
-                const char * option_str = RedisModule_CallReplyStringPtr(option, &option_len);
-                if (strncmp("denyoom", option_str, option_len) == 0) {
-                    RedisModule_DictReplaceC(rr->command_deny_oom_dict, (char *) cmd_str, cmd_len, (void *) 1);
-                    RedisModule_FreeCallReply(reply);
-                    return true;
-                }
-            }
-            RedisModule_DictSetC(rr->command_deny_oom_dict, (char *) cmd_str, cmd_len, (void *) 0);
-            RedisModule_FreeCallReply(reply);
-        }
-    }
-
-    return false;
-}
-
-
 static void handleRedisCommandAppend(RedisRaftCtx *rr,
                                      RedisModuleCtx *ctx,
                                      RaftRedisCommandArray *cmds)
@@ -723,7 +659,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    bool deny_oom = getDenyOomStatus(rr, ctx, cmds);
+    bool deny_oom = isDenyOomStatus(rr, cmds);
     raft_term_t term = raft_get_current_term(rr->raft);
 
     /* write command, check maxmemory */
@@ -1947,6 +1883,17 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     return REDISMODULE_OK;
 }
 
+void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+
+    if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED) {
+        return;
+    }
+
+    updateAllDenyOomStatus(&redis_raft, ctx);
+}
+
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     int ret;
@@ -1999,6 +1946,13 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         LOG_WARNING("Failed to subscribe to server events.");
         return REDISMODULE_ERR;
     }
+
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
+                                           moduleChangeCallback) != REDISMODULE_OK) {
+        LOG_WARNING("Failed to subscribe to server events.");
+        return REDISMODULE_ERR;
+    }
+
 
     RedisRaftCtx *rr = &redis_raft;
 

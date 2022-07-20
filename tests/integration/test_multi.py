@@ -157,3 +157,24 @@ def test_multi_with_unsupported_commands(cluster_factory):
     c1.send_command('EXEC')
     with raises(ExecAbortError):
         c1.read_response()
+
+
+def test_max_memory_multi(cluster):
+    cluster.create(3)
+
+    val = ''.join('1' for _ in range(2000000))
+
+    cluster.execute('set', 'key1', val)
+    cluster.execute('config', 'set', 'maxmemory', 100000)
+
+    c1 = cluster.node(1).client.connection_pool.get_connection('client')
+    c1.send_command('MULTI')
+    assert c1.read_response() == b'OK'
+    c1.send_command('GET', 'key1')
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('SET', 'key2', val)
+    with raises(ResponseError, match='OOM command not allowed when used memory'):
+        c1.read_response()
+    c1.send_command('EXEC')
+    with raises(ResponseError, match='Transaction discarded because of previous errors'):
+        c1.read_response()
