@@ -1953,7 +1953,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         return REDISMODULE_ERR;
     }
 
-
     RedisRaftCtx *rr = &redis_raft;
 
     if (RedisRaftInit(rr, ctx) == RR_ERROR) {

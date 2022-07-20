@@ -8,9 +8,9 @@
 
 #include "redisraft.h"
 
+#include <ctype.h>
 #include <string.h>
 #include <strings.h>
-#include <ctype.h>
 
 int redis_raft_in_rm_call = 0;
 
@@ -313,7 +313,7 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 void updateAllDenyOomStatus(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     enterRedisModuleCall();
-    RedisModuleCallReply * reply = RedisModule_Call(ctx, "command", "");
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "command", "");
     exitRedisModuleCall();
 
     RedisModule_Assert(reply);
@@ -335,9 +335,9 @@ void updateAllDenyOomStatus(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         }
 
         size_t command_array_len = RedisModule_CallReplyLength(command);
-        if ( command_array_len < 3) {
+        if (command_array_len < 3) {
             LOG_WARNING("updateAllDenyOomStatus: command returned unexpected element length (%d) at %d",
-                        (int) command_array_len , (int) i);
+                        (int) command_array_len, (int) i);
             continue;
         }
 
@@ -370,7 +370,7 @@ void updateAllDenyOomStatus(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
 {
     for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand * cmd = cmds->commands[i];
+        RaftRedisCommand *cmd = cmds->commands[i];
 
         if (cmd->argc < 1) {
             continue;
@@ -395,7 +395,8 @@ bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
 }
 
 /* need to be able to normalize redis strings for dict lookups */
-char *toLowerString(const char *cmd_str, size_t cmd_len, char *buf) {
+char *toLowerString(const char *cmd_str, size_t cmd_len, char *buf)
+{
     char *lcmd = buf;
 
     if (cmd_len >= sizeof(buf)) {
