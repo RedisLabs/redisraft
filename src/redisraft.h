@@ -496,9 +496,9 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    bool asking;   /* if this command array is in an asking mode */
-    int size;      /* Size of allocated array */
-    int len;       /* Number of elements in array */
+    bool asking; /* if this command array is in an asking mode */
+    int size;    /* Size of allocated array */
+    int len;     /* Number of elements in array */
     RaftRedisCommand **commands;
 } RaftRedisCommandArray;
 
