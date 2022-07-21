@@ -1884,10 +1884,7 @@ void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 {
     REDISMODULE_NOT_USED(e);
 
-    if (sub != REDISMODULE_SUBEVENT_MODULE_LOADED) {
-        return;
-    }
-
+    /* recreate the CommandSpec dict on any module change */
     RRStatus ret = CommandSpecSet(ctx, redis_raft.config.ignored_commands);
     RedisModule_Assert(ret == RR_OK);
 }
