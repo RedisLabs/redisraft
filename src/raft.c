@@ -1510,9 +1510,6 @@ RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->client_state = RedisModule_CreateDict(ctx);
     rr->locked_keys = RedisModule_CreateDict(ctx);
 
-    /* caching deny_oom flag command attributes */
-    updateAllDenyOomStatus(rr, ctx);
-
     /* Cluster configuration */
     ShardingInfoInit(rr);
 

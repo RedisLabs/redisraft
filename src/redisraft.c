@@ -1891,7 +1891,8 @@ void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
         return;
     }
 
-    updateAllDenyOomStatus(&redis_raft, ctx);
+    RRStatus ret = CommandSpecSet(ctx, redis_raft.config.ignored_commands);
+    RedisModule_Assert(ret == RR_OK);
 }
 
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)

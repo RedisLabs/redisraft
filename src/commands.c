@@ -146,6 +146,7 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
          * "readonly" => CMD_SPEC_READONLY
          */
         const char *readonly_flag = "readonly";
+        const char *denyoom_flag = "denyoom";
 
         RedisModuleCallReply *flags = RedisModule_CallReplyArrayElement(cmd, 2);
         RedisModule_Assert(flags != NULL);
@@ -161,6 +162,8 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
             if (strncmp(str, readonly_flag, len) == 0) {
                 cmdspec_flags |= CMD_SPEC_READONLY;
+            } else if (strncmp(str, denyoom_flag, len) == 0) {
+                cmdspec_flags |= CMD_SPEC_DENYOOM;
             }
         }
 
