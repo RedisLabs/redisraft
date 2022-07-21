@@ -320,10 +320,9 @@ bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
         }
 
         const CommandSpec *cs = CommandSpecGet(cmd->argv[0]);
-        if (cs->flags & CMD_SPEC_DENYOOM) {
+        if (cs && cs->flags & CMD_SPEC_DENYOOM) {
             return true;
         }
-
     }
 
     return false;
