@@ -522,3 +522,25 @@ def test_maxmemory(cluster):
 
     cluster.execute('config', 'set', 'maxmemory', 4000000000)
     cluster.execute('set', 'key1', val)
+
+
+def test_max_memory_eval(cluster):
+    cluster.create(3)
+
+    val = ''.join('1' for _ in range(2000000))
+
+    cluster.execute('set', 'key1', val)
+    cluster.execute('config', 'set', 'maxmemory', 100000)
+
+    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+        cluster.execute("eval", """
+            redis.call('SET','key1','value1');
+            redis.call('SET','key2','value2');
+            redis.call('SET','key3','value3');
+            return 1234;""", "0")
+
+    assert cluster.execute("eval", """#!lua flags=allow-oom
+        redis.call('SET','key1','value1');
+        redis.call('SET','key2','value2');
+        redis.call('SET','key3','value3');
+        return 1234;""", "0") == 1234

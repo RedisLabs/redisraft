@@ -189,3 +189,4 @@ def test_multi_with_maxmemory(cluster):
     assert node.execute('MULTI') == b'OK'
     assert node.execute('GET', 'key1') == b'QUEUED'
     assert node.execute('EXEC') == [val.encode()]
+

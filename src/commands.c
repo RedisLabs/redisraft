@@ -27,6 +27,10 @@ static const CommandSpec commands[] = {
     {"save",                        CMD_SPEC_UNSUPPORTED                     },
     {"bgsave",                      CMD_SPEC_UNSUPPORTED                     },
 
+ /* Commands that need further processing for DENY_OOM */
+    {"eval",                        CMD_SPEC_FLAGS                           },
+    {"evalsha",                     CMD_SPEC_FLAGS                           },
+
  /* Blocking commands not supported */
     {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
     {"brpoplpush",                  CMD_SPEC_UNSUPPORTED                     },
@@ -363,6 +367,23 @@ unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table,
         const CommandSpec *cs = CommandSpecTableGet(cmd_spec_table, array->commands[i]->argv[0]);
         if (cs) {
             flags |= cs->flags;
+            if (cs->flags & CMD_SPEC_FLAGS) {
+                if (!strncmp(cs->name, "eval", strlen("eval")) && array->commands[i]->argc > 1) {
+                    uint64_t sub_flags;
+                    if (RedisModule_GetScriptBodyFlags(ctx, array->commands[i]->argv[1], &sub_flags) == REDISMODULE_OK) {
+                        if (!(sub_flags && (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM))) {
+                            flags |= CMD_SPEC_DENYOOM;
+                        }
+                    }
+                } else if (!strncmp(cs->name, "evalsha", strlen("evalsha")) && array->commands[i]->argc > 1) {
+                    uint64_t sub_flags;
+                    if (RedisModule_GetScriptSHAFlags(ctx, array->commands[i]->argv[1], &sub_flags) == REDISMODULE_OK) {
+                        if (!(sub_flags && (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM))) {
+                            flags |= CMD_SPEC_DENYOOM;
+                        }
+                    }
+                }
+            }
         } else {
             flags |= default_flags;
         }
