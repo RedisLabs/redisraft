@@ -306,24 +306,3 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
     snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
 }
-
-/*
- * returns the deny_oom status for a particular set of commands
- */
-bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
-{
-    for (int i = 0; i < cmds->len; i++) {
-        RaftRedisCommand *cmd = cmds->commands[i];
-
-        if (cmd->argc < 1) {
-            continue;
-        }
-
-        const CommandSpec *cs = CommandSpecGet(cmd->argv[0]);
-        if (cs && cs->flags & CMD_SPEC_DENYOOM) {
-            return true;
-        }
-    }
-
-    return false;
-}

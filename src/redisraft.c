@@ -633,6 +633,12 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
+    raft_term_t term = raft_get_current_term(rr->raft);
+    if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1 || term != rr->snapshot_info.last_applied_term)) {
+        RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
+        return;
+    }
+
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (rr->config.quorum_reads) {
             RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
@@ -656,15 +662,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
             RaftExecuteCommandArray(rr, ctx, ctx, cmds);
         }
-        return;
-    }
-
-    bool deny_oom = isDenyOomStatus(rr, cmds);
-    raft_term_t term = raft_get_current_term(rr->raft);
-
-    /* write command, check maxmemory */
-    if (deny_oom && (RedisModule_GetUsedMemoryRatio() > 1 || term != rr->snapshot_info.last_applied_term)) {
-        RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
         return;
     }
 

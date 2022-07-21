@@ -97,7 +97,7 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
          * intercepted and reject the transaction.
          */
         unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, 0);
-        bool deny_oom = isDenyOomStatus(rr, cmds);
+        raft_term_t term = raft_get_current_term(rr->raft);
 
         if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
@@ -105,7 +105,7 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
             multiState->error = true;
-        } else if (deny_oom && RedisModule_GetUsedMemoryRatio() > 1.0) {
+        } else if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1.0 || term != rr->snapshot_info.last_applied_term)) {
             RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
             multiState->error = true;
         } else {

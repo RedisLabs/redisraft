@@ -762,7 +762,6 @@ void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyClusterDown(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
-bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
