@@ -107,7 +107,17 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
     char buf[64];
-    char *lcmd = toLowerString(cmd_str, cmd_len, buf);
+    char *lcmd = buf;
+
+    if (cmd_len >= sizeof(buf)) {
+        lcmd = RedisModule_Alloc(cmd_len + 1);
+    }
+
+    for (size_t i = 0; i < cmd_len; i++) {
+        lcmd[i] = (char) tolower(cmd_str[i]);
+    }
+
+    lcmd[cmd_len] = '\0';
 
     CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, lcmd, cmd_len, NULL);
     if (!cs && create) {

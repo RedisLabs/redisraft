@@ -327,21 +327,3 @@ bool isDenyOomStatus(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
 
     return false;
 }
-
-/* need to be able to normalize redis strings for dict lookups */
-char *toLowerString(const char *cmd_str, size_t cmd_len, char *buf)
-{
-    char *lcmd = buf;
-
-    if (cmd_len >= sizeof(buf)) {
-        lcmd = RedisModule_Alloc(cmd_len + 1);
-    }
-
-    for (size_t i = 0; i < cmd_len; i++) {
-        lcmd[i] = (char) tolower(cmd_str[i]);
-    }
-
-    lcmd[cmd_len] = '\0';
-
-    return lcmd;
-}
