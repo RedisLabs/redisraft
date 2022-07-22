@@ -619,11 +619,24 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    /* Handle the special case of read-only commands here: if quorum reads
-     * are enabled schedule the request to be processed when we have a guarantee
-     * we're still a leader. Otherwise, just process the reads.
+    /* Do not accept new commands until an entry from the current term is
+     * applied. Applying the first entry will replay previous entries, so, it'll
+     * advance the state machine to the latest state. It helps with:
      *
-     * Normally we can expect a single command in the request, unless it is a
+     * 1- If non-quorum reads are enabled, we might process a request before
+     * replaying logs. The state machine might be in an older state. Reading
+     * from it might look like going backward in time. Waiting for the state
+     * machine to advance will provide a better user experience in this case.
+     *
+     * 2- As we know we've built the latest state machine, we'll have more
+     * accurate info about memory usage for 'maxmemory' handling. */
+    raft_term_t term = raft_get_current_term(rr->raft);
+    if (term != rr->snapshot_info.last_applied_term) {
+        replyClusterDown(ctx);
+        return;
+    }
+
+    /* Normally we can expect a single command in the request, unless it is a
      * MULTI/EXEC transaction in which case all queued commands are handled at
      * once.
      */
@@ -633,34 +646,26 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    raft_term_t term = raft_get_current_term(rr->raft);
-    if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1 || term != rr->snapshot_info.last_applied_term)) {
+    if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1.0)) {
         RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
         return;
     }
 
+    /* Handle the special case of read-only commands here: if quorum reads
+     * are enabled schedule the request to be processed when we have a guarantee
+     * we're still a leader. Otherwise, just process the reads. */
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
-        if (rr->config.quorum_reads) {
-            RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-            RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-
-            int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
-            if (rc != 0) {
-                replyRaftError(ctx, rc);
-                return;
-            }
-        } else {
-            /* Wait until the new leader applies an entry from the current term.
-             * Otherwise, we might process a request before replaying logs.
-             * The state machine will be in an older state. Reading from it
-             * might look like going backward in time. */
-            raft_term_t term = raft_get_current_term(rr->raft);
-            if (term != rr->snapshot_info.last_applied_term) {
-                replyClusterDown(ctx);
-                return;
-            }
-
+        if (!rr->config.quorum_reads) {
             RaftExecuteCommandArray(rr, ctx, ctx, cmds);
+            return;
+        }
+
+        RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+        RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+
+        int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
+        if (rc != 0) {
+            replyRaftError(ctx, rc);
         }
         return;
     }

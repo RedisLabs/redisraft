@@ -116,7 +116,6 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
     for (size_t i = 0; i < cmd_len; i++) {
         lcmd[i] = (char) tolower(cmd_str[i]);
     }
-
     lcmd[cmd_len] = '\0';
 
     CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, lcmd, cmd_len, NULL);
@@ -154,6 +153,7 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
 
         /* Scan flags (element #3) and map:
          * "readonly" => CMD_SPEC_READONLY
+         * "denyoom" => CMD_SPEC_DENYOOM
          */
         const char *readonly_flag = "readonly";
         const char *denyoom_flag = "denyoom";

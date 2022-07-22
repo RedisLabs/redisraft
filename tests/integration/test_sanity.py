@@ -503,7 +503,7 @@ def test_throttle_applying_entries(cluster):
     assert cluster.node(2).info()['raft_exec_throttled'] > 0
 
 
-def test_max_memory(cluster):
+def test_maxmemory(cluster):
     cluster.create(3)
 
     val = ''.join('1' for _ in range(2000000))

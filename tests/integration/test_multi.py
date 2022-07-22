@@ -159,22 +159,33 @@ def test_multi_with_unsupported_commands(cluster_factory):
         c1.read_response()
 
 
-def test_max_memory_multi(cluster):
+def test_multi_with_maxmemory(cluster):
+    """
+    MULTI/EXEC should fail when used memory is over the 'maxmemory' config.
+    """
     cluster.create(3)
 
-    val = ''.join('1' for _ in range(2000000))
+    val = '1' * 2000
 
-    cluster.execute('set', 'key1', val)
-    cluster.execute('config', 'set', 'maxmemory', 100000)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', val)
+    node.execute('config', 'set', 'maxmemory', 100)
 
-    c1 = cluster.node(1).client.connection_pool.get_connection('client')
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-    c1.send_command('GET', 'key1')
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('SET', 'key2', val)
-    with raises(ResponseError, match='OOM command not allowed when used memory'):
-        c1.read_response()
-    c1.send_command('EXEC')
-    with raises(ResponseError, match='Transaction discarded because of previous errors'):
-        c1.read_response()
+    # Test MULTI - COMMAND - EXEC
+    assert node.execute('MULTI') == b'OK'
+    with raises(ResponseError, match='OOM command not allowed'):
+        node.execute('GET', 'key1')
+    with raises(ResponseError, match='Transaction discarded'):
+        node.execute('EXEC')
+
+    # Test MULTI - COMMAND - DISCARD
+    assert node.execute('MULTI') == b'OK'
+    with raises(ResponseError, match='OOM command not allowed'):
+        node.execute('GET', 'key1')
+    assert node.execute('DISCARD') == b'OK'
+
+    # Clear OOM
+    node.execute('config', 'set', 'maxmemory', 100000000)
+    assert node.execute('MULTI') == b'OK'
+    assert node.execute('GET', 'key1') == b'QUEUED'
+    assert node.execute('EXEC') == [val.encode()]
