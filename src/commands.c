@@ -239,7 +239,7 @@ static void freeCommandSpecDict(RedisModuleDict *dict)
 RRStatus CommandSpecInit(RedisModuleCtx *ctx)
 {
     RedisModule_Assert(commandSpecDict == NULL);
-    commandSpecDict = RedisModule_CreateDict(ctx);
+    commandSpecDict = RedisModule_CreateDict(NULL);
 
     for (int i = 0; commands[i].name != NULL; i++) {
         CommandSpec *cs = RedisModule_Alloc(sizeof(*cs));
@@ -258,16 +258,17 @@ RRStatus CommandSpecInit(RedisModuleCtx *ctx)
 
 error:
     freeCommandSpecDict(commandSpecDict);
+    commandSpecDict = NULL;
     return RR_ERROR;
 }
 
-RRStatus CommandSpecFree(RedisModuleCtx *ctx)
+RRStatus CommandSpecFree()
 {
     freeCommandSpecDict(commandSpecDict);
     return RR_OK;
 }
 
-static RRStatus updateIgnoredCommands(RedisModuleDict *command_spec_dict, const char *commands_str, bool remove)
+static RRStatus updateIgnoredCommands(RedisModuleDict *command_spec_dict, const char *commands_str, bool ignore)
 {
     if (!commands_str) {
         return RR_OK;
@@ -281,9 +282,9 @@ static RRStatus updateIgnoredCommands(RedisModuleDict *command_spec_dict, const 
         CommandSpec *cs;
 
         cs = RedisModule_DictGetC(command_spec_dict, tok, strlen(tok), &nokey);
-        RedisModule_Assert(!nokey || !remove);
+        RedisModule_Assert(!nokey || ignore);
         if (!nokey) {
-            if (remove) {
+            if (!ignore) {
                 cs->flags &= ~CMD_SPEC_DONT_INTERCEPT;
             } else {
                 cs->flags |= CMD_SPEC_DONT_INTERCEPT;
@@ -312,11 +313,11 @@ RRStatus CommandSpecUpdateIngnoredCommands(const char *prev_ignored_commands, co
 {
     RedisModule_Assert(ignored_commands);
 
-    if (updateIgnoredCommands(commandSpecDict, prev_ignored_commands, true) != RR_OK) {
+    if (updateIgnoredCommands(commandSpecDict, prev_ignored_commands, false) != RR_OK) {
         return RR_ERROR;
     }
 
-    if (updateIgnoredCommands(commandSpecDict, ignored_commands, false) != RR_OK) {
+    if (updateIgnoredCommands(commandSpecDict, ignored_commands, true) != RR_OK) {
         return RR_ERROR;
     }
 

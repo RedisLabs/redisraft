@@ -407,10 +407,9 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-    char *resp_call_fmt;          /* Format string to use in RedisModule_Call(), Redis version-specific */
+    const char *resp_call_fmt;    /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;             /* handling a lua script */
     RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
-
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -786,8 +785,9 @@ raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc);
 RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys);
 
 /* raft.c */
-RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-void RedisRaftFree(RedisModuleCtx *ctx);
+RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+void RedisRaftCtxClear(RedisRaftCtx *rr);
+void RedisRaftFree();
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
@@ -817,6 +817,7 @@ RRStatus parseHashSlots(char *slots, char *string);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
+void RaftLogFree(RaftLog *raft_log);
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
@@ -885,6 +886,7 @@ ShardGroup **ShardGroupsParse(RedisModuleCtx *ctx, RedisModuleString **argv, int
 RRStatus HashSlotCompute(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, int *slot);
 void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd);
 void ShardingInfoInit(RedisRaftCtx *rr);
+void ShardingInfoFree(RedisRaftCtx *rr);
 void ShardingInfoReset(RedisRaftCtx *rr);
 RRStatus ShardingInfoValidateShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
 RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *new_sg);
@@ -910,7 +912,7 @@ void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 
 /* commands.c */
 RRStatus CommandSpecInit(RedisModuleCtx *ctx);
-RRStatus CommandSpecFree(RedisModuleCtx *ctx);
+RRStatus CommandSpecFree();
 RRStatus CommandSpecUpdateRedisCommands(RedisModuleCtx *ctx);
 RRStatus CommandSpecUpdateIngnoredCommands(const char *prev_ignored_commands, const char *ignored_commands);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);

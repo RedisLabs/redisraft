@@ -1874,6 +1874,123 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     return REDISMODULE_OK;
 }
 
+RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    *rr = (RedisRaftCtx){
+        .state = REDIS_RAFT_UNINITIALIZED,
+        .ctx = RedisModule_GetDetachedThreadSafeContext(ctx),
+    };
+
+    if (ConfigInit(&rr->config, rr->ctx) != RR_OK) {
+        LOG_WARNING("Failed to init configuration");
+        goto error;
+    }
+
+    /* for backwards compatibility with older redis version that don't support "0v"m */
+    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
+        rr->resp_call_fmt = "0v";
+    } else {
+        rr->resp_call_fmt = "v";
+    }
+
+    /* Client state for MULTI/ASKING support */
+    rr->client_state = RedisModule_CreateDict(rr->ctx);
+    rr->locked_keys = RedisModule_CreateDict(rr->ctx);
+
+    /* Cluster configuration */
+    ShardingInfoInit(rr);
+
+    /* Raft log exists -> go into RAFT_LOADING state:
+     *
+     * Redis will load RDB as a snapshot, if it exists. When done,
+     * handleLoadingState() will be called, initialize Raft library and load
+     * log file.
+     *
+     * Raft log does not exist -> go into RAFT_UNINITIALIZED state:
+     *
+     * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
+     * or RAFT.CLUSTER JOIN command.
+     */
+    if (RaftMetaRead(&rr->meta, rr->config.log_filename) == RR_OK) {
+        rr->log = RaftLogOpen(rr->config.log_filename, &rr->config, 0);
+        if (rr->log) {
+            rr->state = REDIS_RAFT_LOADING;
+        }
+    }
+
+    RedisModule_CreateTimer(rr->ctx, rr->config.periodic_interval, callRaftPeriodic, rr);
+    RedisModule_CreateTimer(rr->ctx, rr->config.reconnect_interval, callHandleNodeStates, rr);
+    threadPoolInit(&rr->thread_pool, 5);
+    fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
+
+    return RR_OK;
+
+error:
+    RedisRaftCtxClear(rr);
+    *rr = (RedisRaftCtx){0};
+    return RR_ERROR;
+}
+
+void RedisRaftCtxClear(RedisRaftCtx *rr)
+{
+    if (rr->raft) {
+        raft_destroy(rr->raft);
+        rr->raft = NULL;
+    }
+
+    if (rr->ctx) {
+        RedisModule_FreeThreadSafeContext(rr->ctx);
+        rr->ctx = NULL;
+    }
+
+    RaftLogFree(rr->log);
+    rr->log = NULL;
+
+    if (rr->logcache) {
+        EntryCacheFree(rr->logcache);
+        rr->logcache = NULL;
+    }
+
+    if (rr->transfer_req) {
+        RaftReqFree(rr->transfer_req);
+        rr->transfer_req = NULL;
+    }
+
+    if (rr->migrate_req) {
+        RaftReqFree(rr->migrate_req);
+        rr->migrate_req = NULL;
+    }
+
+    if (rr->sharding_info) {
+        ShardingInfoFree(rr);
+        rr->sharding_info = NULL;
+    }
+
+    if (rr->client_state) {
+        RedisModule_FreeDict(rr->ctx, rr->client_state);
+        rr->client_state = NULL;
+    }
+
+    if (rr->debug_req) {
+        RaftReqFree(rr->debug_req);
+        rr->debug_req = NULL;
+    }
+
+    if (rr->locked_keys) {
+        RedisModule_FreeDict(rr->ctx, rr->locked_keys);
+        rr->locked_keys = NULL;
+    }
+}
+
+void RedisRaftFreeGlobals()
+{
+    if (redisraft_log_ctx) {
+        RedisModule_FreeThreadSafeContext(redisraft_log_ctx);
+    }
+    RedisRaftCtxClear(&redis_raft);
+    CommandSpecFree();
+}
+
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     int ret;
@@ -1903,37 +2020,44 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to register commands");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                                              handleClientEvent);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
                                              beforeSleep);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config,
                                              ConfigRedisEventCallback);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
+    if (CommandSpecInit(ctx) != RR_OK) {
+        LOG_WARNING("Failed to init internal commands table");
+        goto error;
+    }
     RedisRaftCtx *rr = &redis_raft;
 
-    if (RedisRaftInit(rr, ctx) == RR_ERROR) {
-        return REDISMODULE_ERR;
+    if (RedisRaftCtxInit(rr, ctx) == RR_ERROR) {
+        LOG_WARNING("Failed to init redis raft context");
+        goto error;
     }
 
     LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
-
     return REDISMODULE_OK;
+error:
+    RedisRaftFreeGlobals();
+    return REDISMODULE_ERR;
 }

@@ -1090,6 +1090,32 @@ void ShardingInfoInit(RedisRaftCtx *rr)
     ShardingInfoReset(rr);
 }
 
+static void freeShardGroupMap(RedisModuleCtx *ctx, RedisModuleDict *shard_group_map)
+{
+    if (shard_group_map != NULL) {
+        RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(shard_group_map, "^", NULL, 0);
+
+        size_t key_len;
+        void *data;
+
+        while (RedisModule_DictNextC(iter, &key_len, &data) != NULL) {
+            ShardGroupFree(data);
+        }
+        RedisModule_DictIteratorStop(iter);
+        RedisModule_FreeDict(ctx, shard_group_map);
+    }
+}
+
+/* Free the ShardingInfo structure. */
+void ShardingInfoFree(RedisRaftCtx *rr)
+{
+    ShardingInfo *si = rr->sharding_info;
+    freeShardGroupMap(rr->ctx, si->shard_group_map);
+    si->shard_group_map = NULL;
+    RedisModule_Free(rr->sharding_info);
+    rr->sharding_info = NULL;
+}
+
 /* Free and reset the ShardingInfo structure.
  *
  * This is called after ShardingInfo has already been allocated, and typically
@@ -1099,25 +1125,14 @@ void ShardingInfoReset(RedisRaftCtx *rr)
 {
     ShardingInfo *si = rr->sharding_info;
 
-    if (si->shard_group_map != NULL) {
-        RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
-
-        size_t key_len;
-        void *data;
-
-        while (RedisModule_DictNextC(iter, &key_len, &data) != NULL) {
-            ShardGroupFree(data);
-        }
-        RedisModule_DictIteratorStop(iter);
-        RedisModule_FreeDict(rr->ctx, si->shard_group_map);
-        si->shard_group_map = NULL;
-    }
-
+    freeShardGroupMap(rr->ctx, si->shard_group_map);
+    si->shard_group_map = NULL;
     si->shard_group_map = RedisModule_CreateDict(rr->ctx);
 
     si->shard_groups_num = 0;
 
     /* Reset array */
+    //hfadida: internal mem release?
     for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;
