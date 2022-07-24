@@ -373,8 +373,8 @@ static int setString(const char *name,
         RedisModule_Free(c->slot_config);
         c->slot_config = RedisModule_Strdup(value);
     } else if (strcasecmp(name, conf_ignored_commands) == 0) {
-        if (CommandSpecSet(rr->ctx, value) != RR_OK) {
-            *err = RedisModule_CreateStringPrintf(NULL, "Failed to set internal command table");
+        if (CommandSpecUpdateIngnoredCommands(c->ignored_commands, value) != RR_OK) {
+            *err = RedisModule_CreateStringPrintf(NULL, "Failed to update internal command table");
             return REDISMODULE_ERR;
         }
         RedisModule_Free(c->ignored_commands);

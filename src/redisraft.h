@@ -787,6 +787,7 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
 
 /* raft.c */
 RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+void RedisRaftFree(RedisModuleCtx *ctx);
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
@@ -908,7 +909,10 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 
 /* commands.c */
-RRStatus CommandSpecSet(RedisModuleCtx *ctx, const char *ignored_commands);
+RRStatus CommandSpecInit(RedisModuleCtx *ctx);
+RRStatus CommandSpecFree(RedisModuleCtx *ctx);
+RRStatus CommandSpecUpdateRedisCommands(RedisModuleCtx *ctx);
+RRStatus CommandSpecUpdateIngnoredCommands(const char *prev_ignored_commands, const char *ignored_commands);
 unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags);
 const CommandSpec *CommandSpecGet(const RedisModuleString *cmd);
 

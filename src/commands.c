@@ -236,59 +236,97 @@ static void freeCommandSpecDict(RedisModuleDict *dict)
     RedisModule_FreeDict(NULL, dict);
 }
 
-RRStatus CommandSpecSet(RedisModuleCtx *ctx, const char *ignored_commands)
+RRStatus CommandSpecInit(RedisModuleCtx *ctx)
 {
-    RedisModuleDict *dict = RedisModule_CreateDict(ctx);
+    RedisModule_Assert(commandSpecDict == NULL);
+    commandSpecDict = RedisModule_CreateDict(ctx);
 
     for (int i = 0; commands[i].name != NULL; i++) {
         CommandSpec *cs = RedisModule_Alloc(sizeof(*cs));
         cs->name = RedisModule_Strdup(commands[i].name);
         cs->flags = commands[i].flags;
 
-        int ret = RedisModule_DictSetC(dict, cs->name, strlen(cs->name), cs);
+        int ret = RedisModule_DictSetC(commandSpecDict, cs->name, strlen(cs->name), cs);
         if (ret != REDISMODULE_OK) {
             goto error;
         }
     }
 
-    if (ignored_commands) {
-        char *tok, *s = NULL;
-        char *tmp = RedisModule_Strdup(ignored_commands);
-
-        for (tok = strtok_r(tmp, ",", &s); tok; tok = strtok_r(NULL, ",", &s)) {
-            int nokey = 0;
-            CommandSpec *cs;
-
-            cs = RedisModule_DictGetC(dict, tok, strlen(tok), &nokey);
-            if (!nokey) {
-                cs->flags = CMD_SPEC_DONT_INTERCEPT;
-                continue;
-            }
-
-            cs = RedisModule_Calloc(1, sizeof(*cs));
-            cs->name = RedisModule_Strdup(tok);
-            cs->flags = CMD_SPEC_DONT_INTERCEPT;
-
-            int ret = RedisModule_DictSetC(dict, tok, strlen(tok), cs);
-            if (ret != REDISMODULE_OK) {
-                RedisModule_Free(cs->name);
-                RedisModule_Free(cs);
-                RedisModule_Free(tmp);
-                goto error;
-            }
-        }
-        RedisModule_Free(tmp);
-    }
-
-    freeCommandSpecDict(commandSpecDict);
-    commandSpecDict = dict;
     populateCommandSpecFromRedis(ctx);
 
     return RR_OK;
 
 error:
-    freeCommandSpecDict(dict);
+    freeCommandSpecDict(commandSpecDict);
     return RR_ERROR;
+}
+
+RRStatus CommandSpecFree(RedisModuleCtx *ctx)
+{
+    freeCommandSpecDict(commandSpecDict);
+    return RR_OK;
+}
+
+static RRStatus updateIgnoredCommands(RedisModuleDict *command_spec_dict, const char *commands_str, bool remove)
+{
+    if (!commands_str) {
+        return RR_OK;
+    }
+
+    char *tok, *s = NULL;
+    char *tmp = RedisModule_Strdup(commands_str);
+
+    for (tok = strtok_r(tmp, ",", &s); tok; tok = strtok_r(NULL, ",", &s)) {
+        int nokey = 0;
+        CommandSpec *cs;
+
+        cs = RedisModule_DictGetC(command_spec_dict, tok, strlen(tok), &nokey);
+        RedisModule_Assert(!nokey || !remove);
+        if (!nokey) {
+            if (remove) {
+                cs->flags &= ~CMD_SPEC_DONT_INTERCEPT;
+            } else {
+                cs->flags |= CMD_SPEC_DONT_INTERCEPT;
+            }
+            continue;
+        }
+
+        cs = RedisModule_Calloc(1, sizeof(*cs));
+        cs->name = RedisModule_Strdup(tok);
+        cs->flags = CMD_SPEC_DONT_INTERCEPT;
+
+        int ret = RedisModule_DictSetC(command_spec_dict, tok, strlen(tok), cs);
+        if (ret != REDISMODULE_OK) {
+            RedisModule_Free(cs->name);
+            RedisModule_Free(cs);
+            RedisModule_Free(tmp);
+            return RR_ERROR;
+        }
+    }
+    RedisModule_Free(tmp);
+
+    return RR_OK;
+}
+
+RRStatus CommandSpecUpdateIngnoredCommands(const char *prev_ignored_commands, const char *ignored_commands)
+{
+    RedisModule_Assert(ignored_commands);
+
+    if (updateIgnoredCommands(commandSpecDict, prev_ignored_commands, true) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    if (updateIgnoredCommands(commandSpecDict, ignored_commands, false) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
+RRStatus CommandSpecUpdateRedisCommands(RedisModuleCtx *ctx)
+{
+    populateCommandSpecFromRedis(ctx);
+    return RR_OK;
 }
 
 /* Look up the specified command in the command spec table and return the

@@ -1494,9 +1494,14 @@ RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         .ctx = RedisModule_GetDetachedThreadSafeContext(ctx),
     };
 
+    if (CommandSpecInit(rr->ctx) != RR_OK) {
+        LOG_WARNING("Failed to init internal commands table");
+        goto error;
+    }
+
     if (ConfigInit(&rr->config, ctx) != RR_OK) {
-        RedisModule_FreeThreadSafeContext(rr->ctx);
-        return RR_ERROR;
+        LOG_WARNING("Failed to init configuration");
+        goto error;
     }
 
     /* for backwards compatibility with older redis version that don't support "0v"m */
@@ -1537,6 +1542,17 @@ RRStatus RedisRaftInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
 
     return RR_OK;
+
+error:
+    RedisRaftFree(rr->ctx);
+    RedisModule_FreeThreadSafeContext(rr->ctx);
+    rr->ctx = NULL;
+    return RR_ERROR;
+}
+
+void RedisRaftFree(RedisModuleCtx *ctx)
+{
+    CommandSpecFree(ctx);
 }
 
 /* ------------------------------------ RaftReq ------------------------------------ */
