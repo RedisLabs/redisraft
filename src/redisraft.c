@@ -1900,12 +1900,6 @@ void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 {
     REDISMODULE_NOT_USED(e);
 
-    RedisModuleModuleChange *ei = data;
-    char *keyname = (sub == REDISMODULE_SUBEVENT_MODULE_LOADED) ?
-        "module-loaded" : "module-unloaded";
-    LOG_DEBUG("%s: %s", keyname, ei->module_name);
-
-
     /* recreate the CommandSpec dict on any module change */
     RRStatus ret = CommandSpecSet(ctx, redis_raft.config.ignored_commands);
     RedisModule_Assert(ret == RR_OK);
