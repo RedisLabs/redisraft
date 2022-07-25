@@ -8,6 +8,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import pytest
 from redis import ResponseError
 from pytest import raises
+import os
 
 
 def test_config_sanity(cluster):
@@ -256,3 +257,31 @@ def test_ignored_commands(cluster):
         node.client.execute_command("cmd1", "a", "b")
     with raises(ResponseError, match='NOCLUSTER No Raft Cluster'):
         node.client.execute_command("cmd2", "a", "b")
+
+
+def test_module_commands(cluster):
+    node = cluster.add_node(
+        redis_args=["--enable-module-command", "yes"],
+        cluster_setup=False)
+    node.start()
+
+    # ensure it doesn't exit
+    with raises(ResponseError, match='unknown command'):
+        node.client.execute_command("raft.debug", "commandspec", "hellomodule")
+
+    print(f'cwd = {os.getcwd()}\n')
+    node.load_module("hellomodule.so")
+
+    assert node.client.execute_command("raft.debug", "commandspec", "hellomodule") == 128
+
+    # reconfigure to be ignored and check flags
+    node.config_set('raft.ignored-commands', 'hellomodule')
+    assert node.client.execute_command("raft.debug", "commandspec", "hellomodule") == 144
+
+    # reconfigure to be not ignored and check flags
+    node.config_set('raft.ignored-commands', '')
+    assert node.client.execute_command("raft.debug", "commandspec", "hellomodule") == 128
+
+    node.unload_module("hellomodule")
+    with raises(ResponseError, match='unknown command'):
+        node.client.execute_command("raft.debug", "commandspec", "hellomodule")

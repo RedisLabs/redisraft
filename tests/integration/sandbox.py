@@ -225,6 +225,14 @@ class RedisRaft(object):
         LOG.info('RedisRaft<%s> is up, pid=%s, guid=%s', self.id,
                  self.process.pid, self.guid)
 
+    def load_module(self, module):
+        self.verify_up()
+        self.client.execute_command("module", "load", f'{os.getcwd()}/tests/integration/modules/{module}')
+
+    def unload_module(self, module):
+        self.verify_up()
+        self.client.execute_command("module", "unload", module)
+
     def process_is_up(self):
         if not self.process:
             return False

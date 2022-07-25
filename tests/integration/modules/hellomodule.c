@@ -21,7 +21,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_ERR;
     }
 
-    rc = RedisModule_CreateCommand(ctx, "hellomodule", cmdHello, "write", 0, 0, 0);
+    rc = RedisModule_CreateCommand(ctx, "hellomodule", cmdHello, "write deny-oom", 0, 0, 0);
     if (rc != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }

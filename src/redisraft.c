@@ -1295,6 +1295,9 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *     Inject errors at specific places in migration flow to test consistency
  * Reply:
  *     +OK
+ *
+ * RAFT.DEBUG COMMANDSPEC <command>
+ *     Retruns the flags associated with this command in the commandspec dict
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -1492,6 +1495,14 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         rr->migration_debug = val;
 
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+        return REDISMODULE_OK;
+    } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
+        const CommandSpec *cs = CommandSpecGet(argv[2]);
+        if (cs == NULL) {
+            RedisModule_ReplyWithError(ctx, "ERR unknown command");
+        } else {
+            RedisModule_ReplyWithLongLong(ctx, cs->flags);
+        }
         return REDISMODULE_OK;
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
@@ -1888,6 +1899,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(e);
+
+    RedisModuleModuleChange *ei = data;
+    char *keyname = (sub == REDISMODULE_SUBEVENT_MODULE_LOADED) ?
+        "module-loaded" : "module-unloaded";
+    LOG_DEBUG("%s: %s", keyname, ei->module_name);
+
 
     /* recreate the CommandSpec dict on any module change */
     RRStatus ret = CommandSpecSet(ctx, redis_raft.config.ignored_commands);
