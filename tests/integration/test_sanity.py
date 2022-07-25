@@ -501,3 +501,24 @@ def test_throttle_applying_entries(cluster):
 
     assert cluster.node(1).info()['raft_exec_throttled'] > 0
     assert cluster.node(2).info()['raft_exec_throttled'] > 0
+
+
+def test_maxmemory(cluster):
+    cluster.create(3)
+
+    val = ''.join('1' for _ in range(2000000))
+
+    cluster.execute('set', 'key1', val)
+    cluster.execute('config', 'set', 'maxmemory', 100000)
+
+    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+        cluster.execute('set', 'key2', val)
+
+    assert cluster.execute('get', 'key1').decode('utf8') == val
+    cluster.execute('del', 'key1')
+
+    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+        cluster.execute('set', 'key1', val)
+
+    cluster.execute('config', 'set', 'maxmemory', 4000000000)
+    cluster.execute('set', 'key1', val)
