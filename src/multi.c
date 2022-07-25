@@ -96,7 +96,7 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         /* We have to detect commands that are unsupported or must not be
          * intercepted and reject the transaction.
          */
-        unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, 0);
+        unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, 0);
 
         if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");

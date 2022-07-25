@@ -29,10 +29,10 @@
     fun:moduleLoad
 }
 {
-    <all_RedisRaftCtxInit_allocations>
+    <all_RedisRaftInit_allocations>
     Memcheck:Leak
     ...
-    fun:RedisRaftCtxInit
+    fun:RedisRaftInit
 }
 {
     <client_allocations>

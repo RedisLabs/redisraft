@@ -627,7 +627,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * MULTI/EXEC transaction in which case all queued commands are handled at
      * once.
      */
-    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
+    unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, CMD_SPEC_WRITE);
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
@@ -1650,7 +1650,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         if (redis_raft.entered_eval) {
             RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
             const CommandSpec *cs;
-            if ((cs = CommandSpecGet(cmd)) != NULL) {
+            if ((cs = CommandSpecTableGet(redis_raft.commands_spec_table, cmd)) != NULL) {
                 if (cs->flags & CMD_SPEC_SORT_REPLY) {
                     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
@@ -1664,7 +1664,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
+    const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, RedisModule_CommandFilterArgGet(filter, 0));
     if (cs && (cs->flags & CMD_SPEC_DONT_INTERCEPT))
         return;
 
@@ -1881,7 +1881,9 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         .ctx = RedisModule_GetDetachedThreadSafeContext(ctx),
     };
 
-    if (ConfigInit(&rr->config, rr->ctx) != RR_OK) {
+    CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
+
+    if (ConfigInit(rr->ctx, &rr->config) != RR_OK) {
         LOG_WARNING("Failed to init configuration");
         goto error;
     }
@@ -1898,7 +1900,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
 
     /* Cluster configuration */
-    ShardingInfoInit(rr);
+    ShardingInfoInit(rr->ctx, &rr->sharding_info);
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *
@@ -1962,7 +1964,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     }
 
     if (rr->sharding_info) {
-        ShardingInfoFree(rr);
+        ShardingInfoFree(rr->ctx, rr->sharding_info);
         rr->sharding_info = NULL;
     }
 
@@ -1980,6 +1982,8 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
         rr->locked_keys = NULL;
     }
+
+    CommandSpecTableClear(rr->commands_spec_table);
 }
 
 void RedisRaftFreeGlobals()
@@ -1988,7 +1992,6 @@ void RedisRaftFreeGlobals()
         RedisModule_FreeThreadSafeContext(redisraft_log_ctx);
     }
     RedisRaftCtxClear(&redis_raft);
-    CommandSpecFree();
 }
 
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -2044,10 +2047,6 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
         goto error;
     }
 
-    if (CommandSpecInit(ctx) != RR_OK) {
-        LOG_WARNING("Failed to init internal commands table");
-        goto error;
-    }
     RedisRaftCtx *rr = &redis_raft;
 
     if (RedisRaftCtxInit(rr, ctx) == RR_ERROR) {

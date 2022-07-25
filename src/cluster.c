@@ -654,7 +654,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
      * initialized.
      */
     RedisModule_Assert(si != NULL);
-    ShardingInfoReset(rr);
+    ShardingInfoReset(rr->ctx, si);
 
     /* Load individual shard groups */
     for (unsigned int i = 0; i < rdb_shard_groups_num; i++) {
@@ -1083,11 +1083,11 @@ fail:
  * ShardGroup.
  */
 
-void ShardingInfoInit(RedisRaftCtx *rr)
+void ShardingInfoInit(RedisModuleCtx *ctx, ShardingInfo **si)
 {
-    rr->sharding_info = RedisModule_Calloc(1, sizeof(ShardingInfo));
+    *si = RedisModule_Calloc(1, sizeof(ShardingInfo));
 
-    ShardingInfoReset(rr);
+    ShardingInfoReset(ctx, *si);
 }
 
 static void freeShardGroupMap(RedisModuleCtx *ctx, RedisModuleDict *shard_group_map)
@@ -1107,13 +1107,11 @@ static void freeShardGroupMap(RedisModuleCtx *ctx, RedisModuleDict *shard_group_
 }
 
 /* Free the ShardingInfo structure. */
-void ShardingInfoFree(RedisRaftCtx *rr)
+void ShardingInfoFree(RedisModuleCtx *ctx, ShardingInfo *si)
 {
-    ShardingInfo *si = rr->sharding_info;
-    freeShardGroupMap(rr->ctx, si->shard_group_map);
+    freeShardGroupMap(ctx, si->shard_group_map);
     si->shard_group_map = NULL;
-    RedisModule_Free(rr->sharding_info);
-    rr->sharding_info = NULL;
+    RedisModule_Free(si);
 }
 
 /* Free and reset the ShardingInfo structure.
@@ -1121,18 +1119,16 @@ void ShardingInfoFree(RedisRaftCtx *rr)
  * This is called after ShardingInfo has already been allocated, and typically
  * right before loading serialized ShardGroups from a snapshot.
  */
-void ShardingInfoReset(RedisRaftCtx *rr)
+void ShardingInfoReset(RedisModuleCtx *ctx, ShardingInfo *si)
 {
-    ShardingInfo *si = rr->sharding_info;
-
-    freeShardGroupMap(rr->ctx, si->shard_group_map);
+    freeShardGroupMap(ctx, si->shard_group_map);
     si->shard_group_map = NULL;
-    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
+    si->shard_group_map = RedisModule_CreateDict(ctx);
 
     si->shard_groups_num = 0;
 
     /* Reset array */
-    //hfadida: internal mem release?
+    /* Internal mem was already released in freeShardGroupMap() (point to the same obj in shard_group_map */
     for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;
