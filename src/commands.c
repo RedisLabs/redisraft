@@ -356,6 +356,23 @@ const CommandSpec *CommandSpecTableGet(CommandSpecTable *cmd_spec_table, const R
     return getOrCreateCommandSpec(cmd_spec_table, cmd, false);
 }
 
+static bool isDenyOOM(const CommandSpec *cs, RaftRedisCommand *cmd)
+{
+    uint64_t sub_flags = 0;
+
+    if (!strncmp(cs->name, "eval", strlen("eval")) && cmd->argc > 1) {
+        if (RedisModule_GetScriptBodyFlags(cmd->argv[1], &sub_flags) != REDISMODULE_OK) {
+            sub_flags = 0;
+        }
+    } else if (!strncmp(cs->name, "evalsha", strlen("evalsha")) && cmd->argc > 1) {
+        if (RedisModule_GetScriptSHAFlags(cmd->argv[1], &sub_flags) != REDISMODULE_OK) {
+            sub_flags = 0;
+        }
+    }
+
+    return !(sub_flags & (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM));
+}
+
 /* For a given RaftRedisCommandArray, return a flags value that represents
  * the aggregate flags of all commands. If a command is not listed in the
  * command spec table, use default_flags.
@@ -368,24 +385,12 @@ unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table,
         if (cs) {
             flags |= cs->flags;
             if (cs->flags & CMD_SPEC_FLAGS) {
-                if (!strncmp(cs->name, "eval", strlen("eval")) && array->commands[i]->argc > 1) {
-                    uint64_t sub_flags;
-                    if (RedisModule_GetScriptBodyFlags(ctx, array->commands[i]->argv[1], &sub_flags) == REDISMODULE_OK) {
-                        if (!(sub_flags && (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM))) {
-                            flags |= CMD_SPEC_DENYOOM;
-                        }
-                    }
-                } else if (!strncmp(cs->name, "evalsha", strlen("evalsha")) && array->commands[i]->argc > 1) {
-                    uint64_t sub_flags;
-                    if (RedisModule_GetScriptSHAFlags(ctx, array->commands[i]->argv[1], &sub_flags) == REDISMODULE_OK) {
-                        if (!(sub_flags && (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM))) {
-                            flags |= CMD_SPEC_DENYOOM;
-                        }
-                    }
+                if (isDenyOOM(cs, array->commands[i])) {
+                    flags |= CMD_SPEC_DENYOOM;
                 }
+            } else {
+                flags |= default_flags;
             }
-        } else {
-            flags |= default_flags;
         }
     }
 

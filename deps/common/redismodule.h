@@ -1211,8 +1211,8 @@ REDISMODULE_API int (*RedisModule_RegisterNumericConfig)(RedisModuleCtx *ctx, co
 REDISMODULE_API int (*RedisModule_RegisterStringConfig)(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterEnumConfig)(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_LoadConfigs)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_GetScriptBodyFlags)(RedisModuleCtx *ctx, RedisModuleString *body, uint64_t *flags) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_GetScriptSHAFlags)(RedisModuleCtx *ctx, RedisModuleString *sha, uint64_t *flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetScriptBodyFlags)(RedisModuleString *body, uint64_t *flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetScriptSHAFlags)(RedisModuleString *sha, uint64_t *flags) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
