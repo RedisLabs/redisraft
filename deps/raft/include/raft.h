@@ -865,6 +865,8 @@ typedef struct raft_log_impl
     /** Remove entries from the start of the log, as necessary when compacting
      * the log and deleting the oldest entries.
      *
+     * The log implementation must call raft_entry_release() on any removed in-memory entries
+     *
      * @param[in] first_idx Index of first entry to be left in log.
      * @return
      *  0 on success;
@@ -874,6 +876,8 @@ typedef struct raft_log_impl
 
     /** Remove entries from the end of the log, as necessary when rolling back
      * append operations that have not been committed.
+     *
+     * The log implementation must call raft_entry_release() on any removed in-memory entries
      *
      * @param[in] from_idx Index of first entry to be removed.  All entries
      *  starting from and including this index shall be removed.
@@ -887,6 +891,8 @@ typedef struct raft_log_impl
 
     /** Get a single entry from the log.
      *
+     * The log implementation must call raft_entry_hold() on the fetched entry
+     *
      * @param[in] idx Index of entry to fetch.
      * @return
      *  Pointer to entry on success;
@@ -899,6 +905,8 @@ typedef struct raft_log_impl
     raft_entry_t* (*get) (void *log, raft_index_t idx);
 
     /** Get a batch of entries from the log.
+     *
+     * The log implementation must call raft_entry_hold() on the fetched entries
      *
      * @param[in] idx Index of first entry to fetch.
      * @param[in] entries_n Length of entries (max. entries to fetch).
