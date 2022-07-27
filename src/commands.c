@@ -388,9 +388,9 @@ unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table,
                 if (isDenyOOM(cs, array->commands[i])) {
                     flags |= CMD_SPEC_DENYOOM;
                 }
-            } else {
-                flags |= default_flags;
             }
+        } else {
+            flags |= default_flags;
         }
     }
 
