@@ -36,7 +36,11 @@ int calcIntSerializedLen(size_t val)
 size_t calcSerializeStringSize(RedisModuleString *str)
 {
     size_t len;
-    RedisModule_StringPtrLen(str, &len);
+    if (str != NULL) {
+        RedisModule_StringPtrLen(str, &len);
+    } else {
+        len = 0;
+    }
 
     return calcIntSerializedLen(len) + len + 1;
 }
@@ -133,9 +137,14 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str)
 int encodeString(char *p, size_t sz, RedisModuleString *str)
 {
     size_t len;
+    const char *e = NULL;
     int n;
 
-    const char *e = RedisModule_StringPtrLen(str, &len);
+    if (str == NULL) {
+        len = 0;
+    } else {
+        e = RedisModule_StringPtrLen(str, &len);
+    }
 
     n = encodeInteger('$', p, sz, len);
     if (n == -1) {

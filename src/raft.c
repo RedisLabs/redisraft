@@ -306,6 +306,26 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
                              RaftRedisCommandArray *cmds)
 {
     RedisModuleCallReply *reply;
+    RedisModuleUser *user = NULL;
+
+    if (cmds->acl) {
+        int nokey;
+        user = RedisModule_DictGet(rr->acl_dict, cmds->acl, &nokey);
+        if (nokey) {
+            char user_name[64];
+            uint64_t count = RedisModule_DictSize(rr->acl_dict);
+            count++;
+            snprintf(user_name, 64, "redis_raft%lu", count);
+            user = RedisModule_CreateModuleUser(user_name);
+            RedisModule_Assert(user != NULL);
+
+            size_t acl_len;
+            const char *acl_str = RedisModule_StringPtrLen(cmds->acl, &acl_len);
+            RedisModule_SetModuleUserACLString(ctx, user, acl_str);
+
+            RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
+        }
+    }
 
     if (rr->debug_delay_apply) {
         usleep(rr->debug_delay_apply);
@@ -346,8 +366,13 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        reply = RedisModule_Call(ctx, cmd,
-                                 rr->resp_call_fmt, &c->argv[1], c->argc - 1);
+        if (user) {
+            reply = RedisModule_CallWithUser(ctx, user, cmd,
+                                             rr->resp_call_fmt, &c->argv[1], c->argc - 1);
+        } else {
+            reply = RedisModule_Call(ctx, cmd,
+                                     rr->resp_call_fmt, &c->argv[1], c->argc - 1);
+        }
         int ret_errno = errno;
         exitRedisModuleCall();
 

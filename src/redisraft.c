@@ -670,8 +670,20 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
+    if (cmd_flags & CMD_SPEC_SEND_ACL) {
+        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+        RedisModule_FreeString(ctx, user_name);
+        cmds->acl = RedisModule_GetModuleUserACLString(ctx, user);
+        RedisModule_FreeModuleUser(user);
+    }
+
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+    if (cmds->acl) {
+        RedisModule_RetainString(req->ctx, cmds->acl);
+    }
+    req->r.redis.cmds.acl = cmds->acl;
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
@@ -1928,6 +1940,9 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     /* Client state for MULTI/ASKING support */
     rr->client_state = RedisModule_CreateDict(rr->ctx);
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
+
+    /* acl -> user dictionary */
+    rr->acl_dict = RedisModule_CreateDict(ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
