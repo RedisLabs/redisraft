@@ -546,7 +546,7 @@ def test_max_memory_eval(cluster):
         return 1234;""", "0") == 1234
 
     assert cluster.execute("eval", """#!lua flags=no-writes
-        redis.call('SET','key1','value1');
-        redis.call('SET','key2','value2');
-        redis.call('SET','key3','value3');
+        redis.call('get','key1');
+        redis.call('get','key2');
+        redis.call('get','key3');
         return 1234;""", "0") == 1234
