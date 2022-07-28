@@ -59,19 +59,16 @@ To query the cluster state, run the `INFO raft` command:
 
 ## Documentation
 
-Data-set is a single string key.
+- Data-set is a single string key. There are just two commands:
+  - Write command:
+    ```
+    redis-cli -p 5001 raft.write newvalue
+    ```
 
-There are just two commands:
-
-Write command:
-```
-redis-cli -p 5001 raft.write newvalue
-```
-
-Read command:
-```
-redis-cli -p 5001 raft.read
-```
+  - Read command:
+    ```
+    redis-cli -p 5001 raft.read
+    ```
 
 ## License
 
