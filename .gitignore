@@ -30,3 +30,4 @@ buildinfo.h
 build/*
 jepsen/docker/store/*
 tests/tls/*
+run/
