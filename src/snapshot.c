@@ -235,11 +235,6 @@ int SnapshotSave(RedisRaftCtx *rr)
                                      rr->snapshot_info.last_applied_idx,
                                      rr->snapshot_info.last_applied_term);
 
-    RaftLog *new_log = RaftLogOpen(tmp_log_file);
-    if (!new_log) {
-        abort();
-    }
-
     LOG_NOTICE("Log rewrite complete, %lu entries rewritten (from idx %lu).",
                 num_log_entries, raft_get_snapshot_last_idx(rr->raft));
 
