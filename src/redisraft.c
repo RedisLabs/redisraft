@@ -1497,7 +1497,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_ReplyWithSimpleString(ctx, "OK");
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
-        const CommandSpec *cs = CommandSpecGet(argv[2]);
+        const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, argv[2]);
         if (cs == NULL) {
             RedisModule_ReplyWithError(ctx, "ERR unknown command");
         } else {
