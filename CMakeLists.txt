@@ -284,4 +284,24 @@ add_custom_command(TARGET valgrind-tests
 add_custom_target(tests)
 add_dependencies(tests integration-tests unit-tests)
 
+# ---------------------------- Test Modules ---------------------------------- #
+macro(build_test_module name)
+    add_library(${name} MODULE tests/integration/modules/${name}.c)
+    set_target_properties(${name} PROPERTIES PREFIX "")
+    target_include_directories(${name} PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/common/>)
+    set_target_properties(${name} PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/tests/integration/modules")
+    set_property(TARGET ${name} APPEND PROPERTY
+            ADDITIONAL_CLEAN_FILES ${LIBRARY_OUTPUT_DIRECTORY}/$<TARGET_FILE_NAME:${name}>)
+endmacro()
+
+# Add new modules here.
+#
+# Example:
+# Module file path: tests/integration/modules/hellomodule.c
+# Output file path will be: tests/integration/modules/hellomodule.so
+build_test_module(hellomodule)
+# -------------------------- Test Modules End -------------------------------- #
+
 # ----------------------------- Test End ------------------------------------- #

@@ -104,6 +104,9 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
             multiState->error = true;
+        } else if (RedisModule_GetUsedMemoryRatio() > 1.0) {
+            RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
+            multiState->error = true;
         } else {
             RaftRedisCommandArrayMove(&multiState->cmds, cmds);
             RedisModule_ReplyWithSimpleString(ctx, "QUEUED");
