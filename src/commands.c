@@ -341,8 +341,7 @@ CommandSpec *CommandSpecTableGetC(CommandSpecTable *cmd_spec_table, void *key, s
 RRStatus CommandSpecTableSetC(CommandSpecTable *cmd_spec_table, void *key, size_t keylen, CommandSpec *cs)
 {
     int ret = RedisModule_DictSetC(cmd_spec_table->table, key, keylen, cs);
-    if (ret == REDISMODULE_OK) return RR_OK;
-    return RR_ERROR;
+    return ret == REDISMODULE_OK ? RR_OK : RR_ERROR;
 }
 
 /* Look up the specified command in the command spec table and return the
