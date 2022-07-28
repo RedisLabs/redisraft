@@ -13,7 +13,7 @@ typedef struct RaftLog {
     uint32_t version;               /* Log file format version */
     raft_node_id_t node_id;         /* Id of this server */
     off_t *entry_offsets;           /* Entry positions in the log file */
-    raft_index_t entry_offset_cap;  /* entry_offsets array capacity */
+    raft_index_t entry_offset_cap;  /* Capacity of entry_offsets array */
     raft_index_t num_entries;       /* Entries in log */
     raft_term_t snapshot_last_term; /* Last term included in snapshot */
     raft_index_t snapshot_last_idx; /* Last index included in snapshot */
