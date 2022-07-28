@@ -651,6 +651,11 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
+    if (!(cmd_flags & CMD_SPEC_SEND_ACL) && validateAllCommandsACL(ctx, cmds) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "NOPERM this user doesn't have proper permissions");
+        return;
+    }
+
     /* Handle the special case of read-only commands here: if quorum reads
      * are enabled schedule the request to be processed when we have a guarantee
      * we're still a leader. Otherwise, just process the reads. */
@@ -670,20 +675,16 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
+    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+
     if (cmd_flags & CMD_SPEC_SEND_ACL) {
         RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-        RedisModule_FreeString(ctx, user_name);
-        cmds->acl = RedisModule_GetModuleUserACLString(ctx, user);
+        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(ctx, user);
         RedisModule_FreeModuleUser(user);
+        RedisModule_FreeString(ctx, user_name);
     }
-
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-    if (cmds->acl) {
-        RedisModule_RetainString(req->ctx, cmds->acl);
-    }
-    req->r.redis.cmds.acl = cmds->acl;
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();

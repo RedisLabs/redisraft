@@ -305,3 +305,26 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
     snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
 }
+
+int validateCommandACL(RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+    RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+
+    int ret = RedisModule_ACLCheckCommandPermissions(user, cmd->argv, cmd->argc);
+    RedisModule_FreeModuleUser(user);
+    RedisModule_FreeString(ctx, user_name);
+
+    return ret;
+}
+
+int validateAllCommandsACL(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    for (int i = 0; i < cmds->len; i++) {
+        if (validateCommandACL(ctx, cmds->commands[i]) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+        }
+    }
+
+    return REDISMODULE_OK;
+}

@@ -98,7 +98,10 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
          */
         unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, 0);
 
-        if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        if (validateCommandACL(ctx, cmds->commands[0]) == REDISMODULE_ERR) {
+            RedisModule_ReplyWithError(ctx, "NOPERM this user doesn't have proper permissions");
+            multiState->error = true;
+        } else if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
             multiState->error = true;
         } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
