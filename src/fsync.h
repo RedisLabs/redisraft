@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+/* A dedicated thread just to call fsync() on the log file */
+
 typedef struct FsyncThreadResult {
     raft_index_t fsync_index;
     uint64_t time;

@@ -5,6 +5,8 @@
 
 #include <pthread.h>
 
+/* This threadpool is used for DNS resolution only. */
+
 struct ThreadPoolTask {
     STAILQ_ENTRY(ThreadPoolTask) entry;
     void *arg;
