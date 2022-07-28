@@ -173,9 +173,6 @@ static void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
 {
     if (ctx->outgoing_snapshot_file.mmap != NULL) {
         munmap(ctx->outgoing_snapshot_file.mmap, ctx->outgoing_snapshot_file.len);
-
-        ctx->outgoing_snapshot_file.mmap = NULL;
-        ctx->outgoing_snapshot_file.len = 0;
     }
 
     const int mode = S_IRUSR | S_IRGRP | S_IROTH;
@@ -218,12 +215,6 @@ void SnapshotLoad(RedisRaftCtx *rr)
 int SnapshotSave(RedisRaftCtx *rr)
 {
     LOG_DEBUG("Initiating snapshot.");
-
-    FsyncThreadWaitUntilCompleted(&rr->fsync_thread);
-
-    if (RaftLogSync(rr->log, true) != RR_OK) {
-        PANIC("RaftLogSync() failed.");
-    }
 
     if (raft_begin_snapshot(rr->raft) < 0) {
         return RR_ERROR;

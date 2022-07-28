@@ -796,8 +796,14 @@ void periodic(RedisModuleCtx *ctx, void *arg)
     if (rr->config.log_max_file_size &&
         raft_get_num_snapshottable_logs(rr->raft) > 0 &&
         rr->log->file_size > rr->config.log_max_file_size) {
-        LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
-                  rr->log->file_size);
+
+        LOG_DEBUG("Log file size: %lu, initiating snapshot.", rr->log->file_size);
+
+        FsyncThreadWaitUntilCompleted(&rr->fsync_thread);
+        if (RaftLogSync(rr->log, true) != RR_OK) {
+            PANIC("RaftLogSync() failed.");
+        }
+
         SnapshotSave(rr);
     }
 }
