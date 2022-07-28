@@ -116,10 +116,10 @@ typedef struct RedisRaftCtx {
     RedisRaftState state;                /* Raft module state */
     ThreadPool thread_pool;              /* Thread pool for slow operations */
     FsyncThread fsync_thread;            /* Thread to call fsync on raft log file */
-    RaftLog *log;                 /* Raft persistent log; May be NULL if not used */
-    RaftMeta meta;                /* Raft metadata for voted_for and term */
-    EntryCache *logcache;         /* Log entry cache to keep entries in memory for faster access */
-    RedisRaftConfig config;       /* User provided configuration */
+    RaftLog *log;                        /* Raft persistent log; May be NULL if not used */
+    RaftMeta meta;                       /* Raft metadata for voted_for and term */
+    EntryCache *logcache;                /* Log entry cache to keep entries in memory for faster access */
+    RedisRaftConfig config;              /* User provided configuration */
     raft_index_t incoming_snapshot_idx;  /* Incoming snapshot's last included idx to verify chunks
                                                     belong to the same snapshot */
     char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
@@ -144,6 +144,5 @@ typedef struct {
     raft_node_id_t id;
     NodeAddr addr;
 } RaftCfgChange;
-
 
 #endif
