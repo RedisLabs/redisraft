@@ -74,15 +74,13 @@ To query the cluster state, run the `INFO raft` command:
   
 | File                 | Description                                                                                                                                   |
 |----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| config.c             | Configuration                                                                                                                                 |
 | connection.c         | Connection handling between nodes                                                                                                             |
 | entrycache.c         | Raft log file is on the disk. We also keep some of the raft log entries in memory for faster access. This is just a performance optimization. | 
 | fsync.c              | A separate thread just to call fsync() for the raft log file. This is just a performance optimization                                         |
-| hiredis_redismodule.h | hiredis is used for sending messages to other nodes. This is an adapter which makes hiredis to use RedisModule EventLoop API                  | 
+| hiredis_redismodule.h | hiredis is used for sending messages to other nodes. This is an adapter which makes hiredis to use RedisModule EventLoop API                 | 
 | log.c                | Raft log implementation.                                                                                                                      |
-| meta.c               | Raft metadata file. Raft requires `term` and last `vote` data to be persisted.                                                                |
-| node.c               | A node object for each cluster node                                                                                                           ||
-| node_addr.c          | Node address object                                                                                                                           |
+| meta.c               | Raft metadata file. Raft requires `term` and last `vote` info to be persisted.                                                                |
+| node.c               | A node object for each cluster node                                                                                                           |                                                                                                                   |
 | redisraft.c          | Main raft logic                                                                                                                               | 
 | serialization.c      | Serialization of an operation into a raft entry                                                                                               |
 | snapshot.c           | Snapshot impl. Currently, it dumps data-set which is a single key, along with used node ids and cluster node configuration.                   | 
