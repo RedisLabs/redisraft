@@ -2001,7 +2001,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     }
 
     if (RedisModule_CreateCommand(ctx, "raft.ae", cmdRaftAppendEntries,
-                                  "write", 0, 0, 0) == REDISMODULE_ERR) {
+                                  "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 
