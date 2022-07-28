@@ -1609,7 +1609,6 @@ static void clusterInit()
         PANIC("Failed to initialize Raft log");
     }
 
-    addUsedNodeId(rr, rr->config.id);
     RaftLibraryInit(rr, true);
     SnapshotInit(rr);
 
