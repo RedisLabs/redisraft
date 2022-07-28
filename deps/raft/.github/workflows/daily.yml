@@ -1,0 +1,28 @@
+name: Daily
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-tests:
+    if: github.repository == 'redislabs/raft'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: make
+      run: make
+    - name: Set up Python for testing
+      uses: actions/setup-python@v1
+      with:
+        python-version: '3.9'
+        architecture: 'x64'
+    - name: Install Python dependencies
+      run:
+        python -m pip install -r tests/requirements.txt
+    - name: Run tests
+      run:
+        make tests_full
+    - name: Upload to codecov
+      uses: codecov/codecov-action@v2

@@ -1,0 +1,67 @@
+name: Redis Test Suite
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      redis_repo:
+        description: 'redis repo owner and name'
+        required: false
+        default: 'redis/redis'
+      redis_branch:
+        description: 'redis git branch or sha to use'
+        required: false
+        default: 'unstable'
+      redisraft_repo:
+        description: 'redisraft repo owner and name'
+        required: false
+        default: 'redislabs/redisraft'
+      redisraft_branch:
+        description: 'redisraft git branch or sha to use'
+        required: false
+        default: 'master'
+
+jobs:
+  redis-suite:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')
+    steps:
+    - name: Set variables
+      env:
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+        DEFAULT_REDISRAFT_BRANCH: master
+      run: |
+        echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+        echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
+    - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.REDISRAFT_REPO }}
+        ref: ${{ env.REDISRAFT_BRANCH }}
+    - name: Install build dependencies
+      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake ..
+        make
+    - name: Checkout Redis
+      uses: actions/checkout@v2
+      with:
+        repository: ${{ env.REDIS_REPO }}
+        ref: ${{ env.REDIS_BRANCH }}
+        path: 'redis'
+    - name: Build Redis
+      run: cd redis && make -j 4
+    - name: Install test dependencies
+      run: sudo apt-get install -y tcl8.6
+    - name: Run tests
+      env:
+        REDIS_DIR: ${{ github.workspace }}/redis
+      run: ./tests/redis-suite/run.sh
