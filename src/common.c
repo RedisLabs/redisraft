@@ -308,14 +308,7 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 
 int validateCommandACL(RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
-    RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-
-    int ret = RedisModule_ACLCheckCommandPermissions(user, cmd->argv, cmd->argc);
-    RedisModule_FreeModuleUser(user);
-    RedisModule_FreeString(ctx, user_name);
-
-    return ret;
+    return RedisModule_ACLCheckCommandPermissionsCurrentUser(ctx, cmd->argv, cmd->argc);
 }
 
 int validateAllCommandsACL(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
