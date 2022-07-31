@@ -651,7 +651,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    if (!(cmd_flags & CMD_SPEC_SEND_ACL) && validateAllCommandsACL(ctx, cmds) != REDISMODULE_OK) {
+    if (!(cmd_flags & CMD_SPEC_SCRIPTS) && validateAllCommandsACL(ctx, cmds) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, "NOPERM this user doesn't have proper permissions");
         return;
     }
@@ -678,7 +678,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
-    if (cmd_flags & CMD_SPEC_SEND_ACL) {
+    if (cmd_flags & CMD_SPEC_SCRIPTS) {
         RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
         req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(ctx, user);

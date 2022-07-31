@@ -366,13 +366,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        if (user) {
-            reply = RedisModule_CallWithUser(ctx, user, cmd,
-                                             rr->resp_call_fmt, &c->argv[1], c->argc - 1);
-        } else {
-            reply = RedisModule_Call(ctx, cmd,
-                                     rr->resp_call_fmt, &c->argv[1], c->argc - 1);
-        }
+        reply = RedisModule_CallWithUser(ctx, user, cmd,
+                                         rr->resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
 
