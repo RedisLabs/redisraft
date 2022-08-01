@@ -681,7 +681,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     if (cmd_flags & CMD_SPEC_SCRIPTS) {
         RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(ctx, user);
+        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(user);
         RedisModule_FreeModuleUser(user);
         RedisModule_FreeString(ctx, user_name);
     }
