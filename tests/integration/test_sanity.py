@@ -550,3 +550,42 @@ def test_max_memory_eval(cluster):
         redis.call('get','key2');
         redis.call('get','key3');
         return 1234;""", "0") == 1234
+
+
+def test_max_memory_fcall(cluster):
+    cluster.create(3)
+
+    val = ''.join('1' for _ in range(2000000))
+
+    cluster.execute('set', 'key1', val)
+    cluster.execute('config', 'set', 'maxmemory', 100000)
+    cluster.execute("function", "load", """#!lua name=mylib
+local function test(keys, args)
+    redis.call('get', 'x')
+    return 1234
+end
+redis.register_function{function_name='test', callback=test}
+""")
+    cluster.wait_for_unanimity()
+    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+        cluster.execute("fcall", "test", 0)
+
+    cluster.execute("function", "load", "replace",  """#!lua name=mylib
+local function test(keys, args)
+    redis.call('get', 'x')
+    return 1234
+end
+redis.register_function{function_name='test', callback=test, flags={'allow-oom'}}
+""")
+    cluster.wait_for_unanimity()
+    assert cluster.execute("fcall", "test", 0) == 1234
+
+    cluster.execute("function", "load", "replace", """#!lua name=mylib
+local function test(keys, args)
+    redis.call('get', 'x')
+    return 1234
+end
+redis.register_function{function_name='test', callback=test, flags={'no-writes'}}
+""")
+    cluster.wait_for_unanimity()
+    assert cluster.execute("fcall", "test", 0) == 1234

@@ -30,6 +30,7 @@ static const CommandSpec commands[] = {
  /* Commands that need further processing for DENY_OOM */
     {"eval",                        CMD_SPEC_FLAGS                           },
     {"evalsha",                     CMD_SPEC_FLAGS                           },
+    {"fcall",                       CMD_SPEC_FLAGS                           },
 
  /* Blocking commands not supported */
     {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
@@ -368,6 +369,10 @@ static bool isDenyOOM(const CommandSpec *cs, RaftRedisCommand *cmd)
         if (RedisModule_GetScriptSHAFlags(cmd->argv[1], &sub_flags) != REDISMODULE_OK) {
             sub_flags = 0;
         }
+    } else if (!strncmp(cs->name, "fcall", strlen("fcall")) && cmd->argc > 1) {
+        if (RedisModule_GetFunctionFlags(cmd->argv[1], &sub_flags) != REDISMODULE_OK) {
+            sub_flags = 0;
+        }
     }
 
     return !(sub_flags & (REDISMODULE_SCRIPT_FLAG_NO_WRITES | REDISMODULE_SCRIPT_FLAG_ALLOW_OOM));
@@ -384,7 +389,7 @@ unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table,
         const CommandSpec *cs = CommandSpecTableGet(cmd_spec_table, array->commands[i]->argv[0]);
         if (cs) {
             flags |= cs->flags;
-            if (cs->flags & CMD_SPEC_FLAGS) {
+            if (cs->flags & CMD_SPEC_SCRIPTS) {
                 if (isDenyOOM(cs, array->commands[i])) {
                     flags |= CMD_SPEC_DENYOOM;
                 }
