@@ -373,10 +373,7 @@ static int setString(const char *name,
         RedisModule_Free(c->slot_config);
         c->slot_config = RedisModule_Strdup(value);
     } else if (strcasecmp(name, conf_ignored_commands) == 0) {
-        if (CommandSpecSet(rr->ctx, value) != RR_OK) {
-            *err = RedisModule_CreateStringPrintf(NULL, "Failed to set internal command table");
-            return REDISMODULE_ERR;
-        }
+        CommandSpecTableRebuild(rr->ctx, rr->commands_spec_table, value);
         RedisModule_Free(c->ignored_commands);
         c->ignored_commands = RedisModule_Strdup(value);
     } else if (strcasecmp(name, conf_cluster_user) == 0) {
@@ -706,7 +703,7 @@ static int getListenAddr(RedisRaftConfig *c, RedisModuleCtx *ctx)
     return RR_OK;
 }
 
-RRStatus ConfigInit(RedisRaftConfig *c, RedisModuleCtx *ctx)
+RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c)
 {
     int ret = 0;
 

@@ -96,13 +96,15 @@ static const CommandSpec commands[] = {
     {NULL,                          0                                        }
 };
 
-static RedisModuleDict *commandSpecDict = NULL;
+typedef struct CommandSpecTable {
+    RedisModuleDict *table;
+} CommandSpecTable;
 
 /* Look up the specified command in the command spec table and return the
  * CommandSpec associated with it. If create is true, a new entry will
  * be created if one does not exist. Otherwise, NULL is returned.
  */
-static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool create)
+static CommandSpec *getOrCreateCommandSpec(CommandSpecTable *cmd_spec_table, const RedisModuleString *cmd, bool create)
 {
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd, &cmd_len);
@@ -118,13 +120,13 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
     }
     lcmd[cmd_len] = '\0';
 
-    CommandSpec *cs = RedisModule_DictGetC(commandSpecDict, lcmd, cmd_len, NULL);
+    CommandSpec *cs = CommandSpecTableGetC(cmd_spec_table, lcmd, cmd_len, NULL);
     if (!cs && create) {
         cs = RedisModule_Alloc(sizeof(CommandSpec));
         cs->name = RedisModule_Strdup(lcmd);
         cs->flags = 0;
 
-        int ret = RedisModule_DictSetC(commandSpecDict, lcmd, cmd_len, cs);
+        int ret = CommandSpecTableSetC(cmd_spec_table, lcmd, cmd_len, cs);
         RedisModule_Assert(ret == REDISMODULE_OK);
     }
 
@@ -136,7 +138,7 @@ static CommandSpec *getOrCreateCommandSpec(const RedisModuleString *cmd, bool cr
 }
 
 /* Use COMMAND to fetch all Redis commands and update the CommandSpec. */
-static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
+static void populateCommandSpecFromRedis(RedisModuleCtx *ctx, CommandSpecTable *cmd_spec_table)
 {
     RedisModuleCallReply *reply = NULL;
 
@@ -213,7 +215,7 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
         RedisModule_Assert(RedisModule_CallReplyType(name) == REDISMODULE_REPLY_STRING);
 
         RedisModuleString *name_str = RedisModule_CreateStringFromCallReply(name);
-        CommandSpec *cs = getOrCreateCommandSpec(name_str, true);
+        CommandSpec *cs = getOrCreateCommandSpec(cmd_spec_table, name_str, true);
         RedisModule_Assert(cs != NULL);
         RedisModule_FreeString(NULL, name_str);
 
@@ -223,95 +225,142 @@ static void populateCommandSpecFromRedis(RedisModuleCtx *ctx)
     RedisModule_FreeCallReply(reply);
 }
 
-static void freeCommandSpecDict(RedisModuleDict *dict)
+static void updateIgnoredCommands(CommandSpecTable *cmd_spec_table, const char *commands_str)
 {
-    CommandSpec *cs;
+    char *tok, *s = NULL;
+    char *tmp = RedisModule_Strdup(commands_str);
 
-    if (!dict) {
-        return;
-    }
+    for (tok = strtok_r(tmp, ",", &s); tok; tok = strtok_r(NULL, ",", &s)) {
+        int nokey = 0;
+        CommandSpec *cs;
 
-    RedisModuleDictIter *it = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-    while (RedisModule_DictNextC(it, NULL, (void **) &cs) != NULL) {
-        RedisModule_Free(cs->name);
-        RedisModule_Free(cs);
+        cs = CommandSpecTableGetC(cmd_spec_table, tok, strlen(tok), &nokey);
+        if (!nokey) {
+            cs->flags |= CMD_SPEC_DONT_INTERCEPT;
+            continue;
+        }
+
+        cs = RedisModule_Calloc(1, sizeof(*cs));
+        cs->name = RedisModule_Strdup(tok);
+        cs->flags = CMD_SPEC_DONT_INTERCEPT;
+
+        int ret = CommandSpecTableSetC(cmd_spec_table, tok, strlen(tok), cs);
+        RedisModule_Assert(ret == REDISMODULE_OK);
     }
-    RedisModule_DictIteratorStop(it);
-    RedisModule_FreeDict(NULL, dict);
+    RedisModule_Free(tmp);
 }
 
-RRStatus CommandSpecSet(RedisModuleCtx *ctx, const char *ignored_commands)
+static void buildCommandSpecTable(RedisModuleCtx *ctx, CommandSpecTable *cmd_spec_table, const char *ignored_commands)
 {
-    RedisModuleDict *dict = RedisModule_CreateDict(ctx);
+    RedisModule_Assert(CommandSpecTableSize(cmd_spec_table) == 0);
 
     for (int i = 0; commands[i].name != NULL; i++) {
         CommandSpec *cs = RedisModule_Alloc(sizeof(*cs));
         cs->name = RedisModule_Strdup(commands[i].name);
         cs->flags = commands[i].flags;
 
-        int ret = RedisModule_DictSetC(dict, cs->name, strlen(cs->name), cs);
-        if (ret != REDISMODULE_OK) {
-            goto error;
-        }
+        // Only to validate commands has no duplication
+        int nokey = 0;
+        CommandSpecTableGetC(cmd_spec_table, cs->name, strlen(cs->name), &nokey);
+        RedisModule_Assert(nokey);
+        RRStatus ret = CommandSpecTableSetC(cmd_spec_table, cs->name, strlen(cs->name), cs);
+        RedisModule_Assert(ret == RR_OK);
     }
 
     if (ignored_commands) {
-        char *tok, *s = NULL;
-        char *tmp = RedisModule_Strdup(ignored_commands);
+        updateIgnoredCommands(cmd_spec_table, ignored_commands);
+    }
+    populateCommandSpecFromRedis(ctx, cmd_spec_table);
+}
 
-        for (tok = strtok_r(tmp, ",", &s); tok; tok = strtok_r(NULL, ",", &s)) {
-            int nokey = 0;
-            CommandSpec *cs;
+static void initCommandSpecTableInternals(CommandSpecTable *cmd_spec_table)
+{
+    if (cmd_spec_table->table) {
+        CommandSpecTableClear(cmd_spec_table);
+    }
+    cmd_spec_table->table = RedisModule_CreateDict(NULL);
+}
 
-            cs = RedisModule_DictGetC(dict, tok, strlen(tok), &nokey);
-            if (!nokey) {
-                cs->flags = CMD_SPEC_DONT_INTERCEPT;
-                continue;
-            }
+/* Rebuild the command spec table with raft and redis commands spec and update ignored cmds spec, if ignored_commands != NULL */
+void CommandSpecTableRebuild(RedisModuleCtx *ctx, CommandSpecTable *cmd_spec_table, const char *ignored_commands)
+{
+    RedisModule_Assert(cmd_spec_table->table);
 
-            cs = RedisModule_Calloc(1, sizeof(*cs));
-            cs->name = RedisModule_Strdup(tok);
-            cs->flags = CMD_SPEC_DONT_INTERCEPT;
+    initCommandSpecTableInternals(cmd_spec_table);
+    buildCommandSpecTable(ctx, cmd_spec_table, ignored_commands);
+}
 
-            int ret = RedisModule_DictSetC(dict, tok, strlen(tok), cs);
-            if (ret != REDISMODULE_OK) {
-                RedisModule_Free(cs->name);
-                RedisModule_Free(cs);
-                RedisModule_Free(tmp);
-                goto error;
-            }
-        }
-        RedisModule_Free(tmp);
+/* Init the command spec table to contain raft and redis commands spec */
+void CommandSpecTableInit(RedisModuleCtx *ctx, CommandSpecTable **cmd_spec_table)
+{
+    *cmd_spec_table = RedisModule_Calloc(1, sizeof(cmd_spec_table));
+    initCommandSpecTableInternals(*cmd_spec_table);
+    buildCommandSpecTable(ctx, *cmd_spec_table, NULL);
+}
+
+/* Clear the command spec table */
+void CommandSpecTableClear(CommandSpecTable *cmd_spec_table)
+{
+    if (!cmd_spec_table->table) {
+        return;
     }
 
-    freeCommandSpecDict(commandSpecDict);
-    commandSpecDict = dict;
-    populateCommandSpecFromRedis(ctx);
+    RedisModuleDictIter *it = RedisModule_DictIteratorStartC(cmd_spec_table->table, "^", NULL, 0);
+    CommandSpec *cs;
+    while (RedisModule_DictNextC(it, NULL, (void **) &cs) != NULL) {
+        RedisModule_Free(cs->name);
+        RedisModule_Free(cs);
+    }
+    RedisModule_DictIteratorStop(it);
 
-    return RR_OK;
+    RedisModule_FreeDict(NULL, cmd_spec_table->table);
+    cmd_spec_table->table = NULL;
+}
 
-error:
-    freeCommandSpecDict(dict);
-    return RR_ERROR;
+/* Return the command spec table size */
+uint64_t CommandSpecTableSize(CommandSpecTable *cmd_spec_table)
+{
+    RedisModule_Assert(cmd_spec_table->table);
+    return RedisModule_DictSize(cmd_spec_table->table);
+}
+
+/* Return the CommandSpec stored at the specified key. The function returns NULL
+ * both in the case the key does not exist, or if you actually stored
+ * NULL at key. So, optionally, if the 'nokey' pointer is not NULL, it will
+ * be set by reference to 1 if the key does not exist, or to 0 if the key
+ * exists. */
+CommandSpec *CommandSpecTableGetC(CommandSpecTable *cmd_spec_table, void *key, size_t keylen, int *nokey)
+{
+    return RedisModule_DictGetC(cmd_spec_table->table, key, keylen, nokey);
+}
+
+/* Store the specified key into the command spec table, setting its value to the
+ * CommandSpec* 'cs'. If the key was added with success, since it did not
+ * already exist, RR_OK is returned. Otherwise if the key already
+ * exists the function returns RR_ERROR. */
+RRStatus CommandSpecTableSetC(CommandSpecTable *cmd_spec_table, void *key, size_t keylen, CommandSpec *cs)
+{
+    int ret = RedisModule_DictSetC(cmd_spec_table->table, key, keylen, cs);
+    return ret == REDISMODULE_OK ? RR_OK : RR_ERROR;
 }
 
 /* Look up the specified command in the command spec table and return the
  * CommandSpec associated with it, or NULL.
  */
-const CommandSpec *CommandSpecGet(const RedisModuleString *cmd)
+const CommandSpec *CommandSpecTableGet(CommandSpecTable *cmd_spec_table, const RedisModuleString *cmd)
 {
-    return getOrCreateCommandSpec(cmd, false);
+    return getOrCreateCommandSpec(cmd_spec_table, cmd, false);
 }
 
 /* For a given RaftRedisCommandArray, return a flags value that represents
  * the aggregate flags of all commands. If a command is not listed in the
- * command table, use default_flags.
+ * command spec table, use default_flags.
  */
-unsigned int CommandSpecGetAggregateFlags(RaftRedisCommandArray *array, unsigned int default_flags)
+unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table, RaftRedisCommandArray *array, unsigned int default_flags)
 {
     unsigned int flags = 0;
     for (int i = 0; i < array->len; i++) {
-        const CommandSpec *cs = CommandSpecGet(array->commands[i]->argv[0]);
+        const CommandSpec *cs = CommandSpecTableGet(cmd_spec_table, array->commands[i]->argv[0]);
         if (cs) {
             flags |= cs->flags;
         } else {

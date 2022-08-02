@@ -372,6 +372,22 @@ static int handleHeader(RaftLog *log, RawLogEntry *re)
     return 0;
 }
 
+void RaftLogFree(RaftLog *raft_log)
+{
+    if (!raft_log) {
+        return;
+    }
+
+    if (raft_log->file) {
+        fclose(raft_log->file);
+    }
+
+    if (raft_log->idxfile) {
+        fclose(raft_log->idxfile);
+    }
+    RedisModule_Free(raft_log);
+}
+
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags)
 {
     RaftLog *log = prepareLog(filename, flags);

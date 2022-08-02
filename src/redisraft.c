@@ -640,7 +640,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * MULTI/EXEC transaction in which case all queued commands are handled at
      * once.
      */
-    unsigned int cmd_flags = CommandSpecGetAggregateFlags(cmds, CMD_SPEC_WRITE);
+    unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, CMD_SPEC_WRITE);
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
@@ -1497,7 +1497,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_ReplyWithSimpleString(ctx, "OK");
         return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
-        const CommandSpec *cs = CommandSpecGet(argv[2]);
+        const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, argv[2]);
         if (cs == NULL) {
             RedisModule_ReplyWithError(ctx, "ERR unknown command");
         } else {
@@ -1672,7 +1672,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         if (redis_raft.entered_eval) {
             RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
             const CommandSpec *cs;
-            if ((cs = CommandSpecGet(cmd)) != NULL) {
+            if ((cs = CommandSpecTableGet(redis_raft.commands_spec_table, cmd)) != NULL) {
                 if (cs->flags & CMD_SPEC_SORT_REPLY) {
                     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
@@ -1686,7 +1686,7 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    const CommandSpec *cs = CommandSpecGet(RedisModule_CommandFilterArgGet(filter, 0));
+    const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, RedisModule_CommandFilterArgGet(filter, 0));
     if (cs && (cs->flags & CMD_SPEC_DONT_INTERCEPT))
         return;
 
@@ -1900,9 +1900,128 @@ void moduleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 {
     REDISMODULE_NOT_USED(e);
 
-    /* recreate the CommandSpec dict on any module change */
-    RRStatus ret = CommandSpecSet(ctx, redis_raft.config.ignored_commands);
-    RedisModule_Assert(ret == RR_OK);
+    /* rebuild the command spec table on any module change */
+    CommandSpecTableRebuild(redis_raft.ctx, redis_raft.commands_spec_table, redis_raft.config.ignored_commands);
+}
+
+RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    *rr = (RedisRaftCtx){
+        .state = REDIS_RAFT_UNINITIALIZED,
+        .ctx = RedisModule_GetDetachedThreadSafeContext(ctx),
+    };
+
+    CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
+
+    if (ConfigInit(rr->ctx, &rr->config) != RR_OK) {
+        LOG_WARNING("Failed to init configuration");
+        goto error;
+    }
+
+    /* for backwards compatibility with older redis version that don't support "0v"m */
+    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
+        rr->resp_call_fmt = "0v";
+    } else {
+        rr->resp_call_fmt = "v";
+    }
+
+    /* Client state for MULTI/ASKING support */
+    rr->client_state = RedisModule_CreateDict(rr->ctx);
+    rr->locked_keys = RedisModule_CreateDict(rr->ctx);
+
+    /* Cluster configuration */
+    ShardingInfoInit(rr->ctx, &rr->sharding_info);
+
+    /* Raft log exists -> go into RAFT_LOADING state:
+     *
+     * Redis will load RDB as a snapshot, if it exists. When done,
+     * handleLoadingState() will be called, initialize Raft library and load
+     * log file.
+     *
+     * Raft log does not exist -> go into RAFT_UNINITIALIZED state:
+     *
+     * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
+     * or RAFT.CLUSTER JOIN command.
+     */
+    if (RaftMetaRead(&rr->meta, rr->config.log_filename) == RR_OK) {
+        rr->log = RaftLogOpen(rr->config.log_filename, &rr->config, 0);
+        if (rr->log) {
+            rr->state = REDIS_RAFT_LOADING;
+        }
+    }
+
+    RedisModule_CreateTimer(rr->ctx, rr->config.periodic_interval, callRaftPeriodic, rr);
+    RedisModule_CreateTimer(rr->ctx, rr->config.reconnect_interval, callHandleNodeStates, rr);
+    threadPoolInit(&rr->thread_pool, 5);
+    fsyncThreadStart(&rr->fsyncThread, handleFsyncCompleted);
+
+    return RR_OK;
+
+error:
+    RedisRaftCtxClear(rr);
+    *rr = (RedisRaftCtx){0};
+    return RR_ERROR;
+}
+
+void RedisRaftCtxClear(RedisRaftCtx *rr)
+{
+    if (rr->raft) {
+        raft_destroy(rr->raft);
+        rr->raft = NULL;
+    }
+
+    if (rr->ctx) {
+        RedisModule_FreeThreadSafeContext(rr->ctx);
+        rr->ctx = NULL;
+    }
+
+    RaftLogFree(rr->log);
+    rr->log = NULL;
+
+    if (rr->logcache) {
+        EntryCacheFree(rr->logcache);
+        rr->logcache = NULL;
+    }
+
+    if (rr->transfer_req) {
+        RaftReqFree(rr->transfer_req);
+        rr->transfer_req = NULL;
+    }
+
+    if (rr->migrate_req) {
+        RaftReqFree(rr->migrate_req);
+        rr->migrate_req = NULL;
+    }
+
+    if (rr->sharding_info) {
+        ShardingInfoFree(rr->ctx, rr->sharding_info);
+        rr->sharding_info = NULL;
+    }
+
+    if (rr->client_state) {
+        RedisModule_FreeDict(rr->ctx, rr->client_state);
+        rr->client_state = NULL;
+    }
+
+    if (rr->debug_req) {
+        RaftReqFree(rr->debug_req);
+        rr->debug_req = NULL;
+    }
+
+    if (rr->locked_keys) {
+        RedisModule_FreeDict(rr->ctx, rr->locked_keys);
+        rr->locked_keys = NULL;
+    }
+
+    CommandSpecTableClear(rr->commands_spec_table);
+}
+
+void RedisRaftFreeGlobals()
+{
+    if (redisraft_log_ctx) {
+        RedisModule_FreeThreadSafeContext(redisraft_log_ctx);
+    }
+    RedisRaftCtxClear(&redis_raft);
 }
 
 __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -1934,43 +2053,46 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
 
     if (registerRaftCommands(ctx) == RR_ERROR) {
         LOG_WARNING("Failed to register commands");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClientChange,
                                              handleClientEvent);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,
                                              beforeSleep);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     ret = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config,
                                              ConfigRedisEventCallback);
     if (ret != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ModuleChange,
                                            moduleChangeCallback) != REDISMODULE_OK) {
         LOG_WARNING("Failed to subscribe to server events.");
-        return REDISMODULE_ERR;
+        goto error;
     }
 
     RedisRaftCtx *rr = &redis_raft;
 
-    if (RedisRaftInit(rr, ctx) == RR_ERROR) {
-        return REDISMODULE_ERR;
+    if (RedisRaftCtxInit(rr, ctx) == RR_ERROR) {
+        LOG_WARNING("Failed to init redis raft context");
+        goto error;
     }
 
     LOG_NOTICE("Raft module loaded, state is '%s'", getStateStr(rr));
-
     return REDISMODULE_OK;
+error:
+    RedisRaftFreeGlobals();
+    return REDISMODULE_ERR;
 }

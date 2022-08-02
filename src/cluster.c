@@ -654,7 +654,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
      * initialized.
      */
     RedisModule_Assert(si != NULL);
-    ShardingInfoReset(rr);
+    ShardingInfoReset(rr->ctx, si);
 
     /* Load individual shard groups */
     for (unsigned int i = 0; i < rdb_shard_groups_num; i++) {
@@ -1083,24 +1083,17 @@ fail:
  * ShardGroup.
  */
 
-void ShardingInfoInit(RedisRaftCtx *rr)
+void ShardingInfoInit(RedisModuleCtx *ctx, ShardingInfo **si)
 {
-    rr->sharding_info = RedisModule_Calloc(1, sizeof(ShardingInfo));
+    *si = RedisModule_Calloc(1, sizeof(ShardingInfo));
 
-    ShardingInfoReset(rr);
+    ShardingInfoReset(ctx, *si);
 }
 
-/* Free and reset the ShardingInfo structure.
- *
- * This is called after ShardingInfo has already been allocated, and typically
- * right before loading serialized ShardGroups from a snapshot.
- */
-void ShardingInfoReset(RedisRaftCtx *rr)
+static void freeShardGroupMap(RedisModuleCtx *ctx, RedisModuleDict *shard_group_map)
 {
-    ShardingInfo *si = rr->sharding_info;
-
-    if (si->shard_group_map != NULL) {
-        RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+    if (shard_group_map != NULL) {
+        RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(shard_group_map, "^", NULL, 0);
 
         size_t key_len;
         void *data;
@@ -1109,15 +1102,33 @@ void ShardingInfoReset(RedisRaftCtx *rr)
             ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
-        RedisModule_FreeDict(rr->ctx, si->shard_group_map);
-        si->shard_group_map = NULL;
+        RedisModule_FreeDict(ctx, shard_group_map);
     }
+}
 
-    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
+/* Free the ShardingInfo structure. */
+void ShardingInfoFree(RedisModuleCtx *ctx, ShardingInfo *si)
+{
+    freeShardGroupMap(ctx, si->shard_group_map);
+    si->shard_group_map = NULL;
+    RedisModule_Free(si);
+}
+
+/* Free and reset the ShardingInfo structure.
+ *
+ * This is called after ShardingInfo has already been allocated, and typically
+ * right before loading serialized ShardGroups from a snapshot.
+ */
+void ShardingInfoReset(RedisModuleCtx *ctx, ShardingInfo *si)
+{
+    freeShardGroupMap(ctx, si->shard_group_map);
+    si->shard_group_map = NULL;
+    si->shard_group_map = RedisModule_CreateDict(ctx);
 
     si->shard_groups_num = 0;
 
     /* Reset array */
+    /* Internal mem was already released in freeShardGroupMap() (point to the same obj in shard_group_map */
     for (int i = 0; i < REDIS_RAFT_HASH_SLOTS; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;
