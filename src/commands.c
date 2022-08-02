@@ -32,7 +32,7 @@ static const CommandSpec commands[] = {
     {"eval_ro",                     CMD_SPEC_SCRIPTS                         },
     {"evalsha_ro",                  CMD_SPEC_SCRIPTS                         },
     {"fcall",                       CMD_SPEC_SCRIPTS                         },
-    {"fcall_ro"                     CMD_SPEC_SCRIPTS                         },
+    {"fcall_ro",                    CMD_SPEC_SCRIPTS                         },
 
  /* Blocking commands not supported */
     {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
