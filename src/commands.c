@@ -28,9 +28,9 @@ static const CommandSpec commands[] = {
     {"bgsave",                      CMD_SPEC_UNSUPPORTED                     },
 
  /* Commands that need further processing for DENY_OOM */
-    {"eval",                        CMD_SPEC_FLAGS                           },
-    {"evalsha",                     CMD_SPEC_FLAGS                           },
-    {"fcall",                       CMD_SPEC_FLAGS                           },
+    {"eval",                        CMD_SPEC_SCRIPTS                         },
+    {"evalsha",                     CMD_SPEC_SCRIPTS                         },
+    {"fcall",                       CMD_SPEC_SCRIPTS                         },
 
  /* Blocking commands not supported */
     {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
