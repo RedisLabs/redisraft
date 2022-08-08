@@ -639,8 +639,9 @@ static RRStatus getInterfaceAddr(NodeAddr *addr)
     }
 
     for (ent = addrs; ent != NULL; ent = ent->ifa_next) {
-        if (ent->ifa_addr == NULL)
+        if (ent->ifa_addr == NULL) {
             continue;
+        }    
 
         /* Skip loopback and non-IP interfaces */
         if (!(ent->ifa_flags & IFF_LOOPBACK) &&
