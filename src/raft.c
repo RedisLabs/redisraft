@@ -973,8 +973,9 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
                 break;
             }
 
+            RedisModule_Assert(entry->type == RAFT_LOGTYPE_ADD_NODE);
+
             /* Ignore our own node, as we don't maintain a Node structure for it */
-            assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
             cfgchange = (RaftCfgChange *) entry->data;
             if (cfgchange->id == my_id) {
                 break;
