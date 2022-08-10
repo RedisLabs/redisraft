@@ -836,10 +836,11 @@ def test_cluster_nodes_for_empty_slot_sg(cluster):
 
 
 def test_cluster_nodes_for_single_slot_range_sg(cluster):
-    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster.create(1, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster_dbid = cluster.leader_node().info()["raft_dbid"]
     cluster_stable_shardgroup_id = "1" * 32
     cluster_importing_shardgroup_id = "2" * 32
-    cluster_migrating_shardgroup_id = "3" * 32
+    cluster_migrating_shardgroup_id = cluster_dbid
 
     assert cluster.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -858,35 +859,40 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         cluster_migrating_shardgroup_id,
         '1', '1',
         '501', '16383', '3', '123',
-        '%s00000001' % cluster_migrating_shardgroup_id, '3.3.3.3:3333',
+        '%s00000001' % cluster_migrating_shardgroup_id, cluster.node(1).address,
         ) == b'OK'
 
     def validate_nodes(cluster_nodes):
-        assert len(cluster_nodes) == 3
-        cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+        assert len(cluster_nodes) == 15886
         stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
         migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
         import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
         for i in range(len(cluster_nodes)):
-            node_data = cluster_nodes[i].split(b' ')
+            if i < 3:
+                node_data = cluster_nodes[i].split(b' ')
 
-            if local_node_id == node_data[0]:
-                assert node_data[2] == b"myself,master"
+                if local_node_id == node_data[0]:
+                    assert node_data[2] == b"myself,master"
+                else:
+                    assert node_data[2] == b"master"
+
+                assert node_data[3] == b"-"
+
+                if node_data[0] == stable_node_id:
+                    assert node_data[8] == b"0-500"
+                elif node_data[0] == migrate_node_id:
+                    assert node_data[8] == b"501-16383"
+                elif node_data[0] == import_node_id:
+                    assert node_data[8] == b""
+                else:
+                    assert False, "failed to match id {}".format(node_data[0])
             else:
-                assert node_data[2] == b"master"
-
-            assert node_data[3] == b"-"
-
-            if node_data[0] == stable_node_id:
-                assert node_data[8] == b"0-500"
-            elif node_data[0] == migrate_node_id:
-                assert node_data[8] == b"501-16383"
-            elif node_data[0] == import_node_id:
-                assert node_data[8] == b""
-            else:
-                assert False, "failed to match id {}".format(node_data[0])
+                migration_data = cluster_nodes[i].split(b'-')
+                assert(migration_data[0] == f"{i+498}".encode())
+                assert(migration_data[1] == b">")
+                assert(migration_data[2] == import_node_id)
 
     validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
