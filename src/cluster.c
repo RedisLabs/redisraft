@@ -1554,7 +1554,7 @@ static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
         int slot_count = 0;
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
-        for (unsigned int i=0; i < sg->slot_ranges_num; i++) {
+        for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
             /* we only include slot ranges for a shard that are stable / migration */
             SlotRangeType type = sg->slot_ranges[i].type;
             if (type != SLOTRANGE_TYPE_STABLE && type != SLOTRANGE_TYPE_MIGRATING) {
