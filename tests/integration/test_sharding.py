@@ -901,9 +901,9 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
                     assert False, "failed to match id {}".format(node_data[0])
             else:
                 migration_data = cluster_nodes[i].split(b'-')
-                assert(migration_data[0] == f"{i+498}".encode())
+                assert(migration_data[0] == f"[{i+498}".encode())
                 assert(migration_data[1] == b">")
-                assert(migration_data[2] == import_node_id)
+                assert(migration_data[2] == f"{import_node_id.decode()}]".encode())
 
     validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
@@ -1004,7 +1004,6 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
         for i in range(len(cluster_nodes)):
-            print(f"{cluster_nodes[i]}")
             if len(cluster_nodes[i].split(b' ')) > 1:
                 node_data = cluster_nodes[i].split(b' ')
 
@@ -1026,12 +1025,14 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
                     assert False, "failed to match id {}".format(node_data[0])
             else:
                 migration_data = cluster_nodes[i].split(b'-')
-                if int(migration_data[0]) <= 700:
+                assert (chr(migration_data[0][0]) == '[')
+
+                if int(migration_data[0][1:]) <= 700:
                     assert(migration_data[1] == b"<")
-                    assert(migration_data[2] == node_id_2)
-                elif int(migration_data[0]) <= 1000:
+                    assert(migration_data[2] == f"{node_id_2.decode()}]".encode())
+                elif int(migration_data[0][1:]) <= 1000:
                     assert(migration_data[1] == b">")
-                    assert(migration_data[2] == node_id_3)
+                    assert(migration_data[2] == f"{node_id_3.decode()}]".encode())
                 else:
                     assert False, "failed to match id {}".format(migration_data[0])
 

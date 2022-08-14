@@ -1305,7 +1305,7 @@ static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int 
     size_t len;
     const char *temp;
 
-    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, "%u-%s-%.*s\r\n", j, direction, 40, node->node_id);
+    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, "[%u-%s-%.*s]\r\n", j, direction, 40, node->node_id);
     temp = RedisModule_StringPtrLen(str, &len);
     RedisModule_StringAppendBuffer(NULL, ret, temp, len);
     RedisModule_FreeString(NULL, str);
