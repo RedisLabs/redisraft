@@ -105,6 +105,8 @@ static void test_log_random_access_with_snapshot(void **state)
     __append_entry(log, 3);
     __append_entry(log, 30);
 
+    assert_int_equal(RaftLogFirstIdx(log), 101);
+
     /* Invalid out of bound reads */
     assert_null(RaftLogGet(log, 99));
     assert_null(RaftLogGet(log, 100));
