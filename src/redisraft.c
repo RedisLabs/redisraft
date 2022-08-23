@@ -1930,13 +1930,6 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         goto error;
     }
 
-    /* for backwards compatibility with older redis version that don't support "0v"m */
-    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
-        rr->resp_call_fmt = "0v";
-    } else {
-        rr->resp_call_fmt = "v";
-    }
-
     /* Client state for MULTI/ASKING support */
     rr->client_state = RedisModule_CreateDict(rr->ctx);
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);

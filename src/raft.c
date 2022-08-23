@@ -366,19 +366,38 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
             rr->entered_eval = 1;
         }
 
+        char *resp_call_fmt;
+
+        if (reply_ctx) {
+            if (cmds->acl) {
+                /* We have client so check ACL (C), return response in client format (0) and rm_call error as reply (E) */
+                resp_call_fmt = "CE0v";
+            } else {
+                resp_call_fmt = "0v";
+            }
+        } else {
+            if (cmds->acl) {
+                /* We don't have a client so only check ACL (C) */
+                resp_call_fmt = "Cv";
+            } else {
+                resp_call_fmt = "v";
+            }
+        }
+
         enterRedisModuleCall();
-        reply = RedisModule_CallWithUser(ctx, user, cmd,
-                                         rr->resp_call_fmt, &c->argv[1], c->argc - 1);
-        int ret_errno = errno;
+        RedisModule_SetContextModuleUser(ctx, user);
+        reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
         exitRedisModuleCall();
 
         rr->entered_eval = old_entered_eval;
 
         if (reply_ctx) {
-            if (reply) {
-                RedisModule_ReplyWithCallReply(reply_ctx, reply);
+            int type = RedisModule_CallReplyType(reply);
+            if (type != REDISMODULE_REPLY_ERROR) {
+                RedisModule_ReplyWithCallReply(ctx, reply);
             } else {
-                replyRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
+                const char *str = RedisModule_CallReplyStringPtr(reply, NULL);
+                RedisModule_ReplyWithError(ctx, str);
             }
         }
 
