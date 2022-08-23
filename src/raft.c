@@ -1186,8 +1186,6 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
                                rr->snapshot_info.last_applied_idx);
 
-    raft_apply_all(rr->raft);
-
     raft_set_current_term(rr->raft, rr->meta.term);
     raft_vote_for_nodeid(rr->raft, rr->meta.vote);
 
