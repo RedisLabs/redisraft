@@ -1056,7 +1056,6 @@ static void clusterInit(const char *cluster_id)
         PANIC("Failed to initialize Raft log");
     }
 
-    addUsedNodeId(rr, rr->config.id);
     RaftLibraryInit(rr, true);
     initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);
