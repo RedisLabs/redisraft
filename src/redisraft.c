@@ -691,7 +691,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
 
-    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         replyRaftError(ctx, e);
         entryDetachRaftReq(rr, entry);
@@ -1069,7 +1069,6 @@ static void clusterInit(const char *cluster_id)
         PANIC("Failed to initialize Raft log");
     }
 
-    addUsedNodeId(rr, rr->config.id);
     RaftLibraryInit(rr, true);
     initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);

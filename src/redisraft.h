@@ -612,7 +612,6 @@ typedef struct RaftReq {
             Node *proxy_node;
             int hash_slot;
             RaftRedisCommandArray cmds;
-            raft_entry_resp_t response;
         } redis;
 
         struct {
