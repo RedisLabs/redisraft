@@ -1,5 +1,9 @@
 *.o
+*.so
 *.gcno
+*.gcda
+*.gcov
+*.dylib
 *~
 libraft.a
 libraft.so
@@ -8,3 +12,6 @@ libraft.so
 **/__pycache__
 cmake-build*
 .idea
+tests/.raft_cffi_built
+tests/raft_cffi.c
+build/

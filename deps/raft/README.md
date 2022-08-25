@@ -80,7 +80,11 @@ Run the simulator using:
 ```
 mkdir .env
 virtualenv .env
-.env/bin/activate
+source .env/bin/activate
 pip install -r tests/requirements.txt
 make test_virtraft
 ```
+
+Requirements
+---------
+* Python 3.9 or later
