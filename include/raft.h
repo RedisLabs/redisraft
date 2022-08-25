@@ -25,7 +25,8 @@ typedef enum {
     RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS = -9,
     RAFT_ERR_DONE                        = -10,
     RAFT_ERR_STALE_TERM                  = -11,
-    RAFT_ERR_NOTFOUND                    = -12
+    RAFT_ERR_NOTFOUND                    = -12,
+    RAFT_ERR_MISUSE                      = -13,
 } raft_error_e;
 
 typedef enum {
@@ -58,42 +59,31 @@ typedef enum {
 #define RAFT_NODE_ID_NONE                   (-1)
 
 typedef enum {
-    /**
-     * Regular log type.
-     * This is solely for application data intended for the FSM.
-     */
+    /** Regular log type. This is for application data intended for the FSM. */
     RAFT_LOGTYPE_NORMAL,
-    /**
-     * Membership change.
-     * Non-voting nodes can't cast votes or start elections.
-     * Nodes in this non-voting state are used to catch up with the cluster,
-     * when trying to the join the cluster.
+
+    /** Membership change. Non-voting nodes can't cast votes. Nodes in this
+     *  non-voting state are used to catch up with the cluster, when trying to
+     *  the join the cluster.
      */
     RAFT_LOGTYPE_ADD_NONVOTING_NODE,
-    /**
-     * Membership change.
-     * Add a voting node.
-     */
+
+    /** Membership change. Add a voting node.  */
     RAFT_LOGTYPE_ADD_NODE,
-    /**
-     * Membership change.
-     * Nodes become demoted when we want to remove them from the cluster
-     * Nodes become demoted upon appending of the log message
-     * Demoted nodes can't take part in voting or start elections.
-     * Demoted nodes become inactive, as per raft_node_is_active.
-     * Demoted nodes are removed from cluster when the log message is committed and applied
-     */
+
+    /** Membership change. Remove a node */
     RAFT_LOGTYPE_REMOVE_NODE,
-    /**
-     * Users can piggyback the entry mechanism by specifying log types that
-     * are higher than RAFT_LOGTYPE_NUM.
+
+
+    /** A no-op entry appended automatically when a leader begins a new term in
+     *  order to determine the current commit index.
      */
     RAFT_LOGTYPE_NO_OP,
-    /**
-     * A no-op entry appended automatically when a leader begins a new term,
-     * in order to determine the current commit index.
+
+    /** Users can piggyback the entry mechanism by specifying log types that
+     *  are higher than RAFT_LOGTYPE_NUM.
      */
-    RAFT_LOGTYPE_NUM=100,
+    RAFT_LOGTYPE_NUM = 100,
 } raft_logtype_e;
 
 /** Entry that is stored in the server's entry log. */
@@ -370,16 +360,16 @@ typedef int (
  *
  * @param[in] raft Raft server making this callback
  * @param[in] user_data User data that is passed from Raft server
- * @param[in] snapshot_index Received snapshot index
  * @param[in] snapshot_term  Received snapshot term
+ * @param[in] snapshot_index Received snapshot index
  * @return 0 on success */
 typedef int (
 *raft_load_snapshot_f
 )   (
     raft_server_t* raft,
     void *user_data,
-    raft_index_t snapshot_index,
-    raft_term_t snapshot_term
+    raft_term_t snapshot_term,
+    raft_index_t snapshot_index
 );
 
 /** Callback to get a chunk from the snapshot file. This chunk will be sent
@@ -448,8 +438,6 @@ typedef int (
     raft_node_t* node
     );
 
-#ifndef HAVE_FUNC_LOG
-#define HAVE_FUNC_LOG
 /** Callback for providing debug logging information.
  * This callback is optional
  * @param[in] raft The Raft server making this callback
@@ -465,34 +453,19 @@ typedef void (
     void *user_data,
     const char *buf
     );
-#endif
 
-/** Callback for saving who we voted for to disk.
- * For safety reasons this callback MUST flush the change to disk.
- * @param[in] raft The Raft server making this callback
- * @param[in] user_data User data that is passed from Raft server
- * @param[in] vote The node we voted for
- * @return 0 on success */
-typedef int (
-*raft_persist_vote_f
-)   (
-    raft_server_t* raft,
-    void *user_data,
-    raft_node_id_t vote
-    );
-
-/** Callback for saving current term (and nil vote) to disk.
+/** Callback for saving current term and vote to the disk.
  * For safety reasons this callback MUST flush the term and vote changes to
  * disk atomically.
  * @param[in] raft The Raft server making this callback
  * @param[in] user_data User data that is passed from Raft server
  * @param[in] term Current term
- * @param[in] vote The node value dictating we haven't voted for anybody
+ * @param[in] vote Vote
  * @return 0 on success */
 typedef int (
-*raft_persist_term_f
+*raft_persist_metadata_f
 )   (
-    raft_server_t* raft,
+    raft_server_t *raft,
     void *user_data,
     raft_term_t term,
     raft_node_id_t vote
@@ -598,6 +571,7 @@ typedef void (
 
 /** Callback for sending TimeoutNow RPC messages
  * @param[in] raft The Raft server making this callback
+ * @param[in] user_data User data that is passed from Raft server
  * @param[in] node The node that we are sending this message to
  * @return 0 on success
  */
@@ -605,6 +579,7 @@ typedef int (
 *raft_send_timeoutnow_f
 )   (
     raft_server_t* raft,
+    void *user_data,
     raft_node_t* node
     );
 
@@ -712,14 +687,10 @@ typedef struct
      * Return RAFT_ERR_SHUTDOWN if you want the server to shutdown. */
     raft_logentry_event_f applylog;
 
-    /** Callback for persisting vote data
-     * For safety reasons this callback MUST flush the change to disk. */
-    raft_persist_vote_f persist_vote;
-
-    /** Callback for persisting term (and nil vote) data
+    /** Callback for persisting term and vote data
      * For safety reasons this callback MUST flush the term and vote changes to
      * disk atomically. */
-    raft_persist_term_f persist_term;
+    raft_persist_metadata_f persist_metadata;
 
     /** Callback for determining which node this configuration log entry
      * affects. This call only applies to configuration change log entries.
@@ -865,6 +836,8 @@ typedef struct raft_log_impl
     /** Remove entries from the start of the log, as necessary when compacting
      * the log and deleting the oldest entries.
      *
+     * The log implementation must call raft_entry_release() on any removed in-memory entries
+     *
      * @param[in] first_idx Index of first entry to be left in log.
      * @return
      *  0 on success;
@@ -874,6 +847,8 @@ typedef struct raft_log_impl
 
     /** Remove entries from the end of the log, as necessary when rolling back
      * append operations that have not been committed.
+     *
+     * The log implementation must call raft_entry_release() on any removed in-memory entries
      *
      * @param[in] from_idx Index of first entry to be removed.  All entries
      *  starting from and including this index shall be removed.
@@ -887,6 +862,8 @@ typedef struct raft_log_impl
 
     /** Get a single entry from the log.
      *
+     * The log implementation must call raft_entry_hold() on the fetched entry
+     *
      * @param[in] idx Index of entry to fetch.
      * @return
      *  Pointer to entry on success;
@@ -899,6 +876,8 @@ typedef struct raft_log_impl
     raft_entry_t* (*get) (void *log, raft_index_t idx);
 
     /** Get a batch of entries from the log.
+     *
+     * The log implementation must call raft_entry_hold() on the fetched entries
      *
      * @param[in] idx Index of first entry to fetch.
      * @param[in] entries_n Length of entries (max. entries to fetch).
@@ -963,6 +942,15 @@ void raft_destroy(raft_server_t* me);
 
 /** De-initialise Raft server. */
 void raft_clear(raft_server_t* me);
+
+/** Restore term and vote after reading the metadata file from the disk.
+ *
+ * On a restart, the application should set term and vote after reading metadata
+ * file from the disk. See `raft_persist_metadata_f`.
+ **/
+int raft_restore_metadata(raft_server_t *me,
+                          raft_term_t term,
+                          raft_node_id_t vote);
 
 /** Set callbacks and user data.
  *
@@ -1110,8 +1098,8 @@ int raft_recv_entry(raft_server_t* me,
                     raft_entry_resp_t *resp);
 
 /**
- * @return server's node ID; -1 if it doesn't know what it is */
-int raft_get_nodeid(raft_server_t* me);
+ * @return server's node ID; RAFT_NODE_ID_NONE if it doesn't know what it is */
+raft_node_id_t raft_get_nodeid(raft_server_t *me);
 
 /**
  * @return the server's node */
@@ -1218,7 +1206,7 @@ int raft_get_nvotes_for_me(raft_server_t* me);
 
 /**
  * @return node ID of who I voted for */
-int raft_get_voted_for(raft_server_t* me);
+raft_node_id_t raft_get_voted_for(raft_server_t *me);
 
 /** Get what this node thinks the node ID of the leader is.
  * @return node of what this node thinks is the valid leader;
@@ -1391,6 +1379,26 @@ raft_entry_t *raft_get_last_applied_entry(raft_server_t *me);
 
 raft_index_t raft_get_first_entry_idx(raft_server_t* me);
 
+/** Restore the snapshot after a restart.
+ *
+ * This function should be called on a restart just after application restores
+ * the snapshot and configures the nodes from the snapshot.
+ *
+ * Correct order to restore the state after a restart:
+ * 1- Restore the snapshot
+ * 2- Load log entries
+ * 3- Restore metadata
+ *
+ * @param[in] last_included_term Term of the last log of the snapshot
+ * @param[in] last_included_index Index of the last log of the snapshot
+ * @return
+ *  0 on success
+ *  RAFT_ERR_MISUSE if the server has already started
+ */
+int raft_restore_snapshot(raft_server_t *me,
+                          raft_term_t last_included_term,
+                          raft_index_t last_included_index);
+
 /** Start loading snapshot
  *
  * This is usually the result of a snapshot being loaded.
@@ -1404,12 +1412,12 @@ raft_index_t raft_get_first_entry_idx(raft_server_t* me);
  *
  * @return
  *  0 on success
- *  -1 on failure
+ *  RAFT_ERR_MISUSE
  *  RAFT_ERR_SNAPSHOT_ALREADY_LOADED
  **/
 int raft_begin_load_snapshot(raft_server_t *me,
-                       raft_term_t last_included_term,
-		       raft_index_t last_included_index);
+                             raft_term_t last_included_term,
+                             raft_index_t last_included_index);
 
 /** Stop loading snapshot.
  *
@@ -1700,5 +1708,13 @@ int raft_config(raft_server_t *me, int set, raft_config_e config, ...);
  *  @return         0 if there is no pending operations, non-zero otherwise.
  */
 int raft_pending_operations(raft_server_t *me);
+
+/** Restore log entries after a restart.
+ *
+ * This function should only be called after a restart. After application loads
+ * the snapshot and log entries, this function should be called to rebuild
+ * cluster configuration from the logs.
+ */
+int raft_restore_log(raft_server_t *me);
 
 #endif /* RAFT_H_ */
