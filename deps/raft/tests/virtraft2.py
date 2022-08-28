@@ -189,8 +189,8 @@ def raft_send_snapshot(raft, udata, node, msg):
     return 0
 
 
-def raft_load_snapshot(raft, udata, index, term):
-    return ffi.from_handle(udata).load_snapshot(index, term)
+def raft_load_snapshot(raft, udata, term, index):
+    return ffi.from_handle(udata).load_snapshot(term, index)
 
 
 def raft_clear_snapshot(raft, udata):
@@ -233,12 +233,8 @@ def raft_applylog(raft, udata, ety, idx):
         return lib.RAFT_ERR_SHUTDOWN
 
 
-def raft_persist_vote(raft, udata, voted_for):
-    return ffi.from_handle(udata).persist_vote(voted_for)
-
-
-def raft_persist_term(raft, udata, term, vote):
-    return ffi.from_handle(udata).persist_term(term, vote)
+def raft_persist_metadata(raft, udata, term, vote):
+    return ffi.from_handle(udata).persist_metadata(term, vote)
 
 
 def raft_logentry_offer(raft, udata, ety, ety_idx):
@@ -834,8 +830,7 @@ class RaftServer(object):
         cbs.get_snapshot_chunk = self.raft_get_snapshot_chunk
         cbs.store_snapshot_chunk = self.raft_store_snapshot_chunk
         cbs.applylog = self.raft_applylog
-        cbs.persist_vote = self.raft_persist_vote
-        cbs.persist_term = self.raft_persist_term
+        cbs.persist_metadata = self.raft_persist_metadata
         cbs.get_node_id = self.raft_get_node_id
         cbs.node_has_sufficient_logs = self.raft_node_has_sufficient_logs
         cbs.notify_membership_event = self.raft_notify_membership_event
@@ -949,13 +944,12 @@ class RaftServer(object):
         self.raft_send_requestvote = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_requestvote_req_t*)", raft_send_requestvote)
         self.raft_send_appendentries = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_appendentries_req_t*)", raft_send_appendentries)
         self.raft_send_snapshot = ffi.callback("int(raft_server_t*, void* , raft_node_t*, raft_snapshot_req_t*)", raft_send_snapshot)
-        self.raft_load_snapshot = ffi.callback("int(raft_server_t*, void*, raft_index_t, raft_term_t)", raft_load_snapshot)
+        self.raft_load_snapshot = ffi.callback("int(raft_server_t*, void*, raft_term_t, raft_index_t)", raft_load_snapshot)
         self.raft_clear_snapshot = ffi.callback("int(raft_server_t*, void*)", raft_clear_snapshot)
         self.raft_get_snapshot_chunk = ffi.callback("int(raft_server_t*, void*, raft_node_t*, raft_size_t offset, raft_snapshot_chunk_t*)", raft_get_snapshot_chunk)
         self.raft_store_snapshot_chunk = ffi.callback("int(raft_server_t*, void*, raft_index_t index, raft_size_t offset, raft_snapshot_chunk_t*)", raft_store_snapshot_chunk)
         self.raft_applylog = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_applylog)
-        self.raft_persist_vote = ffi.callback("int(raft_server_t*, void*, raft_node_id_t)", raft_persist_vote)
-        self.raft_persist_term = ffi.callback("int(raft_server_t*, void*, raft_term_t, raft_node_id_t)", raft_persist_term)
+        self.raft_persist_metadata = ffi.callback("int(raft_server_t*, void*, raft_term_t, raft_node_id_t)", raft_persist_metadata)
         self.raft_logentry_offer = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_offer)
         self.raft_logentry_poll = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_poll)
         self.raft_logentry_pop = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_logentry_pop)
@@ -1087,7 +1081,7 @@ class RaftServer(object):
 
         return 0
 
-    def load_snapshot(self, index, term):
+    def load_snapshot(self, term, index):
         logger.debug('{} loading snapshot'.format(self))
 
         leader = find_leader()
@@ -1168,11 +1162,7 @@ class RaftServer(object):
         #     self, snapshot.last_term, snapshot.last_idx))
         return 0
 
-    def persist_vote(self, voted_for):
-        # TODO: add disk simulation
-        return 0
-
-    def persist_term(self, term, vote):
+    def persist_metadata(self, term, vote):
         # TODO: add disk simulation
         return 0
 

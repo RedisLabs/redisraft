@@ -469,25 +469,6 @@ exit:
 
 /* ------------------------------------ Load snapshots ------------------------------------ */
 
-static int updateNodeFromSnapshot(RedisRaftCtx *rr, raft_node_t *node, SnapshotCfgEntry *cfg)
-{
-    int ret = 0;
-
-    /* Clear inactive flag, a node in the snapshot cannot be inactive */
-    raft_node_set_active(node, 1);
-
-    if (cfg->voting != raft_node_is_voting(node)) {
-        raft_node_set_voting(node, cfg->voting);
-        raft_node_set_voting_committed(node, cfg->voting);
-        ret = 1;
-    }
-
-    /* NOTE: We currently assume address and port cannot be configured on the fly,
-     * so they'll always involve a node id change.
-     */
-    return ret;
-}
-
 static void createNodeFromSnapshot(RedisRaftCtx *rr, SnapshotCfgEntry *cfg)
 {
     Node *n = NodeCreate(rr, cfg->id, &cfg->addr);
@@ -521,10 +502,8 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     while (cfg != NULL) {
         if (cfg->id == raft_get_nodeid(rr->raft)) {
             raft_node_t *rn = raft_get_node(rr->raft, cfg->id);
-            assert(rn != NULL);
-            assert(rn == raft_get_my_node(rr->raft));
-
-            updateNodeFromSnapshot(rr, rn, cfg);
+            RedisModule_Assert(rn != NULL);
+            raft_node_set_voting(rn, cfg->voting);
         } else {
             createNodeFromSnapshot(rr, cfg);
             added++;
@@ -532,7 +511,7 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
         cfg = cfg->next;
     }
 
-    assert(raft_get_num_nodes(rr->raft) == added + 1);
+    RedisModule_Assert(raft_get_num_nodes(rr->raft) == added + 1);
 }
 
 /* After a snapshot is received, load it into the Raft library:
@@ -542,7 +521,7 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
  * 4. Reconfigure nodes based on the snapshot metadata configuration.
  * 5. Create a new snapshot memory map.
  */
-int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_index_t index, raft_term_t term)
+int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raft_index_t index)
 {
     int ret;
     RedisRaftCtx *rr = user_data;

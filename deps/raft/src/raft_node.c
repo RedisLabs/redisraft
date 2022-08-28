@@ -125,6 +125,11 @@ void raft_node_set_udata(raft_node_t* me, void* udata)
     me->udata = udata;
 }
 
+void raft_node_clear_flags(raft_node_t *me)
+{
+    me->flags = 0;
+}
+
 void raft_node_vote_for_me(raft_node_t* me, const int vote)
 {
     if (vote)
@@ -138,16 +143,11 @@ int raft_node_has_vote_for_me(raft_node_t* me)
     return (me->flags & RAFT_NODE_VOTED_FOR_ME) != 0;
 }
 
-void raft_node_set_voting(raft_node_t* me, int voting)
+void raft_node_set_voting(raft_node_t *me, int voting)
 {
-    if (voting)
-    {
-        assert(!raft_node_is_voting(me));
+    if (voting) {
         me->flags |= RAFT_NODE_VOTING;
-    }
-    else
-    {
-        assert(raft_node_is_voting(me));
+    } else {
         me->flags &= ~RAFT_NODE_VOTING;
     }
 }
@@ -162,9 +162,13 @@ int raft_node_has_sufficient_logs(raft_node_t* me)
     return (me->flags & RAFT_NODE_HAS_SUFFICIENT_LOG) != 0;
 }
 
-void raft_node_set_has_sufficient_logs(raft_node_t* me)
+void raft_node_set_has_sufficient_logs(raft_node_t *me, int has_sufficient_log)
 {
-    me->flags |= RAFT_NODE_HAS_SUFFICIENT_LOG;
+    if (has_sufficient_log) {
+        me->flags |= RAFT_NODE_HAS_SUFFICIENT_LOG;
+    } else {
+        me->flags &= ~RAFT_NODE_HAS_SUFFICIENT_LOG;
+    }
 }
 
 void raft_node_set_active(raft_node_t* me, int active)
