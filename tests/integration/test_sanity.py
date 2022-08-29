@@ -522,3 +522,37 @@ def test_maxmemory(cluster):
 
     cluster.execute('config', 'set', 'maxmemory', 4000000000)
     cluster.execute('set', 'key1', val)
+
+
+def test_metadata_restore_after_restart(cluster):
+    """
+    Test if we restore raft metadata (term and vote) correctly after a restart.
+    """
+    cluster.create(2)
+
+    n1 = cluster.node(1)
+    n2 = cluster.node(2)
+
+    # Let's trigger an election and take the cluster down
+    n2.timeout_now()
+    n2.wait_for_election()
+    cluster.node(1).kill()
+    cluster.node(2).kill()
+
+    # Start only node-1, so there won't be a new election
+    cluster.node(1).start()
+    n1.wait_for_info_param('raft_state', 'up')
+
+    # n2 triggerred an election, so n1 should have voted for n2.
+    assert n1.info()['raft_current_term'] == 2
+    assert n1.info()['raft_voted_for'] == 2
+
+    # Start node-2 only so there won't be a new election
+    cluster.node(1).kill()
+    cluster.node(2).start()
+    n2.wait_for_info_param('raft_state', 'up')
+
+    # n2 triggerred an election, so n2 should have voted for itself.
+    assert n2.info()['raft_current_term'] == 2
+    assert n2.info()['raft_voted_for'] == 2
+
