@@ -678,7 +678,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
 
-    int e = raft_recv_entry(rr->raft, entry, &req->r.redis.response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         replyRaftError(ctx, e);
         entryDetachRaftReq(rr, entry);
@@ -1056,7 +1056,6 @@ static void clusterInit(const char *cluster_id)
         PANIC("Failed to initialize Raft log");
     }
 
-    addUsedNodeId(rr, rr->config.id);
     RaftLibraryInit(rr, true);
     initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);
@@ -1725,6 +1724,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
         voting = raft_node_is_voting(raft_get_my_node(rr->raft)) ? "yes" : "no";
     }
     RedisModule_InfoAddFieldCString(ctx, "is_voting", voting);
+    RedisModule_InfoAddFieldLongLong(ctx, "voted_for", rr->raft ? raft_get_voted_for(rr->raft) : -1);
     RedisModule_InfoAddFieldLongLong(ctx, "leader_id", rr->raft ? raft_get_leader_id(rr->raft) : -1);
     RedisModule_InfoAddFieldLongLong(ctx, "current_term", rr->raft ? raft_get_current_term(rr->raft) : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "num_nodes", rr->raft ? raft_get_num_nodes(rr->raft) : 0);

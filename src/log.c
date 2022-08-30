@@ -712,7 +712,7 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f 
 
 raft_index_t RaftLogFirstIdx(RaftLog *log)
 {
-    return log->snapshot_last_idx;
+    return log->snapshot_last_idx + 1;
 }
 
 raft_index_t RaftLogCurrentIdx(RaftLog *log)
