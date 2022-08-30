@@ -70,7 +70,9 @@ def test_single_voting_change_enforced(cluster):
     # cluster while in progress.
     def remove_node_blocked():
         cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '5')
-    Thread(target=remove_node_blocked, daemon=True).start()
+
+    t = Thread(target=remove_node_blocked)
+    t.start()
 
     time.sleep(0.2)
 
@@ -78,6 +80,12 @@ def test_single_voting_change_enforced(cluster):
         cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4')
 
     assert cluster.node(1).info()['raft_num_nodes'] == 5
+
+    # Starting nodes again, so, blocked thread can join gracefully
+    cluster.node(2).start()
+    cluster.node(3).start()
+    cluster.node(4).start()
+    t.join()
 
 
 def test_removed_node_remains_dead(cluster):
