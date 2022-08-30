@@ -665,7 +665,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, rm_call_flags, cmd->argv + 1, cmd->argc - 1);;
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, rm_call_flags, cmd->argv + 1, cmd->argc - 1);
         exitRedisModuleCall();
         if (reply != NULL) {
             const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);
