@@ -321,7 +321,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 
             size_t acl_len;
             const char *acl_str = RedisModule_StringPtrLen(cmds->acl, &acl_len);
-            RedisModule_SetModuleUserACLString(ctx, user, acl_str);
+            RedisModule_Assert(RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL) == REDISMODULE_OK);
 
             RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
         }
