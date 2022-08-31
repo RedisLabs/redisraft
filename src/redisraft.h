@@ -408,7 +408,6 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-    const char *resp_call_fmt;    /* Format string to use in RedisModule_Call(), Redis version-specific */
     int entered_eval;             /* handling a lua script */
     RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
 } RedisRaftCtx;

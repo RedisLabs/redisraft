@@ -558,7 +558,6 @@ def test_max_memory_fcall(cluster):
     val = ''.join('1' for _ in range(2000000))
 
     cluster.execute('set', 'key1', val)
-    cluster.execute('config', 'set', 'maxmemory', 100000)
     cluster.execute("function", "load", """#!lua name=mylib
 local function test(keys, args)
     redis.call('get', 'x')
@@ -567,8 +566,11 @@ end
 redis.register_function{function_name='test', callback=test}
 """)
     cluster.wait_for_unanimity()
+    cluster.execute('config', 'set', 'maxmemory', 1)
     with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
         cluster.execute("fcall", "test", 0)
+
+    cluster.execute('config', 'set', 'maxmemory', 0)
 
     cluster.execute("function", "load", "replace",  """#!lua name=mylib
 local function test(keys, args)
@@ -578,7 +580,12 @@ end
 redis.register_function{function_name='test', callback=test, flags={'allow-oom'}}
 """)
     cluster.wait_for_unanimity()
+
+    cluster.execute('config', 'set', 'maxmemory', 1)
+
     assert cluster.execute("fcall", "test", 0) == 1234
+
+    cluster.execute('config', 'set', 'maxmemory', 0)
 
     cluster.execute("function", "load", "replace", """#!lua name=mylib
 local function test(keys, args)
@@ -588,6 +595,9 @@ end
 redis.register_function{function_name='test', callback=test, flags={'no-writes'}}
 """)
     cluster.wait_for_unanimity()
+
+    cluster.execute('config', 'set', 'maxmemory', 1)
+
     assert cluster.execute("fcall", "test", 0) == 1234
 
 

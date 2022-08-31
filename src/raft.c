@@ -346,9 +346,16 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
             rr->entered_eval = 1;
         }
 
+        char *resp_call_fmt;
+
+        if (reply_ctx) {
+            resp_call_fmt = "EO0v";
+        } else {
+            resp_call_fmt = "Ov";
+        }
+
         enterRedisModuleCall();
-        reply = RedisModule_Call(ctx, cmd,
-                                 rr->resp_call_fmt, &c->argv[1], c->argc - 1);
+        reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
         int ret_errno = errno;
         exitRedisModuleCall();
 

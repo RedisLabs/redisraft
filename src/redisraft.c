@@ -646,9 +646,33 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1.0)) {
-        RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
-        return;
+    /* dry run */
+    for (int i = 0; i < cmds->len; i++) {
+        RaftRedisCommand *cmd = cmds->commands[i];
+        size_t cmdlen;
+        const char *cmdstr = RedisModule_StringPtrLen(cmd->argv[0], &cmdlen);
+        /* skip multi */
+        if (i == 0 && cmdlen == 5 && !strncasecmp(cmdstr, "MULTI", 5)) {
+            continue;
+        }
+
+        char *rm_call_flags;
+
+        if (RedisModule_GetUsedMemoryRatio() > 1.0) {
+            rm_call_flags = "IDCEMv";
+        } else {
+            rm_call_flags = "IDCEv";
+        }
+
+        enterRedisModuleCall();
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, rm_call_flags, cmd->argv + 1, cmd->argc - 1);
+        exitRedisModuleCall();
+        if (reply != NULL) {
+            const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);
+            RedisModule_ReplyWithError(ctx, err_str);
+            RedisModule_FreeCallReply(reply);
+            return;
+        }
     }
 
     /* Handle the special case of read-only commands here: if quorum reads
@@ -1916,13 +1940,6 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     if (ConfigInit(rr->ctx, &rr->config) != RR_OK) {
         LOG_WARNING("Failed to init configuration");
         goto error;
-    }
-
-    /* for backwards compatibility with older redis version that don't support "0v"m */
-    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
-        rr->resp_call_fmt = "0v";
-    } else {
-        rr->resp_call_fmt = "v";
     }
 
     /* Client state for MULTI/ASKING support */
