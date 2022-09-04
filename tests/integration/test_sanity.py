@@ -509,7 +509,7 @@ def test_maxmemory(cluster):
     val = ''.join('1' for _ in range(2000000))
 
     cluster.execute('set', 'key1', val)
-    cluster.execute('config', 'set', 'maxmemory', 100000)
+    cluster.execute('config', 'set', 'maxmemory', 1)
 
     with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
         cluster.execute('set', 'key2', val)
@@ -520,7 +520,7 @@ def test_maxmemory(cluster):
     with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
         cluster.execute('set', 'key1', val)
 
-    cluster.execute('config', 'set', 'maxmemory', 4000000000)
+    cluster.execute('config', 'set', 'maxmemory', 0)
     cluster.execute('set', 'key1', val)
 
 
