@@ -531,7 +531,7 @@ def test_acl(cluster):
     cluster.execute('set', 'abc', 1)
     cluster.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)', '(+get', '~key*)')
     cluster.execute('get', 'key')
-    with (raises(ResponseError, match="User default has no permissions to access the 'abc' key")):
+    with (raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments")):
         cluster.execute('get', 'abc')
 
     cluster.execute('set', 'key', 2)
@@ -544,7 +544,7 @@ def test_acl(cluster):
     cluster.node(3).wait_for_log_applied()
     assert cluster.node(3).raft_debug_exec('get', 'key') == b'2'
 
-    with (raises(ResponseError, match="User default has no permissions to access the 'abc' key")):
+    with (raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments")):
         cluster.execute('set', 'abc', 2)
 
     commit_idx = cluster.leader_node().commit_index()
@@ -568,7 +568,7 @@ def test_acl(cluster):
     cluster.node(3).wait_for_log_applied()
     assert cluster.node(3).raft_debug_exec('get', 'key') == b'3'
 
-    with (raises(ResponseError, match="ACL failure in script: User redis_raft1 has no permissions to access the 'abc' key")):
+    with (raises(ResponseError, match="The user executing the script can't access at least one of the keys mentioned in the command")):
         cluster.execute('EVAL', """
         redis.call('SET','abc', 3);
         return 1234;""", '0')
