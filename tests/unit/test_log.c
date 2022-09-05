@@ -204,7 +204,7 @@ static void test_log_fuzzer(void **state)
         if (idx > 10) {
             int del_entries = (random() % 5) + 1;
             idx = idx - del_entries;
-            assert_int_equal(RaftLogDelete(log, idx + 1, NULL, NULL), RR_OK);
+            assert_int_equal(RaftLogDelete(log, idx + 1), RR_OK);
         }
 
         for (j = 0; j < 20; j++) {
@@ -249,14 +249,10 @@ static void test_log_delete(void **state)
     raft_entry_release(e);
 
     /* Try delete with improper values */
-    assert_int_equal(RaftLogDelete(log, 0, NULL, NULL), RR_ERROR);
+    assert_int_equal(RaftLogDelete(log, 0), RR_ERROR);
 
     /* Delete last two elements */
-    expect_value(mock_notify_func, ety_id, 30);
-    expect_value(mock_notify_func, idx, 53);
-    expect_value(mock_notify_func, ety_id, 20);
-    expect_value(mock_notify_func, idx, 52);
-    assert_int_equal(RaftLogDelete(log, 52, mock_notify_func, NULL), RR_OK);
+    assert_int_equal(RaftLogDelete(log, 52), RR_OK);
 
     /* Check log sanity after delete */
     assert_int_equal(RaftLogCount(log), 1);

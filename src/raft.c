@@ -873,16 +873,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
 /* ------------------------------------ Utility Callbacks ------------------------------------ */
 
-static void raftLog(raft_server_t *raft, raft_node_id_t node, void *user_data, const char *buf)
+static void raftLog(raft_server_t *raft, void *user_data, const char *buf)
 {
-    raft_node_t *raft_node = raft_get_node(raft, node);
-    if (raft_node) {
-        Node *n = raft_node_get_udata(raft_node);
-        if (n) {
-            RAFTLIB_TRACE("<raftlib> node{%p,%d}: %s", n, n->id, buf);
-            return;
-        }
-    }
+    (void) raft;
+    (void) user_data;
+
     RAFTLIB_TRACE("<raftlib> %s", buf);
 }
 

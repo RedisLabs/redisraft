@@ -827,7 +827,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg);
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx);
 RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
