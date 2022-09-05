@@ -4064,9 +4064,9 @@ void TestRaft_quorum_msg_id_correctness(CuTest * tc)
 
 int timeoutnow_sent = 0;
 
-int __fake_timeoutnow(raft_server_t* raft, void *udata, raft_node_t* node)
+int cb_timeoutnow(raft_server_t* raft, void *udata, raft_node_t* node)
 {
-    timeoutnow_sent = 1;
+    timeoutnow_sent++;
 
     return 0;
 }
@@ -4076,7 +4076,7 @@ void TestRaft_callback_timeoutnow_at_set_if_up_to_date(CuTest *tc)
     timeoutnow_sent = 0;
 
     raft_cbs_t funcs = {
-            .send_timeoutnow = __fake_timeoutnow,
+            .send_timeoutnow = cb_timeoutnow,
     };
 
     raft_server_t *r = raft_new();
@@ -4111,7 +4111,7 @@ void TestRaft_callback_timeoutnow_at_send_appendentries_response_if_up_to_date(C
     timeoutnow_sent = 0;
 
     raft_cbs_t funcs = {
-            .send_timeoutnow = __fake_timeoutnow,
+            .send_timeoutnow = cb_timeoutnow,
     };
 
     raft_server_t *r = raft_new();
@@ -4138,6 +4138,10 @@ void TestRaft_callback_timeoutnow_at_send_appendentries_response_if_up_to_date(C
         .current_idx = 2
     };
 
+    raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
+    CuAssertTrue(tc, 1 == timeoutnow_sent);
+
+    /* Verify we won't send timeout now message twice. */
     raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer);
     CuAssertTrue(tc, 1 == timeoutnow_sent);
 }
@@ -4439,6 +4443,7 @@ void Test_reset_transfer_leader(CuTest *tc)
     raft_leader_transfer_e state;
     raft_cbs_t funcs = {
             .notify_transfer_event = cb_notify_transfer_event,
+            .send_timeoutnow = cb_timeoutnow,
     };
     raft_server_t *r = raft_new();
     raft_set_state(r, RAFT_STATE_LEADER);
@@ -4471,6 +4476,7 @@ void Test_transfer_leader_success(CuTest *tc)
     raft_leader_transfer_e state = RAFT_LEADER_TRANSFER_TIMEOUT;
     raft_cbs_t funcs = {
             .notify_transfer_event = cb_notify_transfer_event,
+            .send_timeoutnow = cb_timeoutnow
     };
     raft_server_t *r = raft_new();
     raft_set_callbacks(r, &funcs, &state);
@@ -4496,6 +4502,7 @@ void Test_transfer_leader_unexpected(CuTest *tc)
     raft_leader_transfer_e state = RAFT_LEADER_TRANSFER_TIMEOUT;
     raft_cbs_t funcs = {
             .notify_transfer_event = cb_notify_transfer_event,
+            .send_timeoutnow = cb_timeoutnow
     };
     raft_server_t *r = raft_new();
     raft_set_callbacks(r, &funcs, &state);
@@ -4754,10 +4761,10 @@ void TestRaft_apply_entry_timeout(CuTest *tc)
     void *r = raft_new();
     raft_add_node(r, NULL, 1, 1);
     raft_set_callbacks(r, &funcs, &ts);
-    raft_set_current_term(r, 1);
+    raft_set_current_term(r, 3);
     raft_config(r, 1, RAFT_CONFIG_REQUEST_TIMEOUT, 100);
 
-    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 21, 0, 1, "");
+    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 21, 0, 3, "");
     raft_set_commit_idx(r, 21);
 
     /* Each execution iteration will apply 5 entries as we throttle when we
@@ -4767,6 +4774,7 @@ void TestRaft_apply_entry_timeout(CuTest *tc)
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 1, raft_pending_operations(r));
     CuAssertIntEquals(tc, 5, raft_get_last_applied_idx(r));
+    CuAssertIntEquals(tc, 3, raft_get_last_applied_term(r));
 
     raft_exec_operations(r);
     CuAssertIntEquals(tc, 1, raft_pending_operations(r));
@@ -4930,6 +4938,99 @@ void TestRaft_rebuild_config_after_restart(CuTest *tc)
     }
 }
 
+void TestRaft_delete_configuration_change_entries(CuTest *tc)
+{
+    /* Delete configuration change entries and verify the configuration is
+     * rolled back correctly. */
+
+    raft_cbs_t funcs = {
+            .get_node_id = __raft_get_node_id
+    };
+
+    void *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    raft_set_callbacks(r, &funcs, NULL);
+    raft_set_current_term(r, 1);
+    raft_set_state(r, RAFT_STATE_LEADER);
+
+    /* If there is no entry, delete should return immediately. */
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+
+    /* Add the non-voting node. */
+    raft_entry_t *ety = __MAKE_ENTRY(1, 1, "3");
+    ety->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, NULL));
+
+    /* If there idx is out of bounds, delete should return immediately. */
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+
+    /* Append a removal log entry for the non-voting node we just added. */
+    ety = __MAKE_ENTRY(1, 1, "3");
+    ety->type = RAFT_LOGTYPE_REMOVE_NODE;
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, NULL));
+
+    /* Another configuration change entry should be rejected. */
+    ety = __MAKE_ENTRY(1, 1, "4");
+    ety->type = RAFT_LOGTYPE_ADD_NODE;
+    int err = raft_recv_entry(r, ety, NULL);
+    CuAssertIntEquals(tc, RAFT_ERR_ONE_VOTING_CHANGE_ONLY, err);
+
+    /* Add some random entries. */
+    __RAFT_APPEND_ENTRIES_SEQ_ID(r, 10, 1, 1, "data");
+    CuAssertIntEquals(tc, 12, raft_get_log_count(r));
+
+    /* Delete the removal log entry and others after it. */
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+
+    CuAssertIntEquals(tc, 1, raft_get_log_count(r));
+    CuAssertIntEquals(tc, 1, raft_node_is_active(raft_get_node(r, 3)));
+    CuAssertIntEquals(tc, 0, raft_node_is_voting(raft_get_node(r, 3)));
+
+    /* Configuration change entry should be accepted now. */
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, NULL));
+}
+
+static int fail_sequence = 0;
+static int cb_persist_metadata_fail(raft_server_t *raft, void *udata,
+                                    raft_term_t term, raft_node_id_t vote)
+{
+    if (--fail_sequence >= 0) {
+        return 0;
+    }
+
+    return -1;
+}
+
+void TestRaft_propagate_persist_metadata_failure(CuTest *tc)
+{
+    int e;
+
+    raft_cbs_t funcs = {
+            .persist_metadata = cb_persist_metadata_fail,
+    };
+
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+
+    /* This will fail when we increment the term. */
+    e = raft_become_candidate(r);
+    CuAssertIntEquals(tc, e, -1);
+
+    /* This will fail when we vote for ourselves. */
+    fail_sequence = 1;
+    e  = raft_become_candidate(r);
+    CuAssertIntEquals(tc, e, -1);
+
+    fail_sequence = 0;
+    e = raft_begin_load_snapshot(r, 2, 10);
+    CuAssertIntEquals(tc, e, -1);
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -5082,6 +5183,8 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_apply_read_request_timeout);
     SUITE_ADD_TEST(suite, TestRaft_test_metadata_on_restart);
     SUITE_ADD_TEST(suite, TestRaft_rebuild_config_after_restart);
+    SUITE_ADD_TEST(suite, TestRaft_delete_configuration_change_entries);
+    SUITE_ADD_TEST(suite, TestRaft_propagate_persist_metadata_failure);
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
     printf("%s\n", output->buffer);
