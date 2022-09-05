@@ -331,13 +331,12 @@ def handle_read_queue(arg, can_read):
         logger.debug(f"ignoring read_request {val}")
 
 
-def raft_log(raft, node, udata, buf):
+def raft_log(raft, udata, buf):
     server = ffi.from_handle(lib.raft_get_udata(raft))
     # if server.id in [1] or (node and node.id in [1]):
-    logger.info('{0}>  {1}:{2}: {3}'.format(
+    logger.info('{0}>  {1}: {2}'.format(
         server.network.iteration,
         server.id,
-        node,
         ffi.string(buf).decode('utf8'),
     ))
 
@@ -956,7 +955,7 @@ class RaftServer(object):
         self.raft_get_node_id = ffi.callback("int(raft_server_t*, void*, raft_entry_t*, raft_index_t)", raft_get_node_id)
         self.raft_node_has_sufficient_logs = ffi.callback("int(raft_server_t* raft, void *user_data, raft_node_t* node)", raft_node_has_sufficient_logs)
         self.raft_notify_membership_event = ffi.callback("void(raft_server_t* raft, void *user_data, raft_node_t* node, raft_entry_t* ety, raft_membership_e)", raft_notify_membership_event)
-        self.raft_log = ffi.callback("void(raft_server_t*, raft_node_id_t, void*, const char* buf)", raft_log)
+        self.raft_log = ffi.callback("void(raft_server_t*, void*, const char* buf)", raft_log)
         self.handle_read_queue = ffi.callback("void(void *arg, int can_read)", handle_read_queue)
 
     def recv_entry(self, ety):
