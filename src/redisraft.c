@@ -651,20 +651,9 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         RaftRedisCommand *cmd = cmds->commands[i];
         size_t cmdlen;
         const char *cmdstr = RedisModule_StringPtrLen(cmd->argv[0], &cmdlen);
-        /* skip multi */
-        if (i == 0 && cmdlen == 5 && !strncasecmp(cmdstr, "MULTI", 5)) {
-            continue;
-        }
-
-        char *rm_call_flags;
-        if (RedisModule_GetUsedMemoryRatio() > 1.0) {
-            rm_call_flags = "DCEMv";
-        } else {
-            rm_call_flags = "DCEv";
-        }
 
         enterRedisModuleCall();
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, rm_call_flags, cmd->argv + 1, cmd->argc - 1);
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, "DCEMv", cmd->argv + 1, cmd->argc - 1);
         exitRedisModuleCall();
         if (reply != NULL) {
             const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);

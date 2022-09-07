@@ -73,6 +73,10 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
             return true;
         }
 
+        /* TODO: should we check ACL for EXEC?
+         * Currently we check ACL for MULTI as part of dry run processing,
+         * but as EXEC is not added to CommandArray, it wont be tested
+         */
         /* Just swap our commands with the EXEC command and proceed. */
         RaftRedisCommandArrayFree(cmds);
         RaftRedisCommandArrayMove(cmds, &multiState->cmds);
