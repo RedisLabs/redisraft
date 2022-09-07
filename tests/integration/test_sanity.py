@@ -42,13 +42,13 @@ def test_set_cluster_password(cluster):
 
 def test_set_cluster_id_too_short(cluster):
     cluster_id = "123456789012345678901234567890"
-    with raises(ResponseError, match='invalid cluster message \(cluster id length\)'):
+    with raises(ResponseError, match='invalid cluster message \\(cluster id length\\)'):
         cluster.create(3, cluster_id=cluster_id)
 
 
 def test_set_cluster_id_too_long(cluster):
     cluster_id = "1234567890123456789012345678901234"
-    with raises(ResponseError, match='invalid cluster message \(cluster id length\)'):
+    with raises(ResponseError, match='invalid cluster message \\(cluster id length\\)'):
         cluster.create(3, cluster_id=cluster_id)
 
 
@@ -522,3 +522,37 @@ def test_maxmemory(cluster):
 
     cluster.execute('config', 'set', 'maxmemory', 4000000000)
     cluster.execute('set', 'key1', val)
+
+
+def test_metadata_restore_after_restart(cluster):
+    """
+    Test if we restore raft metadata (term and vote) correctly after a restart.
+    """
+    cluster.create(2)
+
+    n1 = cluster.node(1)
+    n2 = cluster.node(2)
+
+    # Let's trigger an election and take the cluster down
+    n2.timeout_now()
+    n2.wait_for_election()
+    cluster.node(1).kill()
+    cluster.node(2).kill()
+
+    # Start only node-1, so there won't be a new election
+    cluster.node(1).start()
+    n1.wait_for_info_param('raft_state', 'up')
+
+    # n2 triggerred an election, so n1 should have voted for n2.
+    assert n1.info()['raft_current_term'] == 2
+    assert n1.info()['raft_voted_for'] == 2
+
+    # Start node-2 only so there won't be a new election
+    cluster.node(1).kill()
+    cluster.node(2).start()
+    n2.wait_for_info_param('raft_state', 'up')
+
+    # n2 triggerred an election, so n2 should have voted for itself.
+    assert n2.info()['raft_current_term'] == 2
+    assert n2.info()['raft_voted_for'] == 2
+

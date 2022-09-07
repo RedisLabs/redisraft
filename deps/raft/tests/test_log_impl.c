@@ -141,16 +141,17 @@ void TestLogImpl_pop(CuTest * tc)
     CuAssertIntEquals(tc, 3, impl->count(l));
     CuAssertIntEquals(tc, 3, impl->current_idx(l));
 
-    impl->pop(l, 3, event_entry_enqueue, queue);
+    event_entry_enqueue(queue, impl->get(l, 3), 3);
+    impl->pop(l, 3);
     CuAssertIntEquals(tc, 2, impl->count(l));
     CuAssertIntEquals(tc, 3, ((raft_entry_t*)llqueue_poll(queue))->id);
     CuAssertTrue(tc, NULL == impl->get(l, 3));
 
-    impl->pop(l, 2, NULL, NULL);
+    impl->pop(l, 2);
     CuAssertIntEquals(tc, 1, impl->count(l));
     CuAssertTrue(tc, NULL == impl->get(l, 2));
 
-    impl->pop(l, 1, NULL, NULL);
+    impl->pop(l, 1);
     CuAssertIntEquals(tc, 0, impl->count(l));
     CuAssertTrue(tc, NULL == impl->get(l, 1));
 }
@@ -166,7 +167,7 @@ void TestLogImpl_pop_onwards(CuTest * tc)
     CuAssertIntEquals(tc, 3, impl->count(l));
 
     /* even 3 gets deleted */
-    impl->pop(l, 2, NULL, NULL);
+    impl->pop(l, 2);
     CuAssertIntEquals(tc, 1, impl->count(l));
     CuAssertIntEquals(tc, 1, impl->get(l, 1)->id);
     CuAssertTrue(tc, NULL == impl->get(l, 2));
@@ -182,7 +183,7 @@ void TestLogImpl_pop_fails_for_idx_zero(CuTest * tc)
 
     l = impl->init(r, NULL);
     __LOGIMPL_APPEND_ENTRIES_SEQ_ID(l, 4, 1, 0, NULL);
-    CuAssertIntEquals(tc, impl->pop(l, 0, NULL, NULL), -1);
+    CuAssertIntEquals(tc, impl->pop(l, 0), -1);
 }
 
 void TestLogImpl_poll(CuTest * tc)
@@ -290,7 +291,7 @@ void TestLogImpl_pop_after_polling(CuTest * tc)
     CuAssertIntEquals(tc, 2, impl->current_idx(l));
 
     /* poll */
-    CuAssertIntEquals(tc, impl->pop(l, 1, NULL, NULL), 0);
+    CuAssertIntEquals(tc, impl->pop(l, 1), 0);
     CuAssertIntEquals(tc, 0, impl->count(l));
     CuAssertIntEquals(tc, 1, impl->current_idx(l));
 }
@@ -316,7 +317,7 @@ void TestLogImpl_pop_after_polling_from_double_append(CuTest * tc)
     CuAssertIntEquals(tc, 2, impl->count(l));
 
     /* pop */
-    CuAssertIntEquals(tc, impl->pop(l, 1, NULL, NULL), 0);
+    CuAssertIntEquals(tc, impl->pop(l, 1), 0);
     CuAssertIntEquals(tc, 0, impl->count(l));
 }
 
