@@ -1,4 +1,4 @@
-f"""
+"""
 This file is part of RedisRaft.
 
 Copyright (c) 2020-2021 Redis Ltd.
@@ -215,7 +215,6 @@ def test_shard_group_validation(cluster):
         'sharding': 'yes',
         'slot-config': '0:1000'})
 
-    cluster_dbid = cluster.leader_node().info()['raft_dbid']
     c = cluster.node(1).client
 
     # Invalid range
