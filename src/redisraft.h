@@ -681,7 +681,6 @@ typedef struct {
 #define CMD_SPEC_DONT_INTERCEPT (1 << 4) /* Command should not be intercepted to RAFT */
 #define CMD_SPEC_SORT_REPLY     (1 << 5) /* Command output should be sorted within a lua script */
 #define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
-#define CMD_SPEC_DENYOOM        (1 << 7) /* Commands that can't be run when in oom */
 
 /* Command filtering re-entrancy counter handling.
  *
