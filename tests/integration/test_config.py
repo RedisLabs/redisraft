@@ -278,17 +278,6 @@ def test_module_command_flags(cluster):
     dont_intercept = 1 << 4
     denyoom = 1 << 7
 
-    assert node.execute("raft.debug", "commandspec", "hellomodule") == denyoom
-
-    # reconfigure to be ignored and check flags
     node.config_set('raft.ignored-commands', 'hellomodule')
     assert node.execute("raft.debug", "commandspec",
-                        "hellomodule") == denyoom | dont_intercept
-
-    # reconfigure to be not ignored and check flags
-    node.config_set('raft.ignored-commands', '')
-    assert node.execute("raft.debug", "commandspec", "hellomodule") == denyoom
-
-    node.unload_module("hellomodule")
-    with raises(ResponseError, match='unknown command'):
-        node.execute("raft.debug", "commandspec", "hellomodule")
+                        "hellomodule") == dont_intercept
