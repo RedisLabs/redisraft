@@ -1029,13 +1029,17 @@ def test_cluster_shards_for_empty_slot_sg(cluster):
         assert cluster_shards[0][1] == []
         assert cluster_shards[0][2] == b'nodes'
         assert len(cluster_shards[0][3]) == 1
-        assert len(cluster_shards[0][3][0]) == 12
+        assert len(cluster_shards[0][3][0]) == 16
         assert cluster_shards[0][3][0][0] == b'id'
         assert cluster_shards[0][3][0][1] == node_id_1
         assert cluster_shards[0][3][0][2] == b'port'
         assert cluster_shards[0][3][0][3] == 1111
         assert cluster_shards[0][3][0][4] == b'ip'
-        assert cluster_shards[0][3][0][5] == b'1.1.1.1'
+        assert cluster_shards[0][3][0][5] == b''
+        assert cluster_shards[0][3][0][6] == b'hostname'
+        assert cluster_shards[0][3][0][7] == b'1.1.1.1'
+        assert cluster_shards[0][3][0][8] == b'endpoint'
+        assert cluster_shards[0][3][0][9] == b'1.1.1.1'
 
     validate_shards(cluster.node(1).client.execute_command('CLUSTER', 'SHARDS'))
 
@@ -1067,17 +1071,17 @@ def test_cluster_shards_for_single_slot_range_sg_multiple_nodes(cluster):
         assert cluster_shards[0][1][1] == 2000
         assert cluster_shards[0][2] == b'nodes'
         assert len(cluster_shards[0][3]) == 3
-        assert len(cluster_shards[0][3][0]) == 12
+        assert len(cluster_shards[0][3][0]) == 16
         for i in range(len(cluster_shards[0][3])):
             if cluster_shards[0][3][i][1] == node_id_1:
                 assert cluster_shards[0][3][i][3] == 1111
-                assert cluster_shards[0][3][i][5] == b'1.1.1.1'
+                assert cluster_shards[0][3][i][7] == b'1.1.1.1'
             elif cluster_shards[0][3][i][1] == node_id_2:
                 assert cluster_shards[0][3][i][3] == 2222
-                assert cluster_shards[0][3][i][5] == b'2.2.2.2'
+                assert cluster_shards[0][3][i][7] == b'2.2.2.2'
             elif cluster_shards[0][3][i][1] == node_id_3:
                 assert cluster_shards[0][3][i][3] == 3333
-                assert cluster_shards[0][3][i][5] == b'3.3.3.3'
+                assert cluster_shards[0][3][i][7] == b'3.3.3.3'
             else:
                 assert False, "didn't match %s" % cluster_shards
 
@@ -1121,30 +1125,28 @@ def test_cluster_shards_for_single_slot_range_sg(cluster):
                 if shard[1][0] == 0:
                     assert shard[1][1] == 500
                     assert len(shard[3]) == 1
-                    assert len(shard[3][0]) == 12
+                    assert len(shard[3][0]) == 16
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == stable_node_id
                     assert shard[3][0][2] == b'port'
                     assert shard[3][0][3] == 1111
-                    assert shard[3][0][4] == b'ip'
-                    assert shard[3][0][5] == b'1.1.1.1'
+                    assert shard[3][0][7] == b'1.1.1.1'
                 elif shard[1][0] == 501:
                     assert len(shard[1]) == 2
                     assert shard[1][1] == 16383
                     assert len(shard[3]) == 1
-                    assert len(shard[3][0]) == 12
+                    assert len(shard[3][0]) == 16
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == migrating_node_id
                     assert shard[3][0][2] == b'port'
                     assert shard[3][0][3] == 3333
-                    assert shard[3][0][4] == b'ip'
-                    assert shard[3][0][5] == b'3.3.3.3'
+                    assert shard[3][0][7] == b'3.3.3.3'
             elif len(shard[1]) == 0:
                 assert len(shard[3]) == 1
-                assert len(shard[3][0]) == 12
+                assert len(shard[3][0]) == 16
                 assert shard[3][0][1] == importing_node_id
                 assert shard[3][0][3] == 2222
-                assert shard[3][0][5] == b'2.2.2.2'
+                assert shard[3][0][7] == b'2.2.2.2'
             else:
                 assert False, "didn't match %s" % shard
 
