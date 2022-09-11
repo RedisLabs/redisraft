@@ -766,7 +766,7 @@ static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privda
         return;
     }
 
-    if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str)) {
+    if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str) != 0) {
         NODE_LOG_WARNING(node, "invalid RAFT.TIMEOUT_NOW reply");
         return;
     }
@@ -1130,7 +1130,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
-        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid)) {
+        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid) != 0) {
             PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]",
                   rr->log->dbid, rr->snapshot_info.dbid);
         }
