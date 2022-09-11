@@ -1300,10 +1300,22 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     RedisModule_FreeString(NULL, str);
 }
 
-static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int j, char *direction, ShardGroupNode *node)
+static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int j, SlotRangeType type, ShardGroupNode *node)
 {
     size_t len;
     const char *temp;
+    char *direction;
+
+    switch (type) {
+        case SLOTRANGE_TYPE_IMPORTING:
+            direction = "<";
+            break;
+        case SLOTRANGE_TYPE_MIGRATING:
+            direction = ">";
+            break;
+        default:
+            return;;
+    }
 
     RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, "[%u-%s-%.*s]\r\n", j, direction, 40, node->node_id);
     temp = RedisModule_StringPtrLen(str, &len);
@@ -1366,18 +1378,22 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
         for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
             ShardGroupSlotRange sr = sg->slot_ranges[i];
 
+            if (sr.type == SLOTRANGE_TYPE_STABLE) {
+                continue;
+            }
+
             if (sr.type == SLOTRANGE_TYPE_IMPORTING) {
                 for (unsigned int j = sr.start_slot; j <= sr.end_slot; j++) {
                     RedisModule_Assert(j < REDIS_RAFT_HASH_SLOTS);
                     if (migrating_map[j] != NULL && migrating_map[j]->nodes_num > 0) {
-                        appendSpecialClusterNodeString(ret, j, "<", &migrating_map[j]->nodes[0]);
+                        appendSpecialClusterNodeString(ret, j, sr.type, &migrating_map[j]->nodes[0]);
                     }
                 }
             } else if (sr.type == SLOTRANGE_TYPE_MIGRATING) {
                 for (unsigned int j = sr.start_slot; j <= sr.end_slot; j++) {
                     RedisModule_Assert(j < REDIS_RAFT_HASH_SLOTS);
                     if (importing_map[j] != NULL && importing_map[j]->nodes_num > 0) {
-                        appendSpecialClusterNodeString(ret, j, ">", &importing_map[j]->nodes[0]);
+                        appendSpecialClusterNodeString(ret, j, sr.type, &importing_map[j]->nodes[0]);
                     }
                 }
             }
