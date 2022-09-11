@@ -1314,7 +1314,7 @@ static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int 
             direction = ">";
             break;
         default:
-            return;;
+            return;
     }
 
     RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, "[%u-%s-%.*s]\r\n", j, direction, 40, node->node_id);
