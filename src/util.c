@@ -31,25 +31,6 @@ int RedisModuleStringToInt(RedisModuleString *str, int *value)
     return REDISMODULE_OK;
 }
 
-char *StrCreate(const void *buf, size_t len)
-{
-    char *p;
-
-    p = RedisModule_Alloc(len + 1);
-    memcpy(p, buf, len);
-    p[len] = '\0';
-
-    return p;
-}
-
-char *StrCreateFromString(RedisModuleString *str)
-{
-    size_t len;
-    const char *p = RedisModule_StringPtrLen(str, &len);
-
-    return StrCreate(p, len);
-}
-
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
 {
     va_list ap;
