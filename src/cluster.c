@@ -1569,11 +1569,11 @@ static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
             if (type != SLOTRANGE_TYPE_STABLE && type != SLOTRANGE_TYPE_MIGRATING) {
                 continue;
             }
-            slot_count += 2;
+            slot_count += 1;
             RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].start_slot);
             RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].end_slot);
         }
-        RedisModule_ReplySetArrayLength(ctx, slot_count);
+        RedisModule_ReplySetArrayLength(ctx, slot_count * 2);
 
         RedisModule_ReplyWithCString(ctx, "nodes");
         if (sg->local) {
