@@ -7,6 +7,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 
 import time
+
 from redis import ResponseError
 from pytest import raises
 from .sandbox import assert_after
@@ -880,9 +881,9 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
         for i in range(len(cluster_nodes)):
-            if i < 3:
-                node_data = cluster_nodes[i].split(b' ')
-
+            node_data = cluster_nodes[i].split(b' ')
+            migration_data = cluster_nodes[i].split(b'-')
+            if len(node_data) > 1:
                 if local_node_id == node_data[0]:
                     assert node_data[2] == b"myself,master"
                 else:
@@ -899,7 +900,6 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
                 else:
                     assert False, "failed to match id {}".format(node_data[0])
             else:
-                migration_data = cluster_nodes[i].split(b'-')
                 assert(migration_data[0] == f"[{i+498}".encode())
                 assert(migration_data[1] == b">")
                 assert(migration_data[2] == f"{import_node_id.decode()}]".encode())
@@ -1003,9 +1003,10 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
         for i in range(len(cluster_nodes)):
-            if len(cluster_nodes[i].split(b' ')) > 1:
-                node_data = cluster_nodes[i].split(b' ')
+            node_data = cluster_nodes[i].split(b' ')
+            migration_data = cluster_nodes[i].split(b'-')
 
+            if len(node_data) > 1:
                 if local_node_id == node_data[0]:
                     assert node_data[2] == b"myself,master"
                 else:
@@ -1023,7 +1024,6 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
                 else:
                     assert False, "failed to match id {}".format(node_data[0])
             else:
-                migration_data = cluster_nodes[i].split(b'-')
                 assert (chr(migration_data[0][0]) == '[')
 
                 if int(migration_data[0][1:]) <= 700:
@@ -1038,7 +1038,7 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
     validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
 
-def test_cluster_shards_for_empty_slot_sg(cluster):
+def test_cluster_shards_for_empty_slot_sg(cluster, pytestconfig):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
     cluster_shardgroup_id = "1" * 32
 
@@ -1062,7 +1062,10 @@ def test_cluster_shards_for_empty_slot_sg(cluster):
         assert len(cluster_shards[0][3][0]) == 16
         assert cluster_shards[0][3][0][0] == b'id'
         assert cluster_shards[0][3][0][1] == node_id_1
-        assert cluster_shards[0][3][0][2] == b'port'
+        if pytestconfig.getoption('tls'):
+            assert cluster_shards[0][3][0][2] == b'tls-port'
+        else:
+            assert cluster_shards[0][3][0][2] == b'port'
         assert cluster_shards[0][3][0][3] == 1111
         assert cluster_shards[0][3][0][4] == b'ip'
         assert cluster_shards[0][3][0][5] == b''
@@ -1118,7 +1121,7 @@ def test_cluster_shards_for_single_slot_range_sg_multiple_nodes(cluster):
 
     validate_shards(cluster.node(1).execute('CLUSTER', 'SHARDS'))
 
-def test_cluster_shards_for_single_slot_range_sg(cluster):
+def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
     cluster_stable_shardgroup_id = "1" * 32
     stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
@@ -1158,7 +1161,10 @@ def test_cluster_shards_for_single_slot_range_sg(cluster):
                     assert len(shard[3][0]) == 16
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == stable_node_id
-                    assert shard[3][0][2] == b'port'
+                    if pytestconfig.getoption('tls'):
+                        assert cluster_shards[0][3][0][2] == b'tls-port'
+                    else:
+                        assert cluster_shards[0][3][0][2] == b'port'
                     assert shard[3][0][3] == 1111
                     assert shard[3][0][7] == b'1.1.1.1'
                 elif shard[1][0] == 501:
@@ -1168,7 +1174,10 @@ def test_cluster_shards_for_single_slot_range_sg(cluster):
                     assert len(shard[3][0]) == 16
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == migrating_node_id
-                    assert shard[3][0][2] == b'port'
+                    if pytestconfig.getoption('tls'):
+                        assert cluster_shards[0][3][0][2] == b'tls-port'
+                    else:
+                        assert cluster_shards[0][3][0][2] == b'port'
                     assert shard[3][0][3] == 3333
                     assert shard[3][0][7] == b'3.3.3.3'
             elif len(shard[1]) == 0:
