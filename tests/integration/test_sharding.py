@@ -880,6 +880,7 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
+        migration_data_count = 0;
         for i in range(len(cluster_nodes)):
             node_data = cluster_nodes[i].split(b' ')
             migration_data = cluster_nodes[i].split(b'-')
@@ -900,7 +901,8 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
                 else:
                     assert False, "failed to match id {}".format(node_data[0])
             else:
-                assert(migration_data[0] == f"[{i+498}".encode())
+                migration_data_count += 1
+                assert(migration_data[0] == f"[{migration_data_count+500}".encode())
                 assert(migration_data[1] == b">")
                 assert(migration_data[2] == f"{import_node_id.decode()}]".encode())
 
@@ -1059,7 +1061,7 @@ def test_cluster_shards_for_empty_slot_sg(cluster, pytestconfig):
         assert cluster_shards[0][1] == []
         assert cluster_shards[0][2] == b'nodes'
         assert len(cluster_shards[0][3]) == 1
-        assert len(cluster_shards[0][3][0]) == 16
+        assert len(cluster_shards[0][3][0]) == 14
         assert cluster_shards[0][3][0][0] == b'id'
         assert cluster_shards[0][3][0][1] == node_id_1
         if pytestconfig.getoption('tls'):
@@ -1068,11 +1070,9 @@ def test_cluster_shards_for_empty_slot_sg(cluster, pytestconfig):
             assert cluster_shards[0][3][0][2] == b'port'
         assert cluster_shards[0][3][0][3] == 1111
         assert cluster_shards[0][3][0][4] == b'ip'
-        assert cluster_shards[0][3][0][5] == b''
-        assert cluster_shards[0][3][0][6] == b'hostname'
+        assert cluster_shards[0][3][0][5] == b'1.1.1.1'
+        assert cluster_shards[0][3][0][6] == b'endpoint'
         assert cluster_shards[0][3][0][7] == b'1.1.1.1'
-        assert cluster_shards[0][3][0][8] == b'endpoint'
-        assert cluster_shards[0][3][0][9] == b'1.1.1.1'
 
     validate_shards(cluster.node(1).client.execute_command('CLUSTER', 'SHARDS'))
 
@@ -1104,7 +1104,7 @@ def test_cluster_shards_for_single_slot_range_sg_multiple_nodes(cluster):
         assert cluster_shards[0][1][1] == 2000
         assert cluster_shards[0][2] == b'nodes'
         assert len(cluster_shards[0][3]) == 3
-        assert len(cluster_shards[0][3][0]) == 16
+        assert len(cluster_shards[0][3][0]) == 14
         for i in range(len(cluster_shards[0][3])):
             if cluster_shards[0][3][i][1] == node_id_1:
                 assert cluster_shards[0][3][i][3] == 1111
@@ -1158,7 +1158,7 @@ def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
                 if shard[1][0] == 0:
                     assert shard[1][1] == 500
                     assert len(shard[3]) == 1
-                    assert len(shard[3][0]) == 16
+                    assert len(shard[3][0]) == 14
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == stable_node_id
                     if pytestconfig.getoption('tls'):
@@ -1171,7 +1171,7 @@ def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
                     assert len(shard[1]) == 2
                     assert shard[1][1] == 16383
                     assert len(shard[3]) == 1
-                    assert len(shard[3][0]) == 16
+                    assert len(shard[3][0]) == 14
                     assert shard[3][0][0] == b'id'
                     assert shard[3][0][1] == migrating_node_id
                     if pytestconfig.getoption('tls'):
@@ -1182,7 +1182,7 @@ def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
                     assert shard[3][0][7] == b'3.3.3.3'
             elif len(shard[1]) == 0:
                 assert len(shard[3]) == 1
-                assert len(shard[3][0]) == 16
+                assert len(shard[3][0]) == 14
                 assert shard[3][0][1] == importing_node_id
                 assert shard[3][0][3] == 2222
                 assert shard[3][0][7] == b'2.2.2.2'
