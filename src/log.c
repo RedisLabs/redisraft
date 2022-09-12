@@ -333,7 +333,7 @@ error:
 static int handleHeader(RaftLog *log, RawLogEntry *re)
 {
     if (re->num_elements != 6 ||
-        strcmp(re->elements[0].ptr, "RAFTLOG")) {
+        strcmp(re->elements[0].ptr, "RAFTLOG") != 0) {
         LOG_WARNING("Invalid Raft log header.");
         return -1;
     }
