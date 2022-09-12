@@ -1281,7 +1281,7 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     slots_str = RedisModule_StringPtrLen(slots, &slots_len);
     const char *master = (master_node_id != NULL) ? master_node_id : "-";
     RedisModuleString *str = RedisModule_CreateStringPrintf(NULL,
-                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
+                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s",
                                                             node_id,
                                                             addr->host,
                                                             addr->port,
@@ -1317,7 +1317,7 @@ static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int 
             return;
     }
 
-    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, "[%u-%s-%.*s]\r\n", j, direction, 40, node->node_id);
+    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, " [%u-%s-%.*s]", j, direction, 40, node->node_id);
     temp = RedisModule_StringPtrLen(str, &len);
     RedisModule_StringAppendBuffer(NULL, ret, temp, len);
     RedisModule_FreeString(NULL, str);
@@ -1399,6 +1399,8 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
             }
         }
     }
+
+    RedisModule_StringAppendBuffer(NULL, ret, "\n", 1);
 }
 
 /* Produce a CLUSTER NODES compatible reply, including:
@@ -1446,6 +1448,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
                     appendClusterNodeString(ret, sg->nodes[j].node_id, &sg->nodes[j].addr, flags, NULL, ping_sent,
                                             pong_recv, epoch, link_state, slots);
+                    RedisModule_StringAppendBuffer(NULL, ret, "\n", 1);
                 }
             }
             RedisModule_FreeString(ctx, slots);
