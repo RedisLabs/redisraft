@@ -808,9 +808,6 @@ void handleFsyncCompleted(void *arg);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
-
-char *StrCreate(const void *buf, size_t len);
-char *StrCreateFromString(RedisModuleString *str);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
