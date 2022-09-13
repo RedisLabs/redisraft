@@ -376,8 +376,7 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
     RedisModule_Free(payload);
 
     /* Submit */
-    raft_entry_resp_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     raft_entry_release(entry);
 
     if (e != 0) {
@@ -412,8 +411,7 @@ RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg
     RedisModule_Free(buf);
 
     /* Submit */
-    raft_entry_resp_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     raft_entry_release(entry);
 
     if (e != 0) {

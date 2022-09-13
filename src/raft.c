@@ -923,9 +923,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     cfgchange->id = node->id;
     cfgchange->addr = node->addr;
 
-    raft_entry_resp_t response;
-
-    int e = raft_recv_entry(raft, entry, &response);
+    int e = raft_recv_entry(raft, entry, NULL);
     raft_entry_release(entry);
 
     return e;
@@ -1412,14 +1410,13 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
             .addr = rr->config.addr,
         };
 
-        raft_entry_resp_t resp = {0};
         raft_entry_t *ety = raft_entry_new(sizeof(cfg));
 
         ety->id = rand();
         ety->type = RAFT_LOGTYPE_ADD_NODE;
         memcpy(ety->data, &cfg, sizeof(cfg));
 
-        if (raft_recv_entry(rr->raft, ety, &resp) != 0) {
+        if (raft_recv_entry(rr->raft, ety, NULL) != 0) {
             PANIC("Failed to init raft library");
         }
         raft_entry_release(ety);
