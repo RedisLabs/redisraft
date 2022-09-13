@@ -874,7 +874,7 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         ) == b'OK'
 
     def validate_nodes(cluster_nodes):
-        assert len(cluster_nodes) == 15886
+        assert len(cluster_nodes) == 3
         stable_node_id = "{}00000001".format(cluster_stable_shardgroup_id).encode()
         migrate_node_id = "{}00000001".format(cluster_migrating_shardgroup_id).encode()
         import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
@@ -883,28 +883,25 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         migration_data_count = 0;
         for i in range(len(cluster_nodes)):
             node_data = cluster_nodes[i].split(b' ')
-            migration_data = cluster_nodes[i].split(b'-')
-            if len(node_data) > 1:
-                if local_node_id == node_data[0]:
-                    assert node_data[2] == b"myself,master"
-                else:
-                    assert node_data[2] == b"master"
-
-                assert node_data[3] == b"-"
-
-                if node_data[0] == stable_node_id:
-                    assert node_data[8] == b"0-500"
-                elif node_data[0] == migrate_node_id:
-                    assert node_data[8] == b"501-16383"
-                elif node_data[0] == import_node_id:
-                    assert node_data[8] == b""
-                else:
-                    assert False, "failed to match id {}".format(node_data[0])
+            if local_node_id == node_data[0]:
+                assert node_data[2] == b"myself,master"
             else:
-                migration_data_count += 1
-                assert(migration_data[0] == f"[{migration_data_count+500}".encode())
-                assert(migration_data[1] == b">")
-                assert(migration_data[2] == f"{import_node_id.decode()}]".encode())
+                assert node_data[2] == b"master"
+
+            assert node_data[3] == b"-"
+
+            if node_data[0] == stable_node_id:
+                assert node_data[8] == b"0-500"
+            elif node_data[0] == migrate_node_id:
+                assert node_data[8] == b"501-16383"
+                assert len(node_data) == 15892
+                for j in range(501, 16383):
+                    assert node_data[j-492] == f"[{j}->-{import_node_id.decode()}]".encode()
+
+            elif node_data[0] == import_node_id:
+                assert node_data[8] == b""
+            else:
+                assert False, "failed to match id {}".format(node_data[0])
 
     validate_nodes(cluster.node(1).execute('CLUSTER', 'NODES').splitlines())
 
@@ -998,7 +995,7 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
 
     def validate_nodes(cluster_nodes):
         # many "special" lines now
-        assert len(cluster_nodes) == 305
+        assert len(cluster_nodes) == 3
         node_id_1 = "{}00000001".format(shardgroup_id_1).encode()
         node_id_2 = "{}00000001".format(shardgroup_id_2).encode()
         node_id_3 = "{}00000001".format(shardgroup_id_3).encode()
@@ -1019,6 +1016,10 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
                 if node_data[0] == node_id_1:
                     assert node_data[8] == b"0-500"
                     assert node_data[9] == b"800-1000"
+                    for j in range(600, 700):
+                        assert node_data[j-590] == f"[{j}-<-{node_id_2.decode()}]".encode()
+                    for j in range(800, 1000):
+                        assert node_data[j-689] == f"[{j}->-{node_id_3.decode()}]".encode()
                 elif node_data[0] == node_id_2:
                     assert node_data[8] == b"600-700"
                 elif node_data[0] == node_id_3:
