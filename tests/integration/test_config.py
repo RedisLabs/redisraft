@@ -276,7 +276,6 @@ def test_module_command_flags(cluster):
     node.load_module("hellomodule.so")
 
     dont_intercept = 1 << 4
-    denyoom = 1 << 7
 
     node.config_set('raft.ignored-commands', 'hellomodule')
     assert node.execute("raft.debug", "commandspec",
