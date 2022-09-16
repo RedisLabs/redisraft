@@ -1620,13 +1620,10 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     ShardingInfo *si = rr->sharding_info;
 
     if (si->shard_group_map != NULL) {
+        ShardGroup *data;
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
 
-        char *key;
-        size_t key_len;
-        ShardGroup *data;
-
-        while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
+        while (RedisModule_DictNextC(iter, NULL, (void **) &data) != NULL) {
             ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
@@ -1634,9 +1631,9 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         si->shard_group_map = NULL;
     }
 
+    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
     si->shard_groups_num = 0;
 
-    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
     for (int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;
