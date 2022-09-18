@@ -891,8 +891,10 @@ static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data,
 
 static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
 {
+    RedisModule_Assert(raft_node_is_active(raft_node));
+
     Node *node = raft_node_get_udata(raft_node);
-    assert(node != NULL);
+    RedisModule_Assert(node != NULL);
 
     LOG_DEBUG("node:%d has sufficient logs, adding as voting node.", node->id);
 
