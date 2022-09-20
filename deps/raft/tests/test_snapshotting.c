@@ -998,6 +998,51 @@ void TestRaft_set_last_chunk_on_duplicate(CuTest * tc)
     CuAssertIntEquals(tc, 1, resp.last_chunk);
 }
 
+void TestRaft_set_last_chunk_if_log_is_more_advanced(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+            .send_snapshot = test_send_snapshot_increment,
+            .send_appendentries = __raft_send_appendentries,
+            .clear_snapshot = test_clear_snapshot,
+            .load_snapshot = test_load_snapshot,
+            .store_snapshot_chunk = test_store_snapshot_chunk,
+            .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_current_term(r, 1);
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 2, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 4, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 5, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 6, 1, "entry");
+
+    raft_snapshot_req_t msg = {
+            .term = 1,
+            .leader_id = 2,
+            .snapshot_index = 5,
+            .snapshot_term = 1,
+            .msg_id = 1,
+            .chunk.data = "tmp",
+            .chunk.offset = 0,
+            .chunk.len = 50,
+            .chunk.last_chunk = 1,
+    };
+
+    raft_snapshot_resp_t resp = {0};
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 0, data.store_chunk);
+    CuAssertIntEquals(tc, 0, data.load);
+    CuAssertIntEquals(tc, 1, resp.success);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+}
+
 void TestRaft_restore_after_restart(CuTest * tc)
 {
     raft_server_t *r = raft_new();
@@ -1042,6 +1087,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_clear_snapshot_on_leader_change);
     SUITE_ADD_TEST(suite, TestRaft_reject_wrong_offset);
     SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_on_duplicate);
+    SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_if_log_is_more_advanced);
     SUITE_ADD_TEST(suite, TestRaft_restore_after_restart);
 
     CuSuiteRun(suite);
