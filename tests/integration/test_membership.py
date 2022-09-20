@@ -242,15 +242,24 @@ def test_node_history_with_same_address(cluster):
 def test_update_self_voting_state_from_snapshot(cluster):
     cluster.create(3)
 
+    assert cluster.node(2).info()['raft_is_voting'] == 'yes'
+    cluster.node(2).kill()
+
+    # Set node-2 non-voting and take a snapshot
     assert cluster.node(1).client.execute_command('RAFT.DEBUG', 'NODECFG',
                                                   '2', '-voting') == b'OK'
-    assert cluster.node(2).info()['raft_is_voting'] == 'yes'
 
+    # Submit an entry and include that in the snapshot. When node-2 wakes up,
+    # as it doesn't have an entry at this index, leader will send the snapshot
+    cluster.execute('set', 'x', '1')
     assert cluster.node(1).client.execute_command('RAFT.DEBUG',
                                                   'COMPACT') == b'OK'
 
-    cluster.node(1).client.execute_command('RAFT.DEBUG', 'SENDSNAPSHOT', '2')
+    # Leader will send snapshot to node-2 after wake up
+    cluster.node(2).start()
     cluster.node(2).wait_for_info_param('raft_snapshots_loaded', 1)
+
+    # Validate node-2 updates its voting status from the snapshot
     assert cluster.node(2).info()['raft_is_voting'] == 'no'
 
 
