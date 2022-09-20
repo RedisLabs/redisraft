@@ -364,7 +364,9 @@ static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privda
     }
 }
 
-static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
+static int raftSendTimeoutNow(raft_server_t *raft,
+                              void *user_data,
+                              raft_node_t *raft_node)
 {
     Node *node = raft_node_get_udata(raft_node);
 
@@ -382,20 +384,7 @@ static int raftSendTimeoutNow(raft_server_t *raft, raft_node_t *raft_node)
     return 0;
 }
 
-static int raftPersistVote(raft_server_t *raft, void *user_data, raft_node_id_t vote)
-{
-    RedisRaftCtx *rr = user_data;
-    raft_term_t term = raft_get_current_term(raft);
-
-    if (RaftMetaWrite(&rr->meta, rr->config.log_filename, term, vote) != RR_OK) {
-        LOG_WARNING("ERROR: RaftMetaWrite()");
-        return RAFT_ERR_SHUTDOWN;
-    }
-
-    return 0;
-}
-
-static int raftPersistTerm(raft_server_t *raft, void *user_data, raft_term_t term, raft_node_id_t vote)
+static int raftPersistMetadata(raft_server_t *raft, void *user_data, raft_term_t term, raft_node_id_t vote)
 {
     RedisRaftCtx *rr = user_data;
 
@@ -456,17 +445,8 @@ static int raftApplyLog(raft_server_t *raft, void *user_data,
     return 0;
 }
 
-static void raftLog(raft_server_t *raft, raft_node_id_t node,
-                    void *user_data, const char *buf)
+static void raftLog(raft_server_t *raft, void *user_data, const char *buf)
 {
-    raft_node_t *raft_node = raft_get_node(raft, node);
-    if (raft_node) {
-        Node *n = raft_node_get_udata(raft_node);
-        if (n) {
-            LOG_DEBUG("<raftlib> node{%p,%d}: %s", n, n->id, buf);
-            return;
-        }
-    }
     LOG_DEBUG("<raftlib> %s", buf);
 }
 
@@ -749,8 +729,7 @@ static raft_index_t raftGetEntriesToSend(raft_server_t *raft, void *user_data,
 raft_cbs_t redis_raft_callbacks = {
     .send_requestvote = raftSendRequestVote,
     .send_appendentries = raftSendAppendEntries,
-    .persist_vote = raftPersistVote,
-    .persist_term = raftPersistTerm,
+    .persist_metadata = raftPersistMetadata,
     .log = raftLog,
     .get_node_id = raftLogGetNodeId,
     .applylog = raftApplyLog,
@@ -821,22 +800,9 @@ void reconnectNodes(RedisModuleCtx *ctx, void *arg)
     NodeReconnect(rr);
 }
 
-static int loadEntriesCallback(void *arg, raft_entry_t *entry, raft_index_t idx)
-{
-    RedisRaftCtx *rr = arg;
-
-    if (rr->snapshot_info.last_applied_term <= entry->term &&
-        rr->snapshot_info.last_applied_idx < rr->log->index &&
-        raft_entry_is_cfg_change(entry)) {
-        raft_handle_append_cfg_change(rr->raft, entry, idx);
-    }
-
-    return 0;
-}
-
 void loadRaftLog(RedisRaftCtx *rr)
 {
-    int entries = RaftLogLoadEntries(rr->log, loadEntriesCallback, rr);
+    int entries = RaftLogLoadEntries(rr->log);
     if (entries < 0) {
         LOG_WARNING("Failed to read Raft log");
         abort();
@@ -869,21 +835,18 @@ void loadRaftLog(RedisRaftCtx *rr)
                           rr->snapshot_info.last_applied_term);
     }
 
-    raft_set_commit_idx(rr->raft, rr->snapshot_info.last_applied_idx);
-    raft_set_snapshot_metadata(rr->raft, rr->snapshot_info.last_applied_term,
-                               rr->snapshot_info.last_applied_idx);
-    raft_apply_all(rr->raft);
+    int     ret = raft_restore_log(rr->raft);
+    RedisModule_Assert(ret == 0);
 
-    raft_set_current_term(rr->raft, rr->meta.term);
-    raft_vote_for_nodeid(rr->raft, rr->meta.vote);
-
-    LOG_NOTICE("Raft Meta: loaded current term=%lu, vote=%d",
-               rr->meta.term, rr->meta.vote);
-
-    LOG_NOTICE("Raft state after applying log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
+    LOG_NOTICE("Raft state after loading log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
                raft_get_log_count(rr->raft),
                raft_get_current_idx(rr->raft),
                raft_get_last_applied_idx(rr->raft));
+
+    ret = raft_restore_metadata(rr->raft, rr->meta.term, rr->meta.vote);
+    RedisModule_Assert(ret == 0);
+
+    LOG_DEBUG("Raft term=%lu, vote=%d", rr->meta.term, rr->meta.vote);
 }
 
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)

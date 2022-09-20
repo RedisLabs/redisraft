@@ -63,13 +63,7 @@ static int readSnapshotFile()
         if (id == raft_get_nodeid(rr->raft)) {
             raft_node_t *rn = raft_get_node(rr->raft, id);
             assert(rn);
-            assert(rn == raft_get_my_node(rr->raft));
-
-            raft_node_set_active(rn, 1);
-            if (voting != raft_node_is_voting(rn)) {
-                raft_node_set_voting(rn, voting);
-                raft_node_set_voting_committed(rn, voting);
-            }
+            raft_node_set_voting(rn, voting);
         } else {
             Node *n = NodeCreate(rr, id, &addr);
             raft_node_t *rn;
@@ -247,7 +241,7 @@ int SnapshotSave(RedisRaftCtx *rr)
 
     /* Open new log file */
     rr->log = RaftLogOpen(rr->log->filename);
-    int entries = RaftLogLoadEntries(rr->log, NULL, NULL);
+    int entries = RaftLogLoadEntries(rr->log);
     if (entries < 0) {
         abort();
     }
@@ -265,7 +259,7 @@ int SnapshotSave(RedisRaftCtx *rr)
  * 4. Reconfigure nodes based on the snapshot metadata configuration.
  * 5. Create a new snapshot memory map.
  */
-int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_index_t index, raft_term_t term)
+int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raft_index_t index)
 {
     int ret;
     RedisRaftCtx *rr = user_data;

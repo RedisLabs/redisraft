@@ -31,11 +31,11 @@ RaftLog *RaftLogCreate(const char *filename, raft_term_t snapshot_term, raft_ind
 RaftLog *RaftLogOpen(const char *filename);
 void RaftLogClose(RaftLog *log);
 int RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg);
+int RaftLogLoadEntries(RaftLog *log);
 int RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 int RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
-int RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg);
+int RaftLogDelete(RaftLog *log, raft_index_t from_idx);
 int RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);

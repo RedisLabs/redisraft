@@ -368,9 +368,7 @@ int RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
     return RR_OK;
 }
 
-int RaftLogLoadEntries(RaftLog *log,
-                       int (*callback)(void *, raft_entry_t *, raft_index_t),
-                       void *callback_arg)
+int RaftLogLoadEntries(RaftLog *log)
 {
     int ret = 0;
 
@@ -417,18 +415,8 @@ int RaftLogLoadEntries(RaftLog *log,
             break;
         }
 
-        int cb_ret = 0;
-        if (callback) {
-            callback(callback_arg, e, log->index);
-        }
-
         freeRawLogEntry(re);
         raft_entry_release(e);
-
-        if (cb_ret < 0) {
-            ret = cb_ret;
-            break;
-        }
     } while (1);
 
     if (ret > 0) {
@@ -549,14 +537,10 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
     return e;
 }
 
-int RaftLogDelete(RaftLog *log,
-                  raft_index_t from_idx,
-                  raft_entry_notify_f cb,
-                  void *cb_arg)
+int RaftLogDelete(RaftLog *log, raft_index_t from_idx)
 {
     off_t offset;
     RRStatus ret = RR_OK;
-    unsigned long removed = 0;
 
     if (from_idx <= log->snapshot_last_idx) {
         return RR_ERROR;
@@ -581,11 +565,7 @@ int RaftLogDelete(RaftLog *log,
                 ret = RR_ERROR;
                 break;
             }
-            if (cb) {
-                cb(cb_arg, e, log->index);
-            }
 
-            removed++;
             log->index--;
             log->num_entries--;
 
@@ -710,12 +690,12 @@ static int logImplPoll(void *rr_, raft_index_t first_idx)
     return 0;
 }
 
-static int logImplPop(void *rr_, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
+static int logImplPop(void *rr_, raft_index_t from_idx)
 {
     RedisRaftCtx *rr = rr_;
 
     EntryCacheDeleteTail(rr->logcache, from_idx);
-    if (RaftLogDelete(rr->log, from_idx, cb, cb_arg) != RR_OK) {
+    if (RaftLogDelete(rr->log, from_idx) != RR_OK) {
         return -1;
     }
     return 0;

@@ -31,7 +31,7 @@ void SnapshotLoad(struct RedisRaftCtx *rr);
 int SnapshotSave(struct RedisRaftCtx *rr);
 
 /* Libraft callbacks */
-int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_index_t idx, raft_term_t term);
+int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_term_t term, raft_index_t idx);
 int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, raft_snapshot_req_t *msg);
 int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
