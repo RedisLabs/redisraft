@@ -3185,18 +3185,14 @@ void TestRaft_leader_recv_appendentries_response_retry_only_if_leader(CuTest * t
     aer.term = 1;
     aer.success = 1;
     aer.current_idx = 1;
-    CuAssertTrue(tc, RAFT_ERR_NOT_LEADER == raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer));
+    CuAssertTrue(tc, 0 == raft_recv_appendentries_response(r, raft_get_node(r, 2), &aer));
     CuAssertTrue(tc, NULL == sender_poll_msg_data(sender));
 }
 
-void TestRaft_leader_recv_appendentries_response_without_node_fails(CuTest * tc)
+void TestRaft_leader_recv_appendentries_response_without_node(CuTest *tc)
 {
-    raft_cbs_t funcs = {
-        .persist_metadata = __raft_persist_metadata,
-    };
-
+    /* Receiving appendentries_resp without a node should be ignored silently.*/
     void *r = raft_new();
-    raft_set_callbacks(r, &funcs, NULL);
 
     raft_add_node(r, NULL, 1, 1);
     raft_add_node(r, NULL, 2, 0);
@@ -3207,12 +3203,43 @@ void TestRaft_leader_recv_appendentries_response_without_node_fails(CuTest * tc)
     raft_set_current_term(r, 1);
 
     /* receive mock success responses */
-    raft_appendentries_resp_t aer;
-    memset(&aer, 0, sizeof(raft_appendentries_resp_t));
-    aer.term = 1;
-    aer.success = 1;
-    aer.current_idx = 0;
-    CuAssertIntEquals(tc, -1, raft_recv_appendentries_response(r, NULL, &aer));
+    raft_appendentries_resp_t aer = {
+            .term = 5000,
+            .success = 1,
+            .current_idx = 0
+    };
+
+    CuAssertIntEquals(tc, 0, raft_recv_appendentries_response(r, NULL, &aer));
+    /* Verify response was ignored and term is not 5000. */
+    CuAssertIntEquals(tc, 1, raft_get_current_term(r));
+}
+
+void TestRaft_leader_recv_snapshot_response_without_node(CuTest *tc)
+{
+    /* Receiving snapshot_resp without a node should be ignored silently. */
+
+    void *r = raft_new();
+
+    raft_add_node(r, NULL, 1, 1);
+    raft_add_node(r, NULL, 2, 0);
+    raft_add_node(r, NULL, 3, 0);
+
+    /* I'm the leader */
+    raft_set_state(r, RAFT_STATE_LEADER);
+    raft_set_current_term(r, 1);
+
+    /* receive mock success responses */
+    raft_snapshot_resp_t resp = {
+            .term = 5000,
+            .success = 1,
+            .msg_id = 1,
+            .offset = 0,
+            .last_chunk = 0,
+    };
+
+    CuAssertIntEquals(tc, 0, raft_recv_snapshot_response(r, NULL, &resp));
+    /* Verify response was ignored and term is not 5000. */
+    CuAssertIntEquals(tc, 1, raft_get_current_term(r));
 }
 
 void TestRaft_leader_recv_entry_resets_election_timeout(
@@ -5142,7 +5169,8 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_do_not_increase_commit_idx_because_of_old_terms_with_majority);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_jumps_to_lower_next_idx);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_retry_only_if_leader);
-    SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_without_node_fails);
+    SUITE_ADD_TEST(suite, TestRaft_leader_recv_appendentries_response_without_node);
+    SUITE_ADD_TEST(suite, TestRaft_leader_recv_snapshot_response_without_node);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_entry_resets_election_timeout);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_entry_is_committed_returns_0_if_not_committed);
     SUITE_ADD_TEST(suite, TestRaft_leader_recv_entry_is_committed_returns_neg_1_if_invalidated);

@@ -136,6 +136,38 @@ const char *raft_get_state_str(raft_server_t *me)
     }
 }
 
+const char *raft_get_error_str(int err)
+{
+    switch (err) {
+        case RAFT_ERR_NOT_LEADER:
+            return "not leader";
+        case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
+            return "one voting change only";
+        case RAFT_ERR_SHUTDOWN:
+            return "shutdown";
+        case RAFT_ERR_NOMEM:
+            return "out of memory";
+        case RAFT_ERR_SNAPSHOT_IN_PROGRESS:
+            return "snapshot is in progress";
+        case RAFT_ERR_SNAPSHOT_ALREADY_LOADED:
+            return "snapshot already loaded";
+        case RAFT_ERR_INVALID_NODEID:
+            return "invalid node id";
+        case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
+            return "leader transfer is in progress";
+        case RAFT_ERR_DONE:
+            return "done";
+        case RAFT_ERR_STALE_TERM:
+            return "stale term";
+        case RAFT_ERR_NOTFOUND:
+            return "not found";
+        case RAFT_ERR_MISUSE:
+            return "misuse";
+        default:
+            return "unknown error";
+    }
+}
+
 raft_node_t *raft_get_node(raft_server_t *me, raft_node_id_t nodeid)
 {
     for (int i = 0; i < me->num_nodes; i++) {

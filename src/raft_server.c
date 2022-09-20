@@ -708,12 +708,8 @@ int raft_recv_appendentries_response(raft_server_t *me,
                  raft_get_nodeid(me), raft_node_get_id(node),
                  resp->msg_id, resp->term, resp->success, resp->current_idx);
 
-    if (!node) {
-        return -1;
-    }
-
-    if (!raft_is_leader(me)) {
-        return RAFT_ERR_NOT_LEADER;
+    if (!node || !raft_is_leader(me)) {
+        return 0;
     }
 
     if (resp->msg_id < raft_node_get_match_msgid(node) ||
@@ -1441,8 +1437,9 @@ int raft_recv_snapshot(raft_server_t *me,
     raft_accept_leader(me, req->leader_id);
     raft_reset_transfer_leader(me, 0);
 
-    /** If we already have this snapshot, inform the leader. */
-    if (req->snapshot_index <= me->snapshot_last_idx) {
+    /** If we already have the snapshot or the log entries in this snapshot,
+     * inform the leader. */
+    if (req->snapshot_index <= raft_get_current_idx(me)) {
         /** Set response as if it is the last chunk to tell leader that we have
          * the snapshot */
         resp->last_chunk = 1;
@@ -1508,8 +1505,8 @@ int raft_recv_snapshot_response(raft_server_t *me,
              raft_get_nodeid(me), raft_node_get_id(node), resp->msg_id,
              resp->term, resp->success, resp->offset, resp->last_chunk);
 
-    if (!raft_is_leader(me)) {
-        return RAFT_ERR_NOT_LEADER;
+    if (!node || !raft_is_leader(me)) {
+        return 0;
     }
 
     if (resp->term < me->current_term ||

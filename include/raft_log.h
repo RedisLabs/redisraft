@@ -3,6 +3,41 @@
 
 #include "raft_types.h"
 
+/** Backward compatible callbacks for log events */
+
+typedef struct {
+    /** Callback for adding an entry to the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * Return 0 on success.
+     * Return RAFT_ERR_SHUTDOWN if you want the server to shutdown. */
+
+    raft_logentry_event_f log_offer;
+
+    /** Callback for removing the oldest entry from the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * @note The callback does not need to call raft_entry_release() as
+     *   no references are implicitly held.  If access to the entry is
+     *   desired after the callback returns, raft_entry_hold() should be
+     *   used.
+     */
+    raft_logentry_event_f log_poll;
+
+    /** Callback for removing the youngest entry from the log
+     * For safety reasons this callback MUST flush the change to disk.
+     * @note The callback does not need to call raft_entry_release() as
+     *   no references are implicitly held.  If access to the entry is
+     *   desired after the callback returns, raft_entry_hold() should be
+     *   used.
+     */
+    raft_logentry_event_f log_pop;
+
+    /** Callback called for every existing log entry when clearing the log.
+     * If memory was malloc'd in log_offer and the entry doesn't get a chance
+     * to go through log_poll or log_pop, this is the last chance to free it.
+     */
+    raft_logentry_event_f log_clear;
+} raft_log_cbs_t;
+
 typedef struct raft_log raft_log_t;
 
 raft_log_t *raft_log_new(void);
