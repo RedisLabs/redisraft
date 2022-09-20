@@ -13,20 +13,11 @@
 
 #include "helpers.h"
 
-static int __raft_persist_term(
+static int __raft_persist_metadata(
     raft_server_t* raft,
     void *udata,
     raft_term_t term,
-    int vote
-    )
-{
-    return 0;
-}
-
-static int __raft_persist_vote(
-    raft_server_t* raft,
-    void *udata,
-    int vote
+    raft_node_id_t vote
     )
 {
     return 0;
@@ -174,8 +165,8 @@ static int test_clear_snapshot(raft_server_t* raft,
 
 static int test_load_snapshot(raft_server_t* raft,
                                void *user_data,
-                              raft_index_t snapshot_index,
-                              raft_term_t snapshot_term)
+                              raft_term_t snapshot_term,
+                              raft_index_t snapshot_index)
 {
     struct test_data *t = user_data;
     t->load++;
@@ -185,11 +176,6 @@ static int test_load_snapshot(raft_server_t* raft,
 
     return 0;
 }
-
-/* static raft_cbs_t generic_funcs = { */
-/*     .persist_term = __raft_persist_term, */
-/*     .persist_vote = __raft_persist_vote, */
-/* }; */
 
 static int max_election_timeout(int election_timeout)
 {
@@ -315,7 +301,7 @@ void TestRaft_leader_snapshot_begin_fails_if_less_than_2_logs_to_compact(CuTest 
 void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
 {
     raft_cbs_t funcs = {
-        .persist_term = __raft_persist_term,
+        .persist_metadata = __raft_persist_metadata,
         .send_appendentries = __raft_send_appendentries,
     };
 
@@ -380,7 +366,7 @@ void TestRaft_leader_snapshot_end_succeeds_if_log_compacted(CuTest * tc)
 void TestRaft_leader_snapshot_end_succeeds_if_log_compacted2(CuTest * tc)
 {
     raft_cbs_t funcs = {
-        .persist_term = __raft_persist_term,
+        .persist_metadata = __raft_persist_metadata,
         .send_appendentries = __raft_send_appendentries,
     };
 
@@ -487,7 +473,7 @@ void TestRaft_follower_load_from_snapshot(CuTest * tc)
     ety = __MAKE_ENTRY(3, 1, "entry");
     raft_append_entry(r, ety);
     raft_set_commit_idx(r, 7);
-    CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 6, 5));
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_begin_load_snapshot(r, 6, 5));
     CuAssertIntEquals(tc, 7, raft_get_commit_idx(r));
 }
 
@@ -504,7 +490,7 @@ void TestRaft_follower_load_from_snapshot_fails_if_term_is_0(CuTest * tc)
 
     raft_set_state(r, RAFT_STATE_FOLLOWER);
     CuAssertIntEquals(tc, 0, raft_get_log_count(r));
-    CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 0, 5));
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_begin_load_snapshot(r, 0, 5));
 }
 
 void TestRaft_follower_load_from_snapshot_fails_if_already_loaded(CuTest * tc)
@@ -553,7 +539,7 @@ void TestRaft_follower_load_from_snapshot_does_not_break_cluster_safety(CuTest *
     __RAFT_APPEND_ENTRY(r, 2, 1, "entry");
     __RAFT_APPEND_ENTRY(r, 3, 1, "entry");
 
-    CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 2, 2));
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_begin_load_snapshot(r, 2, 2));
 }
 
 void TestRaft_follower_load_from_snapshot_fails_if_log_is_newer(CuTest * tc)
@@ -572,7 +558,7 @@ void TestRaft_follower_load_from_snapshot_fails_if_log_is_newer(CuTest * tc)
 
     raft_set_last_applied_idx(r, 5);
 
-    CuAssertIntEquals(tc, -1, raft_begin_load_snapshot(r, 2, 2));
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_begin_load_snapshot(r, 2, 2));
 }
 
 void TestRaft_leader_sends_snapshot_when_node_next_index_was_compacted(CuTest* tc)
@@ -712,7 +698,7 @@ void TestRaft_follower_recv_appendentries_is_successful_when_previous_log_idx_eq
     CuTest * tc)
 {
     raft_cbs_t funcs = {
-        .persist_term = __raft_persist_term,
+        .persist_metadata = __raft_persist_metadata,
     };
 
     void *r = raft_new();
@@ -1012,6 +998,68 @@ void TestRaft_set_last_chunk_on_duplicate(CuTest * tc)
     CuAssertIntEquals(tc, 1, resp.last_chunk);
 }
 
+void TestRaft_set_last_chunk_if_log_is_more_advanced(CuTest * tc)
+{
+    raft_cbs_t funcs = {
+            .send_snapshot = test_send_snapshot_increment,
+            .send_appendentries = __raft_send_appendentries,
+            .clear_snapshot = test_clear_snapshot,
+            .load_snapshot = test_load_snapshot,
+            .store_snapshot_chunk = test_store_snapshot_chunk,
+            .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_current_term(r, 1);
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 2, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 4, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 5, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 6, 1, "entry");
+
+    raft_snapshot_req_t msg = {
+            .term = 1,
+            .leader_id = 2,
+            .snapshot_index = 5,
+            .snapshot_term = 1,
+            .msg_id = 1,
+            .chunk.data = "tmp",
+            .chunk.offset = 0,
+            .chunk.len = 50,
+            .chunk.last_chunk = 1,
+    };
+
+    raft_snapshot_resp_t resp = {0};
+
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+    CuAssertIntEquals(tc, 0, data.store_chunk);
+    CuAssertIntEquals(tc, 0, data.load);
+    CuAssertIntEquals(tc, 1, resp.success);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+}
+
+void TestRaft_restore_after_restart(CuTest * tc)
+{
+    raft_server_t *r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
+
+    /* Restore should fail if the term is not 0 */
+    raft_set_current_term(r, 10);
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_restore_snapshot(r, -1, 3));
+    CuAssertIntEquals(tc, RAFT_ERR_MISUSE, raft_restore_snapshot(r, 11, 5));
+
+    r = raft_new();
+    raft_add_node(r, NULL, 1, 1);
+
+    /* Restore should work on start-up */
+    CuAssertIntEquals(tc, 0, raft_restore_snapshot(r, 11, 5));
+}
+
 int main(void)
 {
     CuString *output = CuStringNew();
@@ -1039,6 +1087,8 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_clear_snapshot_on_leader_change);
     SUITE_ADD_TEST(suite, TestRaft_reject_wrong_offset);
     SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_on_duplicate);
+    SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_if_log_is_more_advanced);
+    SUITE_ADD_TEST(suite, TestRaft_restore_after_restart);
 
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
