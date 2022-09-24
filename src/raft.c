@@ -1356,7 +1356,7 @@ void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id)
 
 RRStatus loadRaftLog(RedisRaftCtx *rr)
 {
-    int entries = RaftLogLoadEntries(rr->log, NULL, rr);
+    int entries = RaftLogLoadEntries(rr->log);
     if (entries < 0) {
         LOG_WARNING("Failed to read Raft log");
         return RR_ERROR;

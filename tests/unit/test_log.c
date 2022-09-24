@@ -39,17 +39,6 @@ static int teardown_log(void **state)
     return 0;
 }
 
-static int log_entries_callback(void *arg, raft_entry_t *entry, raft_index_t idx)
-{
-    int ety_id = entry->id;
-    const char *value = entry->data;
-
-    check_expected(ety_id);
-    check_expected(value);
-
-    return mock();
-}
-
 static raft_entry_t *__make_entry_value(int id, const char *value)
 {
     raft_entry_t *e = raft_entry_new(strlen(value) + 1);
@@ -124,20 +113,23 @@ static void test_log_random_access_with_snapshot(void **state)
 
 static void test_log_load_entries(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    raft_entry_t *ety;
+    RaftLog *log = *state;
 
     __append_entry(log, 3);
     __append_entry(log, 30);
 
-    /* Load entries */
-    will_return_always(log_entries_callback, 0);
-    expect_value(log_entries_callback, ety_id, 3);
-    expect_memory(log_entries_callback, value, "value3", 6);
+    assert_int_equal(RaftLogLoadEntries(log), 2);
 
-    expect_value(log_entries_callback, ety_id, 30);
-    expect_memory(log_entries_callback, value, "value30", 7);
+    ety = RaftLogGet(log, 1);
+    assert_int_equal(ety->id , 3);
+    assert_memory_equal(ety->data, "value3", strlen("value3"));
+    raft_entry_release(ety);
 
-    assert_int_equal(RaftLogLoadEntries(log, log_entries_callback, NULL), 2);
+    ety = RaftLogGet(log, 2);
+    assert_int_equal(ety->id , 30);
+    assert_memory_equal(ety->data, "value30", strlen("value30"));
+    raft_entry_release(ety);
 }
 
 static void test_log_index_rebuild(void **state)
@@ -153,7 +145,7 @@ static void test_log_index_rebuild(void **state)
 
     /* Reopen the log */
     RaftLog *log2 = RaftLogOpen(LOGNAME, NULL, 0);
-    RaftLogLoadEntries(log2, NULL, NULL);
+    RaftLogLoadEntries(log2);
 
     /* Invalid out of bound reads */
     assert_null(RaftLogGet(log, 99));
