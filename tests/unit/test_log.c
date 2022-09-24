@@ -122,12 +122,12 @@ static void test_log_load_entries(void **state)
     assert_int_equal(RaftLogLoadEntries(log), 2);
 
     ety = RaftLogGet(log, 1);
-    assert_int_equal(ety->id , 3);
+    assert_int_equal(ety->id, 3);
     assert_memory_equal(ety->data, "value3", strlen("value3"));
     raft_entry_release(ety);
 
     ety = RaftLogGet(log, 2);
-    assert_int_equal(ety->id , 30);
+    assert_int_equal(ety->id, 30);
     assert_memory_equal(ety->data, "value30", strlen("value30"));
     raft_entry_release(ety);
 }
