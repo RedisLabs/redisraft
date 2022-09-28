@@ -445,7 +445,7 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
     return RR_OK;
 }
 
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg)
+int RaftLogLoadEntries(RaftLog *log)
 {
     int ret = 0;
 
@@ -492,18 +492,8 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
             break;
         }
 
-        int cb_ret = 0;
-        if (callback) {
-            callback(callback_arg, e, log->index);
-        }
-
         freeRawLogEntry(re);
         raft_entry_release(e);
-
-        if (cb_ret < 0) {
-            ret = cb_ret;
-            break;
-        }
     } while (1);
 
     if (ret > 0) {

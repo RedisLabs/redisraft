@@ -819,7 +819,7 @@ void RaftLogFree(RaftLog *raft_log);
 RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
 void RaftLogClose(RaftLog *log);
 RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raft_index_t), void *callback_arg);
+int RaftLogLoadEntries(RaftLog *log);
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
