@@ -17,8 +17,8 @@ jobs:
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'sjpotter/redis'
-        ref: 'test'
+        repository: 'redis/redis'
+        ref: 'unstable'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 gcov
@@ -54,8 +54,8 @@ jobs:
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'sjpotter/redis'
-          ref: 'test'
+          repository: 'redis/redis'
+          ref: 'unstable'
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=address

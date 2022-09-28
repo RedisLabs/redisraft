@@ -682,8 +682,7 @@ typedef struct {
 #define CMD_SPEC_DONT_INTERCEPT (1 << 4) /* Command should not be intercepted to RAFT */
 #define CMD_SPEC_SORT_REPLY     (1 << 5) /* Command output should be sorted within a lua script */
 #define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
-#define CMD_SPEC_DENYOOM        (1 << 7) /* Commands that can't be run when in oom */
-#define CMD_SPEC_SCRIPTS        (1 << 8) /* Commands that have script/function flags */
+#define CMD_SPEC_SCRIPTS        (1 << 7) /* Commands that have script/function flags */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -812,9 +811,6 @@ void handleFsyncCompleted(void *arg);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
-
-char *StrCreate(const void *buf, size_t len);
-char *StrCreateFromString(RedisModuleString *str);
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
@@ -831,7 +827,7 @@ int RaftLogLoadEntries(RaftLog *log, int (*callback)(void *, raft_entry_t *, raf
 RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
 RRStatus RaftLogSync(RaftLog *log, bool sync);
 raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg);
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx);
 RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
 raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);

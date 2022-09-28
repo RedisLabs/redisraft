@@ -376,8 +376,7 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
     RedisModule_Free(payload);
 
     /* Submit */
-    raft_entry_resp_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     raft_entry_release(entry);
 
     if (e != 0) {
@@ -412,8 +411,7 @@ RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg
     RedisModule_Free(buf);
 
     /* Submit */
-    raft_entry_resp_t response;
-    int e = raft_recv_entry(rr->raft, entry, &response);
+    int e = raft_recv_entry(rr->raft, entry, NULL);
     raft_entry_release(entry);
 
     if (e != 0) {
@@ -1281,7 +1279,7 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     slots_str = RedisModule_StringPtrLen(slots, &slots_len);
     const char *master = (master_node_id != NULL) ? master_node_id : "-";
     RedisModuleString *str = RedisModule_CreateStringPrintf(NULL,
-                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s\r\n",
+                                                            "%s %s:%d@%d %s %s %d %d %ld %s %.*s",
                                                             node_id,
                                                             addr->host,
                                                             addr->port,
@@ -1300,12 +1298,39 @@ static void appendClusterNodeString(RedisModuleString *ret, char node_id[41], No
     RedisModule_FreeString(NULL, str);
 }
 
+static void appendSpecialClusterNodeString(RedisModuleString *ret, unsigned int j, SlotRangeType type, ShardGroupNode *node)
+{
+    size_t len;
+    const char *temp;
+    char *direction;
+
+    switch (type) {
+        case SLOTRANGE_TYPE_IMPORTING:
+            direction = "<";
+            break;
+        case SLOTRANGE_TYPE_MIGRATING:
+            direction = ">";
+            break;
+        default:
+            return;
+    }
+
+    RedisModuleString *str = RedisModule_CreateStringPrintf(NULL, " [%u-%s-%.*s]", j, direction, 40, node->node_id);
+    temp = RedisModule_StringPtrLen(str, &len);
+    RedisModule_StringAppendBuffer(NULL, ret, temp, len);
+    RedisModule_FreeString(NULL, str);
+}
+
 /* Formats a CLUSTER NODES line from a raft node structure and appends it to ret. */
 static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
                                         RedisModuleString *ret,
                                         raft_node_t *raft_node,
+                                        ShardGroup *sg,
                                         RedisModuleString *slots)
 {
+    ShardGroup **importing_map = rr->sharding_info->importing_slots_map;
+    ShardGroup **migrating_map = rr->sharding_info->migrating_slots_map;
+
     Node *node = raft_node_get_udata(raft_node);
     NodeAddr *addr;
 
@@ -1346,6 +1371,34 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     char *link_state = "connected";
 
     appendClusterNodeString(ret, node_id, addr, flags, master, ping_sent, pong_recv, epoch, link_state, slots);
+
+    if (self) {
+        for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
+            ShardGroupSlotRange sr = sg->slot_ranges[i];
+
+            if (sr.type == SLOTRANGE_TYPE_STABLE) {
+                continue;
+            }
+
+            if (sr.type == SLOTRANGE_TYPE_IMPORTING) {
+                for (unsigned int j = sr.start_slot; j <= sr.end_slot; j++) {
+                    RedisModule_Assert(j < REDIS_RAFT_HASH_SLOTS);
+                    if (migrating_map[j] != NULL && migrating_map[j]->nodes_num > 0) {
+                        appendSpecialClusterNodeString(ret, j, sr.type, &migrating_map[j]->nodes[0]);
+                    }
+                }
+            } else if (sr.type == SLOTRANGE_TYPE_MIGRATING) {
+                for (unsigned int j = sr.start_slot; j <= sr.end_slot; j++) {
+                    RedisModule_Assert(j < REDIS_RAFT_HASH_SLOTS);
+                    if (importing_map[j] != NULL && importing_map[j]->nodes_num > 0) {
+                        appendSpecialClusterNodeString(ret, j, sr.type, &importing_map[j]->nodes[0]);
+                    }
+                }
+            }
+        }
+    }
+
+    RedisModule_StringAppendBuffer(NULL, ret, "\n", 1);
 }
 
 /* Produce a CLUSTER NODES compatible reply, including:
@@ -1378,7 +1431,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
                     if (!raft_node_is_active(raft_node)) {
                         continue;
                     }
-                    addClusterNodeReplyFromNode(rr, ret, raft_node, slots);
+                    addClusterNodeReplyFromNode(rr, ret, raft_node, sg, slots);
                 }
             } else {
                 for (unsigned int j = 0; j < sg->nodes_num; j++) {
@@ -1393,6 +1446,7 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
                     appendClusterNodeString(ret, sg->nodes[j].node_id, &sg->nodes[j].addr, flags, NULL, ping_sent,
                                             pong_recv, epoch, link_state, slots);
+                    RedisModule_StringAppendBuffer(NULL, ret, "\n", 1);
                 }
             }
             RedisModule_FreeString(ctx, slots);
@@ -1483,11 +1537,132 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_ReplySetArrayLength(ctx, num_slots);
 }
 
+static void addClusterShardsNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, char *id, uint16_t port, char *host, char *role)
+{
+    RedisModule_ReplyWithMap(ctx, 7);
+    RedisModule_ReplyWithCString(ctx, "id");
+    RedisModule_ReplyWithCString(ctx, id);
+    if (!rr->config.tls_enabled) {
+        RedisModule_ReplyWithCString(ctx, "port");
+        RedisModule_ReplyWithLongLong(ctx, port);
+    } else {
+        RedisModule_ReplyWithCString(ctx, "tls-port");
+        RedisModule_ReplyWithLongLong(ctx, port);
+    }
+    RedisModule_ReplyWithCString(ctx, "ip");
+    RedisModule_ReplyWithCString(ctx, host);
+    RedisModule_ReplyWithCString(ctx, "endpoint");
+    RedisModule_ReplyWithCString(ctx, host);
+    RedisModule_ReplyWithCString(ctx, "role");
+    RedisModule_ReplyWithCString(ctx, role);
+    RedisModule_ReplyWithCString(ctx, "replication-offset");
+    RedisModule_ReplyWithLongLong(ctx, 0);
+    RedisModule_ReplyWithCString(ctx, "health");
+    RedisModule_ReplyWithCString(ctx, "online");
+}
+
+static int addClusterShardsLocalNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_node_t *raft_node, raft_node_t *leader)
+{
+    Node *node = raft_node_get_udata(raft_node);
+    NodeAddr *addr;
+
+    char *role = (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft)) ? "master" : "replica";
+    int self = (raft_node_get_id(raft_node) == raft_get_nodeid(rr->raft));
+
+    /* Stale nodes should not exist but we prefer to be defensive.
+     * Our own node doesn't have a connection so we don't expect a Node object.
+     */
+    if (node) {
+        addr = &node->addr;
+    } else if (self) {
+        addr = &rr->config.addr;
+    } else {
+        return 0;
+    }
+
+    char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
+    raftNodeToString(node_id, rr->log->dbid, raft_node);
+
+    addClusterShardsNodeReply(rr, ctx, node_id, addr->port, addr->host, role);
+
+    return 1;
+}
+
+static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
+    if (!leader_node) {
+        return;
+    }
+
+    ShardingInfo *si = rr->sharding_info;
+    if (!si->shard_group_map) {
+        RedisModule_ReplyWithNullArray(ctx);
+        return;
+    }
+
+    int shard_count = 0;
+    size_t key_len;
+    ShardGroup *sg;
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
+    while (RedisModule_DictNextC(iter, &key_len, (void **) &sg) != NULL) {
+        shard_count++;
+
+        RedisModule_ReplyWithMap(ctx, 2);
+        RedisModule_ReplyWithCString(ctx, "slots");
+
+        int slot_count = 0;
+        RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+        for (unsigned int i = 0; i < sg->slot_ranges_num; i++) {
+            /* we only include slot ranges for a shard that are stable / migration */
+            SlotRangeType type = sg->slot_ranges[i].type;
+            if (type != SLOTRANGE_TYPE_STABLE && type != SLOTRANGE_TYPE_MIGRATING) {
+                continue;
+            }
+            slot_count += 1;
+            RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].start_slot);
+            RedisModule_ReplyWithLongLong(ctx, sg->slot_ranges[i].end_slot);
+        }
+        RedisModule_ReplySetArrayLength(ctx, slot_count * 2);
+
+        RedisModule_ReplyWithCString(ctx, "nodes");
+        if (sg->local) {
+            int node_count = 0;
+            RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+
+            for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
+                raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
+                if (!raft_node_is_active(raft_node)) {
+                    continue;
+                }
+                node_count += addClusterShardsLocalNodeReply(rr, ctx, raft_node, leader_node);
+            }
+            RedisModule_ReplySetArrayLength(ctx, node_count);
+        } else {
+            RedisModule_ReplyWithArray(ctx, sg->nodes_num);
+            for (unsigned int j = 0; j < sg->nodes_num; j++) {
+                char *node_id = sg->nodes[j].node_id;
+                uint16_t port = sg->nodes[j].addr.port;
+                char *host = sg->nodes[j].addr.host;
+                char *role = (j == 0) ? "master" : "replica";
+
+                addClusterShardsNodeReply(rr, ctx, node_id, port, host, role);
+            }
+        }
+    }
+
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_ReplySetArrayLength(ctx, shard_count);
+}
+
 /* Process CLUSTER commands, as intercepted earlier by the Raft module.
  *
  * Currently only supports:
  *   - SLOTS.
  *   - NODES.
+ *   - SHARDS,
  */
 void ShardingHandleClusterCommand(RedisRaftCtx *rr,
                                   RedisModuleCtx *ctx, RaftRedisCommand *cmd)
@@ -1508,6 +1683,8 @@ void ShardingHandleClusterCommand(RedisRaftCtx *rr,
         addClusterSlotsReply(rr, ctx);
     } else if (cmd_len == 5 && !strncasecmp(cmd_str, "NODES", 5)) {
         addClusterNodesReply(rr, ctx);
+    } else if (cmd_len == 6 && !strncasecmp(cmd_str, "SHARDS", 6)) {
+        addClusterShardsReply(rr, ctx);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Unknown subcommand.");
     }

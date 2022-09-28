@@ -139,7 +139,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        raft_entry_resp_t resp;
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
@@ -148,7 +147,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         memcpy(entry->data, &cfg, sizeof(cfg));
         entryAttachRaftReq(rr, entry, req);
 
-        int e = raft_recv_entry(rr->raft, entry, &resp);
+        int e = raft_recv_entry(rr->raft, entry, NULL);
         if (e != 0) {
             entryDetachRaftReq(rr, entry);
             replyRaftError(req->ctx, e);
@@ -182,7 +181,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             .id = (raft_node_id_t) node_id,
         };
 
-        raft_entry_resp_t resp;
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
@@ -191,7 +189,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         memcpy(entry->data, &cfg, sizeof(cfg));
         entryAttachRaftReq(rr, entry, req);
 
-        int e = raft_recv_entry(rr->raft, entry, &resp);
+        int e = raft_recv_entry(rr->raft, entry, NULL);
         if (e != 0) {
             entryDetachRaftReq(rr, entry);
             replyRaftError(req->ctx, e);
@@ -656,16 +654,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             continue;
         }
 
-        char *rm_call_flags;
-
-        if (cmd_flags & CMD_SPEC_DENYOOM && (RedisModule_GetUsedMemoryRatio() > 1.0)) {
-            rm_call_flags = "DCEMv";
-        } else {
-            rm_call_flags = "DCEv";
-        }
-
         enterRedisModuleCall();
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, rm_call_flags, cmd->argv + 1, cmd->argc - 1);
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, "DCEMv", cmd->argv + 1, cmd->argc - 1);
         exitRedisModuleCall();
         if (reply != NULL) {
             const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);

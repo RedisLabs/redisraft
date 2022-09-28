@@ -385,7 +385,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        RedisModule_SetContextModuleUser(ctx, user);
+        RedisModule_SetContextUser(ctx, user);
         reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
         exitRedisModuleCall();
 
@@ -806,7 +806,7 @@ static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privda
         return;
     }
 
-    if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str)) {
+    if (reply->type != REDIS_REPLY_STATUS || strcmp("OK", reply->str) != 0) {
         NODE_LOG_WARNING(node, "invalid RAFT.TIMEOUT_NOW reply");
         return;
     }
@@ -913,16 +913,11 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
 
 /* ------------------------------------ Utility Callbacks ------------------------------------ */
 
-static void raftLog(raft_server_t *raft, raft_node_id_t node, void *user_data, const char *buf)
+static void raftLog(raft_server_t *raft, void *user_data, const char *buf)
 {
-    raft_node_t *raft_node = raft_get_node(raft, node);
-    if (raft_node) {
-        Node *n = raft_node_get_udata(raft_node);
-        if (n) {
-            RAFTLIB_TRACE("<raftlib> node{%p,%d}: %s", n, n->id, buf);
-            return;
-        }
-    }
+    (void) raft;
+    (void) user_data;
+
     RAFTLIB_TRACE("<raftlib> %s", buf);
 }
 
@@ -968,9 +963,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     cfgchange->id = node->id;
     cfgchange->addr = node->addr;
 
-    raft_entry_resp_t response;
-
-    int e = raft_recv_entry(raft, entry, &response);
+    int e = raft_recv_entry(raft, entry, NULL);
     raft_entry_release(entry);
 
     return e;
@@ -1175,7 +1168,7 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
 
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
-        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid)) {
+        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid) != 0) {
             PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]",
                   rr->log->dbid, rr->snapshot_info.dbid);
         }
@@ -1457,14 +1450,13 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
             .addr = rr->config.addr,
         };
 
-        raft_entry_resp_t resp = {0};
         raft_entry_t *ety = raft_entry_new(sizeof(cfg));
 
         ety->id = rand();
         ety->type = RAFT_LOGTYPE_ADD_NODE;
         memcpy(ety->data, &cfg, sizeof(cfg));
 
-        if (raft_recv_entry(rr->raft, ety, &resp) != 0) {
+        if (raft_recv_entry(rr->raft, ety, NULL) != 0) {
             PANIC("Failed to init raft library");
         }
         raft_entry_release(ety);
@@ -1665,13 +1657,10 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     ShardingInfo *si = rr->sharding_info;
 
     if (si->shard_group_map != NULL) {
+        ShardGroup *data;
         RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
 
-        char *key;
-        size_t key_len;
-        ShardGroup *data;
-
-        while ((key = RedisModule_DictNextC(iter, &key_len, (void **) &data)) != NULL) {
+        while (RedisModule_DictNextC(iter, NULL, (void **) &data) != NULL) {
             ShardGroupFree(data);
         }
         RedisModule_DictIteratorStop(iter);
@@ -1679,9 +1668,9 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
         si->shard_group_map = NULL;
     }
 
+    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
     si->shard_groups_num = 0;
 
-    si->shard_group_map = RedisModule_CreateDict(rr->ctx);
     for (int i = 0; i <= REDIS_RAFT_HASH_MAX_SLOT; i++) {
         si->stable_slots_map[i] = NULL;
         si->importing_slots_map[i] = NULL;

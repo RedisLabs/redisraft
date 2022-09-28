@@ -333,7 +333,7 @@ error:
 static int handleHeader(RaftLog *log, RawLogEntry *re)
 {
     if (re->num_elements != 6 ||
-        strcmp(re->elements[0].ptr, "RAFTLOG")) {
+        strcmp(re->elements[0].ptr, "RAFTLOG") != 0) {
         LOG_WARNING("Invalid Raft log header.");
         return -1;
     }
@@ -660,11 +660,10 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
     return e;
 }
 
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
+RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx)
 {
     off_t offset;
     RRStatus ret = RR_OK;
-    unsigned long removed = 0;
 
     if (from_idx <= log->snapshot_last_idx) {
         return RR_ERROR;
@@ -689,11 +688,7 @@ RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx, raft_entry_notify_f 
                 ret = RR_ERROR;
                 break;
             }
-            if (cb) {
-                cb(cb_arg, e, log->index);
-            }
 
-            removed++;
             log->index--;
             log->num_entries--;
 
@@ -984,12 +979,12 @@ static int logImplPoll(void *rr_, raft_index_t first_idx)
     return 0;
 }
 
-static int logImplPop(void *rr_, raft_index_t from_idx, raft_entry_notify_f cb, void *cb_arg)
+static int logImplPop(void *rr_, raft_index_t from_idx)
 {
     RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
     RAFTLOG_TRACE("Delete(from_idx=%lu)", from_idx);
     EntryCacheDeleteTail(rr->logcache, from_idx);
-    if (RaftLogDelete(rr->log, from_idx, cb, cb_arg) != RR_OK) {
+    if (RaftLogDelete(rr->log, from_idx) != RR_OK) {
         return -1;
     }
     return 0;
