@@ -234,13 +234,12 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     }
     p += n;
     buf_size -= n;
-    {
-        size_t acl_len;
-        RedisModule_StringPtrLen(acl, &acl_len);
-        if (acl_len == 0) {
-            RedisModule_FreeString(NULL, acl);
-            acl = NULL;
-        }
+
+    size_t acl_len;
+    RedisModule_StringPtrLen(acl, &acl_len);
+    if (acl_len == 0) {
+        RedisModule_FreeString(NULL, acl);
+        acl = NULL;
     }
     target->acl = acl;
 

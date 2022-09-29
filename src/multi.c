@@ -102,22 +102,39 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
          */
         unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, 0);
 
-        if (validateCommandACL(ctx, cmds->commands[0]) == REDISMODULE_ERR) {
-            RedisModule_ReplyWithError(ctx, "NOPERM this user doesn't have proper permissions");
-            multiState->error = true;
-        } else if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
+        if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
             multiState->error = true;
-        } else if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
+            return true;
+        }
+
+        if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
             RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
             multiState->error = true;
-        } else if (RedisModule_GetUsedMemoryRatio() > 1.0) {
+            return true;
+        }
+
+        if (RedisModule_GetUsedMemoryRatio() > 1.0) {
+            /* Can only enqueue if not in an OOM situation, even for non deny oom commands */
             RedisModule_ReplyWithError(ctx, "OOM command not allowed when used memory > 'maxmemory'.");
             multiState->error = true;
-        } else {
-            RaftRedisCommandArrayMove(&multiState->cmds, cmds);
-            RedisModule_ReplyWithSimpleString(ctx, "QUEUED");
+            return true;
         }
+
+        /* "Multi Dry Run" - only check for ACL, not for OOM, as OOM is checked above */
+        enterRedisModuleCall();
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, cmd_str, "DCEv", cmd->argv + 1, cmd->argc - 1);
+        exitRedisModuleCall();
+        if (reply != NULL) {
+            RedisModule_ReplyWithCallReply(ctx, reply);
+            RedisModule_FreeCallReply(reply);
+
+            multiState->error = true;
+            return true;
+        }
+
+        RaftRedisCommandArrayMove(&multiState->cmds, cmds);
+        RedisModule_ReplyWithSimpleString(ctx, "QUEUED");
 
         return true;
     }

@@ -321,7 +321,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 
             size_t acl_len;
             const char *acl_str = RedisModule_StringPtrLen(cmds->acl, &acl_len);
-            RedisModule_Assert(RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL) == REDISMODULE_OK);
+            int ret = RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL);
+            RedisModule_Assert(ret == REDISMODULE_OK);
 
             RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
         }
@@ -368,20 +369,16 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
 
         char *resp_call_fmt;
 
-        if (reply_ctx) {
-            if (cmds->acl) {
-                /* We have client so check ACL (C), return response in client format (0) and rm_call error as reply (E) */
-                resp_call_fmt = "CE0v";
-            } else {
-                resp_call_fmt = "0v";
-            }
-        } else {
-            if (cmds->acl) {
-                /* We don't have a client so only check ACL (C) */
-                resp_call_fmt = "Cv";
-            } else {
-                resp_call_fmt = "v";
-            }
+        /* Explanation
+         * When
+         * we have the client, we return rm_call errors to user, so need "E"
+         * we have the client, so want to return the response in proper format, so "0"
+         * we have an ACL, we will have a uset set on the context, so need "C"
+         */
+        if (reply_ctx) { /* leader, has client */
+            resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
+        } else { /* follower, no client */
+            resp_call_fmt = cmds->acl ? "Cv" : "v";
         }
 
         enterRedisModuleCall();

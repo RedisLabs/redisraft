@@ -658,8 +658,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, "DCEMv", cmd->argv + 1, cmd->argc - 1);
         exitRedisModuleCall();
         if (reply != NULL) {
-            const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);
-            RedisModule_ReplyWithError(ctx, err_str);
+            RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return;
         }
