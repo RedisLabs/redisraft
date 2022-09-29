@@ -366,19 +366,10 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
             rr->entered_eval = 1;
         }
 
-        char *resp_call_fmt;
-
-        /* Explanation
-         * When
-         * we have the client, we return rm_call errors to user, so need "E"
-         * we have the client, so want to return the response in proper format, so "0"
-         * we have an ACL, we will have a uset set on the context, so need "C"
+        /* Explanation:
+         * When we have an ACL, we will have a user set on the context, so need "C"
          */
-        if (reply_ctx) { /* leader, has client */
-            resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
-        } else { /* follower, no client */
-            resp_call_fmt = cmds->acl ? "Cv" : "v";
-        }
+        char *resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
 
         enterRedisModuleCall();
         RedisModule_SetContextUser(ctx, user);
@@ -388,13 +379,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         rr->entered_eval = old_entered_eval;
 
         if (reply_ctx) {
-            int type = RedisModule_CallReplyType(reply);
-            if (type != REDISMODULE_REPLY_ERROR) {
-                RedisModule_ReplyWithCallReply(ctx, reply);
-            } else {
-                const char *str = RedisModule_CallReplyStringPtr(reply, NULL);
-                RedisModule_ReplyWithError(ctx, str);
-            }
+            RedisModule_ReplyWithCallReply(ctx, reply);
         }
 
         if (reply) {
