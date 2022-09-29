@@ -305,4 +305,3 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
     snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
 }
-
