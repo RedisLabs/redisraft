@@ -379,12 +379,10 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         rr->entered_eval = old_entered_eval;
 
         if (reply_ctx) {
-            RedisModule_ReplyWithCallReply(ctx, reply);
+            RedisModule_ReplyWithCallReply(reply_ctx, reply);
         }
 
-        if (reply) {
-            RedisModule_FreeCallReply(reply);
-        }
+        RedisModule_FreeCallReply(reply);
     }
 }
 
