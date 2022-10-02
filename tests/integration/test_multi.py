@@ -189,3 +189,55 @@ def test_multi_with_maxmemory(cluster):
     assert node.execute('MULTI') == b'OK'
     assert node.execute('GET', 'key1') == b'QUEUED'
     assert node.execute('EXEC') == [val.encode()]
+
+
+def test_multi_with_acl(cluster):
+    """
+    MULTI/EXEC should fail when used a command is ACL denied
+    """
+
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+    node.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)', '(+get', '~key*)')
+
+    c1 = cluster.node(1).client.connection_pool.get_connection('client')
+
+    c1.send_command('MULTI')
+    assert c1.read_response() == b'OK'
+    c1.send_command('GET', 'key1')
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('SET', 'key1', 2)
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('EXEC')
+    assert c1.read_response() == [b'1', b'OK']
+
+    c1.send_command('get', 'key1')
+    assert c1.read_response() == b'2'
+
+    c1.send_command('MULTI')
+    assert c1.read_response() == b'OK'
+    c1.send_command('set', 'key1', 3)
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('set', 'abc', 1)
+    with raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments"):
+        c1.read_response()
+    c1.send_command('set', 'key2', 1)
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('EXEC')
+    with raises(ResponseError, match='Transaction discarded because of previous errors.'):
+        c1.read_response()
+
+    c1.send_command('MULTI')
+    assert c1.read_response() == b'OK'
+    c1.send_command('eval', """
+        redis.call('SET','abc', 3);
+        return 1234;""", 0)
+    assert c1.read_response() == b'QUEUED'
+    c1.send_command('EXEC')
+    ret = c1.read_response()
+    assert isinstance(ret, list)
+    assert len(ret) == 1
+    assert isinstance(ret[0], ResponseError)
+    assert "The user executing the script can't access at least one of the keys mentioned in the command" in str(ret[0])
+

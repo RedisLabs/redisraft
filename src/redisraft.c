@@ -649,13 +649,16 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         RaftRedisCommand *cmd = cmds->commands[i];
         size_t cmdlen;
         const char *cmdstr = RedisModule_StringPtrLen(cmd->argv[0], &cmdlen);
+        /* skip multi */
+        if (i == 0 && cmdlen == 5 && !strncasecmp(cmdstr, "MULTI", 5)) {
+            continue;
+        }
 
         enterRedisModuleCall();
         RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdstr, "DCEMv", cmd->argv + 1, cmd->argc - 1);
         exitRedisModuleCall();
         if (reply != NULL) {
-            const char *err_str = RedisModule_CallReplyStringPtr(reply, NULL);
-            RedisModule_ReplyWithError(ctx, err_str);
+            RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return;
         }
@@ -682,6 +685,14 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+
+    if (cmd_flags & CMD_SPEC_SCRIPTS) {
+        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(user);
+        RedisModule_FreeModuleUser(user);
+        RedisModule_FreeString(ctx, user_name);
+    }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
@@ -1928,16 +1939,12 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         goto error;
     }
 
-    /* for backwards compatibility with older redis version that don't support "0v"m */
-    if (RedisModule_GetContextFlagsAll() & REDISMODULE_CTX_FLAGS_RESP3) {
-        rr->resp_call_fmt = "0v";
-    } else {
-        rr->resp_call_fmt = "v";
-    }
-
     /* Client state for MULTI/ASKING support */
     rr->client_state = RedisModule_CreateDict(rr->ctx);
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
+
+    /* acl -> user dictionary */
+    rr->acl_dict = RedisModule_CreateDict(ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);

@@ -306,6 +306,26 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
                              RaftRedisCommandArray *cmds)
 {
     RedisModuleCallReply *reply;
+    RedisModuleUser *user = NULL;
+
+    if (cmds->acl) {
+        int nokey;
+        user = RedisModule_DictGet(rr->acl_dict, cmds->acl, &nokey);
+        if (nokey) {
+            char user_name[64];
+            uint64_t count = RedisModule_DictSize(rr->acl_dict);
+            count++;
+            snprintf(user_name, 64, "redis_raft%lu", count);
+            user = RedisModule_CreateModuleUser(user_name);
+            RedisModule_Assert(user != NULL);
+
+            const char *acl_str = RedisModule_StringPtrLen(cmds->acl, NULL);
+            int ret = RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL);
+            RedisModule_Assert(ret == REDISMODULE_OK);
+
+            RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
+        }
+    }
 
     if (rr->debug_delay_apply) {
         usleep(rr->debug_delay_apply);
@@ -341,29 +361,28 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         int old_entered_eval = rr->entered_eval;
 
         if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) ||
-            (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7))) {
+            (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7)) ||
+            (cmdlen == 5 && !strncasecmp(cmd, "fcall", 5))) {
             rr->entered_eval = 1;
         }
 
+        /* Explanation:
+         * When we have an ACL, we will have a user set on the context, so need "C"
+         */
+        char *resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
+
         enterRedisModuleCall();
-        reply = RedisModule_Call(ctx, cmd,
-                                 rr->resp_call_fmt, &c->argv[1], c->argc - 1);
-        int ret_errno = errno;
+        RedisModule_SetContextUser(ctx, user);
+        reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
         exitRedisModuleCall();
 
         rr->entered_eval = old_entered_eval;
 
         if (reply_ctx) {
-            if (reply) {
-                RedisModule_ReplyWithCallReply(reply_ctx, reply);
-            } else {
-                replyRMCallError(reply_ctx, ret_errno, cmd, cmdlen);
-            }
+            RedisModule_ReplyWithCallReply(reply_ctx, reply);
         }
 
-        if (reply) {
-            RedisModule_FreeCallReply(reply);
-        }
+        RedisModule_FreeCallReply(reply);
     }
 }
 

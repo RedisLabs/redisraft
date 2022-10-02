@@ -509,7 +509,7 @@ def test_maxmemory(cluster):
     val = ''.join('1' for _ in range(2000000))
 
     cluster.execute('set', 'key1', val)
-    cluster.execute('config', 'set', 'maxmemory', 100000)
+    cluster.execute('config', 'set', 'maxmemory', 1)
 
     with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
         cluster.execute('set', 'key2', val)
@@ -520,8 +520,50 @@ def test_maxmemory(cluster):
     with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
         cluster.execute('set', 'key1', val)
 
-    cluster.execute('config', 'set', 'maxmemory', 4000000000)
+    cluster.execute('config', 'set', 'maxmemory', 0)
     cluster.execute('set', 'key1', val)
+
+
+def test_acl(cluster):
+    cluster.create(3)
+
+    cluster.execute('set', 'key', 1)
+    cluster.execute('set', 'abc', 1)
+    cluster.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)', '(+get', '~key*)')
+    cluster.execute('get', 'key')
+    with (raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments")):
+        cluster.execute('get', 'abc')
+
+    cluster.execute('set', 'key', 2)
+    cluster.wait_for_unanimity()
+    assert cluster.node(1).raft_debug_exec('get', 'key') == b'2'
+    assert cluster.node(2).raft_debug_exec('get', 'key') == b'2'
+    assert cluster.node(3).raft_debug_exec('get', 'key') == b'2'
+
+    with (raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments")):
+        cluster.execute('set', 'abc', 2)
+
+    cluster.wait_for_unanimity()
+    assert cluster.node(1).raft_debug_exec('get', 'abc') == b'1'
+    assert cluster.node(2).raft_debug_exec('get', 'abc') == b'1'
+    assert cluster.node(3).raft_debug_exec('get', 'abc') == b'1'
+
+    assert cluster.execute('EVAL', """
+    redis.call('SET','key', 3);
+    return 1234;""", '0') == 1234
+    cluster.wait_for_unanimity()
+    assert cluster.node(1).raft_debug_exec('get', 'key') == b'3'
+    assert cluster.node(2).raft_debug_exec('get', 'key') == b'3'
+    assert cluster.node(3).raft_debug_exec('get', 'key') == b'3'
+
+    with (raises(ResponseError, match="The user executing the script can't access at least one of the keys mentioned in the command")):
+        cluster.execute('EVAL', """
+        redis.call('SET','abc', 3);
+        return 1234;""", '0')
+    cluster.wait_for_unanimity()
+    assert cluster.node(1).raft_debug_exec('get', 'abc') == b'1'
+    assert cluster.node(2).raft_debug_exec('get', 'abc') == b'1'
+    assert cluster.node(3).raft_debug_exec('get', 'abc') == b'1'
 
 
 def test_metadata_restore_after_restart(cluster):

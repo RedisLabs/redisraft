@@ -27,6 +27,13 @@ static const CommandSpec commands[] = {
     {"save",                        CMD_SPEC_UNSUPPORTED                     },
     {"bgsave",                      CMD_SPEC_UNSUPPORTED                     },
 
+    {"eval",                        CMD_SPEC_SCRIPTS                         },
+    {"evalsha",                     CMD_SPEC_SCRIPTS                         },
+    {"eval_ro",                     CMD_SPEC_SCRIPTS                         },
+    {"evalsha_ro",                  CMD_SPEC_SCRIPTS                         },
+    {"fcall",                       CMD_SPEC_SCRIPTS                         },
+    {"fcall_ro",                    CMD_SPEC_SCRIPTS                         },
+
  /* Blocking commands not supported */
     {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
     {"brpoplpush",                  CMD_SPEC_UNSUPPORTED                     },

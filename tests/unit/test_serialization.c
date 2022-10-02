@@ -36,8 +36,9 @@ static void test_serialize_redis_command(void **state)
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd1_argv, 3);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd2_argv, 2);
     setupRedisCommand(RaftRedisCommandArrayExtend(&cmd_array), cmd3_argv, 1);
+    cmd_array.acl = RedisModule_CreateString(NULL, "hello", 5);
 
-    const char *expected = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    const char *expected = "*0\n$5\nhello\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
 
     raft_entry_t *e = RaftRedisCommandArraySerialize(&cmd_array);
     assert_non_null(e);
@@ -61,13 +62,29 @@ static void test_deserialize_redis_command(void **state)
 
 static void test_deserialize_redis_command_array(void **state)
 {
-    const char *serialized = "*0\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    const char *serialized = "*0\n$0\n\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
     int serialized_len = strlen(serialized);
 
     RaftRedisCommandArray cmd_array = {0};
     cmd_array.len = 5; /* free would be called to reset it */
     assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array, serialized, serialized_len), RR_OK);
     assert_int_equal(cmd_array.len, 3);
+
+    RaftRedisCommandArrayFree(&cmd_array);
+}
+
+static void test_deserialize_redis_command_array_with_acl(void **state)
+{
+    const char *serialized = "*0\n$5\nhello\n*3\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n*2\n$3\nGET\n$5\nmykey\n*1\n$4\nPING\n";
+    int serialized_len = strlen(serialized);
+
+    RaftRedisCommandArray cmd_array = {0};
+    cmd_array.len = 5; /* free would be called to reset it */
+    assert_int_equal(RaftRedisCommandArrayDeserialize(&cmd_array, serialized, serialized_len), RR_OK);
+    assert_int_equal(cmd_array.len, 3);
+    size_t len;
+    const char *acl = RedisModule_StringPtrLen(cmd_array.acl, &len);
+    assert_string_equal("hello", acl);
 
     RaftRedisCommandArrayFree(&cmd_array);
 }
@@ -238,6 +255,7 @@ const struct CMUnitTest serialization_tests[] = {
     cmocka_unit_test(test_serialize_redis_command),
     cmocka_unit_test(test_deserialize_redis_command),
     cmocka_unit_test(test_deserialize_redis_command_array),
+    cmocka_unit_test(test_deserialize_redis_command_array_with_acl),
     cmocka_unit_test(test_deserialize_corrupted_data),
     cmocka_unit_test(test_serialize_shardgroup),
     cmocka_unit_test(test_deserialize_shardgroup),
