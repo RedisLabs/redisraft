@@ -315,7 +315,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
             char user_name[64];
             uint64_t count = RedisModule_DictSize(rr->acl_dict);
             count++;
-            snprintf(user_name, 64, "redis_raft%lu", count);
+            snprintf(user_name, 64, "redis_raft%lu", (unsigned long) count);
             user = RedisModule_CreateModuleUser(user_name);
             RedisModule_Assert(user != NULL);
 

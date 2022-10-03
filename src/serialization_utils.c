@@ -142,6 +142,7 @@ int encodeString(char *p, size_t sz, RedisModuleString *str)
 
     if (str == NULL) {
         len = 0;
+        e = "";
     } else {
         e = RedisModule_StringPtrLen(str, &len);
     }
