@@ -753,7 +753,6 @@ void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
 /* common.c - common reply function */
 void replyRaftError(RedisModuleCtx *ctx, int error);
-void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
