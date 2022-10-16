@@ -6,9 +6,10 @@ Copyright (c) 2020-2021 Redis Ltd.
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 import os.path
+import subprocess
 from types import SimpleNamespace
 import pytest
-from .sandbox import Cluster
+from .sandbox import Cluster, Elle
 from .workload import Workload
 
 
@@ -42,8 +43,10 @@ def pytest_addoption(parser):
         '--tls', default=False, action='store_true',
         help='Use tls')
     parser.addoption(
-        "--runslow", action="store_true", default=False, help="run slow tests"
-    )
+        "--runslow", action="store_true", default=False, help="run slow tests")
+    parser.addoption(
+        '--elle-cli', default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
+        help='location for elle-cli jar file')
 
 
 def pytest_configure(config):
@@ -73,6 +76,7 @@ def create_config(pytest_config):
     config.keepfiles = pytest_config.getoption('--keep-files')
     config.fsync = pytest_config.getoption('--fsync')
     config.tls = pytest_config.getoption('--tls')
+    config.elle_cli = os.path.abspath(pytest_config.getoption('--elle-cli'))
 
     if pytest_config.getoption('--valgrind'):
         if config.args is None:
@@ -133,3 +137,18 @@ def workload():
     _workload = Workload()
     yield _workload
     _workload.terminate()
+
+
+@pytest.fixture
+def elle(request):
+    elle_main = Elle(create_config(request.config))
+    yield elle_main
+    elle_main.logfile.close()
+    # no reason to run elle if failed
+    if not request.session.testsfailed:
+        try:
+            subprocess.run(["java", "-jar", elle_main.config.elle_cli, "-v", "--model", "list-append",
+                            os.path.join(elle_main.logdir, "logfile.edn")], check=True)
+        except Exception as e:
+            print(f"failed run {e}")
+            raise e

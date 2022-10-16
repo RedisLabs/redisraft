@@ -5,7 +5,7 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-
+import re
 import time
 import os
 import os.path
@@ -15,9 +15,13 @@ import itertools
 import random
 import logging
 import signal
+import typing
 import uuid
 import shutil
+from typing import List
+
 import redis
+from redis import ResponseError
 
 LOG = logging.getLogger('sandbox')
 
@@ -551,7 +555,7 @@ class Cluster(object):
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
                  node_id=None, use_cluster_args=False, single_run=False,
-                 join_addr_list=None, redis_args=None, tls_ca_cert_location=None,**kwargs):
+                 join_addr_list=None, redis_args=None, tls_ca_cert_location=None, **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -716,6 +720,181 @@ class Cluster(object):
             node.terminate()
         for node in self.nodes.values():
             node.start()
+
+
+class ElleOp(object):
+    def __init__(self, op_type: str, key: str, value: typing.Optional[str] = None):
+        self.op_type = op_type
+        self.key = key
+        self.value = value
+
+    def __str__(self):
+        if self.op_type == "append":
+            return f"[:append {self.key} {self.value}]"
+        elif self.op_type == "read":
+            return f"[:r {self.key} nil]"
+        else:
+            raise Exception(f"invalid op_type = {self.op_type}")
+
+
+class Elle(object):
+    def __init__(self, config):
+        self.config = config
+        workdir = os.path.abspath(self.config.workdir)
+        self.logdir = os.path.join(workdir, str(uuid.uuid4()))
+        os.makedirs(self.logdir, exist_ok=True)
+        self.lock = threading.Lock()
+        self.logfile = open(os.path.join(self.logdir, "logfile.edn"), "x")
+        self.index = {}
+        self.value = 0
+
+    @staticmethod
+    def generate_ops_value(ops: typing.List[ElleOp]) -> str:
+        val = " ".join(map(str, ops))
+        return f"[{val}]"
+
+    def generate_command_output(self, thread: int, ops: List[ElleOp], state: str) -> str:
+        return f"{{:index {self.index[thread]} :process {thread} :type :{state}, :value {self.generate_ops_value(ops)}}}"
+
+    def log_command(self, thread: int, ops: List[ElleOp]):
+        try:
+            self.index[thread] += 1
+        except KeyError:
+            self.index[thread] = 1
+
+        output = self.generate_command_output(thread, ops, "invoke")
+        self.lock.acquire()
+        self.logfile.write(output)
+        self.logfile.write("\n")
+        self.lock.release()
+
+    @staticmethod
+    def generate_results_value(results: typing.List, ops: typing.List[ElleOp]) -> str:
+        val = "["
+        for i in range(len(ops)):
+            if i != 0:
+                val += " "
+            if ops[i].op_type == "append":
+                val += str(ops[i])
+            elif ops[i].op_type == "read":
+                tmp = " ".join([x.decode('utf-8') for x in results[i]])
+                val += f"[:r {ops[i].key} [{tmp}]]"
+            else:
+                raise Exception(f"unknown op type {ops[i].op_type}")
+        val += "]"
+        return val
+
+    def generate_result_output(self, thread: int, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+        output: str
+        if result == "ok":
+            output = self.generate_results_value(results, ops)
+            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+        elif result == "fail":
+            output = self.generate_ops_value(ops)
+            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+        else:
+            raise Exception(f"unknown result value {result}")
+
+    def log_result(self, thread, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+        # if this throws an exception, we have a failure elsewhere
+        self.index[thread] += 1
+
+        output = self.generate_result_output(thread, result, results, ops)
+        self.lock.acquire()
+        self.logfile.write(output)
+        self.logfile.write("\n")
+        self.lock.release()
+
+    @staticmethod
+    def map_addresses_to_clients(clusters: List[Cluster]) -> typing.Mapping[str, redis.Redis]:
+        mapped_clients: typing.Dict[str, redis.Redis] = {}
+        default_set = False
+        for c in clusters:
+            for n in c.nodes.values():
+                mapped_clients[n.address] = n.client
+                if not default_set:
+                    mapped_clients["default"] = n.client
+                    default_set = True
+        return mapped_clients
+
+    def get_next_value(self) -> int:
+        with self.lock:
+            ret = self.value
+            self.value += 1
+            return ret
+
+
+class ElleWorker(object):
+    def __init__(self, elle: Elle, clients: typing.Dict[str, redis.Redis]):
+        self.clients = clients
+        self.elle = elle
+        self.id = threading.get_ident()
+
+    # might not want generate_ops, perhaps each multi should just be a single append/read of same key
+    def generate_ops(self, available_keys: typing.List[str]) -> typing.List[ElleOp]:
+        ops: typing.List[ElleOp] = []
+        for _ in range(random.randint(1, 2)):
+            key = available_keys[random.randrange(0, len(available_keys))]
+            val = self.elle.get_next_value()
+            ops.append(ElleOp("append", key, str(val)))
+            if random.randint(0, 1) > 0:
+                ops.append(ElleOp("read", key))
+
+        return ops
+
+    def do_ops(self, ops: typing.List[ElleOp]):
+        # needs a way to handle asking
+        good_write = False
+        needs_asking = False
+
+        client = self.clients["default"]
+        self.elle.log_command(self.id, ops)
+
+        # conn.send_command('ASKING')
+        # assert conn.read_response() == b'OK'
+        # conn.send_command('get', 'key')
+        # assert conn.read_response() == b'value'
+
+        # 3 possible hops in normal scenario
+        # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remoe leader"
+        # if it doesn't work by then, error
+        for i in range(0, 3):
+            conn = client.connection_pool.get_connection('deferred')
+            if needs_asking:
+                conn.send_command('ASKING')
+                assert conn.read_response() == b'OK'
+
+            conn.send_command('MULTI')
+            assert conn.read_response() == b'OK'
+            for j in range(len(ops)):
+                if ops[j].op_type == "append":
+                    conn.send_command('RPUSH', ops[j].key, ops[j].value)
+                    assert conn.read_response() == b'QUEUED'
+                elif ops[j].op_type == "read":
+                    conn.send_command('LRANgE', ops[j].key, 0, -1)
+                    assert conn.read_response() == b'QUEUED'
+                else:
+                    raise Exception(f"Unknown op_type {ops[j].op_type}")
+            try:
+                conn.send_command('EXEC')
+                ret = conn.read_response()
+                self.elle.log_result(self.id, "ok", ret, ops)
+                good_write = True
+            except ResponseError as e:
+                m = re.search(r"^MOVED \d* (.*)$", str(e))
+                a = re.search(r"^ASK \d* (.*)$", str(e))
+                if m:
+                    client = self.clients[m.group(1)]
+                    self.clients["default"] = client
+                elif a:
+                    # don't know how to handle submitting an ASKING yet + how to control it
+                    client = self.clients[a.group(1)]
+                    needs_asking = True
+            if good_write:
+                break
+
+        if not good_write:
+            self.elle.log_result(self.id, "fail", None, ops)
 
 
 def assert_after(func, timeout, retry_interval=0.5):
