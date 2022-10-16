@@ -220,7 +220,7 @@ def test_multi_with_acl(cluster):
     c1.send_command('set', 'key1', 3)
     assert c1.read_response() == b'QUEUED'
     c1.send_command('set', 'abc', 1)
-    with raises(ResponseError, match="acl verification failed, can't access at least one of the keys mentioned in the command arguments"):
+    with raises(ResponseError, match="No permissions to access a key"):
         c1.read_response()
     c1.send_command('set', 'key2', 1)
     assert c1.read_response() == b'QUEUED'
@@ -239,5 +239,5 @@ def test_multi_with_acl(cluster):
     assert isinstance(ret, list)
     assert len(ret) == 1
     assert isinstance(ret[0], ResponseError)
-    assert "The user executing the script can't access at least one of the keys mentioned in the command" in str(ret[0])
+    assert "ACL failure in script: No permissions to access a key" in str(ret[0])
 
