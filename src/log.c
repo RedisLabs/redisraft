@@ -652,47 +652,26 @@ raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx)
 
 RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx)
 {
-    off_t offset;
-    RRStatus ret = RR_OK;
-
     if (from_idx <= log->snapshot_last_idx) {
         return RR_ERROR;
     }
 
-    while (log->index >= from_idx) {
-        if (!(offset = seekEntry(log, log->index))) {
+    raft_index_t count = log->index - from_idx + 1;
+    if (count != 0) {
+        off_t entry_offset = seekEntry(log, from_idx);
+        if (entry_offset == 0) {
             return RR_ERROR;
         }
 
-        RawLogEntry *re;
-        raft_entry_t *e;
-
-        if (readRawLogEntry(log->file, &re) < 0) {
-            ret = RR_ERROR;
-            break;
+        if (ftruncate(fileno(log->file), entry_offset) < 0) {
+            PANIC("ftruncate failed : %s", strerror(errno));
         }
 
-        if (!strcasecmp(re->elements[0].ptr, "ENTRY")) {
-            if ((e = parseRaftLogEntry(re)) == NULL) {
-                freeRawLogEntry(re);
-                ret = RR_ERROR;
-                break;
-            }
-
-            log->index--;
-            log->num_entries--;
-
-            raft_entry_release(e);
-
-            if (ftruncate(fileno(log->file), offset) < 0) {
-                PANIC("ftruncate failed : %s", strerror(errno));
-            }
-        }
-
-        freeRawLogEntry(re);
+        log->num_entries -= count;
+        log->index -= count;
     }
 
-    return ret;
+    return RR_OK;
 }
 
 raft_index_t RaftLogFirstIdx(RaftLog *log)
