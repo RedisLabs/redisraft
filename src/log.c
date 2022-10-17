@@ -594,7 +594,7 @@ static off_t seekEntry(RaftLog *log, raft_index_t idx)
 
     off_t offset;
 
-    char *data = (char*) &offset;
+    char *data = (char *) &offset;
     size_t len = sizeof(offset);
     off_t pos = (off_t) (sizeof(off_t) * relidx);
 
