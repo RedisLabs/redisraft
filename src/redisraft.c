@@ -1960,7 +1960,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
-    if (RaftMetaRead(&rr->meta, rr->config.log_filename) == RR_OK) {
+    int ret = MetadataRead(&rr->meta, rr->config.log_filename);
+    if (ret == RR_OK) {
         rr->log = RaftLogOpen(rr->config.log_filename, &rr->config, 0);
         if (rr->log) {
             rr->state = REDIS_RAFT_LOADING;

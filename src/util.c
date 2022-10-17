@@ -11,6 +11,7 @@
 #include "common/crc16.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -58,6 +59,23 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
     va_end(ap);
 
     return strbuf;
+}
+
+/* Checks return value of snprintf and panic on truncation or error. */
+int safesnprintf(void *buf, size_t size, const char *fmt, ...)
+{
+    va_list va;
+
+    va_start(va, fmt);
+    int ret = vsnprintf(buf, size, fmt, va);
+    va_end(va);
+
+    /* If size is zero, we assume this is intentional to calculate output len */
+    if (ret < 0 || (size != 0 && ret >= (int) size)) {
+        PANIC("vsnprintf(): ret=%d, size=%zu, errno=%d", ret, size, errno);
+    }
+
+    return ret;
 }
 
 /* This function assumes that the rr->config->slot_config has already been validated as valid */
@@ -230,4 +248,49 @@ RRStatus parseHashSlots(char *slots, char *string)
 exit:
     RedisModule_Free(string);
     return ret;
+}
+
+bool parseLongLong(const char *str, char **end, long long *val)
+{
+    char *endp;
+
+    errno = 0;
+    *val = strtoll(str, &endp, 0);
+
+    if (end) {
+        *end = endp;
+    }
+
+    if (endp == str ||
+        ((*val == LLONG_MIN || *val == LLONG_MAX) && errno == ERANGE)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool parseLong(const char *str, char **end, long *val)
+{
+    long long num;
+
+    bool ret = parseLongLong(str, end, &num);
+    if (!ret || num < LONG_MIN || num > LONG_MAX) {
+        return false;
+    }
+
+    *val = (long) num;
+    return true;
+}
+
+bool parseInt(const char *str, char **end, int *val)
+{
+    long long num;
+
+    bool ret = parseLongLong(str, end, &num);
+    if (!ret || num < INT_MIN || num > INT_MAX) {
+        return false;
+    }
+
+    *val = (int) num;
+    return true;
 }
