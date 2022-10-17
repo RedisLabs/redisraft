@@ -10,6 +10,7 @@
 #include "redisraft.h"
 
 #include <assert.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -25,10 +26,9 @@ void RaftLogClose(RaftLog *log)
         fclose(log->file);
         log->file = NULL;
     }
-    if (log->idxfile) {
-        fclose(log->idxfile);
-        log->idxfile = NULL;
-        log->idxoffset = 0;
+    if (log->idxfile != -1) {
+        close(log->idxfile);
+        log->idxfile = -1;
     }
     RedisModule_Free(log);
 }
@@ -187,27 +187,25 @@ error:
     return -1;
 }
 
-static int updateIndex(RaftLog *log, raft_index_t index, off_t offset)
+static void updateIndex(RaftLog *log, raft_index_t index, off_t offset)
 {
     RedisModule_Assert(index > log->snapshot_last_idx);
 
     raft_index_t relidx = index - log->snapshot_last_idx - 1;
 
-    /* skip fseek() call if not necessary */
-    if (log->idxoffset != (off_t) (sizeof(off_t) * (relidx))) {
-        if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
-            return -1;
+    char *data = (char *) &offset;
+    size_t len = sizeof(offset);
+    off_t pos = (off_t) (sizeof(off_t) * relidx);
+
+    while (len > 0) {
+        ssize_t wr = pwrite(log->idxfile, data, len, pos);
+        if (wr < 0) {
+            PANIC("pwrite(): %s", strerror(errno));
         }
-        log->idxoffset = sizeof(off_t) * (relidx);
+        data += wr;
+        len -= wr;
+        pos += wr;
     }
-
-    if (fwrite(&offset, sizeof(off_t), 1, log->idxfile) != 1) {
-        return -1;
-    }
-    /* Successful fwrite(), advance the offset */
-    log->idxoffset += sizeof(off_t);
-
-    return 0;
 }
 
 static char *getIndexFilename(const char *filename)
@@ -228,8 +226,14 @@ static RaftLog *prepareLog(const char *filename, int flags)
 
     /* Index file */
     char *idx_filename = getIndexFilename(filename);
-    FILE *idxfile = fopen(idx_filename, (flags & RAFTLOG_KEEP_INDEX) ? "r+" : "w+");
-    if (!idxfile) {
+
+    int mode = O_RDWR | O_CREAT;
+    if (!(flags & RAFTLOG_KEEP_INDEX)) {
+        mode |= O_TRUNC;
+    }
+
+    int idxfile = open(idx_filename, mode, S_IWUSR | S_IRUSR);
+    if (idxfile < 0) {
         LOG_WARNING("Raft Log: %s: %s", idx_filename, strerror(errno));
         RedisModule_Free(idx_filename);
         fclose(file);
@@ -280,7 +284,7 @@ RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snaps
     if (ftruncate(fileno(log->file), 0) < 0) {
         PANIC("ftruncate failed : %s", strerror(errno));
     }
-    if (ftruncate(fileno(log->idxfile), 0) < 0) {
+    if (ftruncate(log->idxfile, 0) < 0) {
         PANIC("ftruncate failed : %s", strerror(errno));
     }
 
@@ -382,8 +386,8 @@ void RaftLogFree(RaftLog *raft_log)
         fclose(raft_log->file);
     }
 
-    if (raft_log->idxfile) {
-        fclose(raft_log->idxfile);
+    if (raft_log->idxfile != -1) {
+        close(raft_log->idxfile);
     }
     RedisModule_Free(raft_log);
 }
@@ -431,10 +435,9 @@ RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term)
     log->index = log->snapshot_last_idx = index;
     log->snapshot_last_term = term;
 
-    if (ftruncate(fileno(log->idxfile), 0) < 0) {
+    if (ftruncate(log->idxfile, 0) < 0) {
         return RR_ERROR;
     }
-    log->idxoffset = 0;
 
     if (ftruncate(fileno(log->file), 0) < 0 ||
         writeLogHeader(log->file, log) < 0 ||
@@ -536,9 +539,7 @@ RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry)
     log->file_size = ftell(log->file);
     off_t offset = log->file_size - written;
     log->index++;
-    if (updateIndex(log, log->index, offset) < 0) {
-        return RR_ERROR;
-    }
+    updateIndex(log, log->index, offset);
 
     return RR_OK;
 }
@@ -590,37 +591,23 @@ static off_t seekEntry(RaftLog *log, raft_index_t idx)
     }
 
     raft_index_t relidx = idx - log->snapshot_last_idx - 1;
-    if (fseek(log->idxfile, sizeof(off_t) * relidx, SEEK_SET) < 0) {
-        return 0;
-    }
-    log->idxoffset = sizeof(off_t) * relidx;
 
     off_t offset;
-    if (fread(&offset, sizeof(offset), 1, log->idxfile) != 1) {
-        return 0;
-    }
-    /* Successful fread(), advance the offset */
-    log->idxoffset += sizeof(off_t);
 
-    /* According to C standard, once we open file with update mode, before
-     * switching between fread/fwrite, we must call one of the file positioning
-     * functions. We normally use idxfile in "write mode" but this is the only
-     * function we read from it. So, we are calling fseek() again just to
-     * confirm standard and switch back to "write mode".
-     *
-     * Related section from C99 §7.18.5.3/6
-     *
-     * When a file is opened with update mode ( '+' as the second or third
-     * character in the mode argument), both input and output may be performed
-     * on the associated stream. However, the application shall ensure that
-     * output is not directly followed by input without an intervening call
-     * to fflush() or to a file positioning function
-     * ( fseek(), fsetpos(), or rewind()), and input is not directly followed by
-     * output without an intervening call to a file positioning function, unless
-     * the input operation encounters end-of-file. */
-    if (fseek(log->idxfile, log->idxoffset, SEEK_SET) < 0) {
-        return 0;
-    }
+    char *data = (char*) &offset;
+    size_t len = sizeof(offset);
+    off_t pos = (off_t) (sizeof(off_t) * relidx);
+
+    do {
+        ssize_t bytes = pread(log->idxfile, data, len, pos);
+        if (bytes <= 0) {
+            return 0;
+        }
+
+        data += bytes;
+        len -= bytes;
+        pos += bytes;
+    } while (len > 0);
 
     if (fseek(log->file, offset, SEEK_SET) < 0) {
         return 0;

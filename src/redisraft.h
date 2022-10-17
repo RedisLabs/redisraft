@@ -650,8 +650,7 @@ typedef struct RaftLog {
     size_t file_size;               /* File size at the time of last write */
     const char *filename;           /* Log file name */
     FILE *file;                     /* Log file */
-    FILE *idxfile;                  /* Index file */
-    off_t idxoffset;                /* Index file position */
+    int idxfile;                    /* Index file */
     raft_index_t fsync_index;       /* Last entry index included in the latest fsync() call */
     uint64_t fsync_count;           /* Count of fsync() calls */
     uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
