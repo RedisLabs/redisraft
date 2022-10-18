@@ -147,7 +147,7 @@ def elle(request):
     # no reason to run elle if failed
     if not request.session.testsfailed:
         p = subprocess.run(["/usr/bin/java", "-jar", elle_main.config.elle_cli, "-v", "--model", "list-append",
-                            os.path.join(elle_main.logdir, "logfile.edn")])
+                            os.path.join(elle_main.logdir, "logfile.edn")], capture_output=True)
         if p.returncode != 0:
             print(f"stdout = {p.stdout.decode()}")
             print(f"stderr = {p.stderr.decode()}")
