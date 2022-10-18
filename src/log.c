@@ -995,25 +995,22 @@ static raft_index_t logImplGetBatch(void *arg, raft_index_t idx,
                                     raft_entry_t **entries)
 {
     RedisRaftCtx *rr = arg;
-    raft_index_t n = 0;
-    raft_index_t i = idx;
+    raft_index_t i = 0;
 
-    while (n < entries_n) {
-        raft_entry_t *e = EntryCacheGet(rr->logcache, i);
+    while (i < entries_n) {
+        raft_entry_t *e = EntryCacheGet(rr->logcache, idx + i);
         if (!e) {
-            e = RaftLogGet(rr->log, i);
-        }
-        if (!e) {
-            break;
+            e = RaftLogGet(rr->log, idx + i);
+            if (!e) {
+                break;
+            }
         }
 
-        entries[n] = e;
-        n++;
-        i++;
+        entries[i++] = e;
     }
 
-    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%ld) -> %ld", idx, entries_n, n);
-    return n;
+    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%ld) -> %ld", idx, entries_n, i);
+    return i;
 }
 
 static raft_index_t logImplFirstIdx(void *arg)
