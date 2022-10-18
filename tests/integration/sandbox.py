@@ -866,6 +866,8 @@ class ElleWorker(object):
 
             conn.send_command('MULTI')
             assert conn.read_response() == b'OK'
+
+            # queue up operations
             for j in range(len(ops)):
                 if ops[j].op_type == "append":
                     conn.send_command('RPUSH', ops[j].key, ops[j].value)
@@ -875,12 +877,16 @@ class ElleWorker(object):
                     assert conn.read_response() == b'QUEUED'
                 else:
                     raise Exception(f"Unknown op_type {ops[j].op_type}")
+
+            # exec/handle failure
             try:
                 conn.send_command('EXEC')
                 ret = conn.read_response()
                 self.elle.log_result(self.id, "ok", ret, ops)
                 good_write = True
+                break
             except ResponseError as e:
+                # handle MOVED/ASK as those aren't "failures"
                 m = re.search(r"^MOVED \d* (.*)$", str(e))
                 a = re.search(r"^ASK \d* (.*)$", str(e))
                 if m:
@@ -890,8 +896,9 @@ class ElleWorker(object):
                     # don't know how to handle submitting an ASKING yet + how to control it
                     client = self.clients[a.group(1)]
                     needs_asking = True
-            if good_write:
-                break
+                else:
+                    # some other failure, therefore don't retry, just break.  we expect failures to occur
+                    break
 
         if not good_write:
             self.elle.log_result(self.id, "fail", None, ops)
