@@ -40,7 +40,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar -v"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -91,7 +91,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar -v"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -219,7 +219,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar -v" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
