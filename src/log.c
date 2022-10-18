@@ -745,17 +745,6 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
     return num_entries;
 }
 
-void RaftLogRemoveFiles(const char *filename)
-{
-    char *idx_filename = getIndexFilename(filename);
-
-    LOG_DEBUG("Removing Raft Log files: %s", filename);
-    unlink(filename);
-    unlink(idx_filename);
-
-    RedisModule_Free(idx_filename);
-}
-
 void RaftLogArchiveFiles(RedisRaftCtx *rr)
 {
     char *idx_filename = getIndexFilename(rr->config.log_filename);

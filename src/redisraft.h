@@ -831,7 +831,6 @@ raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term);
-void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 int RaftMetaRead(RaftMeta *meta, const char *filename);
