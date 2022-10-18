@@ -50,6 +50,13 @@ jobs:
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 SANITIZER=address
+    - name: Checkout elle-cli
+      uses: actions/checkout@v2
+      with:
+        repository: 'ligurio/elle-cli'
+        path: 'elle-cli'
+    - name: Build elle-cli
+      run: cd elle-cli && lein deps && lein uberjar
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -94,6 +101,13 @@ jobs:
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=undefined
+      - name: Checkout elle-cli
+        uses: actions/checkout@v2
+        with:
+          repository: 'ligurio/elle-cli'
+          path: 'elle-cli'
+      - name: Build elle-cli
+        run: cd elle-cli && lein deps && lein uberjar
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
@@ -214,7 +228,14 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
+        run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yesa
+      - name: Checkout elle-cli
+        uses: actions/checkout@v2
+        with:
+          repository: 'ligurio/elle-cli'
+          path: 'elle-cli'
+      - name: Build elle-cli
+        run: cd elle-cli && lein deps && lein uberjar
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:

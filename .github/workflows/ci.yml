@@ -8,7 +8,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install build dependencies
-      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
     - name: Build
       run: |
         mkdir build && cd build
@@ -22,6 +22,13 @@ jobs:
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 gcov
+    - name: Checkout elle-cli
+      uses: actions/checkout@v2
+      with:
+        repository: 'ligurio/elle-cli'
+        path: 'elle-cli'
+    - name: Build elle-cli
+      run: cd elle-cli && lein deps && lein uberjar
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -45,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install build dependencies
-        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen
+        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
       - name: Build
         run: |
           mkdir build && cd build
