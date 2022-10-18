@@ -943,7 +943,9 @@ static int logImplAppend(void *arg, raft_entry_t *ety)
 {
     RedisRaftCtx *rr = arg;
 
-    RAFTLOG_TRACE("Append(id=%d, term=%lu) -> index %lu", ety->id, ety->term, rr->log->index + 1);
+    RAFTLOG_TRACE("Append(id=%d, term=%lu) -> index %lu",
+                  ety->id, ety->term, rr->log->index + 1);
+
     if (RaftLogAppend(rr->log, ety) != RR_OK) {
         return -1;
     }
