@@ -12,7 +12,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Coverage -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar -v"
+        cmake .. -DCMAKE_BUILD_TYPE=Coverage -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -22,13 +22,6 @@ jobs:
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 gcov
-    - name: Checkout elle-cli
-      uses: actions/checkout@v2
-      with:
-        repository: 'ligurio/elle-cli'
-        path: 'elle-cli'
-    - name: Build elle-cli
-      run: cd elle-cli && lein deps && lein uberjar
     - name: Setup Python for testing
       uses: actions/setup-python@v1
       with:
@@ -56,7 +49,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar -v"
+          cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -66,13 +59,6 @@ jobs:
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=address
-      - name: Checkout elle-cli
-        uses: actions/checkout@v2
-        with:
-          repository: 'ligurio/elle-cli'
-          path: 'elle-cli'
-      - name: Build elle-cli
-        run: cd elle-cli && lein deps && lein uberjar
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:

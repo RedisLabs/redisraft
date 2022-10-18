@@ -47,6 +47,8 @@ def pytest_addoption(parser):
     parser.addoption(
         '--elle-cli', default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
         help='location for elle-cli jar file')
+    parser.addoption(
+        '--elle', default=False, action='store_true', help='run slow elle tests')
 
 
 def pytest_configure(config):
@@ -77,6 +79,7 @@ def create_config(pytest_config):
     config.fsync = pytest_config.getoption('--fsync')
     config.tls = pytest_config.getoption('--tls')
     config.elle_cli = os.path.abspath(pytest_config.getoption('--elle-cli'))
+    config.elle = pytest_config.getoption('--elle')
 
     if pytest_config.getoption('--valgrind'):
         if config.args is None:

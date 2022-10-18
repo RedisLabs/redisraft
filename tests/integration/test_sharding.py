@@ -10,7 +10,7 @@ import time
 
 from redis import ResponseError
 from pytest import raises
-from .sandbox import assert_after, ElleWorker
+from .sandbox import assert_after
 
 
 def test_invalid_shardgroup_replace(cluster):
@@ -1258,13 +1258,3 @@ def test_cluster_shards_for_multiple_slots_range_sg(cluster):
             validate_shard(cluster_shards[i])
 
     validate_shards(cluster.node(1).execute('CLUSTER', 'SHARDS'))
-
-
-def test_shaya(elle, cluster):
-    cluster.create(3)
-
-    worker = ElleWorker(elle, elle.map_addresses_to_clients([cluster]))
-
-    for i in range(10):
-        ops = worker.generate_ops(["key"])
-        worker.do_ops(ops)
