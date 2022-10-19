@@ -745,17 +745,6 @@ long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_
     return num_entries;
 }
 
-void RaftLogRemoveFiles(const char *filename)
-{
-    char *idx_filename = getIndexFilename(filename);
-
-    LOG_DEBUG("Removing Raft Log files: %s", filename);
-    unlink(filename);
-    unlink(idx_filename);
-
-    RedisModule_Free(idx_filename);
-}
-
 void RaftLogArchiveFiles(RedisRaftCtx *rr)
 {
     char *idx_filename = getIndexFilename(rr->config.log_filename);
@@ -917,7 +906,7 @@ out:
 
 static void *logImplInit(void *raft, void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) arg;
+    RedisRaftCtx *rr = arg;
 
     if (!rr->logcache) {
         rr->logcache = EntryCacheNew(ENTRY_CACHE_INIT_SIZE);
@@ -926,17 +915,17 @@ static void *logImplInit(void *raft, void *arg)
     return rr;
 }
 
-static void logImplFree(void *rr_)
+static void logImplFree(void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
 
     RaftLogClose(rr->log);
     EntryCacheFree(rr->logcache);
 }
 
-static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
+static void logImplReset(void *arg, raft_index_t index, raft_term_t term)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
 
     /* Note: the RaftLogImpl API specifies the specified index is the one
      * to be assigned to the *next* entry, hence the adjustments below.
@@ -950,10 +939,13 @@ static void logImplReset(void *rr_, raft_index_t index, raft_term_t term)
     rr->logcache = EntryCacheNew(ENTRY_CACHE_INIT_SIZE);
 }
 
-static int logImplAppend(void *rr_, raft_entry_t *ety)
+static int logImplAppend(void *arg, raft_entry_t *ety)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    RAFTLOG_TRACE("Append(id=%d, term=%lu) -> index %lu", ety->id, ety->term, rr->log->index + 1);
+    RedisRaftCtx *rr = arg;
+
+    RAFTLOG_TRACE("Append(id=%d, term=%lu) -> index %lu",
+                  ety->id, ety->term, rr->log->index + 1);
+
     if (RaftLogAppend(rr->log, ety) != RR_OK) {
         return -1;
     }
@@ -961,17 +953,19 @@ static int logImplAppend(void *rr_, raft_entry_t *ety)
     return 0;
 }
 
-static int logImplPoll(void *rr_, raft_index_t first_idx)
+static int logImplPoll(void *arg, raft_index_t first_idx)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
+
     RAFTLOG_TRACE("Poll(first_idx=%lu)", first_idx);
     EntryCacheDeleteHead(rr->logcache, first_idx);
     return 0;
 }
 
-static int logImplPop(void *rr_, raft_index_t from_idx)
+static int logImplPop(void *arg, raft_index_t from_idx)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
+
     RAFTLOG_TRACE("Delete(from_idx=%lu)", from_idx);
     EntryCacheDeleteTail(rr->logcache, from_idx);
     if (RaftLogDelete(rr->log, from_idx) != RR_OK) {
@@ -980,9 +974,9 @@ static int logImplPop(void *rr_, raft_index_t from_idx)
     return 0;
 }
 
-static raft_entry_t *logImplGet(void *rr_, raft_index_t idx)
+static raft_entry_t *logImplGet(void *arg, raft_index_t idx)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
     raft_entry_t *ety;
 
     ety = EntryCacheGet(rr->logcache, idx);
@@ -998,51 +992,50 @@ static raft_entry_t *logImplGet(void *rr_, raft_index_t idx)
     return ety;
 }
 
-static raft_index_t logImplGetBatch(void *rr_, raft_index_t idx, raft_index_t entries_n, raft_entry_t **entries)
+static raft_index_t logImplGetBatch(void *arg, raft_index_t idx,
+                                    raft_index_t entries_n,
+                                    raft_entry_t **entries)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
-    raft_index_t n = 0;
-    raft_index_t i = idx;
+    RedisRaftCtx *rr = arg;
+    raft_index_t i = 0;
 
-    while (n < entries_n) {
-        raft_entry_t *e = EntryCacheGet(rr->logcache, i);
+    while (i < entries_n) {
+        raft_entry_t *e = EntryCacheGet(rr->logcache, idx + i);
         if (!e) {
-            e = RaftLogGet(rr->log, i);
-        }
-        if (!e) {
-            break;
+            e = RaftLogGet(rr->log, idx + i);
+            if (!e) {
+                break;
+            }
         }
 
-        entries[n] = e;
-        n++;
-        i++;
+        entries[i++] = e;
     }
 
-    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%ld) -> %ld", idx, entries_n, n);
-    return n;
+    RAFTLOG_TRACE("GetBatch(idx=%lu entries_n=%ld) -> %ld", idx, entries_n, i);
+    return i;
 }
 
-static raft_index_t logImplFirstIdx(void *rr_)
+static raft_index_t logImplFirstIdx(void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
     return RaftLogFirstIdx(rr->log);
 }
 
-static raft_index_t logImplCurrentIdx(void *rr_)
+static raft_index_t logImplCurrentIdx(void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
     return RaftLogCurrentIdx(rr->log);
 }
 
-static raft_index_t logImplCount(void *rr_)
+static raft_index_t logImplCount(void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
     return RaftLogCount(rr->log);
 }
 
-static int logImplSync(void *rr_)
+static int logImplSync(void *arg)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) rr_;
+    RedisRaftCtx *rr = arg;
     return RaftLogSync(rr->log, rr->config.log_fsync);
 }
 
