@@ -24,6 +24,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
+#include "metadata.h"
 #include "raft.h"
 #include "version.h"
 
@@ -255,11 +256,6 @@ typedef struct SnapshotFile {
     size_t len;
 } SnapshotFile;
 
-typedef struct RaftMeta {
-    raft_term_t term;    /* Last term we're aware of */
-    raft_node_id_t vote; /* Our vote in the last term, or -1 */
-} RaftMeta;
-
 /* threadpool.c */
 struct Task {
     STAILQ_ENTRY(Task) entry;
@@ -372,7 +368,7 @@ typedef struct RedisRaftCtx {
     ThreadPool thread_pool;              /* Thread pool for slow operations */
     FsyncThread fsyncThread;             /* Thread to call fsync on raft log file */
     struct RaftLog *log;                 /* Raft persistent log; May be NULL if not used */
-    struct RaftMeta meta;                /* Raft metadata for voted_for and term */
+    Metadata meta;                       /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;         /* Log entry cache to keep entries in memory for faster access */
     struct RedisRaftConfig config;       /* User provided configuration */
     bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
@@ -808,11 +804,16 @@ void handleFsyncCompleted(void *arg);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+int safesnprintf(void *buf, size_t size, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+int lensnprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char *slots, char *string);
+bool parseLongLong(const char *str, char **end, long long *val);
+bool parseLong(const char *str, char **end, long *val);
+bool parseInt(const char *str, char **end, int *val);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -832,8 +833,6 @@ raft_index_t RaftLogCurrentIdx(RaftLog *log);
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
-int RaftMetaRead(RaftMeta *meta, const char *filename);
-int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);
