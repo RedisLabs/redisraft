@@ -911,27 +911,10 @@ static raft_node_id_t raftLogGetNodeId(raft_server_t *raft, void *user_data,
 
 static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_node_t *raft_node)
 {
-    RedisRaftCtx *rr = (RedisRaftCtx *) user_data;
-    if (rr->state == REDIS_RAFT_LOADING)
-        return 0;
-
-    /* Node may have sufficient logs to be promoted but be scheduled for
-     * removal at the same time (i.e. RAFT_LOGTYPE_REMOVE_NODE already created
-     * for its removal).
-     *
-     * In this case we don't want to create a promotion entry as it will
-     * result with an unexpected state transition.
-     *
-     * We return -1 so we *WILL* get a chance to be notified again. For
-     * example, if the removal entry is rolled back and the node becomes
-     * active again.
-     */
-    if (!raft_node_is_active(raft_node)) {
-        return -1;
-    }
+    RedisModule_Assert(raft_node_is_active(raft_node));
 
     Node *node = raft_node_get_udata(raft_node);
-    assert(node != NULL);
+    RedisModule_Assert(node != NULL);
 
     LOG_DEBUG("node:%d has sufficient logs, adding as voting node.", node->id);
 
