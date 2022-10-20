@@ -139,7 +139,7 @@ int raftStoreSnapshotChunk(raft_server_t *raft, void *user_data,
         return -1;
     }
 
-    off_t ret_offset = lseek(fd, offset, SEEK_CUR);
+    off_t ret_offset = lseek(fd, (off_t) offset, SEEK_SET);
     if (ret_offset != (off_t) offset) {
         LOG_WARNING("lseek file:%s, error:%s \n", rr->incoming_snapshot_file,
                     strerror(errno));
