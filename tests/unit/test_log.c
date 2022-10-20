@@ -246,8 +246,12 @@ static void test_log_delete(void **state)
     /* Delete last two elements */
     assert_int_equal(RaftLogDelete(log, 52), RR_OK);
 
+    /* Assert deleting a non-existing entry doesn't cause a problem. */
+    assert_int_equal(RaftLogDelete(log, 52), RR_OK);
+
     /* Check log sanity after delete */
     assert_int_equal(RaftLogCount(log), 1);
+    assert_int_equal(RaftLogCurrentIdx(log), 51);
     assert_null(RaftLogGet(log, 52));
     e = RaftLogGet(log, 51);
     assert_non_null(e);
