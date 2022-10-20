@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 
-
 static const char *METADATA_STR = "METADATA";
 static const int METADATA_VERSION = 1;
 static const int METADATA_ELEM_COUNT = 4;
@@ -29,7 +28,7 @@ static int writeString(void *buf, size_t cap, const char *val)
     return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
 }
 
-static char* metadataFilename(char *buf, size_t size, const char *filename)
+static char *metadataFilename(char *buf, size_t size, const char *filename)
 {
     safesnprintf(buf, size, "%s.meta", filename);
     return buf;
