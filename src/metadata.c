@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+
 static const char *METADATA_STR = "METADATA";
 static const int METADATA_VERSION = 1;
 static const int METADATA_ELEM_COUNT = 4;
@@ -18,14 +19,20 @@ static int writeLength(void *buf, size_t cap, char prefix, int len)
 
 static int writeInteger(void *buf, size_t cap, long long val)
 {
-    int len = safesnprintf(NULL, 0, "%lld", val);
+    int len = lensnprintf("%lld", val);
     return safesnprintf(buf, cap, "$%d\r\n%lld\r\n", len, val);
 }
 
 static int writeString(void *buf, size_t cap, const char *val)
 {
-    int len = safesnprintf(NULL, 0, "%s", val);
+    int len = lensnprintf("%s", val);
     return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
+}
+
+static char* metadataFilename(char *buf, size_t size, const char *filename)
+{
+    safesnprintf(buf, size, "%s.meta", filename);
+    return buf;
 }
 
 int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
@@ -33,11 +40,8 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
 {
     int off = 0;
     char buf[2048];
-    char path_orig[PATH_MAX];
-    char path_tmp[PATH_MAX];
-
-    safesnprintf(path_orig, sizeof(path_orig), "%s.meta", filename);
-    safesnprintf(path_tmp, sizeof(path_tmp), "%s.meta.tmp", filename);
+    char orig_buf[PATH_MAX];
+    char tmp_file[PATH_MAX];
 
     off += writeLength(buf + off, sizeof(buf) - off, '*', METADATA_ELEM_COUNT);
     off += writeString(buf + off, sizeof(buf) - off, METADATA_STR);
@@ -45,7 +49,10 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
     off += writeInteger(buf + off, sizeof(buf) - off, term);
     off += writeInteger(buf + off, sizeof(buf) - off, vote);
 
-    int fd = open(path_tmp, O_WRONLY | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR);
+    char *orig_file = metadataFilename(orig_buf, sizeof(orig_buf), filename);
+    safesnprintf(tmp_file, sizeof(tmp_file), "%s.tmp", orig_file);
+
+    int fd = open(tmp_file, O_WRONLY | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR);
     if (fd < 0) {
         PANIC("open(): %s", strerror(errno));
     }
@@ -66,7 +73,7 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
         PANIC("close(): %s", strerror(errno));
     }
 
-    if (rename(path_tmp, path_orig) != 0) {
+    if (rename(tmp_file, orig_file) != 0) {
         PANIC("rename(): %s", strerror(errno));
     }
 

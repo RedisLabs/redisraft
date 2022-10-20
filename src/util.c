@@ -70,10 +70,21 @@ int safesnprintf(void *buf, size_t size, const char *fmt, ...)
     int ret = vsnprintf(buf, size, fmt, va);
     va_end(va);
 
-    /* If size is zero, we assume this is intentional to calculate output len */
-    if (ret < 0 || (size != 0 && ret >= (int) size)) {
+    if (ret < 0 || ret >= (int) size) {
         PANIC("vsnprintf(): ret=%d, size=%zu, errno=%d", ret, size, errno);
     }
+
+    return ret;
+}
+
+/* Calculate output length */
+int lensnprintf(const char *fmt, ...)
+{
+    va_list va;
+
+    va_start(va, fmt);
+    int ret = vsnprintf(NULL, 0, fmt, va);
+    va_end(va);
 
     return ret;
 }

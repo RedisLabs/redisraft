@@ -806,6 +806,7 @@ void handleFsyncCompleted(void *arg);
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 int safesnprintf(void *buf, size_t size, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+int lensnprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
