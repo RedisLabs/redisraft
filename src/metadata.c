@@ -11,9 +11,9 @@ static const char *METADATA_STR = "METADATA";
 static const int METADATA_VERSION = 1;
 static const int METADATA_ELEM_COUNT = 4;
 
-static int writeLength(void *buf, size_t cap, int len)
+static int writeLength(void *buf, size_t cap, char prefix, int len)
 {
-    return safesnprintf(buf, cap, "*%d\r\n", len);
+    return safesnprintf(buf, cap, "%c%d\r\n", prefix, len);
 }
 
 static int writeInteger(void *buf, size_t cap, long long val)
@@ -39,7 +39,7 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
     safesnprintf(path_orig, sizeof(path_orig), "%s.meta", filename);
     safesnprintf(path_tmp, sizeof(path_tmp), "%s.meta.tmp", filename);
 
-    off += writeLength(buf + off, sizeof(buf) - off, METADATA_ELEM_COUNT);
+    off += writeLength(buf + off, sizeof(buf) - off, '*', METADATA_ELEM_COUNT);
     off += writeString(buf + off, sizeof(buf) - off, METADATA_STR);
     off += writeInteger(buf + off, sizeof(buf) - off, METADATA_VERSION);
     off += writeInteger(buf + off, sizeof(buf) - off, term);
@@ -104,7 +104,17 @@ static int readLength(char *buf, size_t size, char prefix, int *length)
     return len_bytes;
 }
 
-static int readLong(char *buf, size_t size, long *val)
+static int readString(char *buf, size_t size, char **item)
+{
+    int bytes, len;
+
+    bytes = readLength(buf, size, '$', &len);
+    bytes += readItem(buf + bytes, size - bytes, item);
+
+    return bytes;
+}
+
+static int readInteger(char *buf, size_t size, long *val)
 {
     int len, len_bytes;
 
@@ -122,6 +132,7 @@ int MetadataRead(Metadata *m, const char *filename)
     char file[PATH_MAX];
 
     *m = (Metadata){
+        .term = 0,
         .vote = RAFT_NODE_ID_NONE,
     };
 
@@ -164,18 +175,17 @@ int MetadataRead(Metadata *m, const char *filename)
     off += readLength(buf + off, total_bytes - off, '*', &len);
     RedisModule_Assert(len == METADATA_ELEM_COUNT);
 
-    off += readLength(buf + off, total_bytes - off, '$', &len);
-    off += readItem(buf + off, total_bytes - off, &p);
+    off += readString(buf + off, total_bytes - off, &p);
     RedisModule_Assert(strncmp(p, METADATA_STR, strlen(METADATA_STR)) == 0);
 
-    off += readLong(buf + off, total_bytes - off, &version);
+    off += readInteger(buf + off, total_bytes - off, &version);
     RedisModule_Assert(version == METADATA_VERSION);
 
-    off += readLong(buf + off, total_bytes - off, &term);
+    off += readInteger(buf + off, total_bytes - off, &term);
     RedisModule_Assert(term >= 0);
     m->term = term;
 
-    readLong(buf + off, total_bytes - off, &vote);
+    readInteger(buf + off, total_bytes - off, &vote);
     RedisModule_Assert(vote >= INT_MIN && vote <= INT_MAX);
     m->vote = (raft_node_id_t) vote;
 
