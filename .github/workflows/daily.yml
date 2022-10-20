@@ -137,7 +137,7 @@ jobs:
           ref: 'unstable'
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4
+        run: cd redis && make -j 4 REDIS_LDFLAGS=-rdynamic
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
