@@ -936,5 +936,7 @@ void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
+bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val);
 
 #endif
