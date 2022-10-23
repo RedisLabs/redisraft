@@ -119,8 +119,8 @@ def test_big_snapshot_delivery(cluster):
     cluster.add_node()
 
     cluster.wait_for_unanimity()
-    assert cluster.node(3).info()['raft_snapshots_loaded'] > 0
-    assert cluster.node(4).info()['raft_snapshots_loaded'] > 0
+    assert cluster.node(3).info()['raft_snapshots_received'] > 0
+    assert cluster.node(4).info()['raft_snapshots_received'] > 0
 
 
 def test_log_fixup_after_snapshot_delivery(cluster):
@@ -490,3 +490,120 @@ def test_snapshot_fork_failure(cluster):
     r1.client.incr('testkey')
     r1.client.incr('testkey')
     assert r1.client.get('testkey') == b'8'
+
+
+def test_snapshot_state_after_restart(cluster):
+    """
+    Verify snapshot state after loading local snapshot
+    """
+
+    cluster.create(3)
+
+    # Bump the log a bit
+    for _ in range(20):
+        assert cluster.execute('INCR', 'testkey')
+
+    # Compact to get rid of logs
+    node3 = cluster.node(3)
+    assert node3.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    info = node3.info()
+    snapshot_idx = info['raft_snapshot_last_idx']
+    snapshot_term = info['raft_snapshot_last_term']
+    snapshot_size = info['raft_snapshot_size']
+    assert snapshot_idx != 0
+    assert snapshot_term != 0
+    assert snapshot_size != 0
+    assert info['raft_snapshot_time_secs'] != 0
+
+    # Restart node
+    node3.restart()
+    cluster.node(3).wait_for_info_param('raft_state', 'up')
+
+    info = node3.info()
+    assert info['raft_snapshot_last_idx'] == snapshot_idx
+    assert info['raft_snapshot_last_term'] == snapshot_term
+    assert info['raft_snapshot_size'] == snapshot_size
+    assert info['raft_snapshot_time_secs'] == 0
+
+
+def test_snapshot_state_after_snapshot_receiving(cluster):
+    """
+    Verify snapshot state after receiving remote snapshot
+    """
+
+    cluster.create(3, prepopulate_log=20)
+
+    # Stop node 3, advance the log, then compact.
+    cluster.node(3).terminate()
+    for _ in range(20):
+        assert cluster.execute('INCR', 'testkey')
+    assert cluster.node(1).execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    info = cluster.node(1).info()
+    snapshot_idx = info['raft_snapshot_last_idx']
+    snapshot_term = info['raft_snapshot_last_term']
+    snapshot_size = info['raft_snapshot_size']
+    assert snapshot_idx != 0
+    assert snapshot_term != 0
+    assert snapshot_size != 0
+    assert info['raft_snapshot_time_secs'] != 0
+
+    # Start node 3 and wait for it to receive a snapshot
+    cluster.node(3).start()
+    cluster.node(3).wait_for_info_param('raft_state', 'up')
+    cluster.node(3).wait_for_info_param('raft_snapshots_received', 1)
+
+    info = cluster.node(3).info()
+    assert info['raft_snapshot_last_idx'] == snapshot_idx
+    assert info['raft_snapshot_last_term'] == snapshot_term
+    assert info['raft_snapshot_size'] == snapshot_size
+    assert info['raft_snapshot_time_secs'] == 0
+
+
+def test_snapshot_state_on_success(cluster):
+    """
+    Verify snapshot state after taking local snapshot operation successfully
+    """
+
+    cluster.create(1)
+    for _ in range(10):
+        cluster.node(1).client.incr('counter')
+    info = cluster.node(1).info()
+    assert info['raft_current_index'] == 12
+
+    # Make sure log is compacted
+    assert cluster.node(1).client.execute_command(
+        'RAFT.DEBUG', 'COMPACT') == b'OK'
+
+    info = cluster.node(1).info()
+    assert info['raft_snapshots_created'] == 1
+    assert info['raft_snapshot_last_idx'] == 12
+    assert info['raft_snapshot_last_term'] == 1
+    assert info['raft_snapshot_size'] != 0
+    assert info['raft_snapshot_time_secs'] != 0
+
+
+def test_snapshot_state_on_failure(cluster):
+    """
+    Verify snapshot state after local snapshot operation failure
+    """
+
+    r1 = cluster.add_node()
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    r1.client.incr('testkey')
+    assert r1.client.get('testkey') == b'4'
+
+    assert r1.info()['raft_snapshots_created'] == 0
+
+    with raises(ResponseError):
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+
+    r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
+    info = r1.info()
+    assert info['raft_snapshots_created'] == 0
+    assert info['raft_snapshot_last_idx'] == 0
+    assert info['raft_snapshot_last_term'] == 0
+    assert info['raft_snapshot_size'] == 0
+    assert info['raft_snapshot_time_secs'] == 0

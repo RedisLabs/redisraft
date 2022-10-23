@@ -257,7 +257,7 @@ def test_update_self_voting_state_from_snapshot(cluster):
 
     # Leader will send snapshot to node-2 after wake up
     cluster.node(2).start()
-    cluster.node(2).wait_for_info_param('raft_snapshots_loaded', 1)
+    cluster.node(2).wait_for_info_param('raft_snapshots_received', 1)
 
     # Validate node-2 updates its voting status from the snapshot
     assert cluster.node(2).info()['raft_is_voting'] == 'no'
