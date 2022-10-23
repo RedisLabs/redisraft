@@ -714,10 +714,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 static void handleRedisCommand(RedisRaftCtx *rr,
                                RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
-    /* update cmds array with the client's saved "asking" state */
-    cmds->asking = getAskingState(rr, ctx);
-    setAskingState(rr, ctx, false);
-
     /* Handle intercepted commands. We do this also on non-leader nodes or if we
      * don't have a leader, so it's up to the commands to check these conditions
      * if they have to.
@@ -730,6 +726,10 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     if (MultiHandleCommand(rr, ctx, cmds)) {
         return;
     }
+
+    /* update cmds array with the client's saved "asking" state */
+    cmds->asking = getAskingState(rr, ctx);
+    setAskingState(rr, ctx, false);
 
     handleRedisCommandAppend(rr, ctx, cmds);
 }

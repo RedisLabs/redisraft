@@ -63,12 +63,14 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         return true;
     } else if (cmd_len == 4 && !strncasecmp(cmd_str, "EXEC", 4)) {
         if (!multiState->active) {
+            setAskingState(rr, ctx, false);
             RedisModule_ReplyWithError(ctx, "ERR EXEC without MULTI");
             return true;
         }
 
         if (multiState->error) {
             MultiStateReset(multiState);
+            setAskingState(rr, ctx, false);
             RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
             return true;
         }
@@ -86,10 +88,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
     } else if (cmd_len == 7 && !strncasecmp(cmd_str, "DISCARD", 7)) {
         if (!multiState->active) {
             RedisModule_ReplyWithError(ctx, "ERR DISCARD without MULTI");
+            setAskingState(rr, ctx, false);
             return true;
         }
 
         MultiStateReset(multiState);
+        setAskingState(rr, ctx, false);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
 
         return true;
