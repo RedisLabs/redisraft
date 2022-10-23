@@ -7,9 +7,10 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 import os.path
 import subprocess
+import time
 from types import SimpleNamespace
 import pytest
-from .sandbox import Cluster, Elle
+from .sandbox import Cluster, Elle, ElleWorker
 from .workload import Workload
 
 
@@ -48,7 +49,7 @@ def pytest_addoption(parser):
         '--elle-cli', default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
         help='location for elle-cli jar file')
     parser.addoption(
-        '--elle', default=False, action='store_true', help='run slow elle tests')
+        '--elle_threads', default=0, help='number of elle worker threads')
 
 
 def pytest_configure(config):
@@ -79,7 +80,7 @@ def create_config(pytest_config):
     config.fsync = pytest_config.getoption('--fsync')
     config.tls = pytest_config.getoption('--tls')
     config.elle_cli = os.path.abspath(pytest_config.getoption('--elle-cli'))
-    config.elle = pytest_config.getoption('--elle')
+    config.elle_threads = int(pytest_config.getoption('--elle_threads'))
 
     if pytest_config.getoption('--valgrind'):
         if config.args is None:
@@ -144,15 +145,62 @@ def workload():
 
 @pytest.fixture
 def elle(request):
-    elle_main = Elle(create_config(request.config))
+    _config = create_config(request.config)
+
+    elle_main = Elle(_config)
+
     yield elle_main
+
     elle_main.logfile.close()
     # no reason to run elle if failed
-    if not request.session.testsfailed:
+    if _config.elle_threads > 0 and not request.session.testsfailed:
         p = subprocess.run(["/usr/bin/java", "-jar", elle_main.config.elle_cli, "-v", "--model", "list-append",
-                            os.path.join(elle_main.logdir, "logfile.edn")], capture_output=True )
+                            os.path.join(elle_main.logdir, "logfile.edn")], capture_output=True)
         if p.returncode != 0:
             print(f"stdout = {p.stdout.decode()}")
             print(f"stderr = {p.stderr.decode()}")
 
         assert p.returncode == 0
+
+
+@pytest.fixture()
+def created_cluster(cluster, elle):
+    cluster.create(3)
+
+    addresses = elle.map_addresses_to_clients([cluster])
+
+    workers = [ElleWorker(elle, addresses) for _ in range(cluster.config.elle_threads)]
+
+    for worker in workers:
+        worker.start()
+
+    yield cluster
+
+    for worker in workers:
+        worker.finish()
+        worker.join()
+
+
+@pytest.fixture()
+def created_clusters(cluster_factory, elle):
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
+    clusters = [cluster1, cluster2]
+
+    addresses = elle.map_addresses_to_clients(clusters)
+
+    workers = [ElleWorker(elle, addresses) for _ in range(cluster1.config.elle_threads)]
+
+    for worker in workers:
+        worker.start()
+
+    yield clusters
+
+    for worker in workers:
+        worker.finish()
+        worker.join()

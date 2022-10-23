@@ -8,7 +8,7 @@ on:
       skipjobs:
         description: 'jobs to skip (delete the ones you want to keep, do not leave empty)'
         required: false
-        default: 'address,undefined,macos,tls'
+        default: 'address,undefined,macos,tls,elle'
       use_repo:
         description: 'repo owner and name'
         required: false
