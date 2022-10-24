@@ -727,6 +727,7 @@ typedef struct MultiState {
     RaftRedisCommandArray cmds;
     bool active;
     bool error;
+    bool asking;
 } MultiState;
 
 typedef struct ClientState {

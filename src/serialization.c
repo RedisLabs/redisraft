@@ -90,6 +90,7 @@ void RaftRedisCommandArrayFree(RaftRedisCommandArray *array)
     if (array->acl) {
         RedisModule_FreeString(NULL, array->acl);
     }
+    array->asking = false;
 }
 
 static size_t calcSerializedSize(RaftRedisCommand *cmd)

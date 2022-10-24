@@ -38,6 +38,7 @@ void MultiStateReset(MultiState *multi_state)
     RaftRedisCommandArrayFree(&multi_state->cmds);
     multi_state->active = false;
     multi_state->error = false;
+    multi_state->asking = false;
 }
 
 void ClientStateReset(ClientState *client_state)

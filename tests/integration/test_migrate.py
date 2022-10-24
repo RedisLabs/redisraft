@@ -413,3 +413,57 @@ def test_redirect_asking_to_leader(cluster):
     # Expect redirection to node-2
     with raises(ResponseError, match="ASK 12539 localhost:5002"):
         follower.execute('get', 'key')
+
+
+def test_asking_multi(cluster):
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'
+    })
+
+    cluster_dbid = cluster.leader_node().info()["raft_dbid"]
+
+    cluster.execute("set", "key", "value")
+
+    assert cluster.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        2,
+        '12345678901234567890123456789013',
+        '1', '1',
+        '0', '16383', '3', '123',
+        '1234567890123456789012345678901334567890', '3.3.3.3:3333',
+        cluster.leader_node().info()["raft_dbid"],
+        '1', '3',
+        '0', '16383', '2', '123',
+        "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
+        "{}00000002".format(cluster_dbid).encode(), cluster.node(2).address,
+        "{}00000003".format(cluster_dbid).encode(), cluster.node(3).address,
+    ) == b'OK'
+
+    cluster.wait_for_unanimity()
+    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
+
+    conn.send_command("ASKING")
+    assert conn.read_response() == b'OK'
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('GET', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('GET', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('GET', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('EXEC')
+    assert conn.read_response() == [b'value', b'value', b'value']
+
+    conn.send_command("ASKING")
+    assert conn.read_response() == b'OK'
+    conn.send_command('MULTI')
+    assert conn.read_response() == b'OK'
+    conn.send_command('GET', 'key')
+    assert conn.read_response() == b'QUEUED'
+    conn.send_command('DISCARD')
+    assert conn.read_response() == b'OK'
+    conn.send_command('GET', 'key')
+    with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
+        conn.read_response()
