@@ -532,6 +532,18 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     raft_entry_release(entry);
 }
 
+static bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    return clientState->asking;
+}
+
+static void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
+{
+    ClientState *clientState = ClientStateGet(rr, ctx);
+    clientState->asking = val;
+}
+
 static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     setAskingState(rr, ctx, true);

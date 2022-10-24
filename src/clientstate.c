@@ -44,15 +44,3 @@ void ClientStateReset(ClientState *client_state)
 {
     MultiStateReset(&client_state->multi_state);
 }
-
-bool getAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    return clientState->asking;
-}
-
-void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
-{
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    clientState->asking = val;
-}
