@@ -1,6 +1,8 @@
 from _pytest.python_api import raises
 from redis import ResponseError
 
+from .sandbox import RawConnection
+
 
 def test_migration_basic(cluster_factory):
     """
@@ -441,29 +443,41 @@ def test_asking_multi(cluster):
     ) == b'OK'
 
     cluster.wait_for_unanimity()
-    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
 
-    conn.send_command("ASKING")
-    assert conn.read_response() == b'OK'
-    conn.send_command('MULTI')
-    assert conn.read_response() == b'OK'
-    conn.send_command('GET', 'key')
-    assert conn.read_response() == b'QUEUED'
-    conn.send_command('GET', 'key')
-    assert conn.read_response() == b'QUEUED'
-    conn.send_command('GET', 'key')
-    assert conn.read_response() == b'QUEUED'
-    conn.send_command('EXEC')
-    assert conn.read_response() == [b'value', b'value', b'value']
+    conn = RawConnection(cluster.leader_node().client)
 
-    conn.send_command("ASKING")
-    assert conn.read_response() == b'OK'
-    conn.send_command('MULTI')
-    assert conn.read_response() == b'OK'
-    conn.send_command('GET', 'key')
-    assert conn.read_response() == b'QUEUED'
-    conn.send_command('DISCARD')
-    assert conn.read_response() == b'OK'
-    conn.send_command('GET', 'key')
+    # 1- Verify 'asking' with 'multi'
+    conn.execute('ASKING')
+    conn.execute('MULTI')
+    conn.execute('GET', 'key')
+    conn.execute('GET', 'key')
+    conn.execute('GET', 'key')
+    assert conn.execute('EXEC') == [b'value', b'value', b'value']
+
+    # 2- Verify 'EXEC' clears 'asking' flag
+    conn.execute('ASKING')
+    conn.execute('MULTI')
+    conn.execute('GET', 'key')
+    assert conn.execute('EXEC') == [b'value']
+
     with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
-        conn.read_response()
+        conn.execute('MULTI')
+        conn.execute('GET', 'key')
+        conn.execute('EXEC')
+
+    with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
+        conn.execute('GET', 'key')
+
+    # 3- Verify 'DISCARD' clears 'asking' flag
+    conn.execute('ASKING')
+    conn.execute('MULTI')
+    conn.execute('GET', 'key')
+    conn.execute('DISCARD')
+
+    with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
+        conn.execute('MULTI')
+        conn.execute('GET', 'key')
+        conn.execute('EXEC')
+
+    with raises(ResponseError, match='MOVED [0-9]+ 3.3.3.3:3333'):
+        conn.execute('GET', 'key')

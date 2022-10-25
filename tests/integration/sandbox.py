@@ -38,6 +38,21 @@ class RedisRaftFailedToStart(RedisRaftError):
     pass
 
 
+class RawConnection(object):
+    """
+    Implement a simple way of executing a Redis command and return the raw
+    unprocessed reply (unlike redis-py's execute_command() which applies some
+    command-specific parsing.)
+    """
+
+    def __init__(self, client):
+        self._conn = client.connection_pool.get_connection('raw-connection')
+
+    def execute(self, *cmd):
+        self._conn.send_command(*cmd)
+        return self._conn.read_response()
+
+
 class PipeLogger(threading.Thread):
     def __init__(self, pipe, prefix):
         super(PipeLogger, self).__init__()
