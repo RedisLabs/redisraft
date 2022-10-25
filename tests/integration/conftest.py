@@ -164,37 +164,30 @@ def elle(request):
 
 
 @pytest.fixture()
-def created_cluster(cluster, elle):
-    cluster.create(3)
+def created_clusters(request, cluster_factory, elle):
+    num_clusters = 1
+    num_elle_keys = 1
+    key_hash_tag = "test"
+    marker = request.node.get_closest_marker("num_clusters")
+    if marker is not None:
+        num_clusters = marker.args[0]
 
-    addresses = elle.map_addresses_to_clients([cluster])
+    marker = request.node.get_closest_marker("num_elle_keys")
+    if marker is not None:
+        num_elle_keys = marker.args[0]
 
-    workers = [ElleWorker(elle, addresses) for _ in range(cluster.config.elle_threads)]
-
-    for worker in workers:
-        worker.start()
-
-    yield cluster
-
-    for worker in workers:
-        worker.finish()
-        worker.join()
-
-
-@pytest.fixture()
-def created_clusters(cluster_factory, elle):
-    cluster1 = cluster_factory().create(3, raft_args={
-        'sharding': 'yes',
-        'external-sharding': 'yes'})
-    cluster2 = cluster_factory().create(3, raft_args={
-        'sharding': 'yes',
-        'external-sharding': 'yes'})
-
-    clusters = [cluster1, cluster2]
+    clusters = [cluster_factory().create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+                for _ in range(num_clusters)]
 
     addresses = elle.map_addresses_to_clients(clusters)
 
-    workers = [ElleWorker(elle, addresses) for _ in range(cluster1.config.elle_threads)]
+    marker = request.node.get_closest_marker("key_hash_tag")
+    if marker is not None:
+        key_hash_tag = marker.args[0]
+
+    keys = [f"{{{key_hash_tag}}}key" + str(x) for x in range(num_elle_keys)]
+
+    workers = [ElleWorker(elle, addresses, keys) for _ in range(clusters[0].config.elle_threads)]
 
     for worker in workers:
         worker.start()

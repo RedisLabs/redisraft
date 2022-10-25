@@ -12,7 +12,7 @@ from .sandbox import ElleWorker, Elle
 
 
 @pytest.mark.skipif("not config.getoption('elle_threads')")
-def test_elle_sanity(created_cluster):
+def test_elle_sanity(created_clusters):
     time.sleep(5)
 
 
@@ -147,18 +147,18 @@ def test_elle_migrating_manual(elle, cluster_factory):
     assert len(val) == 4
 
 
-@pytest.mark.skipif("not config.getoption('elle_threads')")
-def test_elle_migrating(created_clusters, elle):
+@pytest.mark.num_clusters(2)
+@pytest.mark.key_hash_tag("test")
+@pytest.mark.num_elle_keys(5)
+def test_elle_migrating(created_clusters):
     cluster1 = created_clusters[0]
     cluster2 = created_clusters[1]
 
     cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
     cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
-    slot = Elle.key_hash_slot("test")
+    slot = Elle.key_hash_slot("test")  # matches the key_hash_tag above
 
     time.sleep(0.25)
-
-    elle.log_comment("shardgroup replace for migration start")
 
     assert cluster1.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -202,21 +202,28 @@ def test_elle_migrating(created_clusters, elle):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
-    elle.log_comment("shardgroup replace for migration complete")
-
     time.sleep(0.25)
 
-    elle.log_comment("migration start")
+    cursor = 0
+    while True:
+        reply = cluster1.execute('raft.scan', cursor, slot)
 
-    assert cluster1.execute(
-        'migrate', '', '', '', '', '', 'keys', "test",
-    ) == b'OK'
+        cursor = int(reply[0])
+        keys = reply[1]
 
-    elle.log_comment("migration end")
+        if len(keys) != 0:
+            key_names = []
+            for key in keys:
+                key_names.append(key[0].decode('utf-8'))
+
+            assert cluster1.execute('migrate', '', '', '', '', '', 'keys',
+                                    *key_names) == b'OK'
+
+        # If cursor is zero, we've moved all the keys
+        if cursor == 0:
+            break
 
     time.sleep(0.25)
-
-    elle.log_comment("reshard to stable start")
 
     assert cluster1.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -258,4 +265,20 @@ def test_elle_migrating(created_clusters, elle):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
-    elle.log_comment("reshard to stable end")
+    count = 0
+    while True:
+        reply = cluster2.execute('raft.scan', cursor, slot)
+        cursor = int(reply[0])
+        keys = reply[1]
+
+        count += len(keys)
+
+        if cursor == 0:
+            break
+
+    expected_count = 0
+    if cluster1.config.elle_threads != 0:
+        print(f"threads = {cluster1.config.elle_threads}")
+        expected_count += 5  # matches the num_elle_keys above
+
+    assert count == expected_count

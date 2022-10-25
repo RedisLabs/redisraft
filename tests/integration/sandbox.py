@@ -877,14 +877,18 @@ class Elle(object):
 
 
 class ElleWorker(threading.Thread):
-    def __init__(self, elle: Elle, clients: typing.Dict[str, redis.Redis]):
+    def __init__(self, elle: Elle, clients: typing.Dict[str, redis.Redis], keys: typing.Optional[List[str]] = None):
         super().__init__()
 
         self.clients = clients
         self.elle: Elle = elle
         self.ended: bool = False
-        self.keys: typing.List = ["test"]
         self.id: int = 0
+        self.keys: typing.List
+        if keys is not None:
+            self.keys = keys
+        else:
+            self.keys = ["test"]
 
     def finish(self):
         self.ended = True
