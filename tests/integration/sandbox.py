@@ -793,6 +793,7 @@ class Elle(object):
 
     @staticmethod
     def key_hash_slot(key: str) -> int:
+        assert key is not None
         return Elle.crc16(key.encode()) % 16384
 
     @staticmethod
