@@ -8,7 +8,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import time
 import pytest as pytest
 
-from .sandbox import ElleWorker, Elle
+from .sandbox import ElleWorker, Elle, key_hash_slot
 
 
 @pytest.mark.skipif("not config.getoption('elle_threads')")
@@ -27,7 +27,7 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
     cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
     cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
-    slot = elle.key_hash_slot("test")
+    slot = key_hash_slot("test")
 
     client_map = elle.map_addresses_to_clients([cluster1, cluster2])
 
@@ -160,7 +160,7 @@ def test_elle_migrating(request, created_clusters):
     slot = -1
     marker = request.node.get_closest_marker("key_hash_tag")
     if marker is not None:
-        slot = Elle.key_hash_slot(marker.args[0])
+        slot = key_hash_slot(marker.args[0])
     assert slot != -1
 
     time.sleep(0.25)
