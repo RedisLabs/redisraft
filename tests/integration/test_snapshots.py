@@ -513,7 +513,7 @@ def test_snapshot_state_after_restart(cluster):
     assert snapshot_idx != 0
     assert snapshot_term != 0
     assert snapshot_size != 0
-    assert info['raft_snapshot_time_secs'] != 0
+    assert info['raft_snapshot_time_secs'] != -1
 
     # Restart node
     node3.restart()
@@ -523,7 +523,7 @@ def test_snapshot_state_after_restart(cluster):
     assert info['raft_snapshot_last_idx'] == snapshot_idx
     assert info['raft_snapshot_last_term'] == snapshot_term
     assert info['raft_snapshot_size'] == snapshot_size
-    assert info['raft_snapshot_time_secs'] == 0
+    assert info['raft_snapshot_time_secs'] == -1
 
 
 def test_snapshot_state_after_snapshot_receiving(cluster):
@@ -546,7 +546,7 @@ def test_snapshot_state_after_snapshot_receiving(cluster):
     assert snapshot_idx != 0
     assert snapshot_term != 0
     assert snapshot_size != 0
-    assert info['raft_snapshot_time_secs'] != 0
+    assert info['raft_snapshot_time_secs'] != -1
 
     # Start node 3 and wait for it to receive a snapshot
     cluster.node(3).start()
@@ -557,7 +557,7 @@ def test_snapshot_state_after_snapshot_receiving(cluster):
     assert info['raft_snapshot_last_idx'] == snapshot_idx
     assert info['raft_snapshot_last_term'] == snapshot_term
     assert info['raft_snapshot_size'] == snapshot_size
-    assert info['raft_snapshot_time_secs'] == 0
+    assert info['raft_snapshot_time_secs'] == -1
 
 
 def test_snapshot_state_on_success(cluster):
@@ -580,7 +580,7 @@ def test_snapshot_state_on_success(cluster):
     assert info['raft_snapshot_last_idx'] == 12
     assert info['raft_snapshot_last_term'] == 1
     assert info['raft_snapshot_size'] != 0
-    assert info['raft_snapshot_time_secs'] != 0
+    assert info['raft_snapshot_time_secs'] != -1
 
 
 def test_snapshot_state_on_failure(cluster):
@@ -606,4 +606,4 @@ def test_snapshot_state_on_failure(cluster):
     assert info['raft_snapshot_last_idx'] == 0
     assert info['raft_snapshot_last_term'] == 0
     assert info['raft_snapshot_size'] == 0
-    assert info['raft_snapshot_time_secs'] == 0
+    assert info['raft_snapshot_time_secs'] == -1

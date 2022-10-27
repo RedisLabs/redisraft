@@ -239,7 +239,7 @@ static void resetSnapshotState(RedisRaftCtx *rr)
     rr->snapshot_in_progress = false;
     rr->curr_snapshot_last_term = 0;
     rr->curr_snapshot_last_idx = 0;
-    rr->curr_snapshot_start_time = 0;
+    rr->curr_snapshot_start_time = -1;
 }
 
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
