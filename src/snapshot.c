@@ -234,12 +234,20 @@ static void freeNodeIdEntryList(NodeIdEntry *head)
 
 /* ------------------------------------ Generate snapshots ------------------------------------ */
 
+static void resetSnapshotState(RedisRaftCtx *rr)
+{
+    rr->snapshot_in_progress = false;
+    rr->curr_snapshot_last_term = 0;
+    rr->curr_snapshot_last_idx = 0;
+    rr->curr_snapshot_start_time = -1;
+}
+
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
     assert(rr->snapshot_in_progress);
 
     raft_cancel_snapshot(rr->raft);
-    rr->snapshot_in_progress = false;
+    resetSnapshotState(rr);
 
     if (sr != NULL) {
         if (sr->rdb_filename[0]) {
@@ -265,8 +273,8 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * log file.
      */
     num_log_entries = RaftLogRewrite(rr, temp_log_filename,
-                                     rr->last_snapshot_idx,
-                                     rr->last_snapshot_term);
+                                     rr->curr_snapshot_last_idx,
+                                     rr->curr_snapshot_last_term);
 
     new_log = RaftLogOpen(temp_log_filename, &rr->config, RAFTLOG_KEEP_INDEX);
     if (!new_log) {
@@ -304,8 +312,10 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     /* Finalize snapshot */
     raft_end_snapshot(rr->raft);
-    rr->snapshot_in_progress = false;
+
     rr->snapshots_created++;
+    rr->last_snapshot_time = RedisModule_Milliseconds() - rr->curr_snapshot_start_time;
+    resetSnapshotState(rr);
 
     return RR_OK;
 }
@@ -380,9 +390,10 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
               raft_get_first_entry_idx(rr->raft),
               raft_get_current_idx(rr->raft));
 
-    rr->last_snapshot_idx = rr->snapshot_info.last_applied_idx;
-    rr->last_snapshot_term = rr->snapshot_info.last_applied_term;
+    rr->curr_snapshot_last_idx = rr->snapshot_info.last_applied_idx;
+    rr->curr_snapshot_last_term = rr->snapshot_info.last_applied_term;
     rr->snapshot_in_progress = true;
+    rr->curr_snapshot_start_time = RedisModule_Milliseconds();
 
     /* Create a snapshot of the nodes configuration */
     freeSnapshotCfgEntryList(rr->snapshot_info.cfg);
@@ -569,7 +580,7 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raf
     }
 
     createOutgoingSnapshotMmap(rr);
-    rr->snapshots_loaded++;
+    rr->snapshots_received++;
 
     return 0;
 }
