@@ -830,10 +830,10 @@ class Elle(object):
 
 
 class ElleWorker(threading.Thread):
-    def __init__(self, elle: Elle, clients: typing.Dict[str, redis.Redis], keys: typing.Optional[List[str]] = None):
+    def __init__(self, elle: Elle, clusters: typing.List[Cluster], keys: typing.Optional[List[str]] = None):
         super().__init__()
 
-        self.clients = clients
+        self.clusters = clusters
         self.elle: Elle = elle
         self.ended: bool = False
         self.id: int = 0
@@ -865,7 +865,7 @@ class ElleWorker(threading.Thread):
         good_write = False
         needs_asking = False
 
-        client = self.clients["default"]
+        client = redis.Redis(host="localhost", port=self.clusters[0].leader_node().port)
         self.elle.log_command(self.id, ops)
 
         # conn.send_command('ASKING')
@@ -911,14 +911,13 @@ class ElleWorker(threading.Thread):
                 break
             except ResponseError as e:
                 # handle MOVED/ASK as those aren't "failures"
-                m = re.search(r"^MOVED \d* (.*)$", str(e))
-                a = re.search(r"^ASK \d* (.*)$", str(e))
+                m = re.search(r"^MOVED \d* (.*):(.*)$", str(e))
+                a = re.search(r"^ASK \d* (.*):(.*)$", str(e))
                 if m:
-                    client = self.clients[m.group(1)]
-                    self.clients["default"] = client
+                    client = redis.Redis(host=m.group(1), port=m.group(2))
                 elif a:
                     # don't know how to handle submitting an ASKING yet + how to control it
-                    client = self.clients[a.group(1)]
+                    client = redis.Redis(host=a.group(1), port=a.group(2))
                     needs_asking = True
                 else:
                     # some other failure, therefore don't retry, just break.  we expect failures to occur
@@ -933,6 +932,13 @@ class ElleWorker(threading.Thread):
         self.id = threading.get_ident()
 
         while not self.ended:
+            if len(self.clusters) == 0:
+                continue
+            if len(self.clusters[0].nodes) == 0:
+                continue
+            if self.clusters[0].leader is None:
+                continue
+
             ops = self.generate_ops(self.keys)
             self.do_ops(ops)
 

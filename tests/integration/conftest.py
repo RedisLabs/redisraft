@@ -99,51 +99,6 @@ def create_config(pytest_config):
 
 
 @pytest.fixture
-def cluster(request):
-    """
-    A fixture for a sandbox Cluster()
-    """
-
-    _cluster = Cluster(create_config(request.config))
-    yield _cluster
-    _cluster.destroy()
-
-
-@pytest.fixture
-def cluster_factory(request):
-    """
-    A fixture for a creating custom sandboxed Cluster()s
-    """
-
-    created_clusters = []
-    cluster_args = {'base_port': 5000, 'base_id': 0, 'cluster_id': 0}
-
-    def _create_cluster():
-        _cluster = Cluster(create_config(request.config), **cluster_args)
-        cluster_args['base_port'] += 100
-        cluster_args['base_id'] += 100
-        cluster_args['cluster_id'] += 1
-        created_clusters.append(_cluster)
-        return _cluster
-
-    yield _create_cluster
-
-    for _c in created_clusters:
-        _c.destroy()
-
-
-@pytest.fixture
-def workload():
-    """
-    A fixture for a Workload.
-    """
-
-    _workload = Workload()
-    yield _workload
-    _workload.terminate()
-
-
-@pytest.fixture
 def elle(request):
     _config = create_config(request.config)
 
@@ -161,6 +116,74 @@ def elle(request):
             print(f"stderr = {p.stderr.decode()}")
 
         assert p.returncode == 0
+
+
+@pytest.fixture
+def cluster(request):
+    """
+    A fixture for a sandbox Cluster()
+    """
+
+    _cluster = Cluster(create_config(request.config))
+    yield _cluster
+    _cluster.destroy()
+
+
+@pytest.fixture
+def cluster_factory(request, elle):
+    """
+    A fixture for a creating custom sandboxed Cluster()s
+    """
+
+    created_clusters = []
+
+    num_elle_keys = 1
+    key_hash_tag = "test"
+
+    marker = request.node.get_closest_marker("num_elle_keys")
+    if marker is not None:
+        num_elle_keys = marker.args[0]
+
+    marker = request.node.get_closest_marker("key_hash_tag")
+    if marker is not None:
+        key_hash_tag = marker.args[0]
+
+    keys = [f"{{{key_hash_tag}}}key" + str(x) for x in range(num_elle_keys)]
+
+    workers = [ElleWorker(elle, created_clusters, keys) for _ in range(create_config(request.config).elle_threads)]
+
+    for worker in workers:
+        worker.start()
+
+    cluster_args = {'base_port': 5000, 'base_id': 0, 'cluster_id': 0}
+
+    def _create_cluster():
+        _cluster = Cluster(create_config(request.config), **cluster_args)
+        cluster_args['base_port'] += 100
+        cluster_args['base_id'] += 100
+        cluster_args['cluster_id'] += 1
+        created_clusters.append(_cluster)
+        return _cluster
+
+    yield _create_cluster
+
+    for worker in workers:
+        worker.finish()
+        worker.join()
+
+    for _c in created_clusters:
+        _c.destroy()
+
+
+@pytest.fixture
+def workload():
+    """
+    A fixture for a Workload.
+    """
+
+    _workload = Workload()
+    yield _workload
+    _workload.terminate()
 
 
 @pytest.fixture()

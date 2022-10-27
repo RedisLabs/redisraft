@@ -147,12 +147,15 @@ def test_elle_migrating_manual(elle, cluster_factory):
     assert len(val) == 4
 
 
-@pytest.mark.num_clusters(2)
 @pytest.mark.key_hash_tag("test")
 @pytest.mark.num_elle_keys(5)
-def test_elle_migrating(request, created_clusters):
-    cluster1 = created_clusters[0]
-    cluster2 = created_clusters[1]
+def test_elle_migrating(request, cluster_factory):
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
 
     cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
     cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
