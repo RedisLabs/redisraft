@@ -102,10 +102,9 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
     char *key;
     size_t key_len;
     void *value;
-    size_t count = 0;
+
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     while ((key = RedisModule_DictNextC(iter, &key_len, &value)) != NULL) {
-        count++;
         RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         RedisModule_ReplyWithCallReply(ctx, value);
     }
