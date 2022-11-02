@@ -639,7 +639,6 @@ class Cluster(object):
             node.wait_for_current_index(current_idx)
 
     def raft_retry(self, func):
-        no_leader_first = True
         start_time = time.time()
         while time.time() < start_time + self.noleader_timeout:
             try:
@@ -668,10 +667,10 @@ class Cluster(object):
                         self.leader = new_leader
                 elif str(err).startswith('CLUSTERDOWN') or \
                         str(err).startswith('NOCLUSTER'):
-                    if no_leader_first:
+                    remaining = start_time + self.noleader_timeout - time.time()
+                    if remaining > 0:
                         LOG.info("-CLUSTERDOWN response received, will retry"
-                                 " for %s seconds", self.noleader_timeout)
-                        # no_leader_first = False
+                                 " for %.2f seconds", remaining)
                     time.sleep(0.5)
                 else:
                     raise
