@@ -28,7 +28,7 @@ static void test_parse_slots(void **state)
     for (size_t i = 1; i < REDIS_RAFT_HASH_SLOTS; i++) {
         assert_int_equal(slots[i], 0);
     }
-    bzero(slots, REDIS_RAFT_HASH_SLOTS);
+    memset(slots, 0, sizeof(slots));
     parseHashSlots(slots, "0-10");
     for (size_t i = 0; i < 11; i++) {
         assert_int_equal(slots[i], 1);
@@ -36,7 +36,7 @@ static void test_parse_slots(void **state)
     for (size_t i = 11; i < REDIS_RAFT_HASH_SLOTS; i++) {
         assert_int_equal(slots[i], 0);
     }
-    bzero(slots, REDIS_RAFT_HASH_SLOTS);
+    memset(slots, 0, sizeof(slots));
     parseHashSlots(slots, "0,5-10,16,58-62,100");
     assert_int_equal(slots[0], 1);
     for (size_t i = 1; i < 5; i++) {
