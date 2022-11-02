@@ -93,34 +93,23 @@ def test_snapshot_delivery_in_chunks(cluster):
 
 def test_big_snapshot_delivery(cluster):
     """
-    Ability to properly deliver and load a big snapshot file (~5 Mb on disk).
+    Ability to properly deliver and load a big snapshot file (~70 Mb on disk).
     """
 
-    cluster.create(3)
+    cluster.create(1)
+    cluster.execute('set', 'x', '1')
+    cluster.execute('set', 'x', '1')
+
     n1 = cluster.node(1)
+    n1.raft_debug_exec('debug', 'populate', 2000000, 100000)
+    n1.client.execute_command('raft.debug', 'compact')
 
-    for i in range(1000):
-        pipe = n1.client.pipeline(transaction=True)
-        for j in range(1000):
-            pipe.rpush('list-%s' % i, 'elem-%s' % j)
-        pipe.execute()
-
-    cluster.node(3).terminate()
-
-    # Create a new snapshot
-    n1.client.incr('testkey')
-    assert n1.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-    assert n1.info()['raft_log_entries'] == 0
-
-    # Test delivery to the existing node
-    cluster.node(3).start()
-
-    # Test delivery to the new node
+    cluster.add_node()
     cluster.add_node()
 
     cluster.wait_for_unanimity()
+    assert cluster.node(2).info()['raft_snapshots_received'] > 0
     assert cluster.node(3).info()['raft_snapshots_received'] > 0
-    assert cluster.node(4).info()['raft_snapshots_received'] > 0
 
 
 def test_log_fixup_after_snapshot_delivery(cluster):
@@ -168,8 +157,8 @@ def test_cfg_node_added_from_snapshot(cluster):
     assert cluster.node(1).info()['raft_log_entries'] == 0
 
     # Add new node and wait for things to settle
-    r3 = cluster.add_node()
-    r3.wait_for_election()
+    cluster.add_node()
+    cluster.wait_for_unanimity()
 
     # Make sure we have what we expect
     for i in range(100):

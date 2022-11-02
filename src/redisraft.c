@@ -1032,15 +1032,9 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     rr->snapshotreq_received++;
 
-    /* raft_recv_snapshot() might trigger loading the received RDB file.
-     * While loading, Redis may process incoming messages to reply -LOADING.
-     * So, we must block the leader's connection to prevent processing further
-     * messages, as we haven't replied to the current command yet. */
-    RedisModuleBlockedClient *c = RedisModule_BlockClient(ctx, NULL, 0, 0, 0);
-
     if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {
         RedisModule_ReplyWithError(ctx, "ERR operation failed");
-        goto out;
+        return REDISMODULE_OK;
     }
 
     RedisModule_ReplyWithArray(ctx, 5);
@@ -1050,8 +1044,6 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModule_ReplyWithLongLong(ctx, resp.success);
     RedisModule_ReplyWithLongLong(ctx, resp.last_chunk);
 
-out:
-    RedisModule_UnblockClient(c, NULL);
     return REDISMODULE_OK;
 }
 
