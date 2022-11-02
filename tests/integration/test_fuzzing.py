@@ -147,7 +147,10 @@ def test_stale_reads_on_restarts(cluster, workload):
     workload.stop()
 
 
-def test_snapshot_delivery_with_traffic(cluster):
+def test_snapshot_delivery_with_config_changes(cluster):
+    """
+    Test big snapshot delivery (~70 mb on disk) while adding/removing nodes
+    """
     cycles = 10
 
     cluster.create(1)
