@@ -535,6 +535,8 @@ void loadPendingSnapshot(void *user_data)
     RedisRaftCtx *rr = &redis_raft;
     SnapshotLoad *sl = user_data;
 
+    RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
+
     LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu",
               sl->term, sl->index);
 
