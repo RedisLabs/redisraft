@@ -22,7 +22,7 @@ import redis
 LOG = logging.getLogger('sandbox')
 
 
-class RedisRaftSanitizer(Exception):
+class RedisRaftBug(Exception):
     pass
 
 
@@ -270,10 +270,21 @@ class RedisRaft(object):
                             'RedisRaft<%s> failed to start' % self.id)
                 time.sleep(0.1)
 
-    def check_sanitizer_error(self):
-        if (self.stdout and 'sanitizer' in self.stdout.loglines.lower() or
-                self.stderr and 'sanitizer' in self.stderr.loglines.lower()):
-            raise RedisRaftSanitizer('Sanitizer error.')
+    def check_error_in_logs(self):
+        stdout = ""
+        stderr = ""
+
+        if self.stdout:
+            stdout = self.stdout.loglines.lower()
+
+        if self.stderr:
+            stderr = self.stderr.loglines.lower()
+
+        if 'sanitizer' in stdout or 'sanitizer' in stderr:
+            raise RedisRaftBug('Sanitizer error')
+
+        if 'redis bug report' in stdout or 'redis bug report' in stderr:
+            raise RedisRaftBug('RedisRaft crash')
 
     def terminate(self):
         if self.process:
@@ -299,7 +310,7 @@ class RedisRaft(object):
             self.stderr.join(timeout=30)
 
         self.process = None
-        self.check_sanitizer_error()
+        self.check_error_in_logs()
 
     def kill(self):
         if self.process:
@@ -317,7 +328,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> killed', self.id)
         self.process = None
-        self.check_sanitizer_error()
+        self.check_error_in_logs()
 
     def restart(self, retries=5):
         self.terminate()
@@ -710,7 +721,7 @@ class Cluster(object):
         for node in self.nodes.values():
             try:
                 node.destroy()
-            except RedisRaftSanitizer as e:
+            except RedisRaftBug as e:
                 err = e
         if err:
             raise err
@@ -720,7 +731,7 @@ class Cluster(object):
         for node in self.nodes.values():
             try:
                 node.terminate()
-            except RedisRaftSanitizer as e:
+            except RedisRaftBug as e:
                 err = e
         if err:
             raise err
