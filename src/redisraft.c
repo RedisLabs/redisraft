@@ -1531,6 +1531,17 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* RAFT.NODESHUTDOWN [nodeid]
+ *
+ *    Shutdown the node.
+ *
+ *    When the leader appends removal entry of a follower, the leader will stop
+ *    replicating entries to that follower immediately. (In raft, config changes
+ *    take effect on append). The follower will never receive its own removal
+ *    entry, and it will not realize that it has been removed. RAFT.NODESHUTDOWN
+ *    is a best-effort message that is sent by the leader to the removed node
+ *    to indicate this config change.
+ */
 static int cmdRaftNodeShutdown(RedisModuleCtx *ctx,
                                RedisModuleString **argv, int argc)
 {
