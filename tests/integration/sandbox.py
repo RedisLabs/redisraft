@@ -130,6 +130,7 @@ class RedisRaft(object):
         client_key = os.getcwd() + '/tests/tls/client.key'
 
         self.client = redis.Redis(host='localhost', port=self.port,
+                                  socket_timeout=20,
                                   password=password,
                                   ssl=config.tls,
                                   ssl_certfile=client_cert,
