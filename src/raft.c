@@ -42,10 +42,6 @@ static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry);
 
 void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
-    size_t len;
-    const char *err;
-    RedisModuleCallReply *reply;
-
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
     if (rr->config.log_filename) {
@@ -55,11 +51,11 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
         archiveSnapshot(rr);
     }
 
-    reply = RedisModule_Call(rr->ctx, "SHUTDOWN", "cE", "NOW");
-    err = RedisModule_CallReplyStringPtr(reply, &len);
-    if (err) {
-        LOG_WARNING("Shutdown failure: %.*s", (int) len, err);
-    }
+    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "SHUTDOWN", "cE", "NOW");
+
+    size_t len;
+    const char *err = RedisModule_CallReplyStringPtr(r, &len);
+    LOG_WARNING("Shutdown failure: %.*s", (int) len, err);
 
     abort();
 }
