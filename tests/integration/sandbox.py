@@ -48,10 +48,14 @@ class PipeLogger(threading.Thread):
         self.start()
 
     def run(self):
-        for line in iter(self.pipe.readline, b''):
-            linestr = str(line, 'utf-8').rstrip()
-            self.loglines += linestr
-            LOG.debug('%s: %s', self.prefix, linestr)
+        try:
+            for line in iter(self.pipe.readline, b''):
+                linestr = str(line, 'utf-8').rstrip()
+                self.loglines += linestr
+                LOG.debug('%s: %s', self.prefix, linestr)
+        except ValueError as err:
+            LOG.debug("PipeLogger: %s", str(err))
+            return
 
 
 class RedisRaft(object):
@@ -277,13 +281,23 @@ class RedisRaft(object):
                 self.resume()
             try:
                 self.process.terminate()
-                self.process.wait()
+
+                try:
+                    self.process.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
 
             except OSError as err:
                 LOG.error('RedisRaft<%s> failed to terminate: %s',
                           self.id, err)
             else:
                 LOG.info('RedisRaft<%s> terminated', self.id)
+
+        if self.stdout:
+            self.stdout.join(timeout=30)
+        if self.stderr:
+            self.stderr.join(timeout=30)
+
         self.process = None
         self.check_sanitizer_error()
 
@@ -291,7 +305,11 @@ class RedisRaft(object):
         if self.process:
             try:
                 self.process.kill()
-                self.process.wait()
+
+                try:
+                    self.process.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
 
             except OSError as err:
                 LOG.error('Cannot kill RedisRaft<%s>: %s',
