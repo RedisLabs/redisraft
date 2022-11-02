@@ -664,6 +664,14 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
     }
 
+    if (cmd_flags & CMD_SPEC_SCRIPTS) {
+        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+        cmds->acl = RedisModule_GetModuleUserACLString(user);
+        RedisModule_FreeModuleUser(user);
+        RedisModule_FreeString(ctx, user_name);
+    }
+
     /* Handle the special case of read-only commands here: if quorum reads
      * are enabled schedule the request to be processed when we have a guarantee
      * we're still a leader. Otherwise, just process the reads. */
@@ -685,14 +693,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-
-    if (cmd_flags & CMD_SPEC_SCRIPTS) {
-        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
-        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(user);
-        RedisModule_FreeModuleUser(user);
-        RedisModule_FreeString(ctx, user_name);
-    }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
