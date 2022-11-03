@@ -361,30 +361,34 @@ typedef struct RedisRaftConfig {
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
-    void *raft;                          /* Raft library context */
-    RedisModuleCtx *ctx;                 /* Redis module thread-safe context; only used to push
+    void *raft;                    /* Raft library context */
+    RedisModuleCtx *ctx;           /* Redis module thread-safe context; only used to push
                                                     commands we get from the leader. */
-    RedisRaftState state;                /* Raft module state */
-    ThreadPool thread_pool;              /* Thread pool for slow operations */
-    FsyncThread fsyncThread;             /* Thread to call fsync on raft log file */
-    struct RaftLog *log;                 /* Raft persistent log; May be NULL if not used */
-    Metadata meta;                       /* Raft metadata for voted_for and term */
-    struct EntryCache *logcache;         /* Log entry cache to keep entries in memory for faster access */
-    struct RedisRaftConfig config;       /* User provided configuration */
-    bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
+    RedisRaftState state;          /* Raft module state */
+    ThreadPool thread_pool;        /* Thread pool for slow operations */
+    FsyncThread fsyncThread;       /* Thread to call fsync on raft log file */
+    struct RaftLog *log;           /* Raft persistent log; May be NULL if not used */
+    Metadata meta;                 /* Raft metadata for voted_for and term */
+    struct EntryCache *logcache;   /* Log entry cache to keep entries in memory for faster access */
+    struct RedisRaftConfig config; /* User provided configuration */
+
     raft_index_t incoming_snapshot_idx;  /* Incoming snapshot's last included idx to verify chunks
                                                     belong to the same snapshot */
     char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
                                                     it will be renamed to the original rdb file */
-    raft_index_t last_snapshot_idx;      /* Last included idx of the snapshot operation currently in progress */
-    raft_term_t last_snapshot_term;      /* Last included term of the snapshot operation currently in progress */
+    bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
+    mstime_t curr_snapshot_start_time;   /* start time of the snapshot operation currently in progress */
+    raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
+    raft_term_t curr_snapshot_last_term; /* Last included term of the snapshot operation currently in progress */
+    mstime_t last_snapshot_time;         /* Total time (ms) of a last local snapshot operation */
     int snapshot_child_fd;               /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file; /* Snapshot file memory table to send to followers */
     RaftSnapshotInfo snapshot_info;      /* Current snapshot info */
-    struct RaftReq *transfer_req;        /* RaftReq if a leader transfer is in progress */
-    struct RaftReq *migrate_req;         /* RaftReq if a migration transfer is in progress */
-    struct ShardingInfo *sharding_info;  /* Information about sharding, when cluster mode is enabled */
-    RedisModuleDict *client_state;       /* A dict that tracks different client states */
+
+    struct RaftReq *transfer_req;       /* RaftReq if a leader transfer is in progress */
+    struct RaftReq *migrate_req;        /* RaftReq if a migration transfer is in progress */
+    struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
+    RedisModuleDict *client_state;      /* A dict that tracks different client states */
     struct CommandSpecTable *commands_spec_table;
     /* Debug - Testing */
     struct RaftReq *debug_req;      /* Current RAFT.DEBUG request context, if processing one */
@@ -397,7 +401,7 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_reqs;        /* Number of failed proxy requests, i.e. did not send */
     unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
-    unsigned long snapshots_loaded;              /* Number of snapshots loaded */
+    unsigned long snapshots_received;            /* Number of received snapshots */
     unsigned long snapshots_created;             /* Number of snapshots created */
     unsigned long appendreq_received;            /* Number of received appendreq messages */
     unsigned long appendreq_with_entry_received; /* Number of received appendreq messages with at least one entry in them */
@@ -848,7 +852,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
-int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_index_t idx, raft_term_t term);
+int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_term_t term, raft_index_t idx);
 int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, raft_snapshot_req_t *msg);
 int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);

@@ -664,6 +664,14 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
     }
 
+    if (cmd_flags & CMD_SPEC_SCRIPTS) {
+        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
+        cmds->acl = RedisModule_GetModuleUserACLString(user);
+        RedisModule_FreeModuleUser(user);
+        RedisModule_FreeString(ctx, user_name);
+    }
+
     /* Handle the special case of read-only commands here: if quorum reads
      * are enabled schedule the request to be processed when we have a guarantee
      * we're still a leader. Otherwise, just process the reads. */
@@ -685,14 +693,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-
-    if (cmd_flags & CMD_SPEC_SCRIPTS) {
-        RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
-        RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-        req->r.redis.cmds.acl = RedisModule_GetModuleUserACLString(user);
-        RedisModule_FreeModuleUser(user);
-        RedisModule_FreeString(ctx, user_name);
-    }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
@@ -1800,9 +1800,18 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "fsync_avg_microseconds", avg);
 
     RedisModule_InfoAddSection(ctx, "snapshot");
-    RedisModule_InfoAddFieldCString(ctx, "snapshot_in_progress", rr->snapshot_in_progress ? "yes" : "no");
-    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_loaded", rr->snapshots_loaded);
+    RedisModule_InfoAddFieldCString(ctx, "snapshot_filename", rr->config.rdb_filename);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_idx", rr->raft ? raft_get_snapshot_last_idx(rr->raft) : 0);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_term", rr->raft ? raft_get_snapshot_last_term(rr->raft) : 0);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshot_size", rr->outgoing_snapshot_file.len);
+    long long int snapshot_time = -1;
+    if (rr->last_snapshot_time != -1) {
+        snapshot_time = rr->last_snapshot_time / 1000;
+    }
+    RedisModule_InfoAddFieldLongLong(ctx, "snapshot_time_secs", snapshot_time);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_received", rr->snapshots_received);
+    RedisModule_InfoAddFieldCString(ctx, "snapshot_in_progress", rr->snapshot_in_progress ? "yes" : "no");
 
     RedisModule_InfoAddSection(ctx, "clients");
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
@@ -1948,6 +1957,10 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
+
+    /* Snapshot state initialization */
+    rr->curr_snapshot_start_time = -1;
+    rr->last_snapshot_time = -1;
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *
