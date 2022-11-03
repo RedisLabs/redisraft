@@ -52,7 +52,6 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
             RedisModule_ReplyWithError(ctx, "ERR MULTI calls can not be nested");
         } else {
             multiState->active = 1;
-            multiState->asking = cmds->asking;
 
             /* We put the MULTI as the first command in the array, as we still
              * need to distinguish single-MULTI array from a single command.
@@ -81,7 +80,6 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         /* Just swap our commands with the EXEC command and proceed. */
         RaftRedisCommandArrayFree(cmds);
         RaftRedisCommandArrayMove(cmds, &multiState->cmds);
-        cmds->asking = multiState->asking;
         MultiStateReset(multiState);
 
         return false;

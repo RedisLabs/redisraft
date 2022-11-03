@@ -49,7 +49,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
     source->len = 0;
     memset(source->commands, 0, sizeof(RaftRedisCommand *) * source->size);
 
-    target->asking = source->asking;
+    target->asking |= source->asking;
 }
 
 /* Free a RaftRedisCommand */
