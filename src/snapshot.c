@@ -525,6 +525,12 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     RedisModule_Assert(raft_get_num_nodes(rr->raft) == added + 1);
 }
 
+/* After a snapshot is received, load it into the Raft library:
+ * 1. Load rdb file.
+ * 2. Configure index/term/etc.
+ * 3. Reconfigure nodes based on the snapshot metadata configuration.
+ * 4. Create a new snapshot memory map.
+ */
 void loadPendingSnapshot(RedisRaftCtx *rr)
 {
     RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
@@ -572,14 +578,8 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
     };
 }
 
-/* After a snapshot is received, load it into the Raft library:
- * 1. Replace received snapshot file with the current one.
- * 2. Load rdb file.
- * 3. Configure index/term/etc.
- * 4. Reconfigure nodes based on the snapshot metadata configuration.
- * 5. Create a new snapshot memory map.
- */
-int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raft_index_t index)
+int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
+                     raft_index_t index)
 {
     int ret;
     RedisRaftCtx *rr = user_data;
@@ -589,6 +589,14 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raf
         return -1;
     }
 
+    struct stat st;
+    if (stat(rr->incoming_snapshot_file, &st) != 0) {
+        LOG_WARNING("Failed to get file size: %s", rr->config.rdb_filename);
+        return -1;
+    }
+
+    LOG_NOTICE("Received snapshot file, size: %lld", (long long) st.st_size);
+
     ret = rename(rr->incoming_snapshot_file, rr->config.rdb_filename);
     if (ret != 0) {
         LOG_WARNING("rename(): %s to %s failed with error: %s",
@@ -597,21 +605,13 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raf
         return -1;
     }
 
-    struct stat st;
-    if (stat(rr->config.rdb_filename, &st) != 0) {
-        LOG_WARNING("Failed to get file size: %s", rr->config.rdb_filename);
-        return 0;
-    }
-
-    LOG_NOTICE("Received snapshot file, size: %lld", (long long) st.st_size);
-
     /* This function will be called inside a command callback. It is dangerous
-     * to call `rdbLoad()` here. `rdbLoad()` goes back to networking
-     * occasionally and tries to process network events. If the current client
-     * that triggers this command callback gets disconnected, client object
-     * might be freed. Then, when this callback returns, it will cause
-     * use-after-free bug. To avoid this issue, we skip loading the snapshot
-     * inside this command callback. It will be loaded inside the timer
+     * to load the snapshot by calling `rdbLoad()` here. `rdbLoad()` goes back
+     * to networking occasionally and tries to process network events. If the
+     * current client that triggers this command callback gets disconnected,
+     * client object might be freed. Then, when this callback returns, it will
+     * cause a use-after-free bug. To avoid this issue, we skip loading the
+     * snapshot inside this command callback. It will be loaded inside the timer
      * callback. */
     rr->state = REDIS_RAFT_LOADING;
     rr->snapshot_load = (SnapshotLoad){
