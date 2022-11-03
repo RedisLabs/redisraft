@@ -565,10 +565,10 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
     rr->snapshots_received++;
     rr->state = REDIS_RAFT_UP;
 
-    rr->snapshot_load = (SnapshotLoad) {
+    rr->snapshot_load = (SnapshotLoad){
         .pending = false,
         .term = -1,
-        .index = -1
+        .index = -1,
     };
 }
 
@@ -614,7 +614,7 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raf
      * inside this command callback. It will be loaded inside the timer
      * callback. */
     rr->state = REDIS_RAFT_LOADING;
-    rr->snapshot_load = (SnapshotLoad) {
+    rr->snapshot_load = (SnapshotLoad){
         .pending = true,
         .term = term,
         .index = index,
