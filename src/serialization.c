@@ -49,6 +49,11 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
     source->len = 0;
     memset(source->commands, 0, sizeof(RaftRedisCommand *) * source->size);
 
+    if (source->acl) {
+        target->acl = source->acl;
+        source->acl = NULL;
+    }
+
     target->asking = source->asking;
 }
 
