@@ -525,17 +525,11 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     RedisModule_Assert(raft_get_num_nodes(rr->raft) == added + 1);
 }
 
-typedef struct SnapshotLoad {
-    raft_term_t term;
-    raft_index_t index;
-} SnapshotLoad;
-
-void loadPendingSnapshot(void *user_data)
+void loadPendingSnapshot(RedisRaftCtx *rr)
 {
-    RedisRaftCtx *rr = &redis_raft;
-    SnapshotLoad *sl = user_data;
-
     RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
+
+    SnapshotLoad *sl = &rr->snapshot_load;
 
     LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu",
               sl->term, sl->index);
@@ -571,7 +565,11 @@ void loadPendingSnapshot(void *user_data)
     rr->snapshots_received++;
     rr->state = REDIS_RAFT_UP;
 
-    RedisModule_Free(sl);
+    rr->snapshot_load = (SnapshotLoad) {
+        .pending = false,
+        .term = -1,
+        .index = -1
+    };
 }
 
 /* After a snapshot is received, load it into the Raft library:
@@ -613,15 +611,14 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term, raf
      * that triggers this command callback gets disconnected, client object
      * might be freed. Then, when this callback returns, it will cause
      * use-after-free bug. To avoid this issue, we skip loading the snapshot
-     * inside this command callback. It will be loaded inside an event loop
-     * event callback. */
+     * inside this command callback. It will be loaded inside the timer
+     * callback. */
     rr->state = REDIS_RAFT_LOADING;
-
-    SnapshotLoad *sl = RedisModule_Alloc(sizeof(*sl));
-    sl->term = term;
-    sl->index = index;
-
-    RedisModule_EventLoopAddOneShot(loadPendingSnapshot, sl);
+    rr->snapshot_load = (SnapshotLoad) {
+        .pending = true,
+        .term = term,
+        .index = index,
+    };
 
     return 0;
 }
