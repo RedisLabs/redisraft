@@ -578,6 +578,8 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
     };
 }
 
+/* After a snapshot is received, replace it with the existing snapshot file
+ * and trigger the load operation which will be done inside periodic timer. */
 int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
                      raft_index_t index)
 {
