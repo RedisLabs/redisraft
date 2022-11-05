@@ -417,10 +417,11 @@ void ConnMarkDisconnected(Connection *conn)
 /* An idle state is one that will not transition automatically to another
  * state, unless actively mutated.
  */
-
 bool ConnIsIdle(Connection *conn)
 {
-    return (conn->state == CONN_DISCONNECTED || conn->state == CONN_CONNECT_ERROR || (conn->flags & CONN_TERMINATING));
+    return conn->state == CONN_DISCONNECTED ||
+           conn->state == CONN_CONNECT_ERROR ||
+           (conn->state != CONN_RESOLVING && (conn->flags & CONN_TERMINATING));
 }
 
 bool ConnIsConnected(Connection *conn)
