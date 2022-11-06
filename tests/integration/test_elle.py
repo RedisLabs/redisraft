@@ -12,11 +12,16 @@ from .sandbox import ElleWorker, Elle, key_hash_slot
 
 
 @pytest.mark.skipif("not config.getoption('elle_threads')")
-def test_elle_sanity(created_clusters):
+@pytest.mark.elle_test()
+def test_elle_sanity(cluster_factory):
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
     time.sleep(5)
 
 
-@pytest.mark.skipif("not config.getoption('elle_threads')")
+#@pytest.mark.skipif("not config.getoption('elle_threads')")
+#@pytest.mark.elle_test()
 def test_elle_migrating_manual(elle, cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
@@ -29,9 +34,7 @@ def test_elle_migrating_manual(elle, cluster_factory):
     cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
     slot = key_hash_slot("test")
 
-    client_map = elle.map_addresses_to_clients([cluster1, cluster2])
-
-    worker = ElleWorker(elle, client_map)
+    worker = ElleWorker(elle, [cluster1, cluster2])
 
     ops = worker.generate_ops(["{test}key1"])
     worker.do_ops(ops)
@@ -149,6 +152,7 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
 @pytest.mark.key_hash_tag("test")
 @pytest.mark.num_elle_keys(5)
+@pytest.mark.elle_test()
 def test_elle_migrating(request, cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',

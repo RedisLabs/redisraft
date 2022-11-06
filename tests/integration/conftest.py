@@ -8,6 +8,7 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import os.path
 import subprocess
 import time
+import typing
 from types import SimpleNamespace
 import pytest
 from .sandbox import Cluster, Elle, ElleWorker
@@ -136,6 +137,7 @@ def cluster_factory(request, elle):
     """
 
     created_clusters = []
+    workers: typing.List[ElleWorker] = []
 
     num_elle_keys = 1
     key_hash_tag = "test"
@@ -150,7 +152,9 @@ def cluster_factory(request, elle):
 
     keys = [f"{{{key_hash_tag}}}key" + str(x) for x in range(num_elle_keys)]
 
-    workers = [ElleWorker(elle, created_clusters, keys) for _ in range(create_config(request.config).elle_threads)]
+    marker = request.node.get_closest_marker("elle_test")
+    if marker is not None:
+        workers = [ElleWorker(elle, created_clusters, keys) for _ in range(create_config(request.config).elle_threads)]
 
     for worker in workers:
         worker.start()
@@ -184,39 +188,3 @@ def workload():
     _workload = Workload()
     yield _workload
     _workload.terminate()
-
-
-@pytest.fixture()
-def created_clusters(request, cluster_factory, elle):
-    num_clusters = 1
-    num_elle_keys = 1
-    key_hash_tag = "test"
-    marker = request.node.get_closest_marker("num_clusters")
-    if marker is not None:
-        num_clusters = marker.args[0]
-
-    marker = request.node.get_closest_marker("num_elle_keys")
-    if marker is not None:
-        num_elle_keys = marker.args[0]
-
-    clusters = [cluster_factory().create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
-                for _ in range(num_clusters)]
-
-    addresses = elle.map_addresses_to_clients(clusters)
-
-    marker = request.node.get_closest_marker("key_hash_tag")
-    if marker is not None:
-        key_hash_tag = marker.args[0]
-
-    keys = [f"{{{key_hash_tag}}}key" + str(x) for x in range(num_elle_keys)]
-
-    workers = [ElleWorker(elle, addresses, keys) for _ in range(clusters[0].config.elle_threads)]
-
-    for worker in workers:
-        worker.start()
-
-    yield clusters
-
-    for worker in workers:
-        worker.finish()
-        worker.join()

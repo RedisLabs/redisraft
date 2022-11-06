@@ -42,21 +42,6 @@ class RedisRaftFailedToStart(RedisRaftError):
     pass
 
 
-class RawConnection(object):
-    """
-    Implement a simple way of executing a Redis command and return the raw
-    unprocessed reply (unlike redis-py's execute_command() which applies some
-    command-specific parsing.)
-    """
-
-    def __init__(self, client):
-        self._conn = client.connection_pool.get_connection('raw-connection')
-
-    def execute(self, *cmd):
-        self._conn.send_command(*cmd)
-        return self._conn.read_response()
-
-
 class PipeLogger(threading.Thread):
     def __init__(self, pipe, prefix):
         super(PipeLogger, self).__init__()
@@ -75,6 +60,25 @@ class PipeLogger(threading.Thread):
         except ValueError as err:
             LOG.debug("PipeLogger: %s", str(err))
             return
+
+
+class RawConnection(object):
+    """
+    Implement a simple way of executing a Redis command and return the raw
+    unprocessed reply (unlike redis-py's execute_command() which applies some
+    command-specific parsing.)
+    """
+
+    def __init__(self, client):
+        self._pool = client.connection_pool
+        self._conn = self._pool.get_connection('raw-connection')
+
+    def execute(self, *cmd):
+        self._conn.send_command(*cmd)
+        return self._conn.read_response()
+
+    def release(self):
+        self._pool.release(self._conn)
 
 
 class RedisRaft(object):
@@ -912,44 +916,33 @@ class ElleWorker(threading.Thread):
         client = redis.Redis(host="localhost", port=self.clusters[0].leader_node().port)
         self.elle.log_command(self.id, ops)
 
-        # conn.send_command('ASKING')
-        # assert conn.read_response() == b'OK'
-        # conn.send_command('get', 'key')
-        # assert conn.read_response() == b'value'
-
         # 3 possible hops in normal scenario
         # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remoe leader"
         # if it doesn't work by then, error
-        conn: typing.Optional[redis.Connection] = None
-        pool: typing.Optional[redis.ConnectionPool] = None
+        conn: typing.Optional[RawConnection] = None
         for i in range(0, 3):
             if conn is not None:
-                pool.release(conn)
+                conn.release()
 
-            pool = client.connection_pool
-            conn = pool.get_connection('deferred')
+            conn = RawConnection(client)
+
             if needs_asking:
-                conn.send_command('ASKING')
-                assert conn.read_response() == b'OK'
+                assert conn.execute('ASKING') == b'OK'
 
-            conn.send_command('MULTI')
-            assert conn.read_response() == b'OK'
+            assert conn.execute('MULTI') == b'OK'
 
             # queue up operations
             for j in range(len(ops)):
                 if ops[j].op_type == "append":
-                    conn.send_command('RPUSH', ops[j].key, ops[j].value)
-                    assert conn.read_response() == b'QUEUED'
+                    assert conn.execute('RPUSH', ops[j].key, ops[j].value) == b'QUEUED'
                 elif ops[j].op_type == "read":
-                    conn.send_command('LRANgE', ops[j].key, 0, -1)
-                    assert conn.read_response() == b'QUEUED'
+                    assert conn.execute('LRANgE', ops[j].key, 0, -1) == b'QUEUED'
                 else:
                     raise Exception(f"Unknown op_type {ops[j].op_type}")
 
             # exec/handle failure
             try:
-                conn.send_command('EXEC')
-                ret = conn.read_response()
+                ret = conn.execute('EXEC')
                 self.elle.log_result(self.id, "ok", ret, ops)
                 good_write = True
                 break
@@ -967,7 +960,7 @@ class ElleWorker(threading.Thread):
                     # some other failure, therefore don't retry, just break.  we expect failures to occur
                     break
 
-        pool.release(conn)
+        conn.release()
 
         if not good_write:
             self.elle.log_result(self.id, "fail", None, ops)
@@ -1050,3 +1043,5 @@ def crc16(data: bytes) -> int:
 def key_hash_slot(key: str) -> int:
     assert key is not None
     return crc16(key.encode()) % 16384
+
+
