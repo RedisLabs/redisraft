@@ -7,8 +7,10 @@
  */
 
 #include "../src/entrycache.h"
+#include "../src/metadata.h"
 #include "../src/redisraft.h"
 
+#include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -246,8 +248,12 @@ static void test_log_delete(void **state)
     /* Delete last two elements */
     assert_int_equal(RaftLogDelete(log, 52), RR_OK);
 
+    /* Assert deleting a non-existing entry doesn't cause a problem. */
+    assert_int_equal(RaftLogDelete(log, 52), RR_OK);
+
     /* Check log sanity after delete */
     assert_int_equal(RaftLogCount(log), 1);
+    assert_int_equal(RaftLogCurrentIdx(log), 51);
     assert_null(RaftLogGet(log, 52));
     e = RaftLogGet(log, 51);
     assert_non_null(e);
@@ -511,19 +517,24 @@ static int cleanup_meta(void **state)
 
 static void test_meta_persistence(void **state)
 {
-    RaftMeta meta;
+    Metadata m;
 
-    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_ERROR);
-    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
-    assert_int_equal(RaftMetaRead(&meta, LOGNAME), RR_OK);
-    assert_int_equal(meta.term, 0xffffffff);
-    assert_int_equal(meta.vote, INT32_MAX);
+    assert_int_equal(MetadataRead(&m, LOGNAME), RR_ERROR);
+    assert_int_equal(MetadataWrite(&m, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
+    assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
+    assert_int_equal(m.term, 0xffffffff);
+    assert_int_equal(m.vote, INT32_MAX);
+
+    assert_int_equal(MetadataWrite(&m, LOGNAME, LONG_MAX, (int) -1), RR_OK);
+    assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
+    assert_int_equal(m.term, LONG_MAX);
+    assert_int_equal(m.vote, -1);
 
     /* Test overwrite */
-    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 5, 5), RR_OK);
-    assert_int_equal(RaftMetaWrite(&meta, LOGNAME, 6, 6), RR_OK);
-    assert_int_equal(meta.term, 6);
-    assert_int_equal(meta.vote, 6);
+    assert_int_equal(MetadataWrite(&m, LOGNAME, 5, 5), RR_OK);
+    assert_int_equal(MetadataWrite(&m, LOGNAME, 6, 6), RR_OK);
+    assert_int_equal(m.term, 6);
+    assert_int_equal(m.vote, 6);
 }
 
 const struct CMUnitTest log_tests[] = {

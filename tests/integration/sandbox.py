@@ -26,7 +26,7 @@ from redis import ResponseError
 LOG = logging.getLogger('sandbox')
 
 
-class RedisRaftSanitizer(Exception):
+class RedisRaftBug(Exception):
     pass
 
 
@@ -42,6 +42,21 @@ class RedisRaftFailedToStart(RedisRaftError):
     pass
 
 
+class RawConnection(object):
+    """
+    Implement a simple way of executing a Redis command and return the raw
+    unprocessed reply (unlike redis-py's execute_command() which applies some
+    command-specific parsing.)
+    """
+
+    def __init__(self, client):
+        self._conn = client.connection_pool.get_connection('raw-connection')
+
+    def execute(self, *cmd):
+        self._conn.send_command(*cmd)
+        return self._conn.read_response()
+
+
 class PipeLogger(threading.Thread):
     def __init__(self, pipe, prefix):
         super(PipeLogger, self).__init__()
@@ -52,10 +67,14 @@ class PipeLogger(threading.Thread):
         self.start()
 
     def run(self):
-        for line in iter(self.pipe.readline, b''):
-            linestr = str(line, 'utf-8').rstrip()
-            self.loglines += linestr
-            LOG.debug('%s: %s', self.prefix, linestr)
+        try:
+            for line in iter(self.pipe.readline, b''):
+                linestr = str(line, 'utf-8').rstrip()
+                self.loglines += linestr
+                LOG.debug('%s: %s', self.prefix, linestr)
+        except ValueError as err:
+            LOG.debug("PipeLogger: %s", str(err))
+            return
 
 
 class RedisRaft(object):
@@ -134,6 +153,7 @@ class RedisRaft(object):
         client_key = os.getcwd() + '/tests/tls/client.key'
 
         self.client = redis.Redis(host='localhost', port=self.port,
+                                  socket_timeout=20,
                                   password=password,
                                   ssl=config.tls,
                                   ssl_certfile=client_cert,
@@ -269,10 +289,21 @@ class RedisRaft(object):
                             'RedisRaft<%s> failed to start' % self.id)
                 time.sleep(0.1)
 
-    def check_sanitizer_error(self):
-        if (self.stdout and 'sanitizer' in self.stdout.loglines.lower() or
-                self.stderr and 'sanitizer' in self.stderr.loglines.lower()):
-            raise RedisRaftSanitizer('Sanitizer error.')
+    def check_error_in_logs(self):
+        stdout = ""
+        stderr = ""
+
+        if self.stdout:
+            stdout = self.stdout.loglines.lower()
+
+        if self.stderr:
+            stderr = self.stderr.loglines.lower()
+
+        if 'sanitizer' in stdout or 'sanitizer' in stderr:
+            raise RedisRaftBug('Sanitizer error')
+
+        if 'redis bug report' in stdout or 'redis bug report' in stderr:
+            raise RedisRaftBug('RedisRaft crash')
 
     def terminate(self):
         if self.process:
@@ -280,21 +311,35 @@ class RedisRaft(object):
                 self.resume()
             try:
                 self.process.terminate()
-                self.process.wait()
+
+                try:
+                    self.process.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
 
             except OSError as err:
                 LOG.error('RedisRaft<%s> failed to terminate: %s',
                           self.id, err)
             else:
                 LOG.info('RedisRaft<%s> terminated', self.id)
+
+        if self.stdout:
+            self.stdout.join(timeout=30)
+        if self.stderr:
+            self.stderr.join(timeout=30)
+
         self.process = None
-        self.check_sanitizer_error()
+        self.check_error_in_logs()
 
     def kill(self):
         if self.process:
             try:
                 self.process.kill()
-                self.process.wait()
+
+                try:
+                    self.process.communicate(timeout=60)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
 
             except OSError as err:
                 LOG.error('Cannot kill RedisRaft<%s>: %s',
@@ -302,7 +347,7 @@ class RedisRaft(object):
             else:
                 LOG.info('RedisRaft<%s> killed', self.id)
         self.process = None
-        self.check_sanitizer_error()
+        self.check_error_in_logs()
 
     def restart(self, retries=5):
         self.terminate()
@@ -492,7 +537,7 @@ class RedisRaft(object):
 
 
 class Cluster(object):
-    noleader_timeout = 10
+    noleader_timeout = 30
 
     def __init__(self, config, base_port=5000, base_id=0, cluster_id=0):
         self.next_id = base_id + 1
@@ -642,7 +687,6 @@ class Cluster(object):
             node.wait_for_current_index(current_idx)
 
     def raft_retry(self, func):
-        no_leader_first = True
         start_time = time.time()
         while time.time() < start_time + self.noleader_timeout:
             try:
@@ -671,10 +715,10 @@ class Cluster(object):
                         self.leader = new_leader
                 elif str(err).startswith('CLUSTERDOWN') or \
                         str(err).startswith('NOCLUSTER'):
-                    if no_leader_first:
+                    remaining = start_time + self.noleader_timeout - time.time()
+                    if remaining > 0:
                         LOG.info("-CLUSTERDOWN response received, will retry"
-                                 " for %s seconds", self.noleader_timeout)
-                        # no_leader_first = False
+                                 " for %.2f seconds", remaining)
                     time.sleep(0.5)
                 else:
                     raise
@@ -696,7 +740,7 @@ class Cluster(object):
         for node in self.nodes.values():
             try:
                 node.destroy()
-            except RedisRaftSanitizer as e:
+            except RedisRaftBug as e:
                 err = e
         if err:
             raise err
@@ -706,7 +750,7 @@ class Cluster(object):
         for node in self.nodes.values():
             try:
                 node.terminate()
-            except RedisRaftSanitizer as e:
+            except RedisRaftBug as e:
                 err = e
         if err:
             raise err

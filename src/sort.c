@@ -102,10 +102,9 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
     char *key;
     size_t key_len;
     void *value;
-    size_t count = 0;
+
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     while ((key = RedisModule_DictNextC(iter, &key_len, &value)) != NULL) {
-        count++;
         RedisModule_ReplyWithStringBuffer(ctx, key, key_len);
         RedisModule_ReplyWithCallReply(ctx, value);
     }
@@ -130,26 +129,22 @@ void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     enterRedisModuleCall();
     int entered_eval = redis_raft.entered_eval;
     redis_raft.entered_eval = 0;
-    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, cmd_str, "3v", &argv[1], argc - 1);
+    RedisModuleCallReply *reply = RedisModule_Call(redis_raft.ctx, cmd_str, "3vE", &argv[1], argc - 1);
     exitRedisModuleCall();
     redis_raft.entered_eval = entered_eval;
 
-    if (!reply) {
-        replyRMCallError(ctx, errno, cmd_str, cmd_len);
-    } else {
-        int reply_type = RedisModule_CallReplyType(reply);
-        switch (reply_type) {
-            case REDISMODULE_REPLY_ARRAY:
-            case REDISMODULE_REPLY_SET:
-                replySortedArray(ctx, reply);
-                break;
-            case REDISMODULE_REPLY_MAP:
-                replySortedMap(ctx, reply);
-                break;
-            default:
-                RedisModule_ReplyWithCallReply(ctx, reply);
-        }
-
-        RedisModule_FreeCallReply(reply);
+    int reply_type = RedisModule_CallReplyType(reply);
+    switch (reply_type) {
+        case REDISMODULE_REPLY_ARRAY:
+        case REDISMODULE_REPLY_SET:
+            replySortedArray(ctx, reply);
+            break;
+        case REDISMODULE_REPLY_MAP:
+            replySortedMap(ctx, reply);
+            break;
+        default:
+            RedisModule_ReplyWithCallReply(ctx, reply);
     }
+
+    RedisModule_FreeCallReply(reply);
 }

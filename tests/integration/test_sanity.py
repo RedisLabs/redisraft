@@ -565,6 +565,14 @@ def test_acl(cluster):
     assert cluster.node(2).raft_debug_exec('get', 'abc') == b'1'
     assert cluster.node(3).raft_debug_exec('get', 'abc') == b'1'
 
+    assert cluster.execute('EVAL_RO', """
+    redis.call('GET','key');
+    return 1234;""", '0') == 1234
+
+    with (raises(ResponseError, match="ACL failure in script: No permissions to access a key")):
+        cluster.execute('EVAL_RO', """
+        redis.call('GET','abc');
+        return 1234;""", '0')
 
 def test_metadata_restore_after_restart(cluster):
     """

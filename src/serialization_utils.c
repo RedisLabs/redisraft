@@ -79,8 +79,6 @@ int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val)
         }
     }
 
-    sz--;
-    ptr++;
     *val = tmp;
 
     return len + 1;

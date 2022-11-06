@@ -49,7 +49,12 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
     source->len = 0;
     memset(source->commands, 0, sizeof(RaftRedisCommand *) * source->size);
 
-    target->asking = source->asking;
+    if (source->acl) {
+        target->acl = source->acl;
+        source->acl = NULL;
+    }
+
+    target->asking |= source->asking;
 }
 
 /* Free a RaftRedisCommand */
@@ -90,6 +95,7 @@ void RaftRedisCommandArrayFree(RaftRedisCommandArray *array)
     if (array->acl) {
         RedisModule_FreeString(NULL, array->acl);
     }
+    array->asking = false;
 }
 
 static size_t calcSerializedSize(RaftRedisCommand *cmd)

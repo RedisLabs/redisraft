@@ -24,6 +24,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
+#include "metadata.h"
 #include "raft.h"
 #include "version.h"
 
@@ -255,11 +256,6 @@ typedef struct SnapshotFile {
     size_t len;
 } SnapshotFile;
 
-typedef struct RaftMeta {
-    raft_term_t term;    /* Last term we're aware of */
-    raft_node_id_t vote; /* Our vote in the last term, or -1 */
-} RaftMeta;
-
 /* threadpool.c */
 struct Task {
     STAILQ_ENTRY(Task) entry;
@@ -365,30 +361,34 @@ typedef struct RedisRaftConfig {
 
 /* Global Raft context */
 typedef struct RedisRaftCtx {
-    void *raft;                          /* Raft library context */
-    RedisModuleCtx *ctx;                 /* Redis module thread-safe context; only used to push
+    void *raft;                    /* Raft library context */
+    RedisModuleCtx *ctx;           /* Redis module thread-safe context; only used to push
                                                     commands we get from the leader. */
-    RedisRaftState state;                /* Raft module state */
-    ThreadPool thread_pool;              /* Thread pool for slow operations */
-    FsyncThread fsyncThread;             /* Thread to call fsync on raft log file */
-    struct RaftLog *log;                 /* Raft persistent log; May be NULL if not used */
-    struct RaftMeta meta;                /* Raft metadata for voted_for and term */
-    struct EntryCache *logcache;         /* Log entry cache to keep entries in memory for faster access */
-    struct RedisRaftConfig config;       /* User provided configuration */
-    bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
+    RedisRaftState state;          /* Raft module state */
+    ThreadPool thread_pool;        /* Thread pool for slow operations */
+    FsyncThread fsyncThread;       /* Thread to call fsync on raft log file */
+    struct RaftLog *log;           /* Raft persistent log; May be NULL if not used */
+    Metadata meta;                 /* Raft metadata for voted_for and term */
+    struct EntryCache *logcache;   /* Log entry cache to keep entries in memory for faster access */
+    struct RedisRaftConfig config; /* User provided configuration */
+
     raft_index_t incoming_snapshot_idx;  /* Incoming snapshot's last included idx to verify chunks
                                                     belong to the same snapshot */
     char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
                                                     it will be renamed to the original rdb file */
-    raft_index_t last_snapshot_idx;      /* Last included idx of the snapshot operation currently in progress */
-    raft_term_t last_snapshot_term;      /* Last included term of the snapshot operation currently in progress */
+    bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
+    mstime_t curr_snapshot_start_time;   /* start time of the snapshot operation currently in progress */
+    raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
+    raft_term_t curr_snapshot_last_term; /* Last included term of the snapshot operation currently in progress */
+    mstime_t last_snapshot_time;         /* Total time (ms) of a last local snapshot operation */
     int snapshot_child_fd;               /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file; /* Snapshot file memory table to send to followers */
     RaftSnapshotInfo snapshot_info;      /* Current snapshot info */
-    struct RaftReq *transfer_req;        /* RaftReq if a leader transfer is in progress */
-    struct RaftReq *migrate_req;         /* RaftReq if a migration transfer is in progress */
-    struct ShardingInfo *sharding_info;  /* Information about sharding, when cluster mode is enabled */
-    RedisModuleDict *client_state;       /* A dict that tracks different client states */
+
+    struct RaftReq *transfer_req;       /* RaftReq if a leader transfer is in progress */
+    struct RaftReq *migrate_req;        /* RaftReq if a migration transfer is in progress */
+    struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
+    RedisModuleDict *client_state;      /* A dict that tracks different client states */
     struct CommandSpecTable *commands_spec_table;
     /* Debug - Testing */
     struct RaftReq *debug_req;      /* Current RAFT.DEBUG request context, if processing one */
@@ -401,7 +401,7 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_reqs;        /* Number of failed proxy requests, i.e. did not send */
     unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
-    unsigned long snapshots_loaded;              /* Number of snapshots loaded */
+    unsigned long snapshots_received;            /* Number of received snapshots */
     unsigned long snapshots_created;             /* Number of snapshots created */
     unsigned long appendreq_received;            /* Number of received appendreq messages */
     unsigned long appendreq_with_entry_received; /* Number of received appendreq messages with at least one entry in them */
@@ -650,8 +650,7 @@ typedef struct RaftLog {
     size_t file_size;               /* File size at the time of last write */
     const char *filename;           /* Log file name */
     FILE *file;                     /* Log file */
-    FILE *idxfile;                  /* Index file */
-    off_t idxoffset;                /* Index file position */
+    int idxfile;                    /* Index file descriptor */
     raft_index_t fsync_index;       /* Last entry index included in the latest fsync() call */
     uint64_t fsync_count;           /* Count of fsync() calls */
     uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
@@ -753,7 +752,6 @@ void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
 /* common.c - common reply function */
 void replyRaftError(RedisModuleCtx *ctx, int error);
-void replyRMCallError(RedisModuleCtx *ctx, int err, const char *cmd, size_t len);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
@@ -809,11 +807,16 @@ void handleFsyncCompleted(void *arg);
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
 char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+int safesnprintf(void *buf, size_t size, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+int lensnprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void AddBasicLocalShardGroup(RedisRaftCtx *rr);
 void FreeImportKeys(ImportKeys *target);
 unsigned int keyHashSlot(const char *key, size_t keylen);
 unsigned int keyHashSlotRedisString(RedisModuleString *s);
 RRStatus parseHashSlots(char *slots, char *string);
+bool parseLongLong(const char *str, char **end, long long *val);
+bool parseLong(const char *str, char **end, long *val);
+bool parseInt(const char *str, char **end, int *val);
 
 /* log.c */
 RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
@@ -831,11 +834,8 @@ raft_index_t RaftLogCount(RaftLog *log);
 raft_index_t RaftLogFirstIdx(RaftLog *log);
 raft_index_t RaftLogCurrentIdx(RaftLog *log);
 long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term);
-void RaftLogRemoveFiles(const char *filename);
 void RaftLogArchiveFiles(RedisRaftCtx *rr);
 RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
-int RaftMetaRead(RaftMeta *meta, const char *filename);
-int RaftMetaWrite(RaftMeta *meta, const char *filename, raft_term_t term, raft_node_id_t vote);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);
@@ -852,7 +852,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
-int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_index_t idx, raft_term_t term);
+int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_term_t term, raft_index_t idx);
 int raftSendSnapshot(raft_server_t *raft, void *udata, raft_node_t *node, raft_snapshot_req_t *msg);
 int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
