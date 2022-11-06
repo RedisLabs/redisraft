@@ -419,6 +419,9 @@ void ConnMarkDisconnected(Connection *conn)
  */
 bool ConnIsIdle(Connection *conn)
 {
+    /* If the connection is in the "resolving" state, it means the hostname
+     * resolution is in progress in another thread. Even though it was marked as
+     * "terminating", the connection is not idle yet. */
     return conn->state == CONN_DISCONNECTED ||
            conn->state == CONN_CONNECT_ERROR ||
            (conn->state != CONN_RESOLVING && (conn->flags & CONN_TERMINATING));
