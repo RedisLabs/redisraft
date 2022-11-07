@@ -359,6 +359,12 @@ typedef struct RedisRaftConfig {
 
 } RedisRaftConfig;
 
+typedef struct SnapshotLoad {
+    bool pending;
+    raft_term_t term;
+    raft_index_t index;
+} SnapshotLoad;
+
 /* Global Raft context */
 typedef struct RedisRaftCtx {
     void *raft;                    /* Raft library context */
@@ -376,6 +382,7 @@ typedef struct RedisRaftCtx {
                                                     belong to the same snapshot */
     char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
                                                     it will be renamed to the original rdb file */
+    SnapshotLoad snapshot_load;          /* Indicates we've received a snapshot waiting to be loaded */
     bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
     mstime_t curr_snapshot_start_time;   /* start time of the snapshot operation currently in progress */
     raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
@@ -850,6 +857,7 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
+void loadPendingSnapshot(RedisRaftCtx *rr);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_term_t term, raft_index_t idx);

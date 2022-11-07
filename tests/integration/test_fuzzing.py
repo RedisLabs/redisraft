@@ -147,6 +147,39 @@ def test_stale_reads_on_restarts(cluster, workload):
     workload.stop()
 
 
+def test_snapshot_delivery_with_config_changes(cluster):
+    """
+    Test big snapshot delivery (~70 mb on disk) while adding/removing nodes
+    """
+    cycles = 10
+
+    cluster.create(1)
+    cluster.execute('set', 'x', '1')
+    cluster.execute('set', 'x', '1')
+
+    n1 = cluster.node(1)
+    n1.execute('raft.debug', 'exec', 'debug', 'populate', 2000000, 'a', 200)
+    n1.execute('raft.debug', 'compact')
+
+    cluster.add_node()
+    cluster.add_node()
+    cluster.add_node()
+    cluster.add_node()
+    cluster.wait_for_unanimity()
+
+    for i in range(cycles):
+        assert cluster.execute('INCRBY', 'counter', 1) == i + 1
+        try:
+            cluster.remove_node(cluster.random_node_id())
+        except ResponseError:
+            continue
+
+        cluster.add_node().wait_for_node_voting()
+
+    logging.info('All cycles finished')
+    assert int(cluster.execute('GET', 'counter')) == cycles
+
+
 @pytest.mark.slow
 def test_proxy_stability_under_load(cluster, workload):
     """
