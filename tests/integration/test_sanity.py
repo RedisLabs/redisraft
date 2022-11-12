@@ -42,13 +42,15 @@ def test_set_cluster_password(cluster):
 
 def test_set_cluster_id_too_short(cluster):
     cluster_id = "123456789012345678901234567890"
-    with raises(ResponseError, match='invalid cluster message \\(cluster id length\\)'):
+    msg = 'invalid cluster message \\(cluster id length\\)'
+    with raises(ResponseError, match=msg):
         cluster.create(3, cluster_id=cluster_id)
 
 
 def test_set_cluster_id_too_long(cluster):
     cluster_id = "1234567890123456789012345678901234"
-    with raises(ResponseError, match='invalid cluster message \\(cluster id length\\)'):
+    msg = 'invalid cluster message \\(cluster id length\\)'
+    with raises(ResponseError, match=msg):
         cluster.create(3, cluster_id=cluster_id)
 
 
@@ -433,21 +435,21 @@ def test_tls_reconfig(cluster):
 
 @pytest.mark.skipif("not config.getoption('tls')")
 def test_tls_ca_cert_dir(cluster):
-    cluster.create(3, tls_ca_cert_location='dir')
+    cluster.create(3, cacert_type='dir')
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
 
 
 @pytest.mark.skipif("not config.getoption('tls')")
 def test_tls_ca_cert_file(cluster):
-    cluster.create(3, tls_ca_cert_location='file')
+    cluster.create(3, cacert_type='file')
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
 
 
 @pytest.mark.skipif("not config.getoption('tls')")
 def test_tls_ca_cert_both(cluster):
-    cluster.create(3, tls_ca_cert_location='both')
+    cluster.create(3, cacert_type='both')
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
 
@@ -511,13 +513,14 @@ def test_maxmemory(cluster):
     cluster.execute('set', 'key1', val)
     cluster.execute('config', 'set', 'maxmemory', 1)
 
-    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+    msg = "OOM command not allowed when used memory > 'maxmemory'"
+    with raises(ResponseError, match=msg):
         cluster.execute('set', 'key2', val)
 
     assert cluster.execute('get', 'key1').decode('utf8') == val
     cluster.execute('del', 'key1')
 
-    with (raises(ResponseError, match="OOM command not allowed when used memory > 'maxmemory'")):
+    with raises(ResponseError, match=msg):
         cluster.execute('set', 'key1', val)
 
     cluster.execute('config', 'set', 'maxmemory', 0)
@@ -529,7 +532,8 @@ def test_acl(cluster):
 
     cluster.execute('set', 'key', 1)
     cluster.execute('set', 'abc', 1)
-    cluster.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)', '(+get', '~key*)')
+    cluster.execute('acl', 'setuser', 'default', 'resetkeys',
+                    '(+set', '~key*)', '(+get', '~key*)')
     cluster.execute('get', 'key')
     with (raises(ResponseError, match="No permissions to access a key")):
         cluster.execute('get', 'abc')
@@ -556,7 +560,8 @@ def test_acl(cluster):
     assert cluster.node(2).raft_debug_exec('get', 'key') == b'3'
     assert cluster.node(3).raft_debug_exec('get', 'key') == b'3'
 
-    with (raises(ResponseError, match="ACL failure in script: No permissions to access a key")):
+    msg = "ACL failure in script: No permissions to access a key"
+    with (raises(ResponseError, match=msg)):
         cluster.execute('EVAL', """
         redis.call('SET','abc', 3);
         return 1234;""", '0')
@@ -569,10 +574,11 @@ def test_acl(cluster):
     redis.call('GET','key');
     return 1234;""", '0') == 1234
 
-    with (raises(ResponseError, match="ACL failure in script: No permissions to access a key")):
+    with (raises(ResponseError, match=msg)):
         cluster.execute('EVAL_RO', """
         redis.call('GET','abc');
         return 1234;""", '0')
+
 
 def test_metadata_restore_after_restart(cluster):
     """
@@ -605,4 +611,3 @@ def test_metadata_restore_after_restart(cluster):
     # n2 triggered an election, so n2 should have voted for itself.
     assert n2.info()['raft_current_term'] == 2
     assert n2.info()['raft_voted_for'] == 2
-

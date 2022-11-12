@@ -263,7 +263,7 @@ def test_module_command_flags(cluster):
     """
     Test commandspec table is updated after module load/unload
     """
-     
+
     node = cluster.add_node(
         redis_args=["--enable-module-command", "yes"],
         cluster_setup=False)

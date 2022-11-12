@@ -118,7 +118,9 @@ def test_reply_to_cache_invalidated_entry(cluster):
     # Send commands that are guaranteed to overflow the cache
     conns = []
     for i in range(10):
-        conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+        n1 = cluster.node(1)
+        conn = n1.client.connection_pool.get_connection('deferred')
+
         conn.send_command('SET', 'key%s' % i, 'x' * 1000)
         conns.append(conn)
 

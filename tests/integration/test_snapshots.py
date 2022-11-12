@@ -473,7 +473,7 @@ def test_snapshot_fork_failure(cluster):
     # will fail.
     time.sleep(3)
 
-    assert r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    assert r1.execute('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
     assert r1.info()['raft_snapshots_created'] == 1
 
     r1.client.incr('testkey')

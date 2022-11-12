@@ -90,10 +90,14 @@ jobs:
         run: |
           clang-format -n -Werror -style=file:src/.clang-format src/* || true
           colordiff -u <(cat src/*) <(clang-format -style=file:src/.clang-format src/*)
-      - name: CheckStyle - unit tests
+      - name: Check Style - unit tests
         run: |
           clang-format -n -Werror -style=file:tests/unit/.clang-format tests/unit/* || true
           colordiff -u <(cat tests/unit/*) <(clang-format -style=file:tests/unit/.clang-format tests/unit/*)
+      - name: Check Style - integration tests
+        run: |
+          pycodestyle --show-source tests
       - name: Spellcheck
         run:
           codespell --config=./.github/codespell/config.txt
+

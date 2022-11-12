@@ -83,7 +83,8 @@ class RawConnection(object):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
-                 use_id_arg=True, cluster_id=0, password=None, tls_ca_cert_location=None):
+                 use_id_arg=True, cluster_id=0, password=None,
+                 cacert_type=None):
         self.id = _id
         self.cluster_id = cluster_id
         self.guid = str(uuid.uuid4())
@@ -114,11 +115,16 @@ class RedisRaft(object):
         self.key = os.getcwd() + '/tests/tls/redis.key'
 
         if config.tls:
-            if tls_ca_cert_location == 'dir' or tls_ca_cert_location == 'both':
-                self.args += ['--tls-ca-cert-dir', self.cacert_dir]
-            # default behaviour - only file configuration
-            if not tls_ca_cert_location or tls_ca_cert_location == 'file' or tls_ca_cert_location == 'both':
+            # 'cacert_type' can be None, 'dir', 'file' and 'both'.
+
+            # For None, 'both' and 'file', we set --tls-ca-cert-file
+            if cacert_type is None or cacert_type in ('both', 'file'):
                 self.args += ['--tls-ca-cert-file', self.cacert]
+
+            # For 'both' and 'dir', we set --tls-ca-cert-dir
+            if cacert_type is not None and cacert_type in ('both', 'dir'):
+                self.args += ['--tls-ca-cert-dir', self.cacert_dir]
+
             self.args += ['--tls-port', str(port),
                           '--tls-cert-file', self.cert,
                           '--tls-key-file', self.key,
@@ -255,7 +261,9 @@ class RedisRaft(object):
 
     def load_module(self, module):
         self.verify_up()
-        self.client.execute_command("module", "load", f'{os.getcwd()}/tests/integration/modules/{module}')
+
+        path = f'{os.getcwd()}/tests/integration/modules/{module}'
+        self.client.execute_command("module", "load", path)
 
     def unload_module(self, module):
         self.verify_up()
@@ -435,8 +443,8 @@ class RedisRaft(object):
 
     def wait_for_log_committed(self, timeout=10):
         def current_idx_committed():
-            info = self.info()
-            return bool(info['raft_commit_index'] == info['raft_current_index'])
+            ret = self.info()
+            return bool(ret['raft_commit_index'] == ret['raft_current_index'])
 
         def raise_not_committed():
             raise RedisRaftTimeout('Last log entry not yet committed')
@@ -564,8 +572,8 @@ class Cluster(object):
     def node_addresses(self):
         return [n.address for n in self.nodes.values()]
 
-    def create(self, node_count, raft_args=None, cluster_id=None, password=None,
-               prepopulate_log=0, tls_ca_cert_location=None):
+    def create(self, node_count, raft_args=None, cluster_id=None,
+               password=None, prepopulate_log=0, cacert_type=None):
         if raft_args is None:
             raft_args = {}
         self.raft_args = raft_args.copy()
@@ -575,7 +583,7 @@ class Cluster(object):
                                    raft_args=raft_args,
                                    cluster_id=self.cluster_id,
                                    password=password,
-                                   tls_ca_cert_location=tls_ca_cert_location)
+                                   cacert_type=cacert_type)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():
@@ -604,7 +612,8 @@ class Cluster(object):
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
                  node_id=None, use_cluster_args=False, single_run=False,
-                 join_addr_list=None, redis_args=None, tls_ca_cert_location=None, **kwargs):
+                 join_addr_list=None, redis_args=None, cacert_type=None,
+                 **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -615,7 +624,8 @@ class Cluster(object):
         node = None
         try:
             node = RedisRaft(_id, port, self.config, redis_args,
-                             raft_args=_raft_args, tls_ca_cert_location=tls_ca_cert_location, **kwargs)
+                             raft_args=_raft_args, cacert_type=cacert_type,
+                             **kwargs)
             if cluster_setup:
                 if self.nodes:
                     if join_addr_list is None:
@@ -640,8 +650,9 @@ class Cluster(object):
         try:
             self.raft_retry(_func)
         except redis.ResponseError as err:
-            # If we are removing the leader, leader will shutdown before sending
-            # the reply. On retry, we should get "node id does not exist" reply.
+            # If we are removing the leader, leader will shut down before
+            # sending the reply. On retry, we should get
+            # "node id does not exist" reply.
             if str(err).startswith("node id does not exist"):
                 if _id not in self.nodes:
                     raise err
@@ -719,10 +730,10 @@ class Cluster(object):
                         self.leader = new_leader
                 elif str(err).startswith('CLUSTERDOWN') or \
                         str(err).startswith('NOCLUSTER'):
-                    remaining = start_time + self.noleader_timeout - time.time()
-                    if remaining > 0:
+                    rem = start_time + self.noleader_timeout - time.time()
+                    if rem > 0:
                         LOG.info("-CLUSTERDOWN response received, will retry"
-                                 " for %.2f seconds", remaining)
+                                 " for %.2f seconds", rem)
                     time.sleep(0.5)
                 else:
                     raise
