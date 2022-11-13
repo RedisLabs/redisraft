@@ -115,7 +115,7 @@ def test_reply_to_cache_invalidated_entry(cluster):
     cluster.node(2).terminate()
     cluster.node(3).terminate()
 
-    # Send commands that are guarnateed to overflow the cache
+    # Send commands that are guaranteed to overflow the cache
     conns = []
     for i in range(10):
         conn = cluster.node(1).client.connection_pool.get_connection('deferred')
