@@ -11,17 +11,15 @@ import pytest as pytest
 from .sandbox import ElleWorker, Elle, key_hash_slot
 
 
-@pytest.mark.skipif("not config.getoption('elle_threads')")
 @pytest.mark.elle_test()
 def test_elle_sanity(cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
         'external-sharding': 'yes'})
-    time.sleep(5)
+    time.sleep(1)
 
 
-#@pytest.mark.skipif("not config.getoption('elle_threads')")
-#@pytest.mark.elle_test()
+@pytest.mark.skipif("not config.getoption('elle_threads')")
 def test_elle_migrating_manual(elle, cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
@@ -164,11 +162,11 @@ def test_elle_migrating(request, cluster_factory):
     cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
     cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
 
-    slot = -1
-    marker = request.node.get_closest_marker("key_hash_tag")
-    if marker is not None:
-        slot = key_hash_slot(marker.args[0])
-    assert slot != -1
+    # must correspond to @pytest.mark.key_hash_tag("test") above
+    key_name = "test"
+    slot = key_hash_slot(key_name)
+
+    cluster1.execute('set', key_name, 'hello')
 
     time.sleep(0.25)
 
@@ -214,8 +212,11 @@ def test_elle_migrating(request, cluster_factory):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
+    cluster1.execute('set', key_name, 'val')
+
     time.sleep(0.25)
 
+    # migrate
     cursor = 0
     while True:
         reply = cluster1.execute('raft.scan', cursor, slot)
@@ -277,9 +278,10 @@ def test_elle_migrating(request, cluster_factory):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
+    # validate that cluster1 has no more eys in slot
     count = 0
     while True:
-        reply = cluster2.execute('raft.scan', cursor, slot)
+        reply = cluster1.execute('raft.scan', cursor, slot)
         cursor = int(reply[0])
         keys = reply[1]
 
@@ -287,11 +289,7 @@ def test_elle_migrating(request, cluster_factory):
 
         if cursor == 0:
             break
+    assert count == 0
 
-    expected_count = 0
-    if cluster1.config.elle_threads != 0:
-        marker = request.node.get_closest_marker("num_elle_keys")
-        if marker is not None:
-            expected_count += marker.args[0]
-
-    assert count == expected_count
+    # validate key(s) created by this test are on new cluster
+    assert cluster2.execute('get', key_name) == b'val'

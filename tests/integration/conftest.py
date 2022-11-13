@@ -51,6 +51,8 @@ def pytest_addoption(parser):
         help='location for elle-cli jar file')
     parser.addoption(
         '--elle_threads', default=0, help='number of elle worker threads')
+    parser.addoption(
+        '--elle_ops_per_tx', default=1, help='number of append/read pairs per transaction')
 
 
 def pytest_configure(config):
@@ -82,6 +84,7 @@ def create_config(pytest_config):
     config.tls = pytest_config.getoption('--tls')
     config.elle_cli = os.path.abspath(pytest_config.getoption('--elle-cli'))
     config.elle_threads = int(pytest_config.getoption('--elle_threads'))
+    config.elle_num_ops = int(pytest_config.getoption('--elle_ops_per_tx'))
 
     if pytest_config.getoption('--valgrind'):
         if config.args is None:

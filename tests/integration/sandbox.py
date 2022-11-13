@@ -858,18 +858,6 @@ class Elle(object):
         self.logfile.write("; " + msg + "\n")
         self.lock.release()
 
-    @staticmethod
-    def map_addresses_to_clients(clusters: List[Cluster]) -> typing.Dict[str, redis.Redis]:
-        mapped_clients: typing.Dict[str, redis.Redis] = {}
-        default_set = False
-        for c in clusters:
-            for n in c.nodes.values():
-                mapped_clients[n.address] = n.client
-                if not default_set:
-                    mapped_clients["default"] = n.client
-                    default_set = True
-        return mapped_clients
-
     def get_next_value(self) -> int:
         with self.lock:
             ret = self.value
@@ -900,7 +888,7 @@ class ElleWorker(threading.Thread):
     # might not want generate_ops, perhaps each multi should just be a single append/read of same key
     def generate_ops(self, available_keys: typing.List[str]) -> typing.List[ElleOp]:
         ops: typing.List[ElleOp] = []
-        for _ in range(random.randint(1, 1)):
+        for _ in range(self.elle.config.elle_num_ops):
             key = available_keys[random.randrange(0, len(available_keys))]
             val = self.elle.get_next_value()
             ops.append(ElleOp("append", key, str(val)))
@@ -953,7 +941,6 @@ class ElleWorker(threading.Thread):
                 if m:
                     client = redis.Redis(host=m.group(1), port=m.group(2))
                 elif a:
-                    # don't know how to handle submitting an ASKING yet + how to control it
                     client = redis.Redis(host=a.group(1), port=a.group(2))
                     needs_asking = True
                 else:
