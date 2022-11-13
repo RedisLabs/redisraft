@@ -166,7 +166,8 @@ def test_elle_migrating(request, cluster_factory):
     key_name = "test"
     slot = key_hash_slot(key_name)
 
-    cluster1.execute('set', key_name, 'hello')
+    for i in range(5):
+        cluster1.execute('set', f"{{{key_name}}}key" + str(i), 'hello')
 
     time.sleep(0.25)
 
@@ -212,7 +213,8 @@ def test_elle_migrating(request, cluster_factory):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
-    cluster1.execute('set', key_name, 'val')
+    for i in range(5):
+        cluster1.execute('set', f"{{{key_name}}}key" + str(i), 'val' + str(i))
 
     time.sleep(0.25)
 
@@ -292,4 +294,5 @@ def test_elle_migrating(request, cluster_factory):
     assert count == 0
 
     # validate key(s) created by this test are on new cluster
-    assert cluster2.execute('get', key_name) == b'val'
+    for i in range(5):
+        assert cluster2.execute('get', f"{{{key_name}}}key" + str(i)) == f"val{str(i)}".encode()
