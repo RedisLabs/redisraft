@@ -24,13 +24,17 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'elle')
+    timeout-minutes: 14400
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-      - uses: actions/checkout@v2
+    - uses: actions/checkout@v2
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
     - name: Install build dependencies
       run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
     - name: Build
