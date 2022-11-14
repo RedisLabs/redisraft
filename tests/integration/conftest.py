@@ -7,7 +7,6 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
 import os.path
 import subprocess
-import time
 import typing
 from types import SimpleNamespace
 import pytest
@@ -47,12 +46,14 @@ def pytest_addoption(parser):
     parser.addoption(
         "--runslow", action="store_true", default=False, help="run slow tests")
     parser.addoption(
-        '--elle-cli', default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
+        '--elle-cli',
+        default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
         help='location for elle-cli jar file')
     parser.addoption(
         '--elle-threads', default=0, help='number of elle worker threads')
     parser.addoption(
-        '--elle-ops-per-tx', default=1, help='number of append/read pairs per transaction')
+        '--elle-ops-per-tx', default=1,
+        help='number of append/read pairs per transaction')
 
 
 def pytest_configure(config):
@@ -113,8 +114,10 @@ def elle(request):
     elle_main.logfile.close()
     # no reason to run elle if failed
     if _config.elle_threads > 0 and not request.session.testsfailed:
-        p = subprocess.run(["/usr/bin/java", "-jar", elle_main.config.elle_cli, "-v", "--model", "list-append",
-                            os.path.join(elle_main.logdir, "logfile.edn")], capture_output=True)
+        p = subprocess.run(["/usr/bin/java", "-jar", elle_main.config.elle_cli,
+                            "-v", "--model", "list-append",
+                            os.path.join(elle_main.logdir, "logfile.edn")],
+                           capture_output=True)
         if p.returncode != 0:
             print(f"stdout = {p.stdout.decode()}")
             print(f"stderr = {p.stderr.decode()}")
@@ -157,7 +160,8 @@ def cluster_factory(request, elle):
 
     marker = request.node.get_closest_marker("elle_test")
     if marker is not None:
-        workers = [ElleWorker(elle, created_clusters, keys) for _ in range(create_config(request.config).elle_threads)]
+        workers = [ElleWorker(elle, created_clusters, keys)
+                   for _ in range(create_config(request.config).elle_threads)]
 
     for worker in workers:
         worker.start()

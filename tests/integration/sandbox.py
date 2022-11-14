@@ -782,7 +782,8 @@ class Cluster(object):
 
 
 class ElleOp(object):
-    def __init__(self, op_type: str, key: str, value: typing.Optional[str] = None):
+    def __init__(self, op_type: str, key: str,
+                 value: typing.Optional[str] = None):
         self.op_type = op_type
         self.key = key
         self.value = value
@@ -812,8 +813,14 @@ class Elle(object):
         val = " ".join(map(str, ops))
         return f"[{val}]"
 
-    def generate_command_output(self, thread: int, ops: List[ElleOp], state: str) -> str:
-        return f"{{:index {self.index[thread]} :process {thread} :type :{state}, :value {self.generate_ops_value(ops)}}}"
+    def generate_command_output(self, thread: int, ops: List[ElleOp],
+                                state: str):
+        return (f"{{"
+                f":index {self.index[thread]} "
+                f":process {thread} "
+                f":type :{state}, "
+                f":value {self.generate_ops_value(ops)}"
+                f"}}")
 
     def log_command(self, thread: int, ops: List[ElleOp]):
         try:
@@ -828,7 +835,7 @@ class Elle(object):
         self.lock.release()
 
     @staticmethod
-    def generate_results_value(results: typing.List, ops: typing.List[ElleOp]) -> str:
+    def generate_results_value(results: typing.List, ops: typing.List[ElleOp]):
         val = "["
         for i in range(len(ops)):
             if i != 0:
@@ -843,18 +850,31 @@ class Elle(object):
         val += "]"
         return val
 
-    def generate_result_output(self, thread: int, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+    def generate_result_output(self, thread: int, result: str,
+                               results: typing.Optional[List],
+                               ops: List[ElleOp]):
         output: str
         if result == "ok":
             output = self.generate_results_value(results, ops)
-            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+            return (f"{{"
+                    f":index {self.index[thread]} "
+                    f":process {thread} "
+                    f":type :{result}, "
+                    f":value {output}"
+                    f"}}")
         elif result == "fail":
             output = self.generate_ops_value(ops)
-            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+            return (f"{{"
+                    f":index {self.index[thread]} "
+                    f":process {thread} "
+                    f":type :{result}, "
+                    f":value {output}"
+                    f"}}")
         else:
             raise Exception(f"unknown result value {result}")
 
-    def log_result(self, thread, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+    def log_result(self, thread, result: str, results: typing.Optional[List],
+                   ops: List[ElleOp]):
         # if this throws an exception, we have a failure elsewhere
         self.index[thread] += 1
 
@@ -869,7 +889,7 @@ class Elle(object):
         self.logfile.write("; " + msg + "\n")
         self.lock.release()
 
-    def get_next_value(self) -> int:
+    def get_next_value(self):
         with self.lock:
             ret = self.value
             self.value += 1
@@ -877,7 +897,8 @@ class Elle(object):
 
 
 class ElleWorker(threading.Thread):
-    def __init__(self, elle: Elle, clusters: typing.List[Cluster], keys: typing.Optional[List[str]] = None):
+    def __init__(self, elle: Elle, clusters: typing.List[Cluster],
+                 keys: typing.Optional[List[str]] = None):
         super().__init__()
 
         self.clusters = clusters
@@ -896,8 +917,9 @@ class ElleWorker(threading.Thread):
     def set_keys(self, keys: typing.List):
         self.keys = keys
 
-    # might not want generate_ops, perhaps each multi should just be a single append/read of same key
-    def generate_ops(self, available_keys: typing.List[str]) -> typing.List[ElleOp]:
+    # We might not want to generate ops. Perhaps, each multi should be a
+    # single append/read of the same key.
+    def generate_ops(self, available_keys: typing.List[str]):
         ops: typing.List[ElleOp] = []
         for _ in range(self.elle.config.elle_num_ops):
             key = available_keys[random.randrange(0, len(available_keys))]
@@ -912,12 +934,14 @@ class ElleWorker(threading.Thread):
         good_write = False
         needs_asking = False
 
-        client = redis.Redis(host="localhost", port=self.clusters[0].leader_node().port)
+        client = redis.Redis(host="localhost",
+                             port=self.clusters[0].leader_node().port)
         self.elle.log_command(self.id, ops)
 
-        # 3 possible hops in normal scenario
-        # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remote leader"
-        # if it doesn't work by then, error
+        # Three possible hops can happen in a normal scenario:
+        # MOVED -> ASK -> (remote) MOVED
+        # (we'll send ASKING again to the remote leader).
+        # If it doesn't work by then, log an error.
         conn: typing.Optional[RawConnection] = None
         for i in range(0, 3):
             if conn is not None:
@@ -933,9 +957,11 @@ class ElleWorker(threading.Thread):
             # queue up operations
             for j in range(len(ops)):
                 if ops[j].op_type == "append":
-                    assert conn.execute('RPUSH', ops[j].key, ops[j].value) == b'QUEUED'
+                    ret = conn.execute('RPUSH', ops[j].key, ops[j].value)
+                    assert ret == b'QUEUED'
                 elif ops[j].op_type == "read":
-                    assert conn.execute('LRANgE', ops[j].key, 0, -1) == b'QUEUED'
+                    ret = conn.execute('LRANGE', ops[j].key, 0, -1)
+                    assert ret == b'QUEUED'
                 else:
                     raise Exception(f"Unknown op_type {ops[j].op_type}")
 
@@ -955,7 +981,8 @@ class ElleWorker(threading.Thread):
                     client = redis.Redis(host=a.group(1), port=a.group(2))
                     needs_asking = True
                 else:
-                    # some other failure, therefore don't retry, just break.  we expect failures to occur
+                    # Some other failure, therefore don't retry, just break.
+                    # We expect failures to occur.
                     break
 
         conn.release()
@@ -1034,12 +1061,11 @@ def crc16(data: bytes) -> int:
 
     crc = 0
     for byte in data:
-        crc = ((crc << 8) & 0xff00) ^ x_mode_m_crc16_lookup[((crc >> 8) & 0xff) ^ byte]
+        crc = ((crc << 8) & 0xff00) ^ \
+              x_mode_m_crc16_lookup[((crc >> 8) & 0xff) ^ byte]
     return crc & 0xffff
 
 
 def key_hash_slot(key: str) -> int:
     assert key is not None
     return crc16(key.encode()) % 16384
-
-
