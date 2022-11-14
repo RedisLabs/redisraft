@@ -14,6 +14,7 @@
 
 #include "cmocka.h"
 
+extern struct CMUnitTest file_tests[];
 extern struct CMUnitTest log_tests[];
 extern struct CMUnitTest util_tests[];
 extern struct CMUnitTest serialization_tests[];
@@ -62,6 +63,8 @@ int main(int argc, char *argv[])
                             __raft_realloc_stub, __raft_free_stub);
 
     return _cmocka_run_group_tests(
+               "file", file_tests, tests_count(file_tests), NULL, NULL) ||
+           _cmocka_run_group_tests(
                "log", log_tests, tests_count(log_tests), NULL, NULL) ||
            _cmocka_run_group_tests(
                "util", util_tests, tests_count(util_tests), NULL, NULL) ||

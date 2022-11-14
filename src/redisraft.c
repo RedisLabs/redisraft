@@ -9,6 +9,7 @@
 #include "redisraft.h"
 
 #include "entrycache.h"
+#include "log.h"
 
 #include <dlfcn.h>
 #include <inttypes.h>
@@ -1063,8 +1064,8 @@ static void clusterInit(const char *cluster_id)
         rr->config.id = makeRandomNodeId(rr);
     }
 
-    rr->log = RaftLogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
-                            1, 0, &rr->config);
+    rr->log = LogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
+                        1, 0, rr->config.id);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
@@ -1084,11 +1085,11 @@ static void clusterJoinCompleted(RaftReq *req)
     /* Initialize Raft log.  We delay this operation as we want to create the
      * log with the proper dbid which is only received now.
      */
-    rr->log = RaftLogCreate(rr->config.log_filename,
-                            rr->snapshot_info.dbid,
-                            rr->snapshot_info.last_applied_term,
-                            rr->snapshot_info.last_applied_idx,
-                            &rr->config);
+    rr->log = LogCreate(rr->config.log_filename,
+                        rr->snapshot_info.dbid,
+                        rr->snapshot_info.last_applied_term,
+                        rr->snapshot_info.last_applied_idx,
+                        rr->config.id);
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
@@ -1789,7 +1790,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldLongLong(ctx, "current_index", rr->raft ? raft_get_current_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "commit_index", rr->raft ? raft_get_commit_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "last_applied_index", rr->raft ? raft_get_last_applied_idx(rr->raft) : 0);
-    RedisModule_InfoAddFieldULongLong(ctx, "file_size", rr->log ? rr->log->file_size : 0);
+    RedisModule_InfoAddFieldULongLong(ctx, "file_size", rr->log ? LogFileSize(rr->log) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "cache_memory_size", rr->logcache ? rr->logcache->entries_memsize : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "cache_entries", rr->logcache ? rr->logcache->len : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "client_attached_entries", rr->client_attached_entries);
@@ -1978,7 +1979,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
      */
     int ret = MetadataRead(&rr->meta, rr->config.log_filename);
     if (ret == RR_OK) {
-        rr->log = RaftLogOpen(rr->config.log_filename, &rr->config, 0);
+        rr->log = LogOpen(rr->config.log_filename, false);
         if (rr->log) {
             rr->state = REDIS_RAFT_LOADING;
         }
@@ -2009,7 +2010,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
         rr->ctx = NULL;
     }
 
-    RaftLogFree(rr->log);
+    LogFree(rr->log);
     rr->log = NULL;
 
     if (rr->logcache) {

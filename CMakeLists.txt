@@ -178,6 +178,7 @@ add_library(redisraft MODULE
         src/config.c
         src/connection.c
         src/entrycache.c
+        src/file.c
         src/fsync.c
         src/join.c
         src/log.c
@@ -235,6 +236,7 @@ add_executable(main
         src/config.c
         src/connection.c
         src/entrycache.c
+        src/file.c
         src/fsync.c
         src/join.c
         src/log.c
@@ -253,6 +255,7 @@ add_executable(main
         src/threadpool.c
         src/util.c
         tests/unit/main.c
+        tests/unit/test_file.c
         tests/unit/test_log.c
         tests/unit/test_serialization.c
         tests/unit/test_util.c)

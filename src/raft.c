@@ -7,6 +7,7 @@
  */
 
 #include "entrycache.h"
+#include "log.h"
 #include "redisraft.h"
 
 #include <assert.h>
@@ -44,9 +45,8 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
-    if (rr->config.log_filename) {
-        RaftLogArchiveFiles(rr);
-    }
+    LogArchiveFiles(rr->log);
+
     if (rr->config.rdb_filename) {
         archiveSnapshot(rr);
     }
@@ -1131,9 +1131,14 @@ raft_cbs_t redis_raft_callbacks = {
     .get_entries_to_send = raftGetEntriesToSend,
 };
 
-RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
+static RRStatus loadRaftLog(RedisRaftCtx *rr)
 {
     int ret;
+
+    if (LogLoadEntries(rr->log) != RR_OK) {
+        LOG_WARNING("Failed to read Raft log");
+        return RR_ERROR;
+    }
 
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
@@ -1158,9 +1163,9 @@ RRStatus applyLoadedRaftLog(RedisRaftCtx *rr)
     }
 
     /* Reset the log if snapshot is more advanced */
-    if (RaftLogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
-        RaftLogImpl.reset(rr, rr->snapshot_info.last_applied_idx + 1,
-                          rr->snapshot_info.last_applied_term);
+    if (LogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
+        LogImpl.reset(rr, rr->snapshot_info.last_applied_idx + 1,
+                      rr->snapshot_info.last_applied_term);
     }
 
     memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
@@ -1195,8 +1200,6 @@ static bool checkRedisLoading(RedisRaftCtx *rr)
 
     return val;
 }
-
-RRStatus loadRaftLog(RedisRaftCtx *rr);
 
 static void handleLoadingState(RedisRaftCtx *rr)
 {
@@ -1236,19 +1239,10 @@ static void handleLoadingState(RedisRaftCtx *rr)
             configureFromSnapshot(rr);
         }
 
-        if (loadRaftLog(rr) == RR_OK) {
-            if (rr->log->snapshot_last_term) {
-                LOG_NOTICE("Loading: Log starts from snapshot term=%lu, index=%lu",
-                           rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
-            } else {
-                LOG_NOTICE("Loading: Log is complete.");
-            }
-
-            applyLoadedRaftLog(rr);
-            rr->state = REDIS_RAFT_UP;
-        } else {
-            rr->state = REDIS_RAFT_UNINITIALIZED;
+        if (loadRaftLog(rr) != RR_OK) {
+            PANIC("Failed to read Raft log");
         }
+        rr->state = REDIS_RAFT_UP;
     }
 }
 
@@ -1301,9 +1295,9 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
     /* Initiate snapshot if log size exceeds raft-log-file-max */
     if (!rr->snapshot_in_progress && rr->config.log_max_file_size &&
         raft_get_num_snapshottable_logs(rr->raft) > 0 &&
-        rr->log->file_size > rr->config.log_max_file_size) {
+        LogFileSize(rr->log) > rr->config.log_max_file_size) {
         LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
-                  rr->log->file_size);
+                  LogFileSize(rr->log));
         initiateSnapshot(rr);
     }
 
@@ -1368,20 +1362,6 @@ void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id)
     rr->snapshot_info.used_node_ids = entry;
 }
 
-RRStatus loadRaftLog(RedisRaftCtx *rr)
-{
-    int entries = RaftLogLoadEntries(rr->log);
-    if (entries < 0) {
-        LOG_WARNING("Failed to read Raft log");
-        return RR_ERROR;
-    } else {
-        LOG_NOTICE("Loading: Log loaded, %d entries, snapshot last term=%lu, index=%lu",
-                   entries, rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
-    }
-
-    return RR_OK;
-}
-
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 {
     raft_node_t *node;
@@ -1391,7 +1371,7 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
                             RedisModule_Realloc,
                             RedisModule_Free);
 
-    rr->raft = raft_new_with_log(&RaftLogImpl, rr);
+    rr->raft = raft_new_with_log(&LogImpl, rr);
     if (!rr->raft) {
         PANIC("Failed to initialize Raft library");
     }
@@ -1727,11 +1707,11 @@ void handleBeforeSleep(RedisRaftCtx *rr)
     raft_index_t flushed = rr->log->fsync_index;
     raft_index_t next = raft_get_index_to_sync(rr->raft);
     if (next > 0) {
-        fflush(rr->log->file);
+        FileFlush(&rr->log->file);
 
         if (rr->config.log_fsync) {
             /* Trigger async fsync() for the current index */
-            fsyncThreadAddTask(&rr->fsyncThread, fileno(rr->log->file), next);
+            fsyncThreadAddTask(&rr->fsyncThread, rr->log->file.fd, next);
         } else {
             /* Skipping fsync(), we can just update the sync'd index. */
             flushed = next;

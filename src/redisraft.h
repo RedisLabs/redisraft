@@ -24,6 +24,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
+#include "file.h"
 #include "metadata.h"
 #include "raft.h"
 #include "version.h"
@@ -373,7 +374,7 @@ typedef struct RedisRaftCtx {
     RedisRaftState state;          /* Raft module state */
     ThreadPool thread_pool;        /* Thread pool for slow operations */
     FsyncThread fsyncThread;       /* Thread to call fsync on raft log file */
-    struct RaftLog *log;           /* Raft persistent log; May be NULL if not used */
+    struct Log *log;               /* Raft persistent log; May be NULL if not used */
     Metadata meta;                 /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;   /* Log entry cache to keep entries in memory for faster access */
     struct RedisRaftConfig config; /* User provided configuration */
@@ -421,8 +422,6 @@ typedef struct RedisRaftCtx {
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
-
-extern raft_log_impl_t RaftLogImpl;
 
 #define REDIS_RAFT_HASH_SLOTS     16384
 #define REDIS_RAFT_HASH_MIN_SLOT  0
@@ -641,29 +640,6 @@ typedef struct RaftReq {
     } r;
 } RaftReq;
 
-#define RAFTLOG_VERSION 1
-
-/* Flags for RaftLogOpen */
-#define RAFTLOG_KEEP_INDEX 1 /* Index was written by this process, safe to use. */
-
-typedef struct RaftLog {
-    uint32_t version;               /* Log file format version */
-    char dbid[RAFT_DBID_LEN + 1];   /* DB unique ID */
-    raft_node_id_t node_id;         /* Node ID */
-    raft_index_t num_entries;       /* Entries in log */
-    raft_term_t snapshot_last_term; /* Last term included in snapshot */
-    raft_index_t snapshot_last_idx; /* Last index included in snapshot */
-    raft_index_t index;             /* Index of last entry */
-    size_t file_size;               /* File size at the time of last write */
-    const char *filename;           /* Log file name */
-    FILE *file;                     /* Log file */
-    int idxfile;                    /* Index file descriptor */
-    raft_index_t fsync_index;       /* Last entry index included in the latest fsync() call */
-    uint64_t fsync_count;           /* Count of fsync() calls */
-    uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
-    uint64_t fsync_total;           /* Total time fsync() calls consumed in microseconds */
-} RaftLog;
-
 #define SNAPSHOT_RESULT_MAGIC 0x70616e73 /* "snap" */
 
 typedef struct SnapshotResult {
@@ -824,25 +800,6 @@ RRStatus parseHashSlots(char *slots, char *string);
 bool parseLongLong(const char *str, char **end, long long *val);
 bool parseLong(const char *str, char **end, long *val);
 bool parseInt(const char *str, char **end, int *val);
-
-/* log.c */
-RaftLog *RaftLogCreate(const char *filename, const char *dbid, raft_term_t snapshot_term, raft_index_t snapshot_index, RedisRaftConfig *config);
-void RaftLogFree(RaftLog *raft_log);
-RaftLog *RaftLogOpen(const char *filename, RedisRaftConfig *config, int flags);
-void RaftLogClose(RaftLog *log);
-RRStatus RaftLogAppend(RaftLog *log, raft_entry_t *entry);
-int RaftLogLoadEntries(RaftLog *log);
-RRStatus RaftLogWriteEntry(RaftLog *log, raft_entry_t *entry);
-RRStatus RaftLogSync(RaftLog *log, bool sync);
-raft_entry_t *RaftLogGet(RaftLog *log, raft_index_t idx);
-RRStatus RaftLogDelete(RaftLog *log, raft_index_t from_idx);
-RRStatus RaftLogReset(RaftLog *log, raft_index_t index, raft_term_t term);
-raft_index_t RaftLogCount(RaftLog *log);
-raft_index_t RaftLogFirstIdx(RaftLog *log);
-raft_index_t RaftLogCurrentIdx(RaftLog *log);
-long long int RaftLogRewrite(RedisRaftCtx *rr, const char *filename, raft_index_t last_idx, raft_term_t last_term);
-void RaftLogArchiveFiles(RedisRaftCtx *rr);
-RRStatus RaftLogRewriteSwitch(RedisRaftCtx *rr, RaftLog *new_log, unsigned long new_log_entries);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);
