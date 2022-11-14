@@ -1,3 +1,4 @@
 smove
 ro
 stdio
+edn
