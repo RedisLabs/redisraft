@@ -75,6 +75,7 @@ int FileFlush(File *file)
 
         ssize_t wr = write(file->fd, wbegin, count);
         if (wr < 0) {
+            LOG_WARNING("error, fd:%d, write:%s", file->fd, strerror(errno));
             return RR_ERROR;
         }
 
@@ -90,7 +91,11 @@ int FileFlush(File *file)
 
 int FileFsync(File *file)
 {
-    return fsync(file->fd) == 0 ? RR_OK : RR_ERROR;
+    int rc = fsync(file->fd);
+    if (rc != 0) {
+        LOG_WARNING("error fd:%d, fsync:%s", file->fd, strerror(errno));
+    }
+    return rc == 0 ? RR_OK : RR_ERROR;
 }
 
 /* Set read position of the file. Required before read functions. */
