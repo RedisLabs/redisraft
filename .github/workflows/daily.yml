@@ -36,7 +36,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: Install build dependencies
-      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
+      run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
     - name: Build
       run: |
         mkdir build && cd build
@@ -87,7 +87,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: Install build dependencies
-      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+      run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
       run: |
         mkdir build && cd build
@@ -131,7 +131,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: Install build dependencies
-        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
         run: |
           mkdir build && cd build
@@ -252,7 +252,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: Install build dependencies
-        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
         run: |
           mkdir build && cd build
