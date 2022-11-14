@@ -3,7 +3,7 @@ RedisRaft External Sharding Support
 
 ## Introduction
 
-Initially, RedisRaft's [sharding mechanism](Sharding.md) used inter-cluster communication to learn about node configuration changes that occured on its peer clusters containing other shards.
+Initially, RedisRaft's [sharding mechanism](Sharding.md) used inter-cluster communication to learn about node configuration changes that occurred on its peer clusters containing other shards.
 While, much of the terminology hasn't changed, this mechanism for communicating between RedisRaft clusters was only effective at transmitting node changes.
 If one wanted to reconfigure which RedisRaft Clusters own which shards, one wasn't able to do it.
 
@@ -58,4 +58,4 @@ NODE_CONFIGURATION is defined as
 ```
 
 RedisRaft will validate the full configuration passed to a RAFT.SHARDGROUP REPLACE command to ensure that its internally consistent.
-Namely, that every defined slot is in a consistent configuration.  Only one cluster can be defned with a slot if its stable, and while two clusters can be defined to be importing and migrating, respectively, there can be only one cluster of each.
+Namely, that every defined slot is in a consistent configuration.  Only one cluster can be defined with a slot if its stable, and while two clusters can be defined to be importing and migrating, respectively, there can be only one cluster of each.

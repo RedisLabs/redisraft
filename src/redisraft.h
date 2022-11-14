@@ -591,7 +591,7 @@ typedef struct ShardingInfo {
      *
      * Note that a one-based index into the shard_groups array is used,
      * since a zero value indicates the slot is unassigned. The index
-     * should therefore be adjusted before refering the array.
+     * should therefore be adjusted before referring the array.
      */
     ShardGroup *stable_slots_map[REDIS_RAFT_HASH_SLOTS];
     ShardGroup *importing_slots_map[REDIS_RAFT_HASH_SLOTS];

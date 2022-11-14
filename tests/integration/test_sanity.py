@@ -593,7 +593,7 @@ def test_metadata_restore_after_restart(cluster):
     cluster.node(1).start()
     n1.wait_for_info_param('raft_state', 'up')
 
-    # n2 triggerred an election, so n1 should have voted for n2.
+    # n2 triggered an election, so n1 should have voted for n2.
     assert n1.info()['raft_current_term'] == 2
     assert n1.info()['raft_voted_for'] == 2
 
@@ -602,7 +602,7 @@ def test_metadata_restore_after_restart(cluster):
     cluster.node(2).start()
     n2.wait_for_info_param('raft_state', 'up')
 
-    # n2 triggerred an election, so n2 should have voted for itself.
+    # n2 triggered an election, so n2 should have voted for itself.
     assert n2.info()['raft_current_term'] == 2
     assert n2.info()['raft_voted_for'] == 2
 

@@ -347,7 +347,7 @@ int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr)
         goto exit;
     }
 
-    LOG_VERBOSE("Snapshot created successfuly.");
+    LOG_VERBOSE("Snapshot created successfully.");
     ret = 1;
 
 exit:

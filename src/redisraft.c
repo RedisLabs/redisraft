@@ -1309,7 +1309,7 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *     +OK
  *
  * RAFT.DEBUG COMMANDSPEC <command>
- *     Retruns the flags associated with this command in the commandspec dict
+ *     Returns the flags associated with this command in the commandspec dict
  */
 static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -1834,7 +1834,7 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
     /* Register commands.
      *
      * NOTE: Internal RedisRaft module commands must also be set with
-     * their apropriate flags in commands.c, typically with a
+     * their appropriate flags in commands.c, typically with a
      * CMD_SPEC_DONT_INTERCEPT flag.
      * */
     if (RedisModule_CreateCommand(ctx, "raft", cmdRaft,

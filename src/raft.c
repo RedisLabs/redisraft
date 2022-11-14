@@ -1020,7 +1020,7 @@ static char *raftMembershipInfoString(raft_server_t *raft)
 static void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e result);
 
 /* just keep libraft callbacks together
- * so this just calls the redisraft RaftReq compleition function, which is kept together with its functions
+ * so this just calls the redisraft RaftReq completion function, which is kept together with its functions
  */
 static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_leader_transfer_e result)
 {
@@ -1056,7 +1056,7 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
 }
 
 /* Apply some backpressure for the node. Helps in two cases, first we don't
- * want to create many appaendentries messages for the node if we don't get
+ * want to create many appendentries messages for the node if we don't get
  * replies. Otherwise, it might cause out of memory. Second, we want to send
  * entries in batches for performance reasons. We are effectively batching
  * entries until we get replies from the previous ones. */
@@ -1694,7 +1694,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
-/* Callback for fsync thread. This will be triggerred by fsync thread but will
+/* Callback for fsync thread. This will be triggered by fsync thread but will
  * be called by Redis thread. */
 void handleFsyncCompleted(void *result)
 {
