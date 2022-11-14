@@ -1,5 +1,5 @@
 [codespell]
 quiet-level = 2
-skip = *cmake-*,*build/*,*deps*,*venv*,*git*
+skip = *cmake*,*build/*,*deps*,*env*,*git*,*aws/*,*jepsen/docker/store/*,*.log,*.db*,*/tmp/*,*idea*,*.idx*,*.rdb,core.*
 ignore-words = .github/codespell/skiplist.txt
 builtin = code,rare,clear,names,informal
