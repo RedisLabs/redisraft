@@ -8,7 +8,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install build dependencies
-      run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+      run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
       run: |
         mkdir build && cd build
@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install build dependencies
-        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
         run: |
           mkdir build && cd build
@@ -77,7 +77,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Install build dependencies
-        run: sudo apt-get install -y build-essential autoconf automake libtool cmake lcov clang-format colordiff
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov clang-format colordiff
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:

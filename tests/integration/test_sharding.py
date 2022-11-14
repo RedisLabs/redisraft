@@ -880,7 +880,6 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
         import_node_id = "{}00000001".format(cluster_importing_shardgroup_id).encode()
         local_node_id = "{}00000001".format(cluster_dbid).encode()
 
-        migration_data_count = 0;
         for i in range(len(cluster_nodes)):
             node_data = cluster_nodes[i].split(b' ')
             if local_node_id == node_data[0]:
@@ -1119,8 +1118,8 @@ def test_cluster_shards_for_single_slot_range_sg_multiple_nodes(cluster):
             else:
                 assert False, "didn't match %s" % cluster_shards
 
-
     validate_shards(cluster.node(1).execute('CLUSTER', 'SHARDS'))
+
 
 def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
     cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
@@ -1236,11 +1235,11 @@ def test_cluster_shards_for_multiple_slots_range_sg(cluster):
             if shard[3][0][1] == node_id_1:
                 assert len(shard[3]) == 1
                 assert len(shard[1]) == 4
-                for i in [0, 2]:
-                    if shard[1][i] == 0:
+                for j in [0, 2]:
+                    if shard[1][j] == 0:
                         assert shard[1][i+1] == 500
-                    elif shard[1][i] == 800:
-                        assert shard[1][i+1] == 1000
+                    elif shard[1][j] == 800:
+                        assert shard[1][j+1] == 1000
                     else:
                         assert False, "didn't match %s" % shard
             elif shard[3][0][1] == node_id_2:
@@ -1253,7 +1252,6 @@ def test_cluster_shards_for_multiple_slots_range_sg(cluster):
                 assert shard[1][0] == 1001 and shard[1][1] == 16383
             else:
                 assert False, "didn't match %s" % shard
-
 
         assert len(cluster_shards) == 3
         for i in range(len(cluster_shards)):
