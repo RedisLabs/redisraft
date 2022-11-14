@@ -905,7 +905,7 @@ class ElleWorker(threading.Thread):
         self.elle.log_command(self.id, ops)
 
         # 3 possible hops in normal scenario
-        # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remoe leader"
+        # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remote leader"
         # if it doesn't work by then, error
         conn: typing.Optional[RawConnection] = None
         for i in range(0, 3):
