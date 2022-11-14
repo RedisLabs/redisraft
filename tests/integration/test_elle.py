@@ -19,7 +19,7 @@ def test_elle_sanity(cluster_factory):
     time.sleep(1)
 
 
-@pytest.mark.skipif("not config.getoption('elle_threads')")
+@pytest.mark.skipif("not config.getoption('elle-threads')")
 def test_elle_migrating_manual(elle, cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
@@ -280,7 +280,7 @@ def test_elle_migrating(request, cluster_factory):
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
     ) == b'OK'
 
-    # validate that cluster1 has no more eys in slot
+    # validate that cluster1 has no more entries in slot
     count = 0
     while True:
         reply = cluster1.execute('raft.scan', cursor, slot)
