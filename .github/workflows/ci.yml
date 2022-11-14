@@ -100,4 +100,3 @@ jobs:
       - name: Spellcheck
         run:
           codespell --config=./.github/codespell/config.txt
-
