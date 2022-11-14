@@ -19,7 +19,7 @@ def test_elle_sanity(cluster_factory):
     time.sleep(1)
 
 
-@pytest.mark.skipif("not config.getoption('elle-threads')")
+@pytest.mark.skipif("not config.getoption('elle_threads')")
 def test_elle_migrating_manual(elle, cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
