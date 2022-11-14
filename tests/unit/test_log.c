@@ -7,8 +7,7 @@
  */
 
 #include "../src/entrycache.h"
-#include "../src/metadata.h"
-#include "../src/redisraft.h"
+#include "../src/log.h"
 
 #include <limits.h>
 #include <stddef.h>
@@ -23,19 +22,15 @@
 
 static int setup_create_log(void **state)
 {
-    RedisRaftConfig cfg = {
-        .id = 1,
-    };
-
-    *state = RaftLogCreate(LOGNAME, DBID, 1, 0, &cfg);
+    *state = LogCreate(LOGNAME, DBID, 1, 0, 1);
     assert_non_null(*state);
     return 0;
 }
 
 static int teardown_log(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
-    RaftLogClose(log);
+    Log *log = (Log *) *state;
+    LogFree(log);
     unlink(LOGNAME);
     unlink(LOGNAME ".idx");
     return 0;
@@ -57,58 +52,58 @@ static raft_entry_t *__make_entry(int id)
     return e;
 }
 
-static void __append_entry(RaftLog *log, int id)
+static void __append_entry(Log *log, int id)
 {
     raft_entry_t *e = __make_entry(id);
 
-    assert_int_equal(RaftLogAppend(log, e), RR_OK);
+    assert_int_equal(LogAppend(log, e), RR_OK);
     raft_entry_release(e);
 }
 
 static void test_log_random_access(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    Log *log = (Log *) *state;
 
     __append_entry(log, 3);
     __append_entry(log, 30);
 
     /* Invalid out of bound reads */
-    assert_null(RaftLogGet(log, 0));
-    assert_null(RaftLogGet(log, 3));
+    assert_null(LogGet(log, 0));
+    assert_null(LogGet(log, 3));
 
-    raft_entry_t *e = RaftLogGet(log, 1);
+    raft_entry_t *e = LogGet(log, 1);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 
-    e = RaftLogGet(log, 2);
+    e = LogGet(log, 2);
     assert_int_equal(e->id, 30);
     raft_entry_release(e);
 }
 
 static void test_log_random_access_with_snapshot(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    Log *log = (Log *) *state;
 
     /* Reset log assuming last snapshot is 100 */
-    RaftLogReset(log, 100, 1);
+    LogReset(log, 100, 1);
 
     /* Write entries */
     __append_entry(log, 3);
     __append_entry(log, 30);
 
-    assert_int_equal(RaftLogFirstIdx(log), 101);
+    assert_int_equal(LogFirstIdx(log), 101);
 
     /* Invalid out of bound reads */
-    assert_null(RaftLogGet(log, 99));
-    assert_null(RaftLogGet(log, 100));
-    assert_null(RaftLogGet(log, 103));
+    assert_null(LogGet(log, 99));
+    assert_null(LogGet(log, 100));
+    assert_null(LogGet(log, 103));
 
-    raft_entry_t *e = RaftLogGet(log, 101);
+    raft_entry_t *e = LogGet(log, 101);
     assert_non_null(e);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 
-    e = RaftLogGet(log, 102);
+    e = LogGet(log, 102);
     assert_int_equal(e->id, 30);
     raft_entry_release(e);
 }
@@ -116,19 +111,20 @@ static void test_log_random_access_with_snapshot(void **state)
 static void test_log_load_entries(void **state)
 {
     raft_entry_t *ety;
-    RaftLog *log = *state;
+    Log *log = *state;
 
     __append_entry(log, 3);
     __append_entry(log, 30);
 
-    assert_int_equal(RaftLogLoadEntries(log), 2);
+    assert_int_equal(LogLoadEntries(log), RR_OK);
+    assert_int_equal(LogCount(log), 2);
 
-    ety = RaftLogGet(log, 1);
+    ety = LogGet(log, 1);
     assert_int_equal(ety->id, 3);
     assert_memory_equal(ety->data, "value3", strlen("value3"));
     raft_entry_release(ety);
 
-    ety = RaftLogGet(log, 2);
+    ety = LogGet(log, 2);
     assert_int_equal(ety->id, 30);
     assert_memory_equal(ety->data, "value30", strlen("value30"));
     raft_entry_release(ety);
@@ -136,8 +132,8 @@ static void test_log_load_entries(void **state)
 
 static void test_log_index_rebuild(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
-    RaftLogReset(log, 100, 1);
+    Log *log = (Log *) *state;
+    LogReset(log, 100, 1);
 
     __append_entry(log, 3);
     __append_entry(log, 30);
@@ -146,46 +142,46 @@ static void test_log_index_rebuild(void **state)
     unlink(LOGNAME ".idx");
 
     /* Reopen the log */
-    RaftLog *log2 = RaftLogOpen(LOGNAME, NULL, 0);
-    RaftLogLoadEntries(log2);
+    Log *log2 = LogOpen(LOGNAME, false);
+    LogLoadEntries(log2);
 
     /* Invalid out of bound reads */
-    assert_null(RaftLogGet(log, 99));
-    assert_null(RaftLogGet(log, 100));
-    assert_null(RaftLogGet(log, 103));
+    assert_null(LogGet(log, 99));
+    assert_null(LogGet(log, 100));
+    assert_null(LogGet(log, 103));
 
-    raft_entry_t *e = RaftLogGet(log, 101);
+    raft_entry_t *e = LogGet(log, 101);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 
-    e = RaftLogGet(log, 102);
+    e = LogGet(log, 102);
     assert_int_equal(e->id, 30);
     raft_entry_release(e);
 
     /* Close the log */
-    RaftLogClose(log2);
+    LogFree(log2);
 }
 
 static void test_log_write_after_read(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    Log *log = (Log *) *state;
 
     __append_entry(log, 1);
     __append_entry(log, 2);
 
-    raft_entry_t *e = RaftLogGet(log, 1);
+    raft_entry_t *e = LogGet(log, 1);
     assert_int_equal(e->id, 1);
     raft_entry_release(e);
 
     __append_entry(log, 3);
-    e = RaftLogGet(log, 3);
+    e = LogGet(log, 3);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 }
 
 static void test_log_fuzzer(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    Log *log = (Log *) *state;
     int idx = 0, i;
 
     for (i = 0; i < 10000; i++) {
@@ -198,12 +194,12 @@ static void test_log_fuzzer(void **state)
         if (idx > 10) {
             int del_entries = (random() % 5) + 1;
             idx = idx - del_entries;
-            assert_int_equal(RaftLogDelete(log, idx + 1), RR_OK);
+            assert_int_equal(LogDelete(log, idx + 1), RR_OK);
         }
 
         for (j = 0; j < 20; j++) {
             int get_idx = (random() % (idx - 1)) + 1;
-            raft_entry_t *e = RaftLogGet(log, get_idx);
+            raft_entry_t *e = LogGet(log, get_idx);
             assert_non_null(e);
             assert_int_equal(e->id, get_idx);
             raft_entry_release(e);
@@ -220,7 +216,7 @@ static void mock_notify_func(void *arg, raft_entry_t *ety, raft_index_t idx)
 
 static void test_log_delete(void **state)
 {
-    RaftLog *log = (RaftLog *) *state;
+    Log *log = (Log *) *state;
 
     char value1[] = "value1";
     raft_entry_t *entry1 = __make_entry_value(3, value1);
@@ -230,32 +226,32 @@ static void test_log_delete(void **state)
     raft_entry_t *entry3 = __make_entry_value(30, value3);
 
     /* Simulate post snapshot log */
-    RaftLogReset(log, 50, 1);
+    LogReset(log, 50, 1);
 
     /* Write entries */
-    assert_int_equal(RaftLogAppend(log, entry1), RR_OK);
-    assert_int_equal(RaftLogAppend(log, entry2), RR_OK);
-    assert_int_equal(RaftLogAppend(log, entry3), RR_OK);
+    assert_int_equal(LogAppend(log, entry1), RR_OK);
+    assert_int_equal(LogAppend(log, entry2), RR_OK);
+    assert_int_equal(LogAppend(log, entry3), RR_OK);
 
-    raft_entry_t *e = RaftLogGet(log, 51);
+    raft_entry_t *e = LogGet(log, 51);
     assert_non_null(e);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
 
     /* Try delete with improper values */
-    assert_int_equal(RaftLogDelete(log, 0), RR_ERROR);
+    assert_int_equal(LogDelete(log, 0), RR_ERROR);
 
     /* Delete last two elements */
-    assert_int_equal(RaftLogDelete(log, 52), RR_OK);
+    assert_int_equal(LogDelete(log, 52), RR_OK);
 
     /* Assert deleting a non-existing entry doesn't cause a problem. */
-    assert_int_equal(RaftLogDelete(log, 52), RR_OK);
+    assert_int_equal(LogDelete(log, 52), RR_OK);
 
     /* Check log sanity after delete */
-    assert_int_equal(RaftLogCount(log), 1);
-    assert_int_equal(RaftLogCurrentIdx(log), 51);
-    assert_null(RaftLogGet(log, 52));
-    e = RaftLogGet(log, 51);
+    assert_int_equal(LogCount(log), 1);
+    assert_int_equal(LogCurrentIdx(log), 51);
+    assert_null(LogGet(log, 52));
+    e = LogGet(log, 51);
     assert_non_null(e);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
@@ -264,14 +260,14 @@ static void test_log_delete(void **state)
      * properly.
      */
 
-    assert_int_equal(RaftLogAppend(log, entry3), RR_OK);
-    e = RaftLogGet(log, 52);
+    assert_int_equal(LogAppend(log, entry3), RR_OK);
+    e = LogGet(log, 52);
     assert_non_null(e);
     assert_int_equal(e->id, 30);
     raft_entry_release(e);
 
-    assert_int_equal(RaftLogAppend(log, entry2), RR_OK);
-    e = RaftLogGet(log, 53);
+    assert_int_equal(LogAppend(log, entry2), RR_OK);
+    e = LogGet(log, 53);
     assert_non_null(e);
     assert_int_equal(e->id, 20);
     raft_entry_release(e);

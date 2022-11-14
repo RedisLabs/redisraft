@@ -7,6 +7,7 @@
  */
 
 #include "entrycache.h"
+#include "log.h"
 #include "redisraft.h"
 
 #include <assert.h>
@@ -258,7 +259,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
-    RaftLog *new_log = NULL;
+    Log *new_log = NULL;
     unsigned long num_log_entries;
 
     char temp_log_filename[256];
@@ -272,11 +273,11 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     /* Rewrite any additional log entries beyond the snapshot to a new
      * log file.
      */
-    num_log_entries = RaftLogRewrite(rr, temp_log_filename,
-                                     rr->curr_snapshot_last_idx,
-                                     rr->curr_snapshot_last_term);
+    num_log_entries = LogRewrite(rr, temp_log_filename,
+                                 rr->curr_snapshot_last_idx,
+                                 rr->curr_snapshot_last_term);
 
-    new_log = RaftLogOpen(temp_log_filename, &rr->config, RAFTLOG_KEEP_INDEX);
+    new_log = LogOpen(temp_log_filename, true);
     if (!new_log) {
         LOG_WARNING("Failed to open log after rewrite: %s", strerror(errno));
         cancelSnapshot(rr, sr);
@@ -295,15 +296,15 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     if (rename(sr->rdb_filename, rr->config.rdb_filename) < 0) {
         LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
                     sr->rdb_filename, rr->config.rdb_filename, strerror(errno));
-        RaftLogClose(new_log);
+        LogFree(new_log);
         cancelSnapshot(rr, sr);
         return -1;
     }
 
     fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
-    if (RaftLogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {
-        RaftLogClose(new_log);
+    if (LogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {
+        LogFree(new_log);
         cancelSnapshot(rr, sr);
         return -1;
     }
@@ -424,7 +425,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     if (rr->log) {
         fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
-        if (RaftLogSync(rr->log, true) != RR_OK) {
+        if (LogSync(rr->log, true) != RR_OK) {
             PANIC("RaftLogSync() failed.");
         }
     }
@@ -558,12 +559,12 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 
     /* Restart the log where the snapshot ends */
     fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
-    RaftLogClose(rr->log);
-    rr->log = RaftLogCreate(rr->config.log_filename,
-                            rr->snapshot_info.dbid,
-                            rr->snapshot_info.last_applied_term,
-                            rr->snapshot_info.last_applied_idx,
-                            &rr->config);
+    LogFree(rr->log);
+    rr->log = LogCreate(rr->config.log_filename,
+                        rr->snapshot_info.dbid,
+                        rr->snapshot_info.last_applied_term,
+                        rr->snapshot_info.last_applied_idx,
+                        rr->config.id);
 
     EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
 

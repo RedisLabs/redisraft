@@ -5,12 +5,39 @@ Copyright (c) 2020-2021 Redis Ltd.
 
 RedisRaft is licensed under the Redis Source Available License (RSAL).
 """
-
+import os.path
 import time
+from random import seed, randint
 from re import match
 from redis import ResponseError
 from .raftlog import RaftLog
-import pytest
+
+
+def test_log_append_random_size(cluster):
+    """
+    Append variable length entries to the log and verify correctness
+    """
+
+    cluster.create(3)
+
+    seed(7129)
+    result = ''
+
+    for _ in range(1321):
+        num = randint(0, 10000)
+        result += 'a' * num
+        cluster.execute('append', 'x', 'a' * num)
+
+    # Verify the value against the calculated result
+    val = cluster.execute('get', 'x')
+    assert result == val.decode('utf-8')
+
+    # Verify the value after a restart
+    cluster.restart()
+    cluster.wait_for_unanimity()
+
+    val = cluster.execute('get', 'x')
+    assert result == val.decode('utf-8')
 
 
 def test_log_rollback(cluster):
@@ -69,7 +96,7 @@ def test_raft_log_max_file_size(cluster):
     assert r1.info()['raft_log_entries'] == 2
     assert r1.config_set('raft.log-max-file-size', '1kb')
     for _ in range(10):
-        assert r1.client.set('testkey', 'x'*500)
+        assert r1.client.set('testkey', 'x' * 500)
 
     r1.wait_for_info_param('raft_snapshots_created', 1)
     assert r1.info()['raft_log_entries'] < r1.info()['raft_current_index']
@@ -172,3 +199,61 @@ def test_stale_reads_on_leader_election(cluster):
         assert val_read is not None
         assert val_written == int(val_read)
         time.sleep(1)
+
+
+def test_log_partial_entry(cluster):
+    """
+    Truncate log file and verify partial entry is discarded.
+    """
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+
+    assert cluster.node(1).info()['raft_log_entries'] == 5
+    cluster.node(1).kill()
+
+    filename = cluster.node(1).raftlog
+    os.open(filename, os.O_RDWR)
+
+    # ----------------------------------------------------
+    # Case-1 Truncate 1 byte
+    os.truncate(filename, os.path.getsize(filename) - 1)
+
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+
+    # There will be 4 valid entries + 1 NOOP entry = 5
+    assert cluster.node(1).info()['raft_log_entries'] == 5
+    assert cluster.execute('get', 'x') == b'2'
+
+    # ----------------------------------------------------
+    # Case-2 Truncate an entry larger than page size (4096)
+    cluster.execute('set', 'x', 'a' * 5000)
+    cluster.execute('set', 'x', 'b' * 5000)
+    assert cluster.node(1).info()['raft_log_entries'] == 7
+    cluster.node(1).kill()
+
+    os.truncate(filename, os.path.getsize(filename) - 4500)
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+    # There will be 6 valid entries + 1 NOOP entry = 7
+    assert cluster.node(1).info()['raft_log_entries'] == 7
+    assert cluster.execute('get', 'x') == ('a' * 5000).encode('utf-8')
+
+    # ----------------------------------------------------
+    # Case-3 Truncate two entries
+    cluster.execute('set', 'x', 'a' * 15000)
+    cluster.execute('set', 'x', 'b' * 15000)
+    cluster.execute('set', 'x', 'c' * 5000)
+    cluster.execute('set', 'x', 'd' * 5000)
+    assert cluster.node(1).info()['raft_log_entries'] == 11
+    cluster.node(1).kill()
+
+    os.truncate(filename, os.path.getsize(filename) - 7000)
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+    # There will be 9 valid entries + 1 NOOP entry = 10
+    assert cluster.node(1).info()['raft_log_entries'] == 10
+    assert cluster.execute('get', 'x') == ('b' * 15000).encode('utf-8')
