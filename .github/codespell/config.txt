@@ -1,0 +1,5 @@
+[codespell]
+quiet-level = 2
+skip = *cmake-*,*build/*,*deps*,*venv*,*git*
+ignore-words = .github/codespell/skiplist.txt
+builtin = code,rare,clear,names,informal

@@ -1,0 +1,3 @@
+smove
+ro
+stdio

@@ -49,7 +49,7 @@ To build, simply run:
 
     make
 
-If successful, this should result in the creation of the `redisraft.so` shared libary.
+If successful, this should result in the creation of the `redisraft.so` shared library.
 
 Cluster Setup
 -------------
@@ -292,7 +292,7 @@ The number of milliseconds to wait for a response to a proxy request sent to a l
 
 ### `response-timeout`
 
-The number of millieconds to wait for a response to a Raft message exchanged between nodes, before giving up and dropping the connection.
+The number of milliseconds to wait for a response to a Raft message exchanged between nodes, before giving up and dropping the connection.
 
 *Default*: 1000
 
@@ -371,7 +371,7 @@ of foreign shardgroup clusters.
 
 ### `ignored-commands`
 
-A comma seperated list of additional commands that RedisRaft should not intercept, and therefore not append to the Raft log before executing.
+A comma separated list of additional commands that RedisRaft should not intercept, and therefore not append to the Raft log before executing.
 
 In general this is useful when used with other modules that don't want some or all of their commands handled via raft.
 
