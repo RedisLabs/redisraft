@@ -215,6 +215,23 @@ def test_nonquorum_reads(cluster):
     cluster.node(2).client.get('x')
 
 
+def test_nonquorum_read_scripts(cluster):
+    """
+    Test non-quorum reads with scripts
+    """
+    cluster.create(2, raft_args={'quorum-reads': 'no'})
+
+    assert cluster.leader == 1
+
+    cluster.execute('set', 'abc', 1234)
+    cluster.wait_for_unanimity()
+
+    cluster.node(2).pause()
+
+    assert cluster.execute('EVAL_RO', """
+        return redis.call('GET','abc');""", '0') == b'1234'
+
+
 def test_auto_ids(cluster):
     """
     Test automatic assignment of ids.
