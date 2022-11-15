@@ -186,45 +186,40 @@ def test_multi_with_acl(cluster):
     cluster.create(3)
     node = cluster.leader_node()
     node.execute('set', 'key1', 1)
-    node.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)', '(+get', '~key*)')
+    node.execute('acl', 'setuser', 'default', 'resetkeys', '(+set', '~key*)',
+                 '(+get', '~key*)')
 
-    c1 = cluster.node(1).client.connection_pool.get_connection('client')
+    conn = RawConnection(cluster.node(1).client)
 
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-    c1.send_command('GET', 'key1')
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('SET', 'key1', 2)
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('EXEC')
-    assert c1.read_response() == [b'1', b'OK']
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('get', 'key1') == b'QUEUED'
+    assert conn.execute('set', 'key1', 2) == b'QUEUED'
+    assert conn.execute('exec') == [b'1', b'OK']
 
-    c1.send_command('get', 'key1')
-    assert c1.read_response() == b'2'
+    assert conn.execute('get', 'key1') == b'2'
 
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-    c1.send_command('set', 'key1', 3)
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('set', 'abc', 1)
-    with raises(ResponseError, match="No permissions to access a key"):
-        c1.read_response()
-    c1.send_command('set', 'key2', 1)
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('EXEC')
-    with raises(ResponseError, match='Transaction discarded because of previous errors.'):
-        c1.read_response()
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('set', 'key1', 3) == b'QUEUED'
 
-    c1.send_command('MULTI')
-    assert c1.read_response() == b'OK'
-    c1.send_command('eval', """
-        redis.call('SET','abc', 3);
-        return 1234;""", 0)
-    assert c1.read_response() == b'QUEUED'
-    c1.send_command('EXEC')
-    ret = c1.read_response()
+    with raises(ResponseError, match='No permissions to access a key'):
+        conn.execute('set', 'abc', 1)
+
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+
+    msg = 'Transaction discarded because of previous errors.'
+    with raises(ResponseError, match=msg):
+        conn.execute('exec')
+
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('eval', """
+        redis.call('set','abc', 3);
+        return 1234;
+        """, 0) == b'QUEUED'
+    ret = conn.execute('exec')
+
     assert isinstance(ret, list)
     assert len(ret) == 1
     assert isinstance(ret[0], ResponseError)
-    assert "ACL failure in script: No permissions to access a key" in str(ret[0])
 
+    msg = str(ret[0])
+    assert 'ACL failure in script: No permissions to access a key' in msg

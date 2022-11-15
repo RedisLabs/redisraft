@@ -8,12 +8,12 @@ RedisRaft is licensed under the Redis Source Available License (RSAL).
 import time
 import pytest as pytest
 
-from .sandbox import ElleWorker, Elle, key_hash_slot
+from .sandbox import ElleWorker, key_hash_slot
 
 
 @pytest.mark.elle_test()
 def test_elle_sanity(cluster_factory):
-    cluster1 = cluster_factory().create(3, raft_args={
+    cluster_factory().create(3, raft_args={
         'sharding': 'yes',
         'external-sharding': 'yes'})
     time.sleep(1)
@@ -142,16 +142,18 @@ def test_elle_migrating_manual(elle, cluster_factory):
     ops = worker.generate_ops(["{test}key1"])
     worker.do_ops(ops)
 
-    assert cluster1.leader_node().raft_debug_exec("lrange", "{test}key1", 0, -1) == []
-    val = cluster2.leader_node().raft_debug_exec("lrange", "{test}key1", 0, -1)
-    assert type(val) is list
-    assert len(val) == 4
+    v1 = cluster1.leader_node().raft_debug_exec("lrange", "{test}key1", 0, -1)
+    assert v1 == []
+
+    v2 = cluster2.leader_node().raft_debug_exec("lrange", "{test}key1", 0, -1)
+    assert type(v2) is list
+    assert len(v2) == 4
 
 
 @pytest.mark.key_hash_tag("test")
 @pytest.mark.num_elle_keys(5)
 @pytest.mark.elle_test()
-def test_elle_migrating(request, cluster_factory):
+def test_elle_migrating(cluster_factory):
     cluster1 = cluster_factory().create(3, raft_args={
         'sharding': 'yes',
         'external-sharding': 'yes'})
@@ -295,4 +297,6 @@ def test_elle_migrating(request, cluster_factory):
 
     # validate key(s) created by this test are on new cluster
     for i in range(5):
-        assert cluster2.execute('get', f"{{{key_name}}}key" + str(i)) == f"val{str(i)}".encode()
+        key = f"{{{key_name}}}key" + str(i)
+        val = f"val{str(i)}".encode()
+        assert cluster2.execute('get', key) == val

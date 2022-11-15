@@ -6,8 +6,8 @@ from .sandbox import RawConnection
 
 def test_migration_basic(cluster_factory):
     """
-    Simulates full migration process. Test generates keys in a cluster and moves
-    half of the keys to another cluster.
+    Simulates full migration process. Test generates keys in a cluster and
+    moves half of the keys to another cluster.
     """
 
     cluster1 = cluster_factory().create(3, raft_args={
@@ -133,11 +133,14 @@ def test_migration_basic(cluster_factory):
 
 
 def test_raft_import(cluster):
-    cluster.create(3, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster.create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
 
-    serialized = cluster.execute('dump', 'key')
+    dump = cluster.execute('dump', 'key')
     assert cluster.execute('del', 'key') == 1
 
     assert cluster.execute('get', 'key') is None
@@ -158,35 +161,35 @@ def test_raft_import(cluster):
     ) == b'OK'
 
     # initial import
-    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', dump) == b'OK'
     # older term, fails
     with raises(ResponseError, match='invalid term'):
-        assert cluster.execute('raft.import', '1', '123', 'key', serialized)
+        assert cluster.execute('raft.import', '1', '123', 'key', dump)
     # not matched session migration key
     with raises(ResponseError, match='invalid migration_session_key'):
-        assert cluster.execute('raft.import', '2', '10', 'key', serialized)
+        assert cluster.execute('raft.import', '2', '10', 'key', dump)
     # repeated with correct values
-    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', dump) == b'OK'
     # repeated with updated term
-    assert cluster.execute('raft.import', '3', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '3', '123', 'key', dump) == b'OK'
     # again, older, previously valid term
     with raises(ResponseError, match='invalid term'):
-        assert cluster.execute('raft.import', '2', '123', 'key', serialized)
+        assert cluster.execute('raft.import', '2', '123', 'key', dump)
 
-    conn = cluster.leader_node().client.connection_pool.get_connection('deferred')
-    conn.send_command('ASKING')
-    assert conn.read_response() == b'OK'
-
-    conn.send_command('get', 'key')
-    assert conn.read_response() == b'value'
+    conn = RawConnection(cluster.leader_node().client)
+    assert conn.execute('asking') == b'OK'
+    assert conn.execute('get', 'key') == b'value'
 
 
 def test_import_with_snapshot(cluster):
-    cluster.create(1, raft_args={'sharding': 'yes', 'external-sharding': 'yes'})
+    cluster.create(1, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
     assert cluster.execute('set', 'key', 'value')
     assert cluster.execute('get', 'key') == b'value'
 
-    serialized = cluster.execute('dump', 'key')
+    dump = cluster.execute('dump', 'key')
     assert cluster.execute('del', 'key') == 1
 
     assert cluster.execute('get', 'key') is None
@@ -205,7 +208,7 @@ def test_import_with_snapshot(cluster):
     ) == b'OK'
 
     # initial import
-    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', dump) == b'OK'
 
     assert cluster.node(1).client.execute_command(
         'RAFT.DEBUG', 'COMPACT') == b'OK'
@@ -216,14 +219,14 @@ def test_import_with_snapshot(cluster):
 
     # incorrect session migration key
     with raises(ResponseError, match="invalid migration_session_key"):
-        cluster.execute('raft.import', '2', '0', 'key', serialized)
+        cluster.execute('raft.import', '2', '0', 'key', dump)
 
     # older term should not be accepted
     with raises(ResponseError, match="invalid term"):
-        cluster.execute('raft.import', '1', '123', 'key', serialized)
+        cluster.execute('raft.import', '1', '123', 'key', dump)
 
     # same term should still work after snapshot load
-    assert cluster.execute('raft.import', '2', '123', 'key', serialized) == b'OK'
+    assert cluster.execute('raft.import', '2', '123', 'key', dump) == b'OK'
 
 
 def test_happy_migrate(cluster_factory):
@@ -268,7 +271,8 @@ def test_happy_migrate(cluster_factory):
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
-    assert cluster1.execute("migrate", "", "", "", "", "", "keys", "key", "{key}key1") == b'OK'
+    assert cluster1.execute("migrate", "", "", "", "", "", "keys", "key",
+                            "{key}key1") == b'OK'
 
     with raises(ResponseError, match="ASK 12539 localhost"):
         cluster1.execute("get", "key")
@@ -277,34 +281,25 @@ def test_happy_migrate(cluster_factory):
         cluster1.execute("get", "{key}key1")
 
     with raises(ResponseError, match="MOVED 12539 localhost"):
-        # can't use cluster.execute() as that will try to handle the MOVED response itself
         cluster2.leader_node().client.get("key")
 
-    conn = cluster2.leader_node().client.connection_pool.get_connection('deferred')
-    conn.send_command('ASKING')
-    assert conn.read_response() == b'OK'
+    conn = RawConnection(cluster2.leader_node().client)
+    assert conn.execute('asking') == b'OK'
 
-    conn.send_command('get', 'key')
-    assert conn.read_response() == b'value'
+    assert conn.execute('get', 'key') == b'value'
 
-    conn.send_command('get', '{key}key1')
     with raises(ResponseError, match="MOVED 12539 localhost:5001"):
-        conn.read_response()
+        conn.execute('get', '{key}key1')
 
-    conn.send_command('ASKING')
-    assert conn.read_response() == b'OK'
-    conn.send_command('get', '{key}key1')
-    assert conn.read_response() == b'value1'
+    assert conn.execute('asking') == b'OK'
+    assert conn.execute('get', '{key}key1') == b'value1'
 
-    conn.send_command('get', 'key1')
     with raises(ResponseError, match="MOVED 9189 localhost:5001"):
-        conn.read_response()
+        conn.execute('get', 'key1')
 
-    conn.send_command('ASKING')
-    assert conn.read_response() == b'OK'
-    conn.send_command('get', 'key1')
+    assert conn.execute('asking') == b'OK'
     with raises(ResponseError, match="TRYAGAIN"):
-        conn.read_response()
+        conn.execute('get', 'key1')
 
     assert cluster2.execute(
         'RAFT.SHARDGROUP', 'REPLACE',
@@ -364,7 +359,7 @@ def test_sad_path_migrate(cluster_factory):
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
-    def validate_failed_migration(key_name, value, slot, err_string):
+    def verify_migration_fails(key_name, value, slot, err_string):
         # first pass, should error out
         with raises(ResponseError, match=err_string):
             cluster1.execute("migrate", "", "", "", "", "", "keys", key_name)
@@ -377,7 +372,8 @@ def test_sad_path_migrate(cluster_factory):
 
         # remove injected error, should pass
         cluster1.execute("raft.debug", "migration_debug", 'none')
-        assert cluster1.execute("migrate", "", "", "", "", "", "keys", key_name) == b'OK'
+        assert cluster1.execute("migrate", "", "", "", "", "", "keys",
+                                key_name) == b'OK'
 
         # validate state
         with raises(ResponseError, match=f"ASK {slot} localhost"):
@@ -385,18 +381,21 @@ def test_sad_path_migrate(cluster_factory):
         with raises(ResponseError, match=f"MOVED {slot} localhost"):
             cluster2.leader_node().client.get(key_name)
 
-        conn = cluster2.leader_node().client.connection_pool.get_connection('deferred')
-        conn.send_command('ASKING')
-        assert conn.read_response() == b'OK'
-        conn.send_command('get', key_name)
-        assert conn.read_response() == value
+        conn = RawConnection(cluster2.leader_node().client)
+        assert conn.execute('asking') == b'OK'
+        assert conn.execute('get', key_name) == value
 
     cluster1.execute("raft.debug", "migration_debug", 'fail_connect')
-    validate_failed_migration("key1", b'value1', 9189, "failed to connect to import cluster, try again")
+    verify_migration_fails("key1", b'value1', 9189,
+                           "failed to connect to import cluster, try again")
+
     cluster1.execute("raft.debug", "migration_debug", 'fail_import')
-    validate_failed_migration("key2", b'value2', 4998, "failed to submit RAFT.IMPORT command, try again")
+    verify_migration_fails("key2", b'value2', 4998,
+                           "failed to submit RAFT.IMPORT command, try again")
+
     cluster1.execute("raft.debug", "migration_debug", 'fail_unlock')
-    validate_failed_migration("key3", b'value3', 935, "Unable to unlock/delete migrated keys, try again")
+    verify_migration_fails("key3", b'value3', 935,
+                           "Unable to unlock/delete migrated keys, try again")
 
 
 def test_redirect_asking_to_leader(cluster):

@@ -83,7 +83,8 @@ class RawConnection(object):
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
-                 use_id_arg=True, cluster_id=0, password=None, tls_ca_cert_location=None):
+                 use_id_arg=True, cluster_id=0, password=None,
+                 cacert_type=None):
         self.id = _id
         self.cluster_id = cluster_id
         self.guid = str(uuid.uuid4())
@@ -114,11 +115,16 @@ class RedisRaft(object):
         self.key = os.getcwd() + '/tests/tls/redis.key'
 
         if config.tls:
-            if tls_ca_cert_location == 'dir' or tls_ca_cert_location == 'both':
-                self.args += ['--tls-ca-cert-dir', self.cacert_dir]
-            # default behaviour - only file configuration
-            if not tls_ca_cert_location or tls_ca_cert_location == 'file' or tls_ca_cert_location == 'both':
+            # 'cacert_type' can be None, 'dir', 'file' and 'both'.
+
+            # For None, 'both' and 'file', we set --tls-ca-cert-file
+            if cacert_type is None or cacert_type in ('both', 'file'):
                 self.args += ['--tls-ca-cert-file', self.cacert]
+
+            # For 'both' and 'dir', we set --tls-ca-cert-dir
+            if cacert_type is not None and cacert_type in ('both', 'dir'):
+                self.args += ['--tls-ca-cert-dir', self.cacert_dir]
+
             self.args += ['--tls-port', str(port),
                           '--tls-cert-file', self.cert,
                           '--tls-key-file', self.key,
@@ -255,7 +261,9 @@ class RedisRaft(object):
 
     def load_module(self, module):
         self.verify_up()
-        self.client.execute_command("module", "load", f'{os.getcwd()}/tests/integration/modules/{module}')
+
+        path = f'{os.getcwd()}/tests/integration/modules/{module}'
+        self.client.execute_command("module", "load", path)
 
     def unload_module(self, module):
         self.verify_up()
@@ -435,8 +443,8 @@ class RedisRaft(object):
 
     def wait_for_log_committed(self, timeout=10):
         def current_idx_committed():
-            info = self.info()
-            return bool(info['raft_commit_index'] == info['raft_current_index'])
+            ret = self.info()
+            return bool(ret['raft_commit_index'] == ret['raft_current_index'])
 
         def raise_not_committed():
             raise RedisRaftTimeout('Last log entry not yet committed')
@@ -564,8 +572,8 @@ class Cluster(object):
     def node_addresses(self):
         return [n.address for n in self.nodes.values()]
 
-    def create(self, node_count, raft_args=None, cluster_id=None, password=None,
-               prepopulate_log=0, tls_ca_cert_location=None):
+    def create(self, node_count, raft_args=None, cluster_id=None,
+               password=None, prepopulate_log=0, cacert_type=None):
         if raft_args is None:
             raft_args = {}
         self.raft_args = raft_args.copy()
@@ -575,7 +583,7 @@ class Cluster(object):
                                    raft_args=raft_args,
                                    cluster_id=self.cluster_id,
                                    password=password,
-                                   tls_ca_cert_location=tls_ca_cert_location)
+                                   cacert_type=cacert_type)
                       for x in range(1, node_count + 1)}
         self.next_id = node_count + 1
         for _id, node in self.nodes.items():
@@ -604,7 +612,8 @@ class Cluster(object):
 
     def add_node(self, raft_args=None, port=None, cluster_setup=True,
                  node_id=None, use_cluster_args=False, single_run=False,
-                 join_addr_list=None, redis_args=None, tls_ca_cert_location=None, **kwargs):
+                 join_addr_list=None, redis_args=None, cacert_type=None,
+                 **kwargs):
         _raft_args = raft_args
         if use_cluster_args:
             _raft_args = self.raft_args
@@ -615,7 +624,8 @@ class Cluster(object):
         node = None
         try:
             node = RedisRaft(_id, port, self.config, redis_args,
-                             raft_args=_raft_args, tls_ca_cert_location=tls_ca_cert_location, **kwargs)
+                             raft_args=_raft_args, cacert_type=cacert_type,
+                             **kwargs)
             if cluster_setup:
                 if self.nodes:
                     if join_addr_list is None:
@@ -640,8 +650,9 @@ class Cluster(object):
         try:
             self.raft_retry(_func)
         except redis.ResponseError as err:
-            # If we are removing the leader, leader will shutdown before sending
-            # the reply. On retry, we should get "node id does not exist" reply.
+            # If we are removing the leader, leader will shut down before
+            # sending the reply. On retry, we should get
+            # "node id does not exist" reply.
             if str(err).startswith("node id does not exist"):
                 if _id not in self.nodes:
                     raise err
@@ -719,10 +730,10 @@ class Cluster(object):
                         self.leader = new_leader
                 elif str(err).startswith('CLUSTERDOWN') or \
                         str(err).startswith('NOCLUSTER'):
-                    remaining = start_time + self.noleader_timeout - time.time()
-                    if remaining > 0:
+                    rem = start_time + self.noleader_timeout - time.time()
+                    if rem > 0:
                         LOG.info("-CLUSTERDOWN response received, will retry"
-                                 " for %.2f seconds", remaining)
+                                 " for %.2f seconds", rem)
                     time.sleep(0.5)
                 else:
                     raise
@@ -771,7 +782,8 @@ class Cluster(object):
 
 
 class ElleOp(object):
-    def __init__(self, op_type: str, key: str, value: typing.Optional[str] = None):
+    def __init__(self, op_type: str, key: str,
+                 value: typing.Optional[str] = None):
         self.op_type = op_type
         self.key = key
         self.value = value
@@ -801,8 +813,14 @@ class Elle(object):
         val = " ".join(map(str, ops))
         return f"[{val}]"
 
-    def generate_command_output(self, thread: int, ops: List[ElleOp], state: str) -> str:
-        return f"{{:index {self.index[thread]} :process {thread} :type :{state}, :value {self.generate_ops_value(ops)}}}"
+    def generate_command_output(self, thread: int, ops: List[ElleOp],
+                                state: str):
+        return (f"{{"
+                f":index {self.index[thread]} "
+                f":process {thread} "
+                f":type :{state}, "
+                f":value {self.generate_ops_value(ops)}"
+                f"}}")
 
     def log_command(self, thread: int, ops: List[ElleOp]):
         try:
@@ -817,7 +835,7 @@ class Elle(object):
         self.lock.release()
 
     @staticmethod
-    def generate_results_value(results: typing.List, ops: typing.List[ElleOp]) -> str:
+    def generate_results_value(results: typing.List, ops: typing.List[ElleOp]):
         val = "["
         for i in range(len(ops)):
             if i != 0:
@@ -832,18 +850,31 @@ class Elle(object):
         val += "]"
         return val
 
-    def generate_result_output(self, thread: int, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+    def generate_result_output(self, thread: int, result: str,
+                               results: typing.Optional[List],
+                               ops: List[ElleOp]):
         output: str
         if result == "ok":
             output = self.generate_results_value(results, ops)
-            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+            return (f"{{"
+                    f":index {self.index[thread]} "
+                    f":process {thread} "
+                    f":type :{result}, "
+                    f":value {output}"
+                    f"}}")
         elif result == "fail":
             output = self.generate_ops_value(ops)
-            return f"{{:index {self.index[thread]} :process {thread} :type :{result}, :value {output}}}"
+            return (f"{{"
+                    f":index {self.index[thread]} "
+                    f":process {thread} "
+                    f":type :{result}, "
+                    f":value {output}"
+                    f"}}")
         else:
             raise Exception(f"unknown result value {result}")
 
-    def log_result(self, thread, result: str, results: typing.Optional[List], ops: List[ElleOp]):
+    def log_result(self, thread, result: str, results: typing.Optional[List],
+                   ops: List[ElleOp]):
         # if this throws an exception, we have a failure elsewhere
         self.index[thread] += 1
 
@@ -858,7 +889,7 @@ class Elle(object):
         self.logfile.write("; " + msg + "\n")
         self.lock.release()
 
-    def get_next_value(self) -> int:
+    def get_next_value(self):
         with self.lock:
             ret = self.value
             self.value += 1
@@ -866,7 +897,8 @@ class Elle(object):
 
 
 class ElleWorker(threading.Thread):
-    def __init__(self, elle: Elle, clusters: typing.List[Cluster], keys: typing.Optional[List[str]] = None):
+    def __init__(self, elle: Elle, clusters: typing.List[Cluster],
+                 keys: typing.Optional[List[str]] = None):
         super().__init__()
 
         self.clusters = clusters
@@ -885,8 +917,9 @@ class ElleWorker(threading.Thread):
     def set_keys(self, keys: typing.List):
         self.keys = keys
 
-    # might not want generate_ops, perhaps each multi should just be a single append/read of same key
-    def generate_ops(self, available_keys: typing.List[str]) -> typing.List[ElleOp]:
+    # We might not want to generate ops. Perhaps, each multi should be a
+    # single append/read of the same key.
+    def generate_ops(self, available_keys: typing.List[str]):
         ops: typing.List[ElleOp] = []
         for _ in range(self.elle.config.elle_num_ops):
             key = available_keys[random.randrange(0, len(available_keys))]
@@ -901,12 +934,14 @@ class ElleWorker(threading.Thread):
         good_write = False
         needs_asking = False
 
-        client = redis.Redis(host="localhost", port=self.clusters[0].leader_node().port)
+        client = redis.Redis(host="localhost",
+                             port=self.clusters[0].leader_node().port)
         self.elle.log_command(self.id, ops)
 
-        # 3 possible hops in normal scenario
-        # default MOVED -> ASK -> (remote) MOVED (not leader, so ASKING again) -> "remote leader"
-        # if it doesn't work by then, error
+        # Three possible hops can happen in a normal scenario:
+        # MOVED -> ASK -> (remote) MOVED
+        # (we'll send ASKING again to the remote leader).
+        # If it doesn't work by then, log an error.
         conn: typing.Optional[RawConnection] = None
         for i in range(0, 3):
             if conn is not None:
@@ -922,9 +957,11 @@ class ElleWorker(threading.Thread):
             # queue up operations
             for j in range(len(ops)):
                 if ops[j].op_type == "append":
-                    assert conn.execute('RPUSH', ops[j].key, ops[j].value) == b'QUEUED'
+                    ret = conn.execute('RPUSH', ops[j].key, ops[j].value)
+                    assert ret == b'QUEUED'
                 elif ops[j].op_type == "read":
-                    assert conn.execute('LRANgE', ops[j].key, 0, -1) == b'QUEUED'
+                    ret = conn.execute('LRANGE', ops[j].key, 0, -1)
+                    assert ret == b'QUEUED'
                 else:
                     raise Exception(f"Unknown op_type {ops[j].op_type}")
 
@@ -944,7 +981,8 @@ class ElleWorker(threading.Thread):
                     client = redis.Redis(host=a.group(1), port=a.group(2))
                     needs_asking = True
                 else:
-                    # some other failure, therefore don't retry, just break.  we expect failures to occur
+                    # Some other failure, therefore don't retry, just break.
+                    # We expect failures to occur.
                     break
 
         conn.release()
@@ -1023,12 +1061,11 @@ def crc16(data: bytes) -> int:
 
     crc = 0
     for byte in data:
-        crc = ((crc << 8) & 0xff00) ^ x_mode_m_crc16_lookup[((crc >> 8) & 0xff) ^ byte]
+        crc = ((crc << 8) & 0xff00) ^ \
+              x_mode_m_crc16_lookup[((crc >> 8) & 0xff) ^ byte]
     return crc & 0xffff
 
 
 def key_hash_slot(key: str) -> int:
     assert key is not None
     return crc16(key.encode()) % 16384
-
-

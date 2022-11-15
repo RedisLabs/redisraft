@@ -60,9 +60,9 @@ end
 -- Iterate fields and set values according to order
 local vals = redis.call(cmd, key1)
 for i, field in ipairs(vals) do
-    if (not (cmd == "hgetall") or i % 2 == 0) then 
+    if (not (cmd == "hgetall") or i % 2 == 0) then
         redis.call('rpush', output_key, field)
-    end 
+    end
 end
 
 return 1
@@ -150,13 +150,13 @@ end
 
 -- Iterate fields and set values according to order
 local vals
-if not (cmd == "smembers") then 
+if not (cmd == "smembers") then
     vals = redis.call(cmd, key1, key2)
 else
     vals = redis.call(cmd, key1)
-end 
+end
 for i, field in ipairs(vals) do
-    redis.call('rpush', output_key, field) 
+    redis.call('rpush', output_key, field)
 end
 
 return 1
@@ -242,7 +242,7 @@ end
 -- Iterate fields and set values according to order
 local vals = redis.call("keys", "*")
 for i, field in ipairs(vals) do
-    redis.call('rpush', output_key, field) 
+    redis.call('rpush', output_key, field)
 end
 
 return 1
