@@ -226,10 +226,17 @@ def test_nonquorum_read_scripts(cluster):
     cluster.execute('set', 'abc', 1234)
     cluster.wait_for_unanimity()
 
+    sha = cluster.execute("script", "load", "return redis.call('GET','abc');")
+    cluster.execute("function", "load", "#!lua name=mylib \n redis.register_function{function_name='testfunc', callback=function(keys, args) return redis.call('GET','abc') end, flags={ 'no-writes' }}")
+
     cluster.node(2).pause()
 
     assert cluster.execute('EVAL_RO', """
         return redis.call('GET','abc');""", '0') == b'1234'
+
+    assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
+
+    assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
 
 
 def test_auto_ids(cluster):
