@@ -580,6 +580,61 @@ def test_acl(cluster):
         return 1234;""", '0')
 
 
+def test_ro_scripts(cluster):
+    cluster.create(3)
+
+    cluster.execute('set', 'abc', 1234)
+    cluster.wait_for_unanimity()
+
+    sha = cluster.execute("script", "load", "return redis.call('GET','abc');")
+
+    function_script = """#!lua name=mylib
+    redis.register_function{
+    function_name='testfunc',
+    callback=function(keys, args) return redis.call('GET','abc') end,
+    flags={ 'no-writes' }
+    }
+    """
+    cluster.execute("function", "load", function_script)
+
+    # no oom, acl allow
+    assert cluster.execute('EVAL_RO', """
+        return redis.call('GET','abc');""", '0') == b'1234'
+    assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
+    assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
+
+    # oom, acl allow
+    cluster.execute('config', 'set', 'maxmemory', 1)
+    assert cluster.execute('EVAL_RO', """
+        return redis.call('GET','abc');""", '0') == b'1234'
+    assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
+    assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
+    cluster.execute('config', 'set', 'maxmemory', 0)
+
+    print("no oom, acl deny")
+
+    cluster.execute('acl', 'setuser', 'default', 'resetkeys')
+    # no oom, acl deny
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('EVAL_RO', "return redis.call('GET','abc');", '0')
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('EVALSHA_RO', sha.decode(), 0)
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('FCALL_RO', 'testfunc', 0)
+
+    print("oom, acl deny")
+
+    # oom, acl deny
+    cluster.execute('config', 'set', 'maxmemory', 1)
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('EVAL_RO', "return redis.call('GET','abc');", '0')
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('EVALSHA_RO', sha.decode(), 0)
+    with (raises(ResponseError, match="No permissions to access a key")):
+        cluster.execute('FCALL_RO', 'testfunc', 0)
+    cluster.execute('config', 'set', 'maxmemory', 0)
+
+
 def test_metadata_restore_after_restart(cluster):
     """
     Test if we restore raft metadata (term and vote) correctly after a restart.
