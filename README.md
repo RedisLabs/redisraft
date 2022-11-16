@@ -90,4 +90,4 @@ Please consult the [documentation](docs/TOC.md) for more information.
 
 ## License
 
-RedisRaft is licensed under the [Redis Source Available License (RSAL)](LICENSE.rsal).
+RedisRaft is licensed under the [Redis Source Available License 2.0 (RSALv2)](https://redis.com/legal/rsalv2-agreement) or the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).
