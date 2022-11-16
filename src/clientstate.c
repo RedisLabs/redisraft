@@ -1,9 +1,7 @@
 /*
- * This file is part of RedisRaft.
- *
- * Copyright (c) 2022 Redis Ltd.
- *
- * RedisRaft is licensed under the Redis Source Available License (RSAL).
+ * Copyright Redis Ltd. 2022 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
  */
 
 #include "redisraft.h"
