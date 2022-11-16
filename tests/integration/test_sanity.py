@@ -227,7 +227,15 @@ def test_nonquorum_read_scripts(cluster):
     cluster.wait_for_unanimity()
 
     sha = cluster.execute("script", "load", "return redis.call('GET','abc');")
-    cluster.execute("function", "load", "#!lua name=mylib \n redis.register_function{function_name='testfunc', callback=function(keys, args) return redis.call('GET','abc') end, flags={ 'no-writes' }}")
+
+    function_script = """#!lua name=mylib
+    redis.register_function{
+    function_name='testfunc',
+    callback=function(keys, args) return redis.call('GET','abc') end,
+    flags={ 'no-writes' }
+    }
+    """
+    cluster.execute("function", "load", function_script)
 
     cluster.node(2).pause()
 
