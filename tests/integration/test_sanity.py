@@ -630,7 +630,7 @@ def test_ro_scripts(cluster):
         cluster.execute('EVAL_RO', "return redis.call('GET','abc');", '0')
     with (raises(ResponseError, match="No permissions to access a key")):
         cluster.execute('EVALSHA_RO', sha.decode(), 0)
-    with (raises(ResponseError, match="No permissions to access a key")):
+    with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('FCALL_RO', 'testfunc', 0)
     cluster.execute('config', 'set', 'maxmemory', 0)
 
