@@ -365,8 +365,11 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         int old_entered_eval = rr->entered_eval;
 
         if ((cmdlen == 4 && !strncasecmp(cmd, "eval", 4)) ||
+            (cmdlen == 7 && !strncasecmp(cmd, "eval_ro", 7)) ||
             (cmdlen == 7 && !strncasecmp(cmd, "evalsha", 7)) ||
-            (cmdlen == 5 && !strncasecmp(cmd, "fcall", 5))) {
+            (cmdlen == 10 && !strncasecmp(cmd, "evalsha_ro", 10)) ||
+            (cmdlen == 5 && !strncasecmp(cmd, "fcall", 5)) ||
+            (cmdlen == 8 && !strncasecmp(cmd, "fcall_ro", 8))) {
             rr->entered_eval = 1;
         }
 
