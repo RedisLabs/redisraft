@@ -214,6 +214,38 @@ def test_nonquorum_reads(cluster):
     cluster.node(2).client.get('x')
 
 
+def test_nonquorum_read_scripts(cluster):
+    """
+    Test non-quorum reads with scripts
+    """
+    cluster.create(2, raft_args={'quorum-reads': 'no'})
+
+    assert cluster.leader == 1
+
+    cluster.execute('set', 'abc', 1234)
+    cluster.wait_for_unanimity()
+
+    sha = cluster.execute("script", "load", "return redis.call('GET','abc');")
+
+    function_script = """#!lua name=mylib
+    redis.register_function{
+    function_name='testfunc',
+    callback=function(keys, args) return redis.call('GET','abc') end,
+    flags={ 'no-writes' }
+    }
+    """
+    cluster.execute("function", "load", function_script)
+
+    cluster.node(2).pause()
+
+    assert cluster.execute('EVAL_RO', """
+        return redis.call('GET','abc');""", '0') == b'1234'
+
+    assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
+
+    assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
+
+
 def test_auto_ids(cluster):
     """
     Test automatic assignment of ids.
