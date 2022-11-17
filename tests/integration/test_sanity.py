@@ -654,7 +654,14 @@ def test_followers_in_oom(cluster):
     cluster.wait_for_unanimity()
 
     assert cluster.execute("get", "abc") == b'1234'
-    node2 = cluster.node(2)
-    node3 = cluster.node(3)
-    assert node2.execute("raft.debug", "exec", "get", "abc") == b'1234'
-    assert node3.execute("raft.debug", "exec", "get", "abc") == b'1234'
+    assert cluster.node(2).raft_debug_exec("get", "abc") == b'1234'
+    assert cluster.node(3).raft_debug_exec("get", "abc") == b'1234'
+
+    cluster.execute('EVAL', """
+        redis.call('SET','abc', 5678);
+        return 1234;""", '0')
+    cluster.wait_for_unanimity()
+
+    assert cluster.execute("get", "abc") == b'5678'
+    assert cluster.node(2).raft_debug_exec("get", "abc") == b'5678'
+    assert cluster.node(3).raft_debug_exec("get", "abc") == b'5678'
