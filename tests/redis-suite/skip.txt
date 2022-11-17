@@ -37,6 +37,7 @@ SLOWLOG - Rewritten commands are logged as their original command
 -- RAFT command prefix shows up in MONITOR
 MONITOR can log executed commands
 MONITOR can log commands issued by the scripting engine
+MONITOR can log commands issued by functions
 MONITOR correctly handles multi-exec cases
 
 -- TODO: check what's wrong
