@@ -697,3 +697,26 @@ def test_metadata_restore_after_restart(cluster):
     # n2 triggered an election, so n2 should have voted for itself.
     assert n2.info()['raft_current_term'] == 2
     assert n2.info()['raft_voted_for'] == 2
+
+
+def test_followers_in_oom(cluster):
+    cluster.create(3)
+
+    cluster.node(2).execute('config', 'set', 'maxmemory', 1)
+    cluster.node(3).execute('config', 'set', 'maxmemory', 1)
+
+    cluster.execute("set", "abc", 1234)
+    cluster.wait_for_unanimity()
+
+    assert cluster.execute("get", "abc") == b'1234'
+    assert cluster.node(2).raft_debug_exec("get", "abc") == b'1234'
+    assert cluster.node(3).raft_debug_exec("get", "abc") == b'1234'
+
+    cluster.execute('EVAL', """
+        redis.call('SET','abc', 5678);
+        return 1234;""", '0')
+    cluster.wait_for_unanimity()
+
+    assert cluster.execute("get", "abc") == b'5678'
+    assert cluster.node(2).raft_debug_exec("get", "abc") == b'5678'
+    assert cluster.node(3).raft_debug_exec("get", "abc") == b'5678'
