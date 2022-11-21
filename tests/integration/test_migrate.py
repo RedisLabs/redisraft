@@ -132,6 +132,140 @@ def test_migration_basic(cluster_factory):
         cluster2.node(1).execute('get', '{key2}1')
 
 
+def test_migration_basic_on_oom(cluster_factory):
+    """
+    Simulates full migration process while cluster is OOM. Test generates keys
+    in a cluster and moves half of the keys to another cluster.
+    """
+
+    cluster1 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(3, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
+    key_count = 11500
+
+    # Fill two specific slots with keys. One of these slots will be migrated.
+    for i in range(key_count):
+        cluster1.execute('set', '{key}' + str(i), 'value')   # slot 12539
+        cluster1.execute('set', '{key2}' + str(i), 'value')  # slot 4998
+
+    cluster1.wait_for_unanimity()
+    cluster2.wait_for_unanimity()
+
+    cluster1.config_set('maxmemory', '1')
+    cluster2.config_set('maxmemory', '1')
+
+    cluster1_dbid = cluster1.leader_node().info()['raft_dbid']
+    cluster2_dbid = cluster2.leader_node().info()['raft_dbid']
+
+    # Set slot range 8001-16383 as migrating from cluster1 to cluster2.
+    assert cluster1.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster1_dbid,
+        '2', '3',
+        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
+        '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
+        cluster2_dbid,
+        '1', '3',
+        '8001', '16383', '2', '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
+        '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
+        ) == b'OK'
+
+    assert cluster2.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster1_dbid,
+        '2', '3',
+        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
+        '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
+        cluster2_dbid,
+        '1', '3',
+        '8001', '16383', '2', '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
+        '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
+        ) == b'OK'
+
+    # Migrate keys
+    cursor = 0
+    while True:
+        reply = cluster1.execute('raft.scan', str(cursor), '8001-16383')
+
+        cursor = int(reply[0])
+        keys = reply[1]
+
+        if len(keys) != 0:
+            key_names = []
+            for key in keys:
+                key_names.append(key[0].decode('utf-8'))
+
+            assert cluster1.execute('migrate', '', '', '', '', '', 'keys',
+                                    *key_names) == b'OK'
+
+        # If cursor is zero, we've moved all the keys
+        if cursor == 0:
+            break
+
+    # Finalize migration
+    assert cluster1.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster1_dbid,
+        '1', '3',
+        '0', '8000', '1', '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
+        '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
+        cluster2_dbid,
+        '1', '3',
+        '8001', '16383', '1', '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
+        '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
+        ) == b'OK'
+
+    assert cluster2.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster1_dbid,
+        '1', '3',
+        '0', '8000', '1', '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
+        '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
+        cluster2_dbid,
+        '1', '3',
+        '8001', '16383', '1', '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
+        '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
+        ) == b'OK'
+
+    # Sanity check
+
+    # cluster-1 has slots 0-8000
+    assert cluster1.execute('dbsize') == key_count
+    assert cluster1.node(1).execute('get', '{key2}1') == b'value'
+    with raises(ResponseError, match='MOVED 12539'):
+        cluster1.node(1).execute('get', '{key}1')
+
+    # cluster-2 has slots 8001-16383
+    assert cluster2.execute('dbsize') == key_count
+    assert cluster2.node(1).execute('get', '{key}1') == b'value'
+    with raises(ResponseError, match='MOVED 4998'):
+        cluster2.node(1).execute('get', '{key2}1')
+
+
 def test_raft_import(cluster):
     cluster.create(3, raft_args={
         'sharding': 'yes',

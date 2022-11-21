@@ -527,6 +527,37 @@ def test_maxmemory(cluster):
     cluster.execute('set', 'key1', val)
 
 
+def test_maxmemory_with_cluster_ops(cluster):
+    """
+    Test cluster is operational on OOM: We are able to add/remove nodes,
+    transfer leadership and deliver the snapshot.
+    """
+
+    cluster.create(1)
+    cluster.execute('set', 'x', 1)
+
+    # Create a snapshot
+    n1 = cluster.node(1)
+    n1.execute('raft.debug', 'exec', 'debug', 'populate', 40000, 'a', 200)
+    n1.execute('raft.debug', 'compact')
+    n1.config_set('maxmemory', '1')
+
+    # Add new nodes. New nodes will receive the snapshot.
+    n2 = cluster.add_node(redis_args=["--maxmemory", "1"])
+    n3 = cluster.add_node(redis_args=["--maxmemory", "1"])
+    cluster.wait_for_unanimity()
+    assert n2.info()['raft_snapshots_received'] == 1
+    assert n3.info()['raft_snapshots_received'] == 1
+
+    # Remove the node
+    cluster.remove_node(n3.id)
+    n1.wait_for_num_nodes(2)
+
+    # Transfer leadership
+    assert cluster.leader == 1
+    cluster.leader_node().transfer_leader(2)
+
+
 def test_acl(cluster):
     cluster.create(3)
 
