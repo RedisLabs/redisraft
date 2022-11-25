@@ -830,16 +830,16 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
             si->is_sharding = true;
         } else {
             size_t key_len;
-            ShardGroup *sg;
+            ShardGroup *s;
 
             RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
-            RedisModule_DictNextC(iter, &key_len, (void **) &sg);
+            RedisModule_DictNextC(iter, &key_len, (void **) &s);
             RedisModule_DictIteratorStop(iter);
 
-            if (!sg->local || sg->slot_ranges_num != 1 ||
-                sg->slot_ranges[0].start_slot != REDIS_RAFT_HASH_MIN_SLOT ||
-                sg->slot_ranges[0].end_slot != REDIS_RAFT_HASH_MAX_SLOT ||
-                sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
+            if (!s->local || s->slot_ranges_num != 1 ||
+                s->slot_ranges[0].start_slot != REDIS_RAFT_HASH_MIN_SLOT ||
+                s->slot_ranges[0].end_slot != REDIS_RAFT_HASH_MAX_SLOT ||
+                s->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
                 si->is_sharding = true;
             }
         }
