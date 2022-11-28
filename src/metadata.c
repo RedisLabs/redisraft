@@ -54,6 +54,14 @@ void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
     m->node_id = node_id;
 }
 
+void MetadataArchiveFile(Metadata *m)
+{
+    char buf[PATH_MAX];
+
+    safesnprintf(buf, sizeof(buf), "%s.%d.bak", m->filename, m->node_id);
+    rename(m->filename, buf);
+}
+
 int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
 {
     char buf[2048], tmp[PATH_MAX];

@@ -43,6 +43,7 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
+    MetadataArchiveFile(&rr->meta);
     LogArchiveFiles(rr->log);
 
     if (rr->config.rdb_filename) {
