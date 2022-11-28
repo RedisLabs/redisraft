@@ -12,12 +12,18 @@
 /* Raft metadata file to store last voted node id and the current term.*/
 
 typedef struct Metadata {
+    char *filename;
+    char dbid[64];
+    raft_node_id_t node_id;
     raft_term_t term;
     raft_node_id_t vote;
 } Metadata;
 
+void MetadataInit(Metadata *m);
+void MetadataTerm(Metadata *m);
+void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
+                       raft_node_id_t node_id);
 int MetadataRead(Metadata *m, const char *filename);
-int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
-                  raft_node_id_t vote);
+int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote);
 
 #endif

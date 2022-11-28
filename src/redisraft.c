@@ -1062,6 +1062,9 @@ static void clusterInit(const char *cluster_id)
         rr->config.id = makeRandomNodeId(rr);
     }
 
+    MetadataConfigure(&rr->meta, rr->config.log_filename,
+                      rr->snapshot_info.dbid, rr->config.id);
+
     rr->log = LogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
                         1, 0, rr->config.id);
     if (!rr->log) {
@@ -1091,6 +1094,9 @@ static void clusterJoinCompleted(RaftReq *req)
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
+
+    MetadataConfigure(&rr->meta, rr->config.log_filename,
+                      rr->snapshot_info.dbid, rr->config.id);
 
     AddBasicLocalShardGroup(rr);
     RaftLibraryInit(rr, false);
@@ -1975,6 +1981,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
+    MetadataInit(&rr->meta);
+
     int ret = MetadataRead(&rr->meta, rr->config.log_filename);
     if (ret == RR_OK) {
         rr->log = LogOpen(rr->config.log_filename, false);

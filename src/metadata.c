@@ -15,7 +15,7 @@
 
 static const char *METADATA_STR = "METADATA";
 static const int METADATA_VERSION = 1;
-static const int METADATA_ELEM_COUNT = 4;
+static const int METADATA_ELEM_COUNT = 6;
 
 static char *metadataFilename(char *buf, size_t size, const char *filename)
 {
@@ -23,21 +23,52 @@ static char *metadataFilename(char *buf, size_t size, const char *filename)
     return buf;
 }
 
-int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
-                  raft_node_id_t vote)
+void MetadataInit(Metadata *m)
 {
-    char buf[2048], orig[PATH_MAX], tmp[PATH_MAX];
-    int off = 0;
+    *m = (Metadata){
+        .node_id = RAFT_NODE_ID_NONE,
+        .dbid = "",
+        .term = 0,
+        .vote = RAFT_NODE_ID_NONE,
+    };
+}
+
+void MetadataTerm(Metadata *m)
+{
+    RedisModule_Free(m->filename);
+}
+
+void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
+                       raft_node_id_t node_id)
+{
+    char buf[PATH_MAX];
+
+    RedisModule_Free(m->filename);
+    metadataFilename(buf, sizeof(buf), filename);
+    m->filename = RedisModule_Strdup(buf);
+
+    RedisModule_Assert(strlen(dbid) == RAFT_DBID_LEN);
+    memcpy(m->dbid, dbid, RAFT_DBID_LEN);
+    m->dbid[RAFT_DBID_LEN + 1] = '\0';
+
+    m->node_id = node_id;
+}
+
+int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
+{
+    char buf[2048], tmp[PATH_MAX];
+    int n = 0;
     File f;
 
-    off += multibulkWriteLen(buf + off, sizeof(buf) - off, '*', METADATA_ELEM_COUNT);
-    off += multibulkWriteStr(buf + off, sizeof(buf) - off, METADATA_STR);
-    off += multibulkWriteInt(buf + off, sizeof(buf) - off, METADATA_VERSION);
-    off += multibulkWriteLong(buf + off, sizeof(buf) - off, term);
-    off += multibulkWriteInt(buf + off, sizeof(buf) - off, vote);
+    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', METADATA_ELEM_COUNT);
+    n += multibulkWriteStr(buf + n, sizeof(buf) - n, METADATA_STR);
+    n += multibulkWriteInt(buf + n, sizeof(buf) - n, METADATA_VERSION);
+    n += multibulkWriteStr(buf + n, sizeof(buf) - n, m->dbid);
+    n += multibulkWriteInt(buf + n, sizeof(buf) - n, m->node_id);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, term);
+    n += multibulkWriteInt(buf + n, sizeof(buf) - n, vote);
 
-    metadataFilename(orig, sizeof(orig), filename);
-    safesnprintf(tmp, sizeof(tmp), "%s.tmp", orig);
+    safesnprintf(tmp, sizeof(tmp), "%s.tmp", m->filename);
 
     FileInit(&f);
 
@@ -45,7 +76,7 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
         PANIC("FileOpen(): %s", strerror(errno));
     }
 
-    if (FileWrite(&f, buf, off) != off) {
+    if (FileWrite(&f, buf, n) != n) {
         PANIC("FileWrite(): %s", strerror(errno));
     }
 
@@ -53,7 +84,7 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
         PANIC("FileTerm(): %s", strerror(errno));
     }
 
-    if (rename(tmp, orig) != 0) {
+    if (rename(tmp, m->filename) != 0) {
         PANIC("rename(): %s", strerror(errno));
     }
 
@@ -66,16 +97,12 @@ int MetadataWrite(Metadata *m, const char *filename, raft_term_t term,
 int MetadataRead(Metadata *m, const char *filename)
 {
     char buf[PATH_MAX];
-    char str[128];
+    char str[128] = {0};
+    char dbid[64] = {0};
     int version, elem_count;
     raft_term_t term;
-    raft_node_id_t vote;
+    raft_node_id_t vote, node_id;
     File f;
-
-    *m = (Metadata){
-        .term = 0,
-        .vote = RAFT_NODE_ID_NONE,
-    };
 
     metadataFilename(buf, sizeof(buf), filename);
     FileInit(&f);
@@ -90,6 +117,8 @@ int MetadataRead(Metadata *m, const char *filename)
     if (!multibulkReadLen(&f, '*', &elem_count) ||
         !multibulkReadStr(&f, str, sizeof(str)) ||
         !multibulkReadInt(&f, &version) ||
+        !multibulkReadStr(&f, dbid, sizeof(dbid)) ||
+        !multibulkReadInt(&f, &node_id) ||
         !multibulkReadLong(&f, &term) ||
         !multibulkReadInt(&f, &vote)) {
         PANIC("failed to read metadata file!");
@@ -102,9 +131,15 @@ int MetadataRead(Metadata *m, const char *filename)
     RedisModule_Assert(elem_count == METADATA_ELEM_COUNT);
     RedisModule_Assert(strncmp(str, METADATA_STR, strlen(METADATA_STR)) == 0);
     RedisModule_Assert(version == METADATA_VERSION);
+    RedisModule_Assert(strlen(dbid) == RAFT_DBID_LEN);
 
+    strcpy(m->dbid, dbid);
+    m->node_id = node_id;
     m->term = term;
     m->vote = vote;
+
+    RedisModule_Free(m->filename);
+    m->filename = RedisModule_Strdup(buf);
 
     return RR_OK;
 }

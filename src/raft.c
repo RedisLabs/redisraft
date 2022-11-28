@@ -824,7 +824,7 @@ static int raftPersistMetadata(raft_server_t *raft, void *user_data,
 {
     RedisRaftCtx *rr = user_data;
 
-    int ret = MetadataWrite(&rr->meta, rr->config.log_filename, term, vote);
+    int ret = MetadataWrite(&rr->meta, term, vote);
     if (ret != RR_OK) {
         LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
