@@ -798,6 +798,14 @@ RRStatus parseHashSlots(char *slots, char *string);
 bool parseLongLong(const char *str, char **end, long long *val);
 bool parseLong(const char *str, char **end, long *val);
 bool parseInt(const char *str, char **end, int *val);
+bool multibulkReadLen(File *fp, char type, int *length);
+bool multibulkReadInt(File *fp, int *value);
+bool multibulkReadLong(File *fp, long *value);
+bool multibulkReadStr(File *fp, char *buf, size_t size);
+int multibulkWriteLen(void *buf, size_t cap, char prefix, int len);
+int multibulkWriteInt(void *buf, size_t cap, int val);
+int multibulkWriteLong(void *buf, size_t cap, long val);
+int multibulkWriteStr(void *buf, size_t cap, const char *val);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);

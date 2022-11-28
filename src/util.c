@@ -304,3 +304,80 @@ bool parseInt(const char *str, char **end, int *val)
     *val = (int) num;
     return true;
 }
+
+bool multibulkReadLen(File *fp, char type, int *length)
+{
+    char buf[64] = {0};
+
+    ssize_t ret = FileGets(fp, buf, sizeof(buf));
+    if (ret <= 0 || buf[0] != type) {
+        return false;
+    }
+
+    return parseInt(buf + 1, NULL, length);
+}
+
+bool multibulkReadInt(File *fp, int *value)
+{
+    char buf[64] = {0};
+
+    if (!multibulkReadStr(fp, buf, sizeof(buf)) ||
+        !parseInt(buf, NULL, value)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool multibulkReadLong(File *fp, long *value)
+{
+    char buf[64] = {0};
+
+    if (!multibulkReadStr(fp, buf, sizeof(buf)) ||
+        !parseLong(buf, NULL, value)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool multibulkReadStr(File *fp, char *buf, size_t size)
+{
+    int len;
+    char crlf[2];
+
+    if (!multibulkReadLen(fp, '$', &len) ||
+        len > (int) size) {
+        return false;
+    }
+
+    if (FileRead(fp, buf, len) != len ||
+        FileRead(fp, crlf, 2) != 2) {
+        return false;
+    }
+
+    buf[size - 1] = '\0';
+    return true;
+}
+
+int multibulkWriteLen(void *buf, size_t cap, char prefix, int len)
+{
+    return safesnprintf(buf, cap, "%c%d\r\n", prefix, len);
+}
+
+int multibulkWriteInt(void *buf, size_t cap, int val)
+{
+    return multibulkWriteLong(buf, cap, val);
+}
+
+int multibulkWriteLong(void *buf, size_t cap, long val)
+{
+    int len = lensnprintf("%ld", val);
+    return safesnprintf(buf, cap, "$%d\r\n%ld\r\n", len, val);
+}
+
+int multibulkWriteStr(void *buf, size_t cap, const char *val)
+{
+    int len = lensnprintf("%s", val);
+    return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
+}

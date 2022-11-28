@@ -46,7 +46,7 @@ int FileOpen(File *file, const char *filename, int flags)
     struct stat st;
 
     /* Currently, only O_APPEND mode is supported. */
-    RedisModule_Assert(flags & O_APPEND);
+    RedisModule_Assert(flags == O_RDONLY || flags & O_APPEND);
 
     fd = open(filename, flags, S_IWUSR | S_IRUSR);
     if (fd < 0) {

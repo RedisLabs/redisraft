@@ -36,68 +36,13 @@ static int truncateFiles(Log *log, size_t offset, size_t idxoffset)
     return RR_OK;
 }
 
-static bool readLength(File *fp, char type, int *length)
-{
-    char buf[64] = {0};
-
-    ssize_t ret = FileGets(fp, buf, sizeof(buf));
-    if (ret <= 0 || buf[0] != type) {
-        return false;
-    }
-
-    return parseInt(buf + 1, NULL, length);
-}
-
-static bool readItem(File *fp, char *buf, size_t size)
-{
-    int len;
-    char crlf[2];
-
-    if (!readLength(fp, '$', &len) ||
-        len > (int) size) {
-        return false;
-    }
-
-    if (FileRead(fp, buf, len) != len ||
-        FileRead(fp, crlf, 2) != 2) {
-        return false;
-    }
-
-    buf[size - 1] = '\0';
-    return true;
-}
-
-static bool readLong(File *fp, long *value)
-{
-    char buf[64] = {0};
-
-    if (!readItem(fp, buf, sizeof(buf)) ||
-        !parseLong(buf, NULL, value)) {
-        return false;
-    }
-
-    return true;
-}
-
-static bool readInt(File *fp, int *value)
-{
-    char buf[64] = {0};
-
-    if (!readItem(fp, buf, sizeof(buf)) ||
-        !parseInt(buf, NULL, value)) {
-        return false;
-    }
-
-    return true;
-}
-
 static raft_entry_t *readEntry(Log *log)
 {
     char str[64] = {0};
     int num_elements;
 
-    if (!readLength(&log->file, '*', &num_elements) ||
-        !readItem(&log->file, str, sizeof(str))) {
+    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
+        !multibulkReadStr(&log->file, str, sizeof(str))) {
         return NULL;
     }
 
@@ -110,10 +55,10 @@ static raft_entry_t *readEntry(Log *log)
     raft_entry_id_t id;
     int type, length;
 
-    if (!readLong(&log->file, &term) ||
-        !readInt(&log->file, &id) ||
-        !readInt(&log->file, &type) ||
-        !readLength(&log->file, '$', &length)) {
+    if (!multibulkReadLong(&log->file, &term) ||
+        !multibulkReadInt(&log->file, &id) ||
+        !multibulkReadInt(&log->file, &type) ||
+        !multibulkReadLen(&log->file, '$', &length)) {
         return NULL;
     }
 
@@ -144,10 +89,10 @@ static int readHeader(Log *log)
         return RR_ERROR;
     }
 
-    if (!readLength(&log->file, '*', &num_elements) ||
-        !readItem(&log->file, str, sizeof(str)) ||
-        !readLong(&log->file, &version) ||
-        !readItem(&log->file, dbid, sizeof(dbid))) {
+    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
+        !multibulkReadStr(&log->file, str, sizeof(str)) ||
+        !multibulkReadLong(&log->file, &version) ||
+        !multibulkReadStr(&log->file, dbid, sizeof(dbid))) {
         return RR_ERROR;
     }
 
@@ -163,9 +108,9 @@ static int readHeader(Log *log)
     raft_term_t snapshot_last_term;
     raft_index_t snapshot_last_index;
 
-    if (!readInt(&log->file, &node_id) ||
-        !readLong(&log->file, &snapshot_last_term) ||
-        !readLong(&log->file, &snapshot_last_index)) {
+    if (!multibulkReadInt(&log->file, &node_id) ||
+        !multibulkReadLong(&log->file, &snapshot_last_term) ||
+        !multibulkReadLong(&log->file, &snapshot_last_index)) {
         return RR_ERROR;
     }
 
@@ -180,40 +125,23 @@ static int readHeader(Log *log)
     return RR_OK;
 }
 
-static int writeLength(void *buf, size_t cap, char prefix, long len)
-{
-    return safesnprintf(buf, cap, "%c%ld\r\n", prefix, len);
-}
-
-static int writeLong(void *buf, size_t cap, long val)
-{
-    int len = lensnprintf("%ld", val);
-    return safesnprintf(buf, cap, "$%d\r\n%ld\r\n", len, val);
-}
-
-static int writeString(void *buf, size_t cap, const char *val)
-{
-    int len = lensnprintf("%s", val);
-    return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
-}
-
 static int writeEntry(Log *log, raft_entry_t *ety)
 {
     int rc;
-    size_t off = 0;
+    size_t n = 0;
     char buf[1024];
 
     size_t offset = FileSize(&log->file);
     size_t idxoffset = FileSize(&log->idxfile);
 
-    off += writeLength(buf + off, sizeof(buf) - off, '*', ENTRY_ELEM_COUNT);
-    off += writeString(buf + off, sizeof(buf) - off, ENTRY_STR);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->term);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->id);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->type);
-    off += writeLength(buf + off, sizeof(buf) - off, '$', ety->data_len);
+    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', ENTRY_ELEM_COUNT);
+    n += multibulkWriteStr(buf + n, sizeof(buf) - n, ENTRY_STR);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->term);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->id);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->type);
+    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '$', (int) ety->data_len);
 
-    if (FileWrite(&log->file, buf, off) != (ssize_t) off ||
+    if (FileWrite(&log->file, buf, n) != (ssize_t) n ||
         FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
         FileWrite(&log->file, "\r\n", 2) != 2) {
         goto error;
@@ -236,19 +164,19 @@ error:
 
 static int writeHeader(Log *log)
 {
-    ssize_t off = 0;
+    ssize_t n = 0;
     char buf[1024];
 
-    off += writeLength(buf + off, sizeof(buf) - off, '*', RAFTLOG_ELEM_COUNT);
-    off += writeString(buf + off, sizeof(buf) - off, RAFTLOG_STR);
-    off += writeLong(buf + off, sizeof(buf) - off, RAFTLOG_VERSION);
-    off += writeString(buf + off, sizeof(buf) - off, log->dbid);
-    off += writeLong(buf + off, sizeof(buf) - off, log->node_id);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_term);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_idx);
+    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', RAFTLOG_ELEM_COUNT);
+    n += multibulkWriteStr(buf + n, sizeof(buf) - n, RAFTLOG_STR);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, RAFTLOG_VERSION);
+    n += multibulkWriteStr(buf + n, sizeof(buf) - n, log->dbid);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->node_id);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->snapshot_last_term);
+    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->snapshot_last_idx);
 
     if (truncateFiles(log, 0, 0) != RR_OK ||
-        FileWrite(&log->file, buf, off) != off ||
+        FileWrite(&log->file, buf, n) != n ||
         LogSync(log, true) != RR_OK) {
 
         /* Try to delete files just in case there was a partial write. */
