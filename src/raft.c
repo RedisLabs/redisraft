@@ -1222,16 +1222,21 @@ static void handleLoadingState(RedisRaftCtx *rr)
         LOG_NOTICE("Loading: Redis loading complete, snapshot %s",
                    rr->snapshot_info.loaded ? "LOADED" : "NOT LOADED");
 
-        /* If id is configured, confirm the log matches.  If not, we set it from
-         * the log.
+        /* If id is configured, confirm the log matches. If not, we set it from
+         * the metadata file.
          */
         if (!rr->config.id) {
-            rr->config.id = rr->log->node_id;
-        } else {
-            if (rr->config.id != rr->log->node_id) {
-                PANIC("Raft log node id [%d] does not match configured id [%d]",
-                      rr->log->node_id, rr->config.id);
-            }
+            rr->config.id = rr->meta.node_id;
+        }
+
+        if (rr->config.id != rr->log->node_id) {
+            PANIC("Raft log node id [%d] does not match configured id [%d]",
+                  rr->log->node_id, rr->config.id);
+        }
+
+        if (rr->config.id != rr->meta.node_id) {
+            PANIC("Metadata node id [%d] does not match configured id [%d]",
+                  rr->meta.node_id, rr->config.id);
         }
 
         if (!rr->sharding_info->shard_groups_num) {
