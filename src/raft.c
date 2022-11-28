@@ -1142,7 +1142,7 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
-    if (rr->meta.dbid != rr->log->dbid) {
+    if (strcmp(rr->meta.dbid, rr->log->dbid) != 0) {
         PANIC("Log and metadata have different dbids: [log=%s/metadata=%s]",
               rr->log->dbid, rr->meta.dbid);
     }
