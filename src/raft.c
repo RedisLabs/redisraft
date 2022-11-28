@@ -1141,11 +1141,16 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
+    if (rr->meta.dbid != rr->log->dbid) {
+        PANIC("Log and metadata have different dbids: [log=%s/metadata=%s]",
+              rr->log->dbid, rr->meta.dbid);
+    }
+
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
-        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid) != 0) {
-            PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]",
-                  rr->log->dbid, rr->snapshot_info.dbid);
+        if (strcmp(rr->snapshot_info.dbid, rr->meta.dbid) != 0) {
+            PANIC("Metadata and snapshot have different dbids: [metadata=%s/snapshot=%s]",
+                  rr->meta.dbid, rr->snapshot_info.dbid);
         }
         if (rr->snapshot_info.last_applied_term < rr->log->snapshot_last_term) {
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.",
@@ -1169,7 +1174,7 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
                       rr->snapshot_info.last_applied_term);
     }
 
-    memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
+    memcpy(rr->snapshot_info.dbid, rr->meta.dbid, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
     ret = raft_restore_log(rr->raft);
@@ -1656,7 +1661,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
             return;
         }
 
-        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+        if (!strncmp(sg->id, rr->meta.dbid, RAFT_DBID_LEN)) {
             sg->local = true;
         }
 

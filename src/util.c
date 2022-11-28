@@ -137,7 +137,7 @@ void AddBasicLocalShardGroup(RedisRaftCtx *rr)
     RedisModule_Assert(sg != NULL);
 
     sg->local = true;
-    memcpy(sg->id, rr->log->dbid, RAFT_DBID_LEN);
+    memcpy(sg->id, rr->meta.dbid, RAFT_DBID_LEN);
     sg->id[RAFT_DBID_LEN] = '\0';
 
     RRStatus ret = ShardingInfoAddShardGroup(rr, sg);
