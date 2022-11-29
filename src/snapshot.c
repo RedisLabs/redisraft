@@ -419,13 +419,10 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
-    /* Flush stdio files to avoid leaks from child */
-    if (rr->log) {
-        fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
+    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
-        if (LogSync(rr->log, true) != RR_OK) {
-            PANIC("RaftLogSync() failed.");
-        }
+    if (LogSync(rr->log, true) != RR_OK) {
+        PANIC("RaftLogSync() failed.");
     }
 
     pid_t child = RedisModule_Fork(NULL, NULL);
