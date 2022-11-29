@@ -255,15 +255,23 @@ def test_migration_basic_on_oom(cluster_factory):
 
     # cluster-1 has slots 0-8000
     assert cluster1.execute('dbsize') == key_count
-    assert cluster1.node(1).execute('get', '{key2}1') == b'value'
-    with raises(ResponseError, match='MOVED 12539'):
-        cluster1.node(1).execute('get', '{key}1')
+    for i in range(key_count):
+        # Verify the keys in slot 4998 stay in cluster1
+        assert cluster1.execute('get', '{key2}' + str(i)) == b'value'
+
+        # Verify MOVED response for the keys in slot 12539
+        with raises(ResponseError, match='MOVED 12539'):
+            cluster1.leader_node().execute('get', '{key}' + str(i))
 
     # cluster-2 has slots 8001-16383
     assert cluster2.execute('dbsize') == key_count
-    assert cluster2.node(1).execute('get', '{key}1') == b'value'
-    with raises(ResponseError, match='MOVED 4998'):
-        cluster2.node(1).execute('get', '{key2}1')
+    for i in range(key_count):
+        # Verify the keys in slot 12539 are in cluster2
+        assert cluster2.execute('get', '{key}' + str(i)) == b'value'
+
+        # Verify MOVED response for the keys in slot 4998
+        with raises(ResponseError, match='MOVED 4998'):
+            cluster2.leader_node().execute('get', '{key2}' + str(i))
 
 
 def test_raft_import(cluster):
