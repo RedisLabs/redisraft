@@ -274,7 +274,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     new_log = LogRewrite(rr, temp_log_filename,
                          rr->curr_snapshot_last_idx,
                          rr->curr_snapshot_last_term,
-			 &num_log_entries);
+                         &num_log_entries);
 
     if (!new_log) {
         LOG_WARNING("Failed to rewrite log");

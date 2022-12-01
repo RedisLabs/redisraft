@@ -55,8 +55,8 @@ size_t LogFileSize(Log *log);
 void LogArchiveFiles(Log *log);
 
 Log *LogRewrite(RedisRaftCtx *rr, const char *filename,
-               raft_index_t last_idx, raft_term_t last_term,
-	       unsigned long *num_entries);
+                raft_index_t last_idx, raft_term_t last_term,
+                unsigned long *num_entries);
 int LogRewriteSwitch(RedisRaftCtx *rr, Log *new_log,
                      raft_index_t new_log_entries);
 
