@@ -34,6 +34,7 @@ typedef struct Log {
     uint64_t fsync_count;           /* Count of fsync() calls */
     uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
     uint64_t fsync_total;           /* Total time fsync() calls consumed in microseconds */
+    long current_crc;               /* current running crc value for log */
 } Log;
 
 Log *LogCreate(const char *filename, const char *dbid,

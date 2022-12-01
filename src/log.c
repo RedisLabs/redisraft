@@ -10,6 +10,8 @@
 #include "entrycache.h"
 #include "file.h"
 
+#include "common/crc16.h"
+
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -18,11 +20,11 @@
 #include <unistd.h>
 
 static const int ENTRY_CACHE_INIT_SIZE = 512;
-static const int ENTRY_ELEM_COUNT = 5;
+static const int ENTRY_ELEM_COUNT = 6;
 static const char *ENTRY_STR = "ENTRY";
 
 static const int RAFTLOG_VERSION = 1;
-static const int RAFTLOG_ELEM_COUNT = 6;
+static const int RAFTLOG_ELEM_COUNT = 7;
 static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
@@ -47,6 +49,9 @@ static int writeHeader(Log *log)
     char buf[1024];
 
     ssize_t off = generateHeader(log, buf, sizeof(buf));
+    /* add crc to header */
+    long crc = crc16_ccitt(0, buf, off);
+    off += writeLong(buf+off, sizeof(buf) - off, crc);
 
     if (truncateFiles(log, 0, 0) != RR_OK ||
         FileWrite(&log->file, buf, off) != off ||
@@ -57,6 +62,8 @@ static int writeHeader(Log *log)
         return RR_ERROR;
     }
 
+    /* update running crc to be the crc of entire header, including crc */
+    log->current_crc = crc16_ccitt(0, buf, off);
     return RR_OK;
 }
 
@@ -89,10 +96,12 @@ static int readHeader(Log *log)
     raft_node_id_t node_id;
     raft_term_t snapshot_last_term;
     raft_index_t snapshot_last_index;
+    long crc;
 
     if (!readInt(&log->file, &node_id) ||
         !readLong(&log->file, &snapshot_last_term) ||
-        !readLong(&log->file, &snapshot_last_index)) {
+        !readLong(&log->file, &snapshot_last_index) ||
+	!readLong(&log->file, &crc)) {
         return RR_ERROR;
     }
 
@@ -104,7 +113,27 @@ static int readHeader(Log *log)
     log->snapshot_last_idx = snapshot_last_index;
     log->index = snapshot_last_index;
 
+    /* validate CRC, by rebuilding header */
+    char buf[1024];
+    ssize_t off = generateHeader(log, buf, sizeof(buf));
+    long calc_crc = crc16_ccitt(0, buf, off);
+    RedisModule_Assert(crc == calc_crc);
+
     return RR_OK;
+}
+
+static size_t generateEntryHeader(raft_entry_t *ety, char *buf, size_t buf_len)
+{
+    size_t off = 0;
+
+    off += writeLength(buf + off, buf_len - off, '*', ENTRY_ELEM_COUNT);
+    off += writeString(buf + off, buf_len - off, ENTRY_STR);
+    off += writeLong(buf + off, buf_len - off, ety->term);
+    off += writeLong(buf + off, buf_len - off, ety->id);
+    off += writeLong(buf + off, buf_len - off, ety->type);
+    off += writeLength(buf + off, buf_len - off, '$', ety->data_len);
+
+    return off;
 }
 
 static int writeEntry(Log *log, raft_entry_t *ety)
@@ -116,12 +145,7 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     size_t offset = FileSize(&log->file);
     size_t idxoffset = FileSize(&log->idxfile);
 
-    off += writeLength(buf + off, sizeof(buf) - off, '*', ENTRY_ELEM_COUNT);
-    off += writeString(buf + off, sizeof(buf) - off, ENTRY_STR);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->term);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->id);
-    off += writeLong(buf + off, sizeof(buf) - off, ety->type);
-    off += writeLength(buf + off, sizeof(buf) - off, '$', ety->data_len);
+    off = generateEntryHeader(ety, buf, sizeof(buf));
 
     if (FileWrite(&log->file, buf, off) != (ssize_t) off ||
         FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
@@ -129,10 +153,28 @@ static int writeEntry(Log *log, raft_entry_t *ety)
         goto error;
     }
 
+    /* accumulating crc, so start with current crc */
+    long crc = crc16_ccitt(log->current_crc, buf, off);
+    crc = crc16_ccitt(crc, ety->data, ety->data_len);
+    crc = crc16_ccitt(crc, "\r\n", 2);
+
+    /* write crc as added element */
+    off = 0;
+    off += writeLong(buf + off, sizeof(buf) - off, crc);
+    if (FileWrite(&log->file, buf, off) != (ssize_t) off) {
+        goto error;
+    }
+
+    /* accumulating crc, so add the crc value we just wrote as well */
+    crc = crc16_ccitt(crc, buf, off);
+
     ssize_t ret = FileWrite(&log->idxfile, &offset, sizeof(offset));
     if (ret != sizeof(offset)) {
         goto error;
     }
+
+    /* everything succeeded, so can update accumulated crc */
+    log->current_crc = crc;
 
     return RR_OK;
 
@@ -280,10 +322,18 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term)
 int LogLoadEntries(Log *log)
 {
     log->num_entries = 0;
+    long calc_crc = 0;
 
     if (readHeader(log) != RR_OK) {
         return RR_ERROR;
     }
+
+    /* calculate crc to header end */
+    char buf[1024];
+    ssize_t off = generateHeader(log, buf, sizeof(buf));
+    calc_crc = crc16_ccitt(0, buf, off);
+    off += writeLong(buf+off, sizeof(buf) - off, calc_crc);
+    log->current_crc = crc16_ccitt(0, buf, off);
 
     /* Read Entries */
     while (true) {
@@ -302,7 +352,28 @@ int LogLoadEntries(Log *log)
 
             return RR_OK;
         }
+	/* validate crc for entry by reading and reuilding it */
+	long read_crc;
+        readLong(&log->file, &read_crc);
+
+	size_t off = 0;
+        char buf[1024];
+	off = generateEntryHeader(e, buf, sizeof(buf));
+	calc_crc = crc16_ccitt(log->current_crc, buf, off);
+        calc_crc = crc16_ccitt(calc_crc, e->data, e->data_len);
+        calc_crc = crc16_ccitt(calc_crc, "\r\n", 2);
         raft_entry_release(e);
+	if (calc_crc != read_crc) {
+	    LOG_WARNING("Entry failed crc32 check, truncating log to "
+                        "previous entry: %ld",
+                        log->index);
+	    int rc = FileTruncate(&log->file, offset);
+	    RedisModule_Assert(rc == RR_OK);
+	    return RR_OK;
+	}
+	/* append crc to accumulating crc value */
+	off = writeLong(buf, sizeof(buf), calc_crc);
+	log->current_crc = crc16_ccitt(calc_crc, buf, off);
 
         log->index++;
         log->num_entries++;
@@ -404,6 +475,33 @@ int LogDelete(Log *log, raft_index_t from_idx)
         if (truncateFiles(log, offset, idxoffset) != RR_OK) {
             PANIC("ftruncate failed: %s", strerror(errno));
         }
+
+	/* update running crc value */
+	/* if, we truncated entire log file, its the crc value of the header
+	 * otherwise, it's the crc from the last entry
+	 */
+	if (from_idx - 1 == log->snapshot_last_idx) { /* header */
+	    /* calculate running crc value by just regenerating header buf */
+	    char buf[1024];
+	    size_t off = generateHeader(log, buf, sizeof(buf));
+	    long crc = crc16_ccitt(0, buf, off);
+            off += writeLong(buf+off, sizeof(buf) - off, crc);
+	    log->current_crc = crc16_ccitt(0, buf, off);
+	} else { /* log entry */
+	    /* to regenerate running crc value, need to reread last entry */
+	    seekEntry(log, from_idx - 1);
+	    raft_entry_t *e = readEntry(log);
+	    raft_entry_release(e);
+
+	    /* running crc to the end of this entry */
+	    long crc; 
+            readLong(&log->file, &crc);
+
+	    /* calculate running crc with the crc value */
+	    char crc_buf[1024];
+            int off = writeLong(crc_buf, sizeof(crc_buf), crc);
+            log->current_crc = crc16_ccitt(crc, crc_buf, off);
+	}
 
         log->num_entries -= count;
         log->index -= count;
