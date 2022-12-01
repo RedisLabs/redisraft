@@ -5,6 +5,7 @@
  */
 
 #include "log.h"
+#include "log_utils.h"
 
 #include "entrycache.h"
 #include "file.h"
@@ -25,71 +26,6 @@ static const int RAFTLOG_ELEM_COUNT = 6;
 static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
-
-static int truncateFiles(Log *log, size_t offset, size_t idxoffset)
-{
-    if (FileTruncate(&log->file, offset) != RR_OK ||
-        FileTruncate(&log->idxfile, idxoffset) != RR_OK) {
-        return RR_ERROR;
-    }
-
-    return RR_OK;
-}
-
-static bool readLength(File *fp, char type, int *length)
-{
-    char buf[64] = {0};
-
-    ssize_t ret = FileGets(fp, buf, sizeof(buf));
-    if (ret <= 0 || buf[0] != type) {
-        return false;
-    }
-
-    return parseInt(buf + 1, NULL, length);
-}
-
-static bool readItem(File *fp, char *buf, size_t size)
-{
-    int len;
-    char crlf[2];
-
-    if (!readLength(fp, '$', &len) ||
-        len > (int) size) {
-        return false;
-    }
-
-    if (FileRead(fp, buf, len) != len ||
-        FileRead(fp, crlf, 2) != 2) {
-        return false;
-    }
-
-    buf[size - 1] = '\0';
-    return true;
-}
-
-static bool readLong(File *fp, long *value)
-{
-    char buf[64] = {0};
-
-    if (!readItem(fp, buf, sizeof(buf)) ||
-        !parseLong(buf, NULL, value)) {
-        return false;
-    }
-
-    return true;
-}
-
-static bool readInt(File *fp, int *value)
-{
-    char buf[64] = {0};
-
-    if (!readItem(fp, buf, sizeof(buf)) ||
-        !parseInt(buf, NULL, value)) {
-        return false;
-    }
-
-    return true;
-}
 
 static raft_entry_t *readEntry(Log *log)
 {
@@ -178,23 +114,6 @@ static int readHeader(Log *log)
     log->index = snapshot_last_index;
 
     return RR_OK;
-}
-
-static int writeLength(void *buf, size_t cap, char prefix, long len)
-{
-    return safesnprintf(buf, cap, "%c%ld\r\n", prefix, len);
-}
-
-static int writeLong(void *buf, size_t cap, long val)
-{
-    int len = lensnprintf("%ld", val);
-    return safesnprintf(buf, cap, "$%d\r\n%ld\r\n", len, val);
-}
-
-static int writeString(void *buf, size_t cap, const char *val)
-{
-    int len = lensnprintf("%s", val);
-    return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
 }
 
 static int writeEntry(Log *log, raft_entry_t *ety)
