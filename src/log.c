@@ -27,46 +27,29 @@ static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
 
-static raft_entry_t *readEntry(Log *log)
+static int writeHeader(Log *log)
 {
-    char str[64] = {0};
-    int num_elements;
+    ssize_t off = 0;
+    char buf[1024];
 
-    if (!readLength(&log->file, '*', &num_elements) ||
-        !readItem(&log->file, str, sizeof(str))) {
-        return NULL;
+    off += writeLength(buf + off, sizeof(buf) - off, '*', RAFTLOG_ELEM_COUNT);
+    off += writeString(buf + off, sizeof(buf) - off, RAFTLOG_STR);
+    off += writeLong(buf + off, sizeof(buf) - off, RAFTLOG_VERSION);
+    off += writeString(buf + off, sizeof(buf) - off, log->dbid);
+    off += writeLong(buf + off, sizeof(buf) - off, log->node_id);
+    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_term);
+    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_idx);
+
+    if (truncateFiles(log, 0, 0) != RR_OK ||
+        FileWrite(&log->file, buf, off) != off ||
+        LogSync(log, true) != RR_OK) {
+
+        /* Try to delete files just in case there was a partial write. */
+        truncateFiles(log, 0, 0);
+        return RR_ERROR;
     }
 
-    if (num_elements != ENTRY_ELEM_COUNT ||
-        strncmp(ENTRY_STR, str, strlen(ENTRY_STR)) != 0) {
-        return NULL;
-    }
-
-    raft_term_t term;
-    raft_entry_id_t id;
-    int type, length;
-
-    if (!readLong(&log->file, &term) ||
-        !readInt(&log->file, &id) ||
-        !readInt(&log->file, &type) ||
-        !readLength(&log->file, '$', &length)) {
-        return NULL;
-    }
-
-    char crlf[2];
-    raft_entry_t *e = raft_entry_new(length);
-
-    if (FileRead(&log->file, e->data, length) != length ||
-        FileRead(&log->file, crlf, 2) != 2) {
-        raft_entry_release(e);
-        return NULL;
-    }
-
-    e->term = term;
-    e->id = id;
-    e->type = (short) type;
-
-    return e;
+    return RR_OK;
 }
 
 static int readHeader(Log *log)
@@ -153,29 +136,46 @@ error:
     return RR_ERROR;
 }
 
-static int writeHeader(Log *log)
+static raft_entry_t *readEntry(Log *log)
 {
-    ssize_t off = 0;
-    char buf[1024];
+    char str[64] = {0};
+    int num_elements;
 
-    off += writeLength(buf + off, sizeof(buf) - off, '*', RAFTLOG_ELEM_COUNT);
-    off += writeString(buf + off, sizeof(buf) - off, RAFTLOG_STR);
-    off += writeLong(buf + off, sizeof(buf) - off, RAFTLOG_VERSION);
-    off += writeString(buf + off, sizeof(buf) - off, log->dbid);
-    off += writeLong(buf + off, sizeof(buf) - off, log->node_id);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_term);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_idx);
-
-    if (truncateFiles(log, 0, 0) != RR_OK ||
-        FileWrite(&log->file, buf, off) != off ||
-        LogSync(log, true) != RR_OK) {
-
-        /* Try to delete files just in case there was a partial write. */
-        truncateFiles(log, 0, 0);
-        return RR_ERROR;
+    if (!readLength(&log->file, '*', &num_elements) ||
+        !readItem(&log->file, str, sizeof(str))) {
+        return NULL;
     }
 
-    return RR_OK;
+    if (num_elements != ENTRY_ELEM_COUNT ||
+        strncmp(ENTRY_STR, str, strlen(ENTRY_STR)) != 0) {
+        return NULL;
+    }
+
+    raft_term_t term;
+    raft_entry_id_t id;
+    int type, length;
+
+    if (!readLong(&log->file, &term) ||
+        !readInt(&log->file, &id) ||
+        !readInt(&log->file, &type) ||
+        !readLength(&log->file, '$', &length)) {
+        return NULL;
+    }
+
+    char crlf[2];
+    raft_entry_t *e = raft_entry_new(length);
+
+    if (FileRead(&log->file, e->data, length) != length ||
+        FileRead(&log->file, crlf, 2) != 2) {
+        raft_entry_release(e);
+        return NULL;
+    }
+
+    e->term = term;
+    e->id = id;
+    e->type = (short) type;
+
+    return e;
 }
 
 static Log *prepareLog(const char *filename, bool keep_index)
