@@ -65,16 +65,19 @@ void MetadataArchiveFile(Metadata *m)
 int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
 {
     char buf[2048], tmp[PATH_MAX];
-    int n = 0;
+    ssize_t len;
+    char *pos = buf;
+    char *end = buf + sizeof(buf);
     File f;
 
-    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', METADATA_ELEM_COUNT);
-    n += multibulkWriteStr(buf + n, sizeof(buf) - n, METADATA_STR);
-    n += multibulkWriteInt(buf + n, sizeof(buf) - n, METADATA_VERSION);
-    n += multibulkWriteStr(buf + n, sizeof(buf) - n, m->dbid);
-    n += multibulkWriteInt(buf + n, sizeof(buf) - n, m->node_id);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, term);
-    n += multibulkWriteInt(buf + n, sizeof(buf) - n, vote);
+    pos += multibulkWriteLen(pos, end - pos, '*', METADATA_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, METADATA_STR);
+    pos += multibulkWriteInt(pos, end - pos, METADATA_VERSION);
+    pos += multibulkWriteStr(pos, end - pos, m->dbid);
+    pos += multibulkWriteInt(pos, end - pos, m->node_id);
+    pos += multibulkWriteLong(pos, end - pos, term);
+    pos += multibulkWriteInt(pos, end - pos, vote);
+    len = pos - buf;
 
     safesnprintf(tmp, sizeof(tmp), "%s.tmp", m->filename);
 
@@ -84,7 +87,7 @@ int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
         PANIC("FileOpen(): %s", strerror(errno));
     }
 
-    if (FileWrite(&f, buf, n) != n) {
+    if (FileWrite(&f, buf, len) != len) {
         PANIC("FileWrite(): %s", strerror(errno));
     }
 

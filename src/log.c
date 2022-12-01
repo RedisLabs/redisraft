@@ -128,20 +128,23 @@ static int readHeader(Log *log)
 static int writeEntry(Log *log, raft_entry_t *ety)
 {
     int rc;
-    size_t n = 0;
     char buf[1024];
+    ssize_t len;
+    char *pos = buf;
+    char *end = buf + sizeof(buf);
 
     size_t offset = FileSize(&log->file);
     size_t idxoffset = FileSize(&log->idxfile);
 
-    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', ENTRY_ELEM_COUNT);
-    n += multibulkWriteStr(buf + n, sizeof(buf) - n, ENTRY_STR);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->term);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->id);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, ety->type);
-    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '$', (int) ety->data_len);
+    pos += multibulkWriteLen(pos, end - pos, '*', ENTRY_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, ENTRY_STR);
+    pos += multibulkWriteLong(pos, end - pos, ety->term);
+    pos += multibulkWriteLong(pos, end - pos, ety->id);
+    pos += multibulkWriteLong(pos, end - pos, ety->type);
+    pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
+    len = pos - buf;
 
-    if (FileWrite(&log->file, buf, n) != (ssize_t) n ||
+    if (FileWrite(&log->file, buf, len) != len ||
         FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
         FileWrite(&log->file, "\r\n", 2) != 2) {
         goto error;
@@ -164,19 +167,22 @@ error:
 
 static int writeHeader(Log *log)
 {
-    ssize_t n = 0;
     char buf[1024];
+    ssize_t len;
+    char *pos = buf;
+    char *end = buf + sizeof(buf);
 
-    n += multibulkWriteLen(buf + n, sizeof(buf) - n, '*', RAFTLOG_ELEM_COUNT);
-    n += multibulkWriteStr(buf + n, sizeof(buf) - n, RAFTLOG_STR);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, RAFTLOG_VERSION);
-    n += multibulkWriteStr(buf + n, sizeof(buf) - n, log->dbid);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->node_id);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->snapshot_last_term);
-    n += multibulkWriteLong(buf + n, sizeof(buf) - n, log->snapshot_last_idx);
+    pos += multibulkWriteLen(pos, end - pos, '*', RAFTLOG_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, RAFTLOG_STR);
+    pos += multibulkWriteLong(pos, end - pos, RAFTLOG_VERSION);
+    pos += multibulkWriteStr(pos, end - pos, log->dbid);
+    pos += multibulkWriteLong(pos, end - pos, log->node_id);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_term);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_idx);
+    len = pos - buf;
 
     if (truncateFiles(log, 0, 0) != RR_OK ||
-        FileWrite(&log->file, buf, n) != n ||
+        FileWrite(&log->file, buf, len) != len ||
         LogSync(log, true) != RR_OK) {
 
         /* Try to delete files just in case there was a partial write. */
