@@ -1857,10 +1857,8 @@ void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         node_count++;
         RedisModule_ReplyWithArray(ctx, 2);
 
-        char node_id[RAFT_SHARDGROUP_NODEID_LEN * 2];
-        raft_node_id_t id = raft_node_get_id(raft_node);
-
-        snprintf(node_id, sizeof(node_id), "%s%08x", rr->meta.dbid, id);
+        char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
+        raftNodeToString(node_id, rr->meta.dbid, raft_node);
         RedisModule_ReplyWithStringBuffer(ctx, node_id, strlen(node_id));
 
         char addrstr[512];
