@@ -49,7 +49,7 @@ void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
 
     RedisModule_Assert(strlen(dbid) == RAFT_DBID_LEN);
     memcpy(m->dbid, dbid, RAFT_DBID_LEN);
-    m->dbid[RAFT_DBID_LEN + 1] = '\0';
+    m->dbid[RAFT_DBID_LEN] = '\0';
 
     m->node_id = node_id;
 }
