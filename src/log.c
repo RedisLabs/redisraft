@@ -428,31 +428,31 @@ raft_index_t LogCount(Log *log)
  * 2. All entries
  * 3. Current term and vote
  */
-long long int LogRewrite(RedisRaftCtx *rr, const char *filename,
-                         raft_index_t last_idx, raft_term_t last_term)
+Log * LogRewrite(RedisRaftCtx *rr, const char *filename,
+                 raft_index_t last_idx, raft_term_t last_term,
+		 unsigned long *num_entries)
 {
-    long long int num_entries = 0;
+    *num_entries = 0;
 
     Log *log = LogCreate(filename, rr->snapshot_info.dbid, last_term,
                          last_idx, rr->config.id);
 
     for (raft_index_t i = last_idx + 1; i <= LogCurrentIdx(rr->log); i++) {
-        num_entries++;
+        (*num_entries)++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
         if (LogAppend(log, ety) != RR_OK) {
             LogFree(log);
-            return -1;
+            return NULL;
         }
         raft_entry_release(ety);
     }
 
     if (LogSync(log, true) != RR_OK) {
         LogFree(log);
-        return -1;
+        return NULL;
     }
 
-    LogFree(log);
-    return num_entries;
+    return log;
 }
 
 void LogArchiveFiles(Log *log)

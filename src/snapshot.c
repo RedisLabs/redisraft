@@ -271,13 +271,13 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     /* Rewrite any additional log entries beyond the snapshot to a new
      * log file.
      */
-    num_log_entries = LogRewrite(rr, temp_log_filename,
-                                 rr->curr_snapshot_last_idx,
-                                 rr->curr_snapshot_last_term);
+    new_log = LogRewrite(rr, temp_log_filename,
+                         rr->curr_snapshot_last_idx,
+                         rr->curr_snapshot_last_term,
+			 &num_log_entries);
 
-    new_log = LogOpen(temp_log_filename, true);
     if (!new_log) {
-        LOG_WARNING("Failed to open log after rewrite: %s", strerror(errno));
+        LOG_WARNING("Failed to rewrite log");
         cancelSnapshot(rr, sr);
         return -1;
     }
