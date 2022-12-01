@@ -27,18 +27,26 @@ static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
 
+static ssize_t generateHeader(Log *log, char *buf, size_t buf_len)
+{
+    size_t off = 0;
+
+    off += writeLength(buf + off, buf_len - off, '*', RAFTLOG_ELEM_COUNT);
+    off += writeString(buf + off, buf_len - off, RAFTLOG_STR);
+    off += writeLong(buf + off, buf_len - off, RAFTLOG_VERSION);
+    off += writeString(buf + off, buf_len - off, log->dbid);
+    off += writeLong(buf + off, buf_len - off, log->node_id);
+    off += writeLong(buf + off, buf_len - off, log->snapshot_last_term);
+    off += writeLong(buf + off, buf_len - off, log->snapshot_last_idx);
+ 
+    return off;
+ }
+
 static int writeHeader(Log *log)
 {
-    ssize_t off = 0;
     char buf[1024];
 
-    off += writeLength(buf + off, sizeof(buf) - off, '*', RAFTLOG_ELEM_COUNT);
-    off += writeString(buf + off, sizeof(buf) - off, RAFTLOG_STR);
-    off += writeLong(buf + off, sizeof(buf) - off, RAFTLOG_VERSION);
-    off += writeString(buf + off, sizeof(buf) - off, log->dbid);
-    off += writeLong(buf + off, sizeof(buf) - off, log->node_id);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_term);
-    off += writeLong(buf + off, sizeof(buf) - off, log->snapshot_last_idx);
+    ssize_t off = generateHeader(log, buf, sizeof(buf));
 
     if (truncateFiles(log, 0, 0) != RR_OK ||
         FileWrite(&log->file, buf, off) != off ||
