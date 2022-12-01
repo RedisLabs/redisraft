@@ -190,7 +190,7 @@ unsigned int keyHashSlot(const char *key, size_t keylen)
 
     /* No '{' ? Hash the whole key. This is the base case. */
     if (s == keylen) {
-        return crc16_ccitt(key, keylen) & 0x3FFF;
+        return crc16_ccitt(0, key, keylen) & 0x3FFF;
     }
 
     /* '{' found? Check if we have the corresponding '}'. */
@@ -202,12 +202,12 @@ unsigned int keyHashSlot(const char *key, size_t keylen)
 
     /* No '}' or nothing between {} ? Hash the whole key. */
     if (e == keylen || e == s + 1) {
-        return crc16_ccitt(key, keylen) & 0x3FFF;
+        return crc16_ccitt(0, key, keylen) & 0x3FFF;
     }
 
     /* If we are here there is both a { and a } on its right. Hash
      * what is in the middle between { and }. */
-    return crc16_ccitt(key + s + 1, e - s - 1) & 0x3FFF;
+    return crc16_ccitt(0, key + s + 1, e - s - 1) & 0x3FFF;
 }
 
 unsigned int keyHashSlotRedisString(RedisModuleString *str)
