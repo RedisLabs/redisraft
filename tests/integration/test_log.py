@@ -258,3 +258,31 @@ def test_log_partial_entry(cluster):
     # There will be 9 valid entries + 1 NOOP entry = 10
     assert cluster.node(1).info()['raft_log_entries'] == 10
     assert cluster.execute('get', 'x') == ('b' * 15000).encode('utf-8')
+
+
+def test_log_corrupt_entry(cluster):
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+
+    assert cluster.node(1).info()['raft_log_entries'] == 5
+    cluster.node(1).kill()
+
+    filename = cluster.node(1).raftlog
+    os.open(filename, os.O_RDWR)
+
+    # ----------------------------------------------------
+    # modify CRC32 for last entry
+    file = open(filename, "r+")
+    file.seek(os.path.getsize(filename) - 4)
+    file.write("12")
+    file.close()
+
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+
+    # There will be 4 valid entries + 1 NOOP entry = 5
+    assert cluster.node(1).info()['raft_log_entries'] == 5
+    assert cluster.execute('get', 'x') == b'2'
