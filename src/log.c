@@ -319,6 +319,28 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term)
     return writeHeader(log);
 }
 
+static bool readCRCandValidateEntry(File *logFile, raft_entry_t *e, long current_crc, long *calc_crc)
+{
+    size_t off = 0;
+    char buf[1024];
+    long read_crc;
+
+    /* read in crc at end of entry */
+    readLong(logFile, &read_crc);
+
+    /* generate the entry as it should be on disk, and calculate crc */
+    off = generateEntryHeader(e, buf, sizeof(buf));
+    *calc_crc = crc16_ccitt(current_crc, buf, off);
+    *calc_crc = crc16_ccitt(*calc_crc, e->data, e->data_len);
+    *calc_crc = crc16_ccitt(*calc_crc, "\r\n", 2);
+
+    if (*calc_crc != read_crc) {
+        return true;
+    }
+
+    return false;
+}
+
 int LogLoadEntries(Log *log)
 {
     log->num_entries = 0;
@@ -331,7 +353,7 @@ int LogLoadEntries(Log *log)
     /* calculate crc to header end */
     char buf[1024];
     ssize_t off = generateHeader(log, buf, sizeof(buf));
-    calc_crc = crc16_ccitt(0, buf, off);
+    calc_crc = crc16_ccitt(calc_crc, buf, off);
     off += writeLong(buf + off, sizeof(buf) - off, calc_crc);
     log->current_crc = crc16_ccitt(0, buf, off);
 
@@ -352,18 +374,10 @@ int LogLoadEntries(Log *log)
 
             return RR_OK;
         }
-        /* validate crc for entry by reading and rebuilding it */
-        long read_crc;
-        readLong(&log->file, &read_crc);
 
-        size_t off = 0;
-        char buf[1024];
-        off = generateEntryHeader(e, buf, sizeof(buf));
-        calc_crc = crc16_ccitt(log->current_crc, buf, off);
-        calc_crc = crc16_ccitt(calc_crc, e->data, e->data_len);
-        calc_crc = crc16_ccitt(calc_crc, "\r\n", 2);
+        bool error = readCRCandValidateEntry(&log->file, e, log->current_crc, &calc_crc);
         raft_entry_release(e);
-        if (calc_crc != read_crc) {
+        if (error) {
             LOG_WARNING("Entry failed crc32 check, truncating log to "
                         "previous entry: %ld",
                         log->index);
@@ -371,6 +385,7 @@ int LogLoadEntries(Log *log)
             RedisModule_Assert(rc == RR_OK);
             return RR_OK;
         }
+
         /* append crc to accumulating crc value */
         off = writeLong(buf, sizeof(buf), calc_crc);
         log->current_crc = crc16_ccitt(calc_crc, buf, off);
