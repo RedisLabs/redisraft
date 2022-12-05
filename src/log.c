@@ -477,7 +477,7 @@ int LogDelete(Log *log, raft_index_t from_idx)
         }
 
         /* update running crc value */
-        /* if, we truncated entire log file, its the crc value of the header
+        /* if we truncated the entire log file, it's the crc value of the header
          * otherwise, it's the crc from the last entry
          */
         if (from_idx - 1 == log->snapshot_last_idx) { /* header */
