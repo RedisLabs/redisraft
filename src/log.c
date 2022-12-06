@@ -145,14 +145,19 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     size_t offset = FileSize(&log->file);
     size_t idxoffset = FileSize(&log->idxfile);
 
+    /* header */
     off = generateEntryHeader(ety, buf, sizeof(buf));
+    if (FileWrite(&log->file, buf, off) != (ssize_t) off) {
+        goto error;
+    }
 
-    if (FileWrite(&log->file, buf, off) != (ssize_t) off ||
-        FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
+    /* data */
+    if (FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
         FileWrite(&log->file, "\r\n", 2) != 2) {
         goto error;
     }
 
+    /* crc */
     /* accumulating crc, so start with current crc */
     long crc = crc16_ccitt(log->current_crc, buf, off);
     crc = crc16_ccitt(crc, ety->data, ety->data_len);
@@ -186,7 +191,7 @@ error:
     return RR_ERROR;
 }
 
-static raft_entry_t *readEntry(Log *log)
+static raft_entry_t *readEntry(Log *log, long *read_crc)
 {
     char str[64] = {0};
     int num_elements;
@@ -205,6 +210,7 @@ static raft_entry_t *readEntry(Log *log)
     raft_entry_id_t id;
     int type, length;
 
+    /* header */
     if (!readLong(&log->file, &term) ||
         !readInt(&log->file, &id) ||
         !readInt(&log->file, &type) ||
@@ -215,10 +221,20 @@ static raft_entry_t *readEntry(Log *log)
     char crlf[2];
     raft_entry_t *e = raft_entry_new(length);
 
+    /* data */
     if (FileRead(&log->file, e->data, length) != length ||
         FileRead(&log->file, crlf, 2) != 2) {
         raft_entry_release(e);
         return NULL;
+    }
+
+    /* crc */
+    long crc;
+    if (!readLong(&log->file, &crc)) {
+        return NULL;
+    }
+    if (read_crc != NULL) {
+        *read_crc = crc;
     }
 
     e->term = term;
@@ -319,14 +335,10 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term)
     return writeHeader(log);
 }
 
-static bool readCRCandValidateEntry(File *logFile, raft_entry_t *e, long current_crc, long *calc_crc)
+static bool validateEntryCRC(raft_entry_t *e, long read_crc, long current_crc, long *calc_crc)
 {
     size_t off = 0;
     char buf[1024];
-    long read_crc;
-
-    /* read in crc at end of entry */
-    readLong(logFile, &read_crc);
 
     /* generate the entry as it should be on disk, and calculate crc */
     off = generateEntryHeader(e, buf, sizeof(buf));
@@ -359,8 +371,9 @@ int LogLoadEntries(Log *log)
 
     /* Read Entries */
     while (true) {
+        long read_crc;
         uint64_t offset = (uint64_t) FileGetReadOffset(&log->file);
-        raft_entry_t *e = readEntry(log);
+        raft_entry_t *e = readEntry(log, &read_crc);
         if (!e) {
             size_t bytes = FileSize(&log->file) - offset;
             if (bytes > 0) {
@@ -375,7 +388,7 @@ int LogLoadEntries(Log *log)
             return RR_OK;
         }
 
-        bool error = readCRCandValidateEntry(&log->file, e, log->current_crc, &calc_crc);
+        bool error = validateEntryCRC(e, read_crc, log->current_crc, &calc_crc);
         raft_entry_release(e);
         if (error) {
             LOG_WARNING("Entry failed crc32 check, truncating log to "
@@ -465,7 +478,7 @@ raft_entry_t *LogGet(Log *log, raft_index_t idx)
         return NULL;
     }
 
-    raft_entry_t *ety = readEntry(log);
+    raft_entry_t *ety = readEntry(log, NULL);
     RedisModule_Assert(ety != NULL);
 
     return ety;
@@ -505,7 +518,7 @@ int LogDelete(Log *log, raft_index_t from_idx)
         } else { /* log entry */
             /* to regenerate running crc value, need to reread last entry */
             seekEntry(log, from_idx - 1);
-            raft_entry_t *e = readEntry(log);
+            raft_entry_t *e = readEntry(log, NULL);
             raft_entry_release(e);
 
             /* running crc to the end of this entry */
