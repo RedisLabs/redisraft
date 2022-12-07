@@ -182,7 +182,6 @@ add_library(redisraft MODULE
         src/fsync.c
         src/join.c
         src/log.c
-        src/log_utils.c
         src/metadata.c
         src/migrate.c
         src/multi.c
@@ -241,7 +240,6 @@ add_executable(main
         src/fsync.c
         src/join.c
         src/log.c
-        src/log_utils.c
         src/metadata.c
         src/migrate.c
         src/multi.c

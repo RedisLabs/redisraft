@@ -8,7 +8,6 @@
 
 #include "entrycache.h"
 #include "file.h"
-#include "log_utils.h"
 
 #include "common/crc16.h"
 
