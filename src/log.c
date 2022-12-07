@@ -62,8 +62,7 @@ static int writeHeader(Log *log)
         return RR_ERROR;
     }
 
-    /* update running crc to be the crc of entire header, including crc */
-    log->current_crc = crc16_ccitt(0, buf, off);
+    log->current_crc = crc;
     return RR_OK;
 }
 
@@ -167,9 +166,6 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     if (FileWrite(&log->file, buf, len) != len) {
         goto error;
     }
-
-    /* accumulating crc, so add the crc value we just wrote as well */
-    crc = crc16_ccitt(crc, buf, len);
 
     ssize_t ret = FileWrite(&log->idxfile, &offset, sizeof(offset));
     if (ret != sizeof(offset)) {
@@ -373,12 +369,10 @@ int LogLoadEntries(Log *log)
     }
 
     /* update running crc */
-    len = writeLong(buf, sizeof(buf), calc_crc);
-    log->current_crc = crc16_ccitt(calc_crc, buf, len);
+    log->current_crc = calc_crc;
 
     /* Read Entries */
     while (true) {
-        long read_crc;
         uint64_t offset = (uint64_t) FileGetReadOffset(&log->file);
         raft_entry_t *e = readEntry(log, &read_crc);
         if (!e) {
@@ -406,9 +400,7 @@ int LogLoadEntries(Log *log)
             return RR_OK;
         }
 
-        /* append crc to accumulating crc value */
-        len = writeLong(buf, sizeof(buf), calc_crc);
-        log->current_crc = crc16_ccitt(calc_crc, buf, len);
+        log->current_crc = calc_crc;
 
         log->index++;
         log->num_entries++;
@@ -426,6 +418,7 @@ size_t LogFileSize(Log *log)
 int LogSync(Log *log, bool sync)
 {
     uint64_t begin = RedisModule_MonotonicMicroseconds();
+
 
     if (FileFlush(&log->file) != RR_OK) {
         return RR_ERROR;
@@ -521,8 +514,6 @@ int LogDelete(Log *log, raft_index_t from_idx)
             /* calculate running crc value by just regenerating header buf */
             char buf[1024];
             ssize_t len = generateHeader(log, buf, sizeof(buf));
-            long crc = crc16_ccitt(0, buf, len);
-            len += writeLong(buf + len, sizeof(buf) - len, crc);
             log->current_crc = crc16_ccitt(0, buf, len);
         } else { /* log entry */
             /* to regenerate running crc value, need to reread last entry */
@@ -531,10 +522,7 @@ int LogDelete(Log *log, raft_index_t from_idx)
             raft_entry_t *e = readEntry(log, &read_crc);
             raft_entry_release(e);
 
-            /* calculate running crc with the crc value */
-            char buf[1024];
-            ssize_t len = writeLong(buf, sizeof(buf), read_crc);
-            log->current_crc = crc16_ccitt(read_crc, buf, len);
+            log->current_crc = read_crc;
         }
     }
 
