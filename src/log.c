@@ -28,32 +28,47 @@ static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
 
+static int truncateFiles(Log *log, size_t offset, size_t idxoffset)
+{
+    if (FileTruncate(&log->file, offset) != RR_OK ||
+        FileTruncate(&log->idxfile, idxoffset) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
 static ssize_t generateHeader(Log *log, char *buf, size_t buf_len)
 {
-    size_t off = 0;
+    char *pos = buf;
+    char *end = buf + buf_len;
 
-    off += writeLength(buf + off, buf_len - off, '*', RAFTLOG_ELEM_COUNT);
-    off += writeString(buf + off, buf_len - off, RAFTLOG_STR);
-    off += writeLong(buf + off, buf_len - off, RAFTLOG_VERSION);
-    off += writeString(buf + off, buf_len - off, log->dbid);
-    off += writeLong(buf + off, buf_len - off, log->node_id);
-    off += writeLong(buf + off, buf_len - off, log->snapshot_last_term);
-    off += writeLong(buf + off, buf_len - off, log->snapshot_last_idx);
+    pos += multibulkWriteLen(pos, end - pos, '*', RAFTLOG_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, RAFTLOG_STR);
+    pos += multibulkWriteLong(pos, end - pos, RAFTLOG_VERSION);
+    pos += multibulkWriteStr(pos, end - pos, log->dbid);
+    pos += multibulkWriteLong(pos, end - pos, log->node_id);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_term);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_idx);
 
-    return off;
+    return pos - buf;
 }
 
 static int writeHeader(Log *log)
 {
     char buf[1024];
+    char *pos;
+    char *end = buf + sizeof(buf);
+    ssize_t len = generateHeader(log, buf, sizeof(buf));
+    pos = buf + len;
 
-    ssize_t off = generateHeader(log, buf, sizeof(buf));
     /* add crc to header */
-    long crc = crc16_ccitt(0, buf, off);
-    off += writeLong(buf + off, sizeof(buf) - off, crc);
+    long crc = crc16_ccitt(0, buf, len);
+    pos += multibulkWriteLong(pos, end - pos, crc);
+    len = pos - buf;
 
     if (truncateFiles(log, 0, 0) != RR_OK ||
-        FileWrite(&log->file, buf, off) != off ||
+        FileWrite(&log->file, buf, len) != len ||
         LogSync(log, true) != RR_OK) {
 
         /* Try to delete files just in case there was a partial write. */
@@ -161,7 +176,7 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     crc = crc16_ccitt(crc, "\r\n", 2);
 
     /* write crc as added element */
-    len = writeLong(buf, sizeof(buf), crc);
+    len = multibulkWriteLong(buf, sizeof(buf), crc);
     if (FileWrite(&log->file, buf, len) != len) {
         goto error;
     }
