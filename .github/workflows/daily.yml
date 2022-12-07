@@ -40,7 +40,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.4-standalone.jar --elle-threads=3 -v"
+        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.5-standalone.jar --elle-threads=3 -v"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -55,6 +55,7 @@ jobs:
       with:
         repository: 'ligurio/elle-cli'
         path: 'elle-cli'
+        ref: '0.1.5'
     - name: Build elle-cli
       run: cd elle-cli && lein deps && lein uberjar
     - name: Setup Python for testing

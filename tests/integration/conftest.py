@@ -46,7 +46,7 @@ def pytest_addoption(parser):
         "--runslow", action="store_true", default=False, help="run slow tests")
     parser.addoption(
         '--elle-cli',
-        default='../elle-cli/target/elle-cli-0.1.4-standalone.jar',
+        default='../elle-cli/target/elle-cli-0.1.5-standalone.jar',
         help='location for elle-cli jar file')
     parser.addoption(
         '--elle-threads', default=0, help='number of elle worker threads')
