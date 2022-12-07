@@ -168,18 +168,22 @@ class RaftLog(object):
     def __init__(self, filename):
         self.logfile = open(filename, 'rb')
         self.entries = []
+        self.indexes = []
 
     def reset(self):
         self.entries = []
+        self.indexes = []
         self.logfile.seek(0, os.SEEK_SET)
 
     def read(self):
         while True:
+            offset = self.logfile.tell()
             try:
                 entry = RawEntry.from_file(self.logfile)
             except EOFError:
                 break
             self.entries.append(entry)
+            self.indexes.append(offset)
         self.dump()
 
     def header(self):

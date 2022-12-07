@@ -263,12 +263,19 @@ def test_log_partial_entry(cluster):
 def test_log_corrupt_entry(cluster):
     cluster.create(1)
 
-    cluster.execute('set', 'x', 1)
-    cluster.execute('set', 'x', 2)
-    cluster.execute('set', 'x', 3)
+    cluster.execute('set', 'x', 1) #3
+    cluster.execute('set', 'x', 2) #4
+    cluster.execute('set', 'x', 3) #5
+    cluster.execute('set', 'x', 4) #6
+    cluster.execute('set', 'x', 5) #7
+    cluster.execute('set', 'x', 6) #8
 
-    assert cluster.node(1).info()['raft_log_entries'] == 5
+    assert cluster.node(1).info()['raft_log_entries'] == 8
     cluster.node(1).kill()
+
+    log = RaftLog(cluster.node(1).raftlog)
+    log.read()
+    assert log.entry_count() == 8
 
     filename = cluster.node(1).raftlog
     os.open(filename, os.O_RDWR)
@@ -283,6 +290,25 @@ def test_log_corrupt_entry(cluster):
     cluster.node(1).start()
     cluster.node(1).wait_for_election()
 
+    # There will be 7 valid entries + 1 NOOP entry = 5
+    assert cluster.node(1).info()['raft_log_entries'] == 8
+    assert cluster.execute('get', 'x') == b'5'
+
+    cluster.node(1).kill()
+
+    filename = cluster.node(1).raftlog
+    os.open(filename, os.O_RDWR)
+
+    # ----------------------------------------------------
+    # modify CRC32 for second entry
+    file = open(filename, "r+")
+    file.seek(log.indexes[5] - 4)
+    file.write("12")
+    file.close()
+
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+
     # There will be 4 valid entries + 1 NOOP entry = 5
-    assert cluster.node(1).info()['raft_log_entries'] == 5
-    assert cluster.execute('get', 'x') == b'2'
+    assert cluster.node(1).info()['raft_log_entries'] == 4
+    assert cluster.execute('get', 'x') == b'1'
