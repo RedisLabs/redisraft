@@ -419,7 +419,6 @@ int LogSync(Log *log, bool sync)
 {
     uint64_t begin = RedisModule_MonotonicMicroseconds();
 
-
     if (FileFlush(&log->file) != RR_OK) {
         return RR_ERROR;
     }
