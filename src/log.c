@@ -78,10 +78,10 @@ static int readHeader(Log *log, long *read_crc)
         return RR_ERROR;
     }
 
-    if (!readLength(&log->file, '*', &num_elements) ||
-        !readItem(&log->file, str, sizeof(str)) ||
-        !readLong(&log->file, &version) ||
-        !readItem(&log->file, dbid, sizeof(dbid))) {
+    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
+        !multibulkReadStr(&log->file, str, sizeof(str)) ||
+        !multibulkReadLong(&log->file, &version) ||
+        !multibulkReadStr(&log->file, dbid, sizeof(dbid))) {
         return RR_ERROR;
     }
 
@@ -98,10 +98,10 @@ static int readHeader(Log *log, long *read_crc)
     raft_index_t snapshot_last_index;
     long crc;
 
-    if (!readInt(&log->file, &node_id) ||
-        !readLong(&log->file, &snapshot_last_term) ||
-        !readLong(&log->file, &snapshot_last_index) ||
-        !readLong(&log->file, &crc)) {
+    if (!multibulkReadInt(&log->file, &node_id) ||
+        !multibulkReadLong(&log->file, &snapshot_last_term) ||
+        !multibulkReadLong(&log->file, &snapshot_last_index) ||
+        !multibulkReadLong(&log->file, &crc)) {
         return RR_ERROR;
     }
 
@@ -122,23 +122,24 @@ static int readHeader(Log *log, long *read_crc)
 
 static size_t generateEntryHeader(raft_entry_t *ety, char *buf, size_t buf_len)
 {
-    size_t off = 0;
+    char *pos = buf;
+    char *end = buf + buf_len;
 
-    off += writeLength(buf + off, buf_len - off, '*', ENTRY_ELEM_COUNT);
-    off += writeString(buf + off, buf_len - off, ENTRY_STR);
-    off += writeLong(buf + off, buf_len - off, ety->term);
-    off += writeLong(buf + off, buf_len - off, ety->id);
-    off += writeLong(buf + off, buf_len - off, ety->type);
-    off += writeLength(buf + off, buf_len - off, '$', ety->data_len);
+    pos += multibulkWriteLen(pos, end - pos, '*', ENTRY_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, ENTRY_STR);
+    pos += multibulkWriteLong(pos, end - pos, ety->term);
+    pos += multibulkWriteLong(pos, end - pos, ety->id);
+    pos += multibulkWriteLong(pos, end - pos, ety->type);
+    pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
 
-    return off;
+    return pos - buf;
 }
 
 static int writeEntry(Log *log, raft_entry_t *ety)
 {
     int rc;
-    ssize_t len;
     char buf[1024];
+    ssize_t len;
 
     size_t offset = FileSize(&log->file);
     size_t idxoffset = FileSize(&log->idxfile);
@@ -180,7 +181,7 @@ static int writeEntry(Log *log, raft_entry_t *ety)
 
     return RR_OK;
 
-error:
+    error:
     /* Try to revert file changes. */
     rc = truncateFiles(log, offset, idxoffset);
     RedisModule_Assert(rc == RR_OK);
@@ -193,8 +194,8 @@ static raft_entry_t *readEntry(Log *log, long *read_crc)
     char str[64] = {0};
     int num_elements;
 
-    if (!readLength(&log->file, '*', &num_elements) ||
-        !readItem(&log->file, str, sizeof(str))) {
+    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
+        !multibulkReadStr(&log->file, str, sizeof(str))) {
         return NULL;
     }
 
@@ -208,10 +209,10 @@ static raft_entry_t *readEntry(Log *log, long *read_crc)
     int type, length;
 
     /* header */
-    if (!readLong(&log->file, &term) ||
-        !readInt(&log->file, &id) ||
-        !readInt(&log->file, &type) ||
-        !readLength(&log->file, '$', &length)) {
+    if (!multibulkReadLong(&log->file, &term) ||
+        !multibulkReadInt(&log->file, &id) ||
+        !multibulkReadInt(&log->file, &type) ||
+        !multibulkReadLen(&log->file, '$', &length)) {
         return NULL;
     }
 
@@ -226,7 +227,7 @@ static raft_entry_t *readEntry(Log *log, long *read_crc)
 
     /* crc */
     long crc;
-    if (!readLong(&log->file, &crc)) {
+    if (!multibulkReadLong(&log->file, &crc)) {
         goto error;
     }
     if (read_crc != NULL) {
@@ -242,7 +243,6 @@ static raft_entry_t *readEntry(Log *log, long *read_crc)
 error:
     raft_entry_release(e);
     return NULL;
-
 }
 
 static Log *prepareLog(const char *filename, bool keep_index)

@@ -1062,6 +1062,9 @@ static void clusterInit(const char *cluster_id)
         rr->config.id = makeRandomNodeId(rr);
     }
 
+    MetadataSetClusterConfig(&rr->meta, rr->config.log_filename,
+                             rr->snapshot_info.dbid, rr->config.id);
+
     rr->log = LogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
                         1, 0, rr->config.id);
     if (!rr->log) {
@@ -1091,6 +1094,9 @@ static void clusterJoinCompleted(RaftReq *req)
     if (!rr->log) {
         PANIC("Failed to initialize Raft log");
     }
+
+    MetadataSetClusterConfig(&rr->meta, rr->config.log_filename,
+                             rr->snapshot_info.dbid, rr->config.id);
 
     AddBasicLocalShardGroup(rr);
     RaftLibraryInit(rr, false);
@@ -1281,11 +1287,6 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  * Reply:
  *    +OK
  *
- * RAFT.DEBUG SENDSNAPSHOT <node_id>
- *     Send node snapshot
- * Reply:
- *     +OK
- *
  * RAFT.DEBUG USED_NODE_IDS
  *     return an array of used node ids
  * Reply:
@@ -1406,32 +1407,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         RedisModule_Free(cfg);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else if (!strncasecmp(cmd, "sendsnapshot", cmdlen)) {
-        if (argc != 3) {
-            RedisModule_WrongArity(ctx);
-            return REDISMODULE_OK;
-        }
-
-        long long node_id;
-        if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid node id");
-            return REDISMODULE_OK;
-        }
-
-        raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) node_id);
-        if (!node) {
-            RedisModule_ReplyWithError(ctx, "ERR node does not exist");
-            return REDISMODULE_OK;
-        }
-
-        if (node_id == raft_get_nodeid(rr->raft)) {
-            RedisModule_ReplyWithError(ctx, "ERR cannot send snapshot itself");
-            return REDISMODULE_OK;
-        }
-
-        raft_node_set_next_idx(node, raft_get_snapshot_last_idx(rr->raft));
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-
     } else if (!strncasecmp(cmd, "used_node_ids", cmdlen)) {
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -1975,6 +1950,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
      * Nothing will happen until users will initiate a RAFT.CLUSTER INIT
      * or RAFT.CLUSTER JOIN command.
      */
+    MetadataInit(&rr->meta);
+
     int ret = MetadataRead(&rr->meta, rr->config.log_filename);
     if (ret == RR_OK) {
         rr->log = LogOpen(rr->config.log_filename, false);

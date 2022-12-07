@@ -662,7 +662,7 @@ void ShardingInfoRDBLoad(RedisModuleIO *rdb)
         RedisModule_Assert(sg != NULL);
 
         /* set local flag */
-        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+        if (!strncmp(sg->id, rr->meta.dbid, RAFT_DBID_LEN)) {
             sg->local = true;
         }
 
@@ -828,16 +828,16 @@ RRStatus ShardingInfoAddShardGroup(RedisRaftCtx *rr, ShardGroup *sg)
             si->is_sharding = true;
         } else {
             size_t key_len;
-            ShardGroup *sg;
+            ShardGroup *s;
 
             RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(si->shard_group_map, "^", NULL, 0);
-            RedisModule_DictNextC(iter, &key_len, (void **) &sg);
+            RedisModule_DictNextC(iter, &key_len, (void **) &s);
             RedisModule_DictIteratorStop(iter);
 
-            if (!sg->local || sg->slot_ranges_num != 1 ||
-                sg->slot_ranges[0].start_slot != REDIS_RAFT_HASH_MIN_SLOT ||
-                sg->slot_ranges[0].end_slot != REDIS_RAFT_HASH_MAX_SLOT ||
-                sg->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
+            if (!s->local || s->slot_ranges_num != 1 ||
+                s->slot_ranges[0].start_slot != REDIS_RAFT_HASH_MIN_SLOT ||
+                s->slot_ranges[0].end_slot != REDIS_RAFT_HASH_MAX_SLOT ||
+                s->slot_ranges[0].type != SLOTRANGE_TYPE_STABLE) {
                 si->is_sharding = true;
             }
         }
@@ -1200,7 +1200,7 @@ static int addClusterSlotNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx, raft_n
     RedisModule_ReplyWithCString(ctx, addr->host);
     RedisModule_ReplyWithLongLong(ctx, addr->port);
 
-    raftNodeToString(node_id, rr->log->dbid, raft_node);
+    raftNodeToString(node_id, rr->meta.dbid, raft_node);
     RedisModule_ReplyWithCString(ctx, node_id);
 
     return 1;
@@ -1358,11 +1358,11 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
     int pong_recv = 0;
 
     char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
-    raftNodeToString(node_id, rr->log->dbid, raft_node);
+    raftNodeToString(node_id, rr->meta.dbid, raft_node);
 
     char master_node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
     if (!leader) {
-        raftNodeIdToString(master_node_id, rr->log->dbid, raft_get_leader_id(rr->raft));
+        raftNodeIdToString(master_node_id, rr->meta.dbid, raft_get_leader_id(rr->raft));
         master = master_node_id;
     }
 
@@ -1580,7 +1580,7 @@ static int addClusterShardsLocalNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx,
     }
 
     char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
-    raftNodeToString(node_id, rr->log->dbid, raft_node);
+    raftNodeToString(node_id, rr->meta.dbid, raft_node);
 
     addClusterShardsNodeReply(rr, ctx, node_id, addr->port, addr->host, role);
 
@@ -1815,7 +1815,7 @@ void ShardGroupLink(RedisRaftCtx *rr,
 
 void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    ShardGroup *sg = GetShardGroupById(rr, rr->log->dbid);
+    ShardGroup *sg = GetShardGroupById(rr, rr->meta.dbid);
 
     /* 2 arrays
      * 1. slot ranges -> each element is a 3 element array start/end/type
@@ -1858,9 +1858,7 @@ void ShardGroupGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         RedisModule_ReplyWithArray(ctx, 2);
 
         char node_id[RAFT_SHARDGROUP_NODEID_LEN + 1];
-        raft_node_id_t id = raft_node_get_id(raft_node);
-
-        snprintf(node_id, sizeof(node_id), "%s%08x", rr->log->dbid, id);
+        raftNodeToString(node_id, rr->meta.dbid, raft_node);
         RedisModule_ReplyWithStringBuffer(ctx, node_id, strlen(node_id));
 
         char addrstr[512];
