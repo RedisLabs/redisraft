@@ -55,6 +55,7 @@ jobs:
       with:
         repository: 'ligurio/elle-cli'
         path: 'elle-cli'
+        ref: '0.1.5'
     - name: Build elle-cli
       run: cd elle-cli && lein deps && lein uberjar
     - name: Setup Python for testing
