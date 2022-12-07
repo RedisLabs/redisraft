@@ -181,7 +181,7 @@ static int writeEntry(Log *log, raft_entry_t *ety)
 
     return RR_OK;
 
-    error:
+error:
     /* Try to revert file changes. */
     rc = truncateFiles(log, offset, idxoffset);
     RedisModule_Assert(rc == RR_OK);
