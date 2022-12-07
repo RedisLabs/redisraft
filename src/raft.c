@@ -43,6 +43,7 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
 {
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
+    MetadataArchiveFile(&rr->meta);
     LogArchiveFiles(rr->log);
 
     if (rr->config.rdb_filename) {
@@ -824,7 +825,7 @@ static int raftPersistMetadata(raft_server_t *raft, void *user_data,
 {
     RedisRaftCtx *rr = user_data;
 
-    int ret = MetadataWrite(&rr->meta, rr->config.log_filename, term, vote);
+    int ret = MetadataWrite(&rr->meta, term, vote);
     if (ret != RR_OK) {
         LOG_WARNING("ERROR: RaftMetaWrite()");
         return RAFT_ERR_SHUTDOWN;
@@ -1141,11 +1142,16 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
         return RR_ERROR;
     }
 
+    if (strcmp(rr->meta.dbid, rr->log->dbid) != 0) {
+        PANIC("Log and metadata have different dbids: [log=%s/metadata=%s]",
+              rr->log->dbid, rr->meta.dbid);
+    }
+
     /* Make sure the log we're going to apply matches the RDB we've loaded */
     if (rr->snapshot_info.loaded) {
-        if (strcmp(rr->snapshot_info.dbid, rr->log->dbid) != 0) {
-            PANIC("Log and snapshot have different dbids: [log=%s/snapshot=%s]",
-                  rr->log->dbid, rr->snapshot_info.dbid);
+        if (strcmp(rr->snapshot_info.dbid, rr->meta.dbid) != 0) {
+            PANIC("Metadata and snapshot have different dbids: [metadata=%s/snapshot=%s]",
+                  rr->meta.dbid, rr->snapshot_info.dbid);
         }
         if (rr->snapshot_info.last_applied_term < rr->log->snapshot_last_term) {
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.",
@@ -1169,7 +1175,7 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
                       rr->snapshot_info.last_applied_term);
     }
 
-    memcpy(rr->snapshot_info.dbid, rr->log->dbid, RAFT_DBID_LEN);
+    memcpy(rr->snapshot_info.dbid, rr->meta.dbid, RAFT_DBID_LEN);
     rr->snapshot_info.dbid[RAFT_DBID_LEN] = '\0';
 
     ret = raft_restore_log(rr->raft);
@@ -1216,16 +1222,21 @@ static void handleLoadingState(RedisRaftCtx *rr)
         LOG_NOTICE("Loading: Redis loading complete, snapshot %s",
                    rr->snapshot_info.loaded ? "LOADED" : "NOT LOADED");
 
-        /* If id is configured, confirm the log matches.  If not, we set it from
-         * the log.
+        /* If id is configured, confirm the log matches. If not, we set it from
+         * the metadata file.
          */
         if (!rr->config.id) {
-            rr->config.id = rr->log->node_id;
-        } else {
-            if (rr->config.id != rr->log->node_id) {
-                PANIC("Raft log node id [%d] does not match configured id [%d]",
-                      rr->log->node_id, rr->config.id);
-            }
+            rr->config.id = rr->meta.node_id;
+        }
+
+        if (rr->config.id != rr->log->node_id) {
+            PANIC("Raft log node id [%d] does not match configured id [%d]",
+                  rr->log->node_id, rr->config.id);
+        }
+
+        if (rr->config.id != rr->meta.node_id) {
+            PANIC("Metadata node id [%d] does not match configured id [%d]",
+                  rr->meta.node_id, rr->config.id);
         }
 
         if (!rr->sharding_info->shard_groups_num) {
@@ -1656,7 +1667,7 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
             return;
         }
 
-        if (!strncmp(sg->id, rr->log->dbid, RAFT_DBID_LEN)) {
+        if (!strncmp(sg->id, rr->meta.dbid, RAFT_DBID_LEN)) {
             sg->local = true;
         }
 

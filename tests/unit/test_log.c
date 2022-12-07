@@ -513,22 +513,33 @@ static void test_meta_persistence(void **state)
 {
     Metadata m;
 
+    MetadataInit(&m);
+    MetadataSetClusterConfig(&m, LOGNAME, DBID, 1002);
+
     assert_int_equal(MetadataRead(&m, LOGNAME), RR_ERROR);
-    assert_int_equal(MetadataWrite(&m, LOGNAME, 0xffffffff, INT32_MAX), RR_OK);
+    assert_int_equal(MetadataWrite(&m, 0xffffffff, INT32_MAX), RR_OK);
     assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
+    assert_string_equal(m.dbid, DBID);
+    assert_int_equal(m.node_id, 1002);
     assert_int_equal(m.term, 0xffffffff);
     assert_int_equal(m.vote, INT32_MAX);
 
-    assert_int_equal(MetadataWrite(&m, LOGNAME, LONG_MAX, (int) -1), RR_OK);
+    assert_int_equal(MetadataWrite(&m, LONG_MAX, (int) -1), RR_OK);
     assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
+    assert_string_equal(m.dbid, DBID);
+    assert_int_equal(m.node_id, 1002);
     assert_int_equal(m.term, LONG_MAX);
     assert_int_equal(m.vote, -1);
 
     /* Test overwrite */
-    assert_int_equal(MetadataWrite(&m, LOGNAME, 5, 5), RR_OK);
-    assert_int_equal(MetadataWrite(&m, LOGNAME, 6, 6), RR_OK);
+    assert_int_equal(MetadataWrite(&m, 5, 5), RR_OK);
+    assert_int_equal(MetadataWrite(&m, 6, 6), RR_OK);
+    assert_string_equal(m.dbid, DBID);
+    assert_int_equal(m.node_id, 1002);
     assert_int_equal(m.term, 6);
     assert_int_equal(m.vote, 6);
+
+    MetadataTerm(&m);
 }
 
 const struct CMUnitTest log_tests[] = {
