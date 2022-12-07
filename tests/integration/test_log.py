@@ -263,12 +263,12 @@ def test_log_partial_entry(cluster):
 def test_log_corrupt_entry(cluster):
     cluster.create(1)
 
-    cluster.execute('set', 'x', 1) #3
-    cluster.execute('set', 'x', 2) #4
-    cluster.execute('set', 'x', 3) #5
-    cluster.execute('set', 'x', 4) #6
-    cluster.execute('set', 'x', 5) #7
-    cluster.execute('set', 'x', 6) #8
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+    cluster.execute('set', 'x', 4)
+    cluster.execute('set', 'x', 5)
+    cluster.execute('set', 'x', 6)
 
     assert cluster.node(1).info()['raft_log_entries'] == 8
     cluster.node(1).kill()
