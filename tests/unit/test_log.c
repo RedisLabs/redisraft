@@ -514,7 +514,7 @@ static void test_meta_persistence(void **state)
     Metadata m;
 
     MetadataInit(&m);
-    MetadataConfigure(&m, LOGNAME, DBID, 1002);
+    MetadataSetClusterConfig(&m, LOGNAME, DBID, 1002);
 
     assert_int_equal(MetadataRead(&m, LOGNAME), RR_ERROR);
     assert_int_equal(MetadataWrite(&m, 0xffffffff, INT32_MAX), RR_OK);

@@ -38,8 +38,8 @@ void MetadataTerm(Metadata *m)
     RedisModule_Free(m->filename);
 }
 
-void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
-                       raft_node_id_t node_id)
+void MetadataSetClusterConfig(Metadata *m, const char *filename, char *dbid,
+                              raft_node_id_t node_id)
 {
     char buf[PATH_MAX];
 
@@ -144,13 +144,9 @@ int MetadataRead(Metadata *m, const char *filename)
     RedisModule_Assert(version == METADATA_VERSION);
     RedisModule_Assert(strlen(dbid) == RAFT_DBID_LEN);
 
-    strcpy(m->dbid, dbid);
-    m->node_id = node_id;
+    MetadataSetClusterConfig(m, filename, dbid, node_id);
     m->term = term;
     m->vote = vote;
-
-    RedisModule_Free(m->filename);
-    m->filename = RedisModule_Strdup(buf);
 
     return RR_OK;
 }

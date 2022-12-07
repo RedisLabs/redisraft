@@ -1062,8 +1062,8 @@ static void clusterInit(const char *cluster_id)
         rr->config.id = makeRandomNodeId(rr);
     }
 
-    MetadataConfigure(&rr->meta, rr->config.log_filename,
-                      rr->snapshot_info.dbid, rr->config.id);
+    MetadataSetClusterConfig(&rr->meta, rr->config.log_filename,
+                             rr->snapshot_info.dbid, rr->config.id);
 
     rr->log = LogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
                         1, 0, rr->config.id);
@@ -1095,8 +1095,8 @@ static void clusterJoinCompleted(RaftReq *req)
         PANIC("Failed to initialize Raft log");
     }
 
-    MetadataConfigure(&rr->meta, rr->config.log_filename,
-                      rr->snapshot_info.dbid, rr->config.id);
+    MetadataSetClusterConfig(&rr->meta, rr->config.log_filename,
+                             rr->snapshot_info.dbid, rr->config.id);
 
     AddBasicLocalShardGroup(rr);
     RaftLibraryInit(rr, false);

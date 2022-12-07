@@ -21,8 +21,8 @@ typedef struct Metadata {
 
 void MetadataInit(Metadata *m);
 void MetadataTerm(Metadata *m);
-void MetadataConfigure(Metadata *m, const char *filename, char *dbid,
-                       raft_node_id_t node_id);
+void MetadataSetClusterConfig(Metadata *m, const char *filename, char *dbid,
+                              raft_node_id_t node_id);
 void MetadataArchiveFile(Metadata *m);
 int MetadataRead(Metadata *m, const char *filename);
 int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote);
