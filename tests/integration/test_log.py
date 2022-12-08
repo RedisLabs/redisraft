@@ -104,6 +104,70 @@ def test_log_rollback(cluster):
     assert node1_log_size == cluster.node(1).info()['raft_log_entries']
 
 
+def test_log_rollback_entire_log(cluster):
+    """
+    Rollback of log entries that were written in the minority.
+    """
+
+    cluster.create(3)
+    assert cluster.leader == 1
+    assert cluster.execute('INCRBY', 'key', '111') == 111
+
+    # Break cluster
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+
+    # Load a command which can't be committed
+    assert cluster.node(1).current_index() == 7
+    cluster.node(1).client.execute_command('raft.debug', 'compact')
+    conn = cluster.node(1).client.connection_pool.get_connection('deferred')
+    conn.send_command('INCRBY', 'key', '222')
+    assert cluster.node(1).current_index() == 8
+    assert cluster.node(1).info()['raft_log_entries'] == 1
+    cluster.node(1).terminate()
+
+    # We want to be sure the last entry is in the log
+    log = RaftLog(cluster.node(1).raftlog)
+    log.read()
+    assert log.entry_count() == 1
+
+    # Restart the cluster without node 1, make sure the write was
+    # not committed.
+    cluster.node(2).start()
+    cluster.node(3).start()
+    cluster.node(2).wait_for_election()
+    assert cluster.node(2).current_index() == 8  # 7 + 1 no-op entry
+
+    # Restart node 1
+    cluster.node(1).start()
+    cluster.node(1).wait_for_election()
+
+    # Make another write and make sure it overwrites the previous one in
+    # node 1's log
+    assert cluster.execute('INCRBY', 'key', '333') == 444
+    cluster.wait_for_unanimity()
+
+    # Make sure log reflects the change
+    log.reset()
+    log.read()
+    assert match(r'.*INCRBY.*333', str(log.entries[-1].data()))
+
+    # make sure after double resume, crc chain has been maintained
+    # before second resume get # entries
+    node1_log_size = cluster.node(1).info()['raft_log_entries']
+
+    # kill all nodes (1 first, as we don't want any additional log entries)
+    cluster.node(1).terminate()
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+
+    # restart 1, won't have an active cluster, but should have loaded log
+    cluster.node(1).start()
+    # need to give it time to read log
+    time.sleep(1)
+    assert node1_log_size == cluster.node(1).info()['raft_log_entries']
+
+
 def test_raft_log_max_file_size(cluster):
     """
     Raft log size configuration affects compaction.
