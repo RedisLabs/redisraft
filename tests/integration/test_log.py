@@ -100,7 +100,10 @@ def test_log_rollback(cluster):
     # restart 1, won't have an active cluster, but should have loaded log
     cluster.node(1).start()
     # need to give it time to read log
-    time.sleep(1)
+    for _ in range(5):
+        if cluster.node(1).info()['raft_state'] == 'up':
+            break
+        time.sleep(1)
     assert node1_log_size == cluster.node(1).info()['raft_log_entries']
 
 
@@ -163,8 +166,10 @@ def test_log_rollback_entire_log(cluster):
 
     # restart 1, won't have an active cluster, but should have loaded log
     cluster.node(1).start()
-    # need to give it time to read log
-    time.sleep(1)
+    for _ in range(5):
+        if cluster.node(1).info()['raft_state'] == 'up':
+            break
+        time.sleep(1)
     assert node1_log_size == cluster.node(1).info()['raft_log_entries']
 
 
