@@ -551,7 +551,6 @@ def test_log_corrupt_last_entry_crc(cluster):
             file.write(b"2")
         file.close()
 
-
     filename = cluster.node(1).raftlog
     corrupt_byte_location(filename, log.entries[5].crc_location())
 
