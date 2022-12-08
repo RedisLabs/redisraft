@@ -88,6 +88,21 @@ def test_log_rollback(cluster):
     log.read()
     assert match(r'.*INCRBY.*333', str(log.entries[-1].data()))
 
+    # make sure after double resume, crc chain has been maintained
+    # before second resume get # entries
+    node1_log_size = cluster.node(1).info()['raft_log_entries']
+
+    # kill all nodes (1 first, as we dont want any additional log entries)
+    cluster.node(1).terminate()
+    cluster.node(2).terminate()
+    cluster.node(3).terminate()
+
+    # restart 1, wont have an active cluster, but should have loaded log
+    cluster.node(1).start()
+    # need to give it time to read log
+    time.sleep(1)
+    assert node1_log_size == cluster.node(1).info()['raft_log_entries']
+
 
 def test_raft_log_max_file_size(cluster):
     """
