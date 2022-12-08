@@ -340,60 +340,6 @@ def test_log_partial_entry(cluster):
     assert cluster.execute('get', 'x') == ('b' * 15000).encode('utf-8')
 
 
-def test_log_corrupt_entry(cluster):
-    cluster.create(1)
-
-    cluster.execute('set', 'x', 1)
-    cluster.execute('set', 'x', 2)
-    cluster.execute('set', 'x', 3)
-    cluster.execute('set', 'x', 4)
-    cluster.execute('set', 'x', 5)
-    cluster.execute('set', 'x', 6)
-
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
-
-    log = RaftLog(cluster.node(1).raftlog)
-    log.read()
-    assert log.entry_count() == 8
-
-    filename = cluster.node(1).raftlog
-    os.open(filename, os.O_RDWR)
-
-    # ----------------------------------------------------
-    # modify CRC32 for last entry
-    file = open(filename, "r+")
-    file.seek(os.path.getsize(filename) - 4)
-    file.write("12")
-    file.close()
-
-    cluster.node(1).start()
-    cluster.node(1).wait_for_election()
-
-    # There will be 7 valid entries + 1 NOOP entry = 5
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    assert cluster.execute('get', 'x') == b'5'
-
-    cluster.node(1).kill()
-
-    filename = cluster.node(1).raftlog
-    os.open(filename, os.O_RDWR)
-
-    # ----------------------------------------------------
-    # modify CRC32 for second entry
-    file = open(filename, "r+")
-    file.seek(log.indexes[5] - 4)
-    file.write("12")
-    file.close()
-
-    cluster.node(1).start()
-    cluster.node(1).wait_for_election()
-
-    # There will be 4 valid entries + 1 NOOP entry = 5
-    assert cluster.node(1).info()['raft_log_entries'] == 4
-    assert cluster.execute('get', 'x') == b'1'
-
-
 def test_log_corrupt_header_dbid(cluster):
     cluster.create(1)
 
@@ -412,12 +358,19 @@ def test_log_corrupt_header_dbid(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[0], LogHeader)
 
-    filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    file.seek(log.header().dbid_location())
-    file.write("9876")
-    file.close()
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
 
+    filename = cluster.node(1).raftlog
+    corrupt_byte_location(filename, log.header().dbid_location())
     cluster.node(1).start()
     assert cluster.node(1).info()["raft_state"] == "uninitialized"
 
@@ -440,11 +393,19 @@ def test_log_corrupt_header_crc(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[0], LogHeader)
 
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
+
     filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    file.seek(log.header().crc_location())
-    file.write("98")
-    file.close()
+    corrupt_byte_location(filename, log.header().crc_location())
 
     cluster.node(1).start()
     assert cluster.node(1).info()["raft_state"] == "uninitialized"
@@ -468,12 +429,19 @@ def test_log_corrupt_last_entry_data(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[8], LogEntry)
 
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
+
     filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    print(f"crc location = {log.entries[8].crc_location()}")
-    file.seek(log.entries[8].data_location())
-    file.write("98")
-    file.close()
+    corrupt_byte_location(filename, log.entries[8].data_location())
 
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'5'
@@ -498,11 +466,19 @@ def test_log_corrupt_last_entry_crc(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[8], LogEntry)
 
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
+
     filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    file.seek(log.entries[8].crc_location())
-    file.write("98")
-    file.close()
+    corrupt_byte_location(filename, log.entries[8].crc_location())
 
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'5'
@@ -527,11 +503,19 @@ def test_log_corrupt_middle_entry_data(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[5], LogEntry)
 
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
+
     filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    file.seek(log.entries[5].data_location())
-    file.write("98")
-    file.close()
+    corrupt_byte_location(filename, log.entries[5].data_location())
 
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'2'
@@ -556,11 +540,20 @@ def test_log_corrupt_last_entry_crc(cluster):
     assert log.entry_count() == 8
     assert isinstance(log.entries[5], LogEntry)
 
+    def corrupt_byte_location(filename, location):
+        file = open(filename, "r+b")
+        file.seek(location)
+        byte = file.read(1)
+        file.seek(location)
+        if byte == b"1":
+            file.write(b"1")
+        else:
+            file.write(b"2")
+        file.close()
+
+
     filename = cluster.node(1).raftlog
-    file = open(filename, "r+")
-    file.seek(log.entries[5].crc_location())
-    file.write("98")
-    file.close()
+    corrupt_byte_location(filename, log.entries[5].crc_location())
 
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'2'
