@@ -364,9 +364,9 @@ def test_log_corrupt_header_dbid(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
@@ -399,9 +399,9 @@ def test_log_corrupt_header_crc(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
@@ -435,9 +435,9 @@ def test_log_corrupt_last_entry_data(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
@@ -472,9 +472,9 @@ def test_log_corrupt_last_entry_crc(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
@@ -509,9 +509,9 @@ def test_log_corrupt_middle_entry_data(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
@@ -546,9 +546,9 @@ def test_log_corrupt_last_entry_crc(cluster):
         byte = file.read(1)
         file.seek(location)
         if byte == b"1":
-            file.write(b"1")
-        else:
             file.write(b"2")
+        else:
+            file.write(b"1")
         file.close()
 
     filename = cluster.node(1).raftlog
