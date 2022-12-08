@@ -9,7 +9,7 @@
 #include "entrycache.h"
 #include "file.h"
 
-#include "common/crc16.h"
+#include "common/sc_crc32.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -38,10 +38,10 @@ static int truncateFiles(Log *log, size_t offset, size_t idxoffset)
     return RR_OK;
 }
 
-static ssize_t generateHeader(Log *log, char *buf, size_t buf_len)
+static ssize_t generateHeader(Log *log, unsigned char *buf, size_t buf_len)
 {
-    char *pos = buf;
-    char *end = buf + buf_len;
+    unsigned char *pos = buf;
+    unsigned char *end = buf + buf_len;
 
     pos += multibulkWriteLen(pos, end - pos, '*', RAFTLOG_ELEM_COUNT);
     pos += multibulkWriteStr(pos, end - pos, RAFTLOG_STR);
@@ -56,14 +56,14 @@ static ssize_t generateHeader(Log *log, char *buf, size_t buf_len)
 
 static int writeHeader(Log *log)
 {
-    char buf[1024];
-    char *pos;
-    char *end = buf + sizeof(buf);
+    unsigned char buf[1024];
+    unsigned char *pos;
+    unsigned char *end = buf + sizeof(buf);
     ssize_t len = generateHeader(log, buf, sizeof(buf));
     pos = buf + len;
 
     /* add crc to header */
-    long crc = crc16_ccitt(0, buf, len);
+    long crc = sc_crc32(0, buf, len);
     pos += multibulkWriteLong(pos, end - pos, crc);
     len = pos - buf;
 
@@ -133,10 +133,10 @@ static int readHeader(Log *log, long *read_crc)
     return RR_OK;
 }
 
-static size_t generateEntryHeader(raft_entry_t *ety, char *buf, size_t buf_len)
+static size_t generateEntryHeader(raft_entry_t *ety, unsigned char *buf, size_t buf_len)
 {
-    char *pos = buf;
-    char *end = buf + buf_len;
+    unsigned char *pos = buf;
+    unsigned char *end = buf + buf_len;
 
     pos += multibulkWriteLen(pos, end - pos, '*', ENTRY_ELEM_COUNT);
     pos += multibulkWriteStr(pos, end - pos, ENTRY_STR);
@@ -151,7 +151,7 @@ static size_t generateEntryHeader(raft_entry_t *ety, char *buf, size_t buf_len)
 static int writeEntry(Log *log, raft_entry_t *ety)
 {
     int rc;
-    char buf[1024];
+    unsigned char buf[1024];
     ssize_t len;
 
     size_t offset = FileSize(&log->file);
@@ -171,9 +171,9 @@ static int writeEntry(Log *log, raft_entry_t *ety)
 
     /* crc */
     /* accumulating crc, so start with current crc */
-    long crc = crc16_ccitt(log->current_crc, buf, len);
-    crc = crc16_ccitt(crc, ety->data, ety->data_len);
-    crc = crc16_ccitt(crc, "\r\n", 2);
+    long crc = sc_crc32(log->current_crc, buf, len);
+    crc = sc_crc32(crc, (unsigned char *) ety->data, ety->data_len);
+    crc = sc_crc32(crc, (unsigned char *) "\r\n", 2);
 
     /* write crc as added element */
     len = multibulkWriteLong(buf, sizeof(buf), crc);
@@ -336,9 +336,9 @@ Log *LogOpen(const char *filename, bool keep_index)
     }
 
     /* validate log header crc */
-    char buf[1024];
+    unsigned char buf[1024];
     ssize_t len = generateHeader(log, buf, sizeof(buf));
-    if (crc16_ccitt(0, buf, len) != read_crc) {
+    if (sc_crc32(0, buf, len) != read_crc) {
         LOG_WARNING("logfile fails crc check, starting from scratch");
         LogFree(log);
         return NULL;
@@ -359,13 +359,13 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term)
 static bool validateEntryCRC(raft_entry_t *e, long read_crc, long current_crc, long *calc_crc)
 {
     size_t off = 0;
-    char buf[1024];
+    unsigned char buf[1024];
 
     /* generate the entry as it should be on disk, and calculate crc */
     off = generateEntryHeader(e, buf, sizeof(buf));
-    *calc_crc = crc16_ccitt(current_crc, buf, off);
-    *calc_crc = crc16_ccitt(*calc_crc, e->data, e->data_len);
-    *calc_crc = crc16_ccitt(*calc_crc, "\r\n", 2);
+    *calc_crc = sc_crc32(current_crc, buf, off);
+    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) e->data, e->data_len);
+    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) "\r\n", 2);
 
     if (*calc_crc != read_crc) {
         return true;
@@ -526,9 +526,9 @@ int LogDelete(Log *log, raft_index_t from_idx)
          */
         if (log->num_entries == 0) { /* header */
             /* calculate running crc value by just regenerating header buf */
-            char buf[1024];
+            unsigned char buf[1024];
             ssize_t len = generateHeader(log, buf, sizeof(buf));
-            log->current_crc = crc16_ccitt(0, buf, len);
+            log->current_crc = sc_crc32(0, buf, len);
         } else { /* log entry */
             /* to regenerate running crc value, need to reread last entry */
             long read_crc;
