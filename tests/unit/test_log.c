@@ -6,6 +6,7 @@
 
 #include "../src/entrycache.h"
 #include "../src/log.h"
+#include "common/sc_crc32.h"
 
 #include <limits.h>
 #include <stddef.h>
@@ -542,6 +543,16 @@ static void test_meta_persistence(void **state)
     MetadataTerm(&m);
 }
 
+/* Sanity check for CRC32c implementation. */
+static void test_crc32c(void **state)
+{
+    sc_crc32_init();
+
+    /* CRC values are pre-computed. */
+    assert_int_equal(sc_crc32(0, (uint8_t *) "", 1), 1383945041);
+    assert_int_equal(sc_crc32(0, (uint8_t *) "1", 2), 2727214374);
+}
+
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
         test_log_load_entries, setup_create_log, teardown_log),
@@ -569,5 +580,7 @@ const struct CMUnitTest log_tests[] = {
         test_entry_cache_fuzzer, NULL, NULL),
     cmocka_unit_test_setup_teardown(
         test_meta_persistence, cleanup_meta, cleanup_meta),
+    cmocka_unit_test_setup_teardown(
+        test_crc32c, NULL, NULL),
     {.test_func = NULL},
 };
