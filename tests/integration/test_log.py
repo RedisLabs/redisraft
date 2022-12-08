@@ -92,12 +92,12 @@ def test_log_rollback(cluster):
     # before second resume get # entries
     node1_log_size = cluster.node(1).info()['raft_log_entries']
 
-    # kill all nodes (1 first, as we dont want any additional log entries)
+    # kill all nodes (1 first, as we don't want any additional log entries)
     cluster.node(1).terminate()
     cluster.node(2).terminate()
     cluster.node(3).terminate()
 
-    # restart 1, wont have an active cluster, but should have loaded log
+    # restart 1, won't have an active cluster, but should have loaded log
     cluster.node(1).start()
     # need to give it time to read log
     time.sleep(1)
