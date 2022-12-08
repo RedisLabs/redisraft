@@ -329,7 +329,17 @@ Log *LogOpen(const char *filename, bool keep_index)
         return NULL;
     }
 
-    if (readHeader(log, NULL) != RR_OK) {
+    long read_crc;
+    if (readHeader(log, &read_crc) != RR_OK) {
+        LogFree(log);
+        return NULL;
+    }
+
+    /* validate log header crc */
+    char buf[1024];
+    ssize_t len = generateHeader(log, buf, sizeof(buf));
+    if (crc16_ccitt(0, buf, len) != read_crc) {
+        LOG_WARNING("logfile fails crc check, starting from scratch");
         LogFree(log);
         return NULL;
     }
@@ -368,22 +378,13 @@ int LogLoadEntries(Log *log)
 {
     log->num_entries = 0;
     long calc_crc = 0, read_crc = 0;
-    char buf[1024];
-    ssize_t len;
 
     if (readHeader(log, &read_crc) != RR_OK) {
         return RR_ERROR;
     }
 
-    /* validate CRC, by rebuilding header */
-    len = generateHeader(log, buf, sizeof(buf));
-    calc_crc = crc16_ccitt(0, buf, len);
-    if (read_crc != calc_crc) {
-        return RR_ERROR;
-    }
-
-    /* update running crc */
-    log->current_crc = calc_crc;
+    /* already validated crc in LogOpen, update running crc */
+    log->current_crc = read_crc;
 
     /* Read Entries */
     while (true) {

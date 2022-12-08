@@ -8,8 +8,11 @@ import os.path
 import time
 from random import seed, randint
 from re import match
+
+from _pytest.python_api import raises
 from redis import ResponseError
-from .raftlog import RaftLog
+from .raftlog import RaftLog, LogHeader
+from .sandbox import RedisRaftBug
 
 
 def test_log_append_random_size(cluster):
@@ -312,3 +315,59 @@ def test_log_corrupt_entry(cluster):
     # There will be 4 valid entries + 1 NOOP entry = 5
     assert cluster.node(1).info()['raft_log_entries'] == 4
     assert cluster.execute('get', 'x') == b'1'
+
+
+def test_log_corrupt_header_dbid(cluster):
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+    cluster.execute('set', 'x', 4)
+    cluster.execute('set', 'x', 5)
+    cluster.execute('set', 'x', 6)
+
+    assert cluster.node(1).info()['raft_log_entries'] == 8
+    cluster.node(1).kill()
+
+    log = RaftLog(cluster.node(1).raftlog)
+    log.read()
+    assert log.entry_count() == 8
+    assert isinstance(log.entries[0], LogHeader)
+
+    filename = cluster.node(1).raftlog
+    file = open(filename, "r+")
+    file.seek(log.header().dbid_location())
+    file.write("9876")
+    file.close()
+
+    cluster.node(1).start()
+    assert cluster.node(1).info()["raft_state"] == "uninitialized"
+
+
+def test_log_corrupt_header_crc(cluster):
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+    cluster.execute('set', 'x', 4)
+    cluster.execute('set', 'x', 5)
+    cluster.execute('set', 'x', 6)
+
+    assert cluster.node(1).info()['raft_log_entries'] == 8
+    cluster.node(1).kill()
+
+    log = RaftLog(cluster.node(1).raftlog)
+    log.read()
+    assert log.entry_count() == 8
+    assert isinstance(log.entries[0], LogHeader)
+
+    filename = cluster.node(1).raftlog
+    file = open(filename, "r+")
+    file.seek(log.header().crc_location())
+    file.write("98")
+    file.close()
+
+    cluster.node(1).start()
+    assert cluster.node(1).info()["raft_state"] == "uninitialized"
