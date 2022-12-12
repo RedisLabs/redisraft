@@ -9,6 +9,8 @@
 #include "entrycache.h"
 #include "log.h"
 
+#include "common/sc_crc32.h"
+
 #include <dlfcn.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -1917,6 +1919,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
         .state = REDIS_RAFT_UNINITIALIZED,
         .ctx = RedisModule_GetDetachedThreadSafeContext(ctx),
     };
+
+    sc_crc32_init();
 
     CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
 

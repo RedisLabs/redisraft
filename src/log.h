@@ -34,6 +34,7 @@ typedef struct Log {
     uint64_t fsync_count;           /* Count of fsync() calls */
     uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
     uint64_t fsync_total;           /* Total time fsync() calls consumed in microseconds */
+    long current_crc;               /* current running crc value for log */
 } Log;
 
 Log *LogCreate(const char *filename, const char *dbid,
@@ -53,8 +54,9 @@ raft_index_t LogCurrentIdx(Log *log);
 size_t LogFileSize(Log *log);
 void LogArchiveFiles(Log *log);
 
-long long int LogRewrite(RedisRaftCtx *rr, const char *filename,
-                         raft_index_t last_idx, raft_term_t last_term);
+Log *LogRewrite(RedisRaftCtx *rr, const char *filename,
+                raft_index_t last_idx, raft_term_t last_term,
+                unsigned long *num_entries);
 int LogRewriteSwitch(RedisRaftCtx *rr, Log *new_log,
                      raft_index_t new_log_entries);
 

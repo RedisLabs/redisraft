@@ -16,8 +16,9 @@ class RawEntry(object):
     RAFTLOG = 'RAFTLOG'
     ENTRY = 'ENTRY'
 
-    def __init__(self, args):
+    def __init__(self, args, locations):
         self.args = args.copy()
+        self.locations = locations.copy()
 
     def kind(self):
         return str(self.args[0], encoding='ascii')
@@ -32,11 +33,14 @@ class RawEntry(object):
         elements = int(mb_line[1:])
 
         args = []
+        locations = []
+
         for _ in range(elements):
             hdr = str(_file.readline().rstrip(), encoding='ascii')
             if not hdr.startswith('$'):
                 raise RuntimeError('Missing/invalid bulk header')
             _len = int(hdr[1:])
+            locations.append(_file.tell())
             data = _file.read(_len)
             args.append(data)
 
@@ -45,10 +49,10 @@ class RawEntry(object):
                 raise RuntimeError('Missing CRLF after bulk data')
 
         if str(args[0], encoding='ascii') == cls.ENTRY:
-            return LogEntry(args)
+            return LogEntry(args, locations)
         if str(args[0], encoding='ascii') == cls.RAFTLOG:
-            return LogHeader(args)
-        return RawEntry(args)
+            return LogHeader(args, locations)
+        return RawEntry(args, locations)
 
     def __str__(self):
         return '<RawEntry:kind=%s>' % self.kind()
@@ -65,6 +69,9 @@ class LogHeader(RawEntry):
     def dbid(self):
         return self.args[2]
 
+    def dbid_location(self):
+        return int(self.locations[2])
+
     def node_id(self):
         return self.args[3]
 
@@ -73,6 +80,12 @@ class LogHeader(RawEntry):
 
     def snapshot_index(self):
         return int(self.args[5])
+
+    def crc(self):
+        return int(self.args[6])
+
+    def crc_location(self):
+        return int(self.locations[6])
 
     def __repr__(self):
         return '<LogHeader:version=%s,dbid=%s,node_id=%s,' \
@@ -155,6 +168,15 @@ class LogEntry(RawEntry):
             else:
                 return value
 
+    def data_location(self):
+        return int(self.locations[4])
+
+    def crc(self):
+        return int(self.args[5])
+
+    def crc_location(self):
+        return int(self.locations[5])
+
     def __repr__(self):
         return '<LogEntry:%s:id=%s,term=%s,data=%s>' % (
             self.type(), self.id(), self.term(), self.data())
@@ -168,21 +190,25 @@ class RaftLog(object):
     def __init__(self, filename):
         self.logfile = open(filename, 'rb')
         self.entries = []
+        self.indexes = []
 
     def reset(self):
         self.entries = []
+        self.indexes = []
         self.logfile.seek(0, os.SEEK_SET)
 
     def read(self):
         while True:
+            offset = self.logfile.tell()
             try:
                 entry = RawEntry.from_file(self.logfile)
             except EOFError:
                 break
             self.entries.append(entry)
+            self.indexes.append(offset)
         self.dump()
 
-    def header(self):
+    def header(self) -> LogHeader:
         return self.entries[0]
 
     def last_entry(self):

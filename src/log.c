@@ -9,6 +9,8 @@
 #include "entrycache.h"
 #include "file.h"
 
+#include "common/sc_crc32.h"
+
 #include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -17,11 +19,11 @@
 #include <unistd.h>
 
 static const int ENTRY_CACHE_INIT_SIZE = 512;
-static const int ENTRY_ELEM_COUNT = 5;
+static const int ENTRY_ELEM_COUNT = 6;
 static const char *ENTRY_STR = "ENTRY";
 
 static const int RAFTLOG_VERSION = 1;
-static const int RAFTLOG_ELEM_COUNT = 6;
+static const int RAFTLOG_ELEM_COUNT = 7;
 static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
@@ -36,49 +38,49 @@ static int truncateFiles(Log *log, size_t offset, size_t idxoffset)
     return RR_OK;
 }
 
-static raft_entry_t *readEntry(Log *log)
+static ssize_t generateHeader(Log *log, unsigned char *buf, size_t buf_len)
 {
-    char str[64] = {0};
-    int num_elements;
+    unsigned char *pos = buf;
+    unsigned char *end = buf + buf_len;
 
-    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
-        !multibulkReadStr(&log->file, str, sizeof(str))) {
-        return NULL;
-    }
+    pos += multibulkWriteLen(pos, end - pos, '*', RAFTLOG_ELEM_COUNT);
+    pos += multibulkWriteStr(pos, end - pos, RAFTLOG_STR);
+    pos += multibulkWriteLong(pos, end - pos, RAFTLOG_VERSION);
+    pos += multibulkWriteStr(pos, end - pos, log->dbid);
+    pos += multibulkWriteLong(pos, end - pos, log->node_id);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_term);
+    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_idx);
 
-    if (num_elements != ENTRY_ELEM_COUNT ||
-        strncmp(ENTRY_STR, str, strlen(ENTRY_STR)) != 0) {
-        return NULL;
-    }
-
-    raft_term_t term;
-    raft_entry_id_t id;
-    int type, length;
-
-    if (!multibulkReadLong(&log->file, &term) ||
-        !multibulkReadInt(&log->file, &id) ||
-        !multibulkReadInt(&log->file, &type) ||
-        !multibulkReadLen(&log->file, '$', &length)) {
-        return NULL;
-    }
-
-    char crlf[2];
-    raft_entry_t *e = raft_entry_new(length);
-
-    if (FileRead(&log->file, e->data, length) != length ||
-        FileRead(&log->file, crlf, 2) != 2) {
-        raft_entry_release(e);
-        return NULL;
-    }
-
-    e->term = term;
-    e->id = id;
-    e->type = (short) type;
-
-    return e;
+    return pos - buf;
 }
 
-static int readHeader(Log *log)
+static int writeHeader(Log *log)
+{
+    unsigned char buf[1024];
+    unsigned char *pos;
+    unsigned char *end = buf + sizeof(buf);
+    ssize_t len = generateHeader(log, buf, sizeof(buf));
+    pos = buf + len;
+
+    /* add crc to header */
+    long crc = sc_crc32(0, buf, len);
+    pos += multibulkWriteLong(pos, end - pos, crc);
+    len = pos - buf;
+
+    if (truncateFiles(log, 0, 0) != RR_OK ||
+        FileWrite(&log->file, buf, len) != len ||
+        LogSync(log, true) != RR_OK) {
+
+        /* Try to delete files just in case there was a partial write. */
+        truncateFiles(log, 0, 0);
+        return RR_ERROR;
+    }
+
+    log->current_crc = crc;
+    return RR_OK;
+}
+
+static int readHeader(Log *log, long *read_crc)
 {
     char str[64] = {0};
     char dbid[64] = {0};
@@ -107,10 +109,12 @@ static int readHeader(Log *log)
     raft_node_id_t node_id;
     raft_term_t snapshot_last_term;
     raft_index_t snapshot_last_index;
+    long crc;
 
     if (!multibulkReadInt(&log->file, &node_id) ||
         !multibulkReadLong(&log->file, &snapshot_last_term) ||
-        !multibulkReadLong(&log->file, &snapshot_last_index)) {
+        !multibulkReadLong(&log->file, &snapshot_last_index) ||
+        !multibulkReadLong(&log->file, &crc)) {
         return RR_ERROR;
     }
 
@@ -122,19 +126,17 @@ static int readHeader(Log *log)
     log->snapshot_last_idx = snapshot_last_index;
     log->index = snapshot_last_index;
 
+    if (read_crc != NULL) {
+        *read_crc = crc;
+    }
+
     return RR_OK;
 }
 
-static int writeEntry(Log *log, raft_entry_t *ety)
+static size_t generateEntryHeader(raft_entry_t *ety, unsigned char *buf, size_t buf_len)
 {
-    int rc;
-    char buf[1024];
-    ssize_t len;
-    char *pos = buf;
-    char *end = buf + sizeof(buf);
-
-    size_t offset = FileSize(&log->file);
-    size_t idxoffset = FileSize(&log->idxfile);
+    unsigned char *pos = buf;
+    unsigned char *end = buf + buf_len;
 
     pos += multibulkWriteLen(pos, end - pos, '*', ENTRY_ELEM_COUNT);
     pos += multibulkWriteStr(pos, end - pos, ENTRY_STR);
@@ -142,11 +144,40 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     pos += multibulkWriteLong(pos, end - pos, ety->id);
     pos += multibulkWriteLong(pos, end - pos, ety->type);
     pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
-    len = pos - buf;
 
-    if (FileWrite(&log->file, buf, len) != len ||
-        FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
+    return pos - buf;
+}
+
+static int writeEntry(Log *log, raft_entry_t *ety)
+{
+    int rc;
+    unsigned char buf[1024];
+    ssize_t len;
+
+    size_t offset = FileSize(&log->file);
+    size_t idxoffset = FileSize(&log->idxfile);
+
+    /* header */
+    len = generateEntryHeader(ety, buf, sizeof(buf));
+    if (FileWrite(&log->file, buf, len) != len) {
+        goto error;
+    }
+
+    /* data */
+    if (FileWrite(&log->file, ety->data, ety->data_len) != ety->data_len ||
         FileWrite(&log->file, "\r\n", 2) != 2) {
+        goto error;
+    }
+
+    /* crc */
+    /* accumulating crc, so start with current crc */
+    long crc = sc_crc32(log->current_crc, buf, len);
+    crc = sc_crc32(crc, (unsigned char *) ety->data, ety->data_len);
+    crc = sc_crc32(crc, (unsigned char *) "\r\n", 2);
+
+    /* write crc as added element */
+    len = multibulkWriteLong(buf, sizeof(buf), crc);
+    if (FileWrite(&log->file, buf, len) != len) {
         goto error;
     }
 
@@ -154,6 +185,9 @@ static int writeEntry(Log *log, raft_entry_t *ety)
     if (ret != sizeof(offset)) {
         goto error;
     }
+
+    /* everything succeeded, so can update accumulated crc */
+    log->current_crc = crc;
 
     return RR_OK;
 
@@ -165,32 +199,60 @@ error:
     return RR_ERROR;
 }
 
-static int writeHeader(Log *log)
+static raft_entry_t *readEntry(Log *log, long *read_crc)
 {
-    char buf[1024];
-    ssize_t len;
-    char *pos = buf;
-    char *end = buf + sizeof(buf);
+    char str[64] = {0};
+    int num_elements;
 
-    pos += multibulkWriteLen(pos, end - pos, '*', RAFTLOG_ELEM_COUNT);
-    pos += multibulkWriteStr(pos, end - pos, RAFTLOG_STR);
-    pos += multibulkWriteLong(pos, end - pos, RAFTLOG_VERSION);
-    pos += multibulkWriteStr(pos, end - pos, log->dbid);
-    pos += multibulkWriteLong(pos, end - pos, log->node_id);
-    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_term);
-    pos += multibulkWriteLong(pos, end - pos, log->snapshot_last_idx);
-    len = pos - buf;
-
-    if (truncateFiles(log, 0, 0) != RR_OK ||
-        FileWrite(&log->file, buf, len) != len ||
-        LogSync(log, true) != RR_OK) {
-
-        /* Try to delete files just in case there was a partial write. */
-        truncateFiles(log, 0, 0);
-        return RR_ERROR;
+    if (!multibulkReadLen(&log->file, '*', &num_elements) ||
+        !multibulkReadStr(&log->file, str, sizeof(str))) {
+        return NULL;
     }
 
-    return RR_OK;
+    if (num_elements != ENTRY_ELEM_COUNT ||
+        strncmp(ENTRY_STR, str, strlen(ENTRY_STR)) != 0) {
+        return NULL;
+    }
+
+    raft_term_t term;
+    raft_entry_id_t id;
+    int type, length;
+
+    /* header */
+    if (!multibulkReadLong(&log->file, &term) ||
+        !multibulkReadInt(&log->file, &id) ||
+        !multibulkReadInt(&log->file, &type) ||
+        !multibulkReadLen(&log->file, '$', &length)) {
+        return NULL;
+    }
+
+    char crlf[2];
+    raft_entry_t *e = raft_entry_new(length);
+
+    /* data */
+    if (FileRead(&log->file, e->data, length) != length ||
+        FileRead(&log->file, crlf, 2) != 2) {
+        goto error;
+    }
+
+    /* crc */
+    long crc;
+    if (!multibulkReadLong(&log->file, &crc)) {
+        goto error;
+    }
+    if (read_crc != NULL) {
+        *read_crc = crc;
+    }
+
+    e->term = term;
+    e->id = id;
+    e->type = (short) type;
+
+    return e;
+
+error:
+    raft_entry_release(e);
+    return NULL;
 }
 
 static Log *prepareLog(const char *filename, bool keep_index)
@@ -267,7 +329,17 @@ Log *LogOpen(const char *filename, bool keep_index)
         return NULL;
     }
 
-    if (readHeader(log) != RR_OK) {
+    long read_crc;
+    if (readHeader(log, &read_crc) != RR_OK) {
+        LogFree(log);
+        return NULL;
+    }
+
+    /* validate log header crc */
+    unsigned char buf[1024];
+    ssize_t len = generateHeader(log, buf, sizeof(buf));
+    if (sc_crc32(0, buf, len) != read_crc) {
+        LOG_WARNING("logfile fails crc check, starting from scratch");
         LogFree(log);
         return NULL;
     }
@@ -284,18 +356,40 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term)
     return writeHeader(log);
 }
 
+static bool validateEntryCRC(raft_entry_t *e, long read_crc, long current_crc, long *calc_crc)
+{
+    size_t off = 0;
+    unsigned char buf[1024];
+
+    /* generate the entry as it should be on disk, and calculate crc */
+    off = generateEntryHeader(e, buf, sizeof(buf));
+    *calc_crc = sc_crc32(current_crc, buf, off);
+    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) e->data, e->data_len);
+    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) "\r\n", 2);
+
+    if (*calc_crc != read_crc) {
+        return true;
+    }
+
+    return false;
+}
+
 int LogLoadEntries(Log *log)
 {
     log->num_entries = 0;
+    long calc_crc = 0, read_crc = 0;
 
-    if (readHeader(log) != RR_OK) {
+    if (readHeader(log, &read_crc) != RR_OK) {
         return RR_ERROR;
     }
+
+    /* already validated crc in LogOpen, update running crc */
+    log->current_crc = read_crc;
 
     /* Read Entries */
     while (true) {
         uint64_t offset = (uint64_t) FileGetReadOffset(&log->file);
-        raft_entry_t *e = readEntry(log);
+        raft_entry_t *e = readEntry(log, &read_crc);
         if (!e) {
             size_t bytes = FileSize(&log->file) - offset;
             if (bytes > 0) {
@@ -309,7 +403,19 @@ int LogLoadEntries(Log *log)
 
             return RR_OK;
         }
+
+        bool error = validateEntryCRC(e, read_crc, log->current_crc, &calc_crc);
         raft_entry_release(e);
+        if (error) {
+            LOG_WARNING("Entry failed crc32 check, truncating log to "
+                        "previous entry: %ld",
+                        log->index);
+            int rc = FileTruncate(&log->file, offset);
+            RedisModule_Assert(rc == RR_OK);
+            return RR_OK;
+        }
+
+        log->current_crc = calc_crc;
 
         log->index++;
         log->num_entries++;
@@ -386,7 +492,7 @@ raft_entry_t *LogGet(Log *log, raft_index_t idx)
         return NULL;
     }
 
-    raft_entry_t *ety = readEntry(log);
+    raft_entry_t *ety = readEntry(log, NULL);
     RedisModule_Assert(ety != NULL);
 
     return ety;
@@ -414,6 +520,24 @@ int LogDelete(Log *log, raft_index_t from_idx)
 
         log->num_entries -= count;
         log->index -= count;
+        /* update running crc value */
+        /* if we truncated the entire log file, it's the crc value of the header
+         * otherwise, it's the crc from the last entry
+         */
+        if (log->num_entries == 0) { /* header */
+            /* calculate running crc value by just regenerating header buf */
+            unsigned char buf[1024];
+            ssize_t len = generateHeader(log, buf, sizeof(buf));
+            log->current_crc = sc_crc32(0, buf, len);
+        } else { /* log entry */
+            /* to regenerate running crc value, need to reread last entry */
+            long read_crc;
+            seekEntry(log, log->index);
+            raft_entry_t *e = readEntry(log, &read_crc);
+            raft_entry_release(e);
+
+            log->current_crc = read_crc;
+        }
     }
 
     return RR_OK;
@@ -443,31 +567,31 @@ raft_index_t LogCount(Log *log)
  * 2. All entries
  * 3. Current term and vote
  */
-long long int LogRewrite(RedisRaftCtx *rr, const char *filename,
-                         raft_index_t last_idx, raft_term_t last_term)
+Log *LogRewrite(RedisRaftCtx *rr, const char *filename,
+                raft_index_t last_idx, raft_term_t last_term,
+                unsigned long *num_entries)
 {
-    long long int num_entries = 0;
+    *num_entries = 0;
 
     Log *log = LogCreate(filename, rr->snapshot_info.dbid, last_term,
                          last_idx, rr->config.id);
 
     for (raft_index_t i = last_idx + 1; i <= LogCurrentIdx(rr->log); i++) {
-        num_entries++;
+        (*num_entries)++;
         raft_entry_t *ety = raft_get_entry_from_idx(rr->raft, i);
         if (LogAppend(log, ety) != RR_OK) {
             LogFree(log);
-            return -1;
+            return NULL;
         }
         raft_entry_release(ety);
     }
 
     if (LogSync(log, true) != RR_OK) {
         LogFree(log);
-        return -1;
+        return NULL;
     }
 
-    LogFree(log);
-    return num_entries;
+    return log;
 }
 
 void LogArchiveFiles(Log *log)
