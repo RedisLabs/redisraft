@@ -8,10 +8,12 @@
 #include "../src/log.h"
 #include "common/sc_crc32.h"
 
+#include <fcntl.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "cmocka.h"
@@ -553,6 +555,103 @@ static void test_crc32c(void **state)
     assert_int_equal(sc_crc32(0, (uint8_t *) "1", 2), 2727214374);
 }
 
+/* Loop over log file header bytes and change one byte at a time.
+ * Verify we detect the corruption when we try to read the file. */
+static void test_corruption_header(void **state)
+{
+    /* Generate header on the disk. */
+    Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+    LogFree(log);
+
+    struct stat st;
+    stat(LOGNAME, &st);
+
+    /* Loop over the bytes and corrupt one byte each time. */
+    for (int i = 0; i < st.st_size; i++) {
+        int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
+        assert_true(fd > 0);
+
+        lseek(fd, i, SEEK_SET);
+        ssize_t rc = write(fd, "^", 1); /* Alter the byte */
+        (void) rc;
+        close(fd);
+
+        log = LogOpen(LOGNAME, 0);
+        assert_null(log);
+
+        /* Create file again. */
+        unlink(LOGNAME);
+        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+        LogFree(log);
+    }
+}
+
+/* Loop over an entry's bytes and change one byte at a time.
+ * Verify we detect the corruption when we try to read the file. */
+static void test_corruption_entry(void **state)
+{
+    raft_entry_t *e;
+
+    Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+    e = __make_entry_value(5000, "test5000");
+    LogAppend(log, e);
+    raft_entry_release(e);
+    LogFree(log);
+
+    struct stat st;
+    stat(LOGNAME, &st);
+
+    size_t entry_begin = st.st_size;
+
+    log = LogOpen(LOGNAME, 0);
+    LogLoadEntries(log);
+    e = __make_entry_value(6000, "test6000");
+    LogAppend(log, e);
+    raft_entry_release(e);
+    LogFree(log);
+
+    stat(LOGNAME, &st);
+    size_t entry_end = st.st_size;
+
+    /* Loop over the bytes and corrupt one byte each time. */
+    for (size_t i = entry_begin; i < entry_end; i++) {
+        int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
+        assert_true(fd > 0);
+
+        lseek(fd, (off_t) i, SEEK_SET);
+        ssize_t rc = write(fd, "^", 1); /* Alter the byte */
+        assert_int_equal(rc, 1);
+        close(fd);
+
+        log = LogOpen(LOGNAME, 0);
+        LogLoadEntries(log);
+
+        assert_int_equal(log->num_entries, 1);
+        /* Verify entry with id 6000 does not exist. */
+        e = LogGet(log, 2);
+        assert_null(e);
+
+        /* Verify entry with id 5000 exists. */
+        e = LogGet(log, 1);
+        assert_int_equal(e->id, 5000);
+        assert_memory_equal(e->data, "test5000", 8);
+        raft_entry_release(e);
+        LogFree(log);
+
+        /* Create file again. */
+        unlink(LOGNAME);
+        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+        e = __make_entry_value(5000, "test5000");
+        LogAppend(log, e);
+        raft_entry_release(e);
+
+        e = __make_entry_value(6000, "test6000");
+        LogAppend(log, e);
+        raft_entry_release(e);
+        LogFree(log);
+    }
+}
+
 const struct CMUnitTest log_tests[] = {
     cmocka_unit_test_setup_teardown(
         test_log_load_entries, setup_create_log, teardown_log),
@@ -582,5 +681,9 @@ const struct CMUnitTest log_tests[] = {
         test_meta_persistence, cleanup_meta, cleanup_meta),
     cmocka_unit_test_setup_teardown(
         test_crc32c, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+        test_corruption_header, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+        test_corruption_entry, NULL, NULL),
     {.test_func = NULL},
 };
