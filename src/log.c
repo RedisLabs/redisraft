@@ -231,7 +231,8 @@ static raft_entry_t *readEntry(Log *log, long *read_crc)
 
     /* data */
     if (FileRead(&log->file, e->data, length) != length ||
-        FileRead(&log->file, crlf, 2) != 2) {
+        FileRead(&log->file, crlf, 2) != 2 ||
+        crlf[0] != '\r' || crlf[1] != '\n') {
         goto error;
     }
 
