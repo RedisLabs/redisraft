@@ -37,25 +37,24 @@ static int teardown_log(void **state)
     return 0;
 }
 
-static raft_entry_t *__make_entry_value(int id, const char *value)
+static raft_entry_t *make_entry(int id, const char *value)
 {
+    char buf[64];
+
+    if (!value) {
+        snprintf(buf, sizeof(buf), "value%d\n", id);
+        value = buf;
+    }
+
     raft_entry_t *e = raft_entry_new(strlen(value) + 1);
     e->id = id;
     strcpy(e->data, value);
     return e;
 }
 
-static raft_entry_t *__make_entry(int id)
+static void append_entry(Log *log, int id, const char *value)
 {
-    raft_entry_t *e = raft_entry_new(50);
-    e->id = id;
-    snprintf(e->data, 49, "value%d\n", id);
-    return e;
-}
-
-static void __append_entry(Log *log, int id)
-{
-    raft_entry_t *e = __make_entry(id);
+    raft_entry_t *e = make_entry(id, value);
 
     assert_int_equal(LogAppend(log, e), RR_OK);
     raft_entry_release(e);
@@ -65,8 +64,8 @@ static void test_log_random_access(void **state)
 {
     Log *log = (Log *) *state;
 
-    __append_entry(log, 3);
-    __append_entry(log, 30);
+    append_entry(log, 3, NULL);
+    append_entry(log, 30, NULL);
 
     /* Invalid out of bound reads */
     assert_null(LogGet(log, 0));
@@ -89,8 +88,8 @@ static void test_log_random_access_with_snapshot(void **state)
     LogReset(log, 100, 1);
 
     /* Write entries */
-    __append_entry(log, 3);
-    __append_entry(log, 30);
+    append_entry(log, 3, NULL);
+    append_entry(log, 30, NULL);
 
     assert_int_equal(LogFirstIdx(log), 101);
 
@@ -114,8 +113,8 @@ static void test_log_load_entries(void **state)
     raft_entry_t *ety;
     Log *log = *state;
 
-    __append_entry(log, 3);
-    __append_entry(log, 30);
+    append_entry(log, 3, NULL);
+    append_entry(log, 30, NULL);
 
     assert_int_equal(LogLoadEntries(log), RR_OK);
     assert_int_equal(LogCount(log), 2);
@@ -136,8 +135,8 @@ static void test_log_index_rebuild(void **state)
     Log *log = (Log *) *state;
     LogReset(log, 100, 1);
 
-    __append_entry(log, 3);
-    __append_entry(log, 30);
+    append_entry(log, 3, NULL);
+    append_entry(log, 30, NULL);
 
     /* Delete index file */
     unlink(LOGNAME ".idx");
@@ -167,14 +166,14 @@ static void test_log_write_after_read(void **state)
 {
     Log *log = (Log *) *state;
 
-    __append_entry(log, 1);
-    __append_entry(log, 2);
+    append_entry(log, 1, NULL);
+    append_entry(log, 2, NULL);
 
     raft_entry_t *e = LogGet(log, 1);
     assert_int_equal(e->id, 1);
     raft_entry_release(e);
 
-    __append_entry(log, 3);
+    append_entry(log, 3, NULL);
     e = LogGet(log, 3);
     assert_int_equal(e->id, 3);
     raft_entry_release(e);
@@ -189,7 +188,7 @@ static void test_log_fuzzer(void **state)
         int new_entries = random() % 10;
         int j;
         for (j = 0; j < new_entries; j++) {
-            __append_entry(log, ++idx);
+            append_entry(log, ++idx, NULL);
         }
 
         if (idx > 10) {
@@ -220,11 +219,11 @@ static void test_log_delete(void **state)
     Log *log = (Log *) *state;
 
     char value1[] = "value1";
-    raft_entry_t *entry1 = __make_entry_value(3, value1);
+    raft_entry_t *entry1 = make_entry(3, value1);
     char value2[] = "value22222";
-    raft_entry_t *entry2 = __make_entry_value(20, value2);
+    raft_entry_t *entry2 = make_entry(20, value2);
     char value3[] = "value33333333333";
-    raft_entry_t *entry3 = __make_entry_value(30, value3);
+    raft_entry_t *entry3 = make_entry(30, value3);
 
     /* Simulate post snapshot log */
     LogReset(log, 50, 1);
@@ -591,23 +590,19 @@ static void test_corruption_header(void **state)
 static void test_corruption_entry(void **state)
 {
     raft_entry_t *e;
+    struct stat st;
 
     Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-    e = __make_entry_value(5000, "test5000");
-    LogAppend(log, e);
-    raft_entry_release(e);
+    append_entry(log, 5000, "test5000");
     LogFree(log);
 
-    struct stat st;
+    /* Find out beginning and end bytes of the serialized entry.*/
     stat(LOGNAME, &st);
-
     size_t entry_begin = st.st_size;
 
     log = LogOpen(LOGNAME, 0);
     LogLoadEntries(log);
-    e = __make_entry_value(6000, "test6000");
-    LogAppend(log, e);
-    raft_entry_release(e);
+    append_entry(log, 6000, "test6000");
     LogFree(log);
 
     stat(LOGNAME, &st);
@@ -615,6 +610,14 @@ static void test_corruption_entry(void **state)
 
     /* Loop over the bytes and corrupt one byte each time. */
     for (size_t i = entry_begin; i < entry_end; i++) {
+        /* Prepare the log file. */
+        unlink(LOGNAME);
+        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+        append_entry(log, 5000, "test5000");
+        append_entry(log, 6000, "test6000");
+        append_entry(log, 7000, "test7000");
+        LogFree(log);
+
         int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
         assert_true(fd > 0);
 
@@ -640,24 +643,6 @@ static void test_corruption_entry(void **state)
         assert_int_equal(e->id, 5000);
         assert_memory_equal(e->data, "test5000", 8);
         raft_entry_release(e);
-        LogFree(log);
-
-        /* Create file again. */
-        unlink(LOGNAME);
-        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-
-        e = __make_entry_value(5000, "test5000");
-        LogAppend(log, e);
-        raft_entry_release(e);
-
-        e = __make_entry_value(6000, "test6000");
-        LogAppend(log, e);
-        raft_entry_release(e);
-
-        e = __make_entry_value(7000, "test7000");
-        LogAppend(log, e);
-        raft_entry_release(e);
-
         LogFree(log);
     }
 }
