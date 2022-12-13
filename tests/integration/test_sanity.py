@@ -189,6 +189,32 @@ def test_readonly_commands(cluster):
     assert cluster.node(1).client.get('key') == b'value'
 
 
+def test_readonly_acl_oom_permutations(cluster):
+    cluster.create(3)
+
+    cluster.execute('set', 'abc', 1234)
+    cluster.wait_for_unanimity()
+
+    # no oom, acl allow
+    assert cluster.execute("get", "abc") == b'1234'
+
+    # oom, acl allow
+    cluster.execute('config', 'set', 'maxmemory', 1)
+    assert cluster.execute("get", "abc") == b'1234'
+    cluster.execute('config', 'set', 'maxmemory', 0)
+
+    cluster.execute('acl', 'setuser', 'default', 'resetkeys')
+    # no oom, acl deny
+    with raises(ResponseError, match="No permissions to access a key"):
+        cluster.execute("get", "abc")
+
+    # oom, acl deny
+    cluster.execute('config', 'set', 'maxmemory', 1)
+    with raises(ResponseError, match="No permissions to access a key"):
+        cluster.execute("get", "abc")
+    cluster.execute('config', 'set', 'maxmemory', 0)
+
+
 def test_nonquorum_reads(cluster):
     """
     Test non-quorum reads, requests are not processed until an entry from the
