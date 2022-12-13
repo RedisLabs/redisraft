@@ -627,6 +627,10 @@ static void test_corruption_entry(void **state)
         LogLoadEntries(log);
 
         assert_int_equal(log->num_entries, 1);
+        /* Verify entry with id 7000 does not exist. */
+        e = LogGet(log, 3);
+        assert_null(e);
+
         /* Verify entry with id 6000 does not exist. */
         e = LogGet(log, 2);
         assert_null(e);
@@ -641,6 +645,7 @@ static void test_corruption_entry(void **state)
         /* Create file again. */
         unlink(LOGNAME);
         log = LogCreate(LOGNAME, DBID, 1, 0, 1);
+
         e = __make_entry_value(5000, "test5000");
         LogAppend(log, e);
         raft_entry_release(e);
@@ -648,6 +653,11 @@ static void test_corruption_entry(void **state)
         e = __make_entry_value(6000, "test6000");
         LogAppend(log, e);
         raft_entry_release(e);
+
+        e = __make_entry_value(7000, "test7000");
+        LogAppend(log, e);
+        raft_entry_release(e);
+
         LogFree(log);
     }
 }
