@@ -46,3 +46,4 @@ static inline char *mock_Strdup(const char *s)
 #define RedisModule_FreeString(__ctx, __s)          test_free(__s)
 #define RedisModule_MonotonicMicroseconds()         0
 #define RedisModule_Strdup(__s)                     mock_Strdup(__s)
+#define RedisModule_Log(...)

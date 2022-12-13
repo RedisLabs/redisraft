@@ -307,14 +307,20 @@ bool parseInt(const char *str, char **end, int *val)
 
 bool multibulkReadLen(File *fp, char type, int *length)
 {
+    char *end;
     char buf[64] = {0};
 
-    ssize_t ret = FileGets(fp, buf, sizeof(buf));
+    ssize_t ret = FileGets(fp, buf, sizeof(buf) - strlen("\r\n"));
     if (ret <= 0 || buf[0] != type) {
         return false;
     }
 
-    return parseInt(buf + 1, NULL, length);
+    if (!parseInt(buf + 1, &end, length) ||
+        *end != '\r' || *(end + 1) != '\n') {
+        return false;
+    }
+
+    return true;
 }
 
 bool multibulkReadInt(File *fp, int *value)
@@ -352,7 +358,8 @@ bool multibulkReadStr(File *fp, char *buf, size_t size)
     }
 
     if (FileRead(fp, buf, len) != len ||
-        FileRead(fp, crlf, 2) != 2) {
+        FileRead(fp, crlf, 2) != 2 ||
+        crlf[0] != '\r' || crlf[1] != '\n') {
         return false;
     }
 
