@@ -9,7 +9,6 @@
 
 #include "file.h"
 #include "raft.h"
-#include "redisraft.h"
 
 #include <limits.h>
 #include <stdbool.h>
@@ -18,46 +17,59 @@
 
 extern raft_log_impl_t LogImpl;
 
+typedef struct LogPage {
+    uint32_t version;           /* Log file format version */
+    char dbid[64];              /* DB unique ID */
+    raft_node_id_t node_id;     /* Node ID */
+    raft_term_t prev_log_term;  /* Entry term that comes just before this page. */
+    raft_index_t prev_log_idx;  /* Entry index that comes just before this page. */
+    raft_index_t num_entries;   /* Entries in log */
+    raft_index_t index;         /* Index of last entry */
+    char filename[PATH_MAX];    /* Log file name */
+    char idxfilename[PATH_MAX]; /* Index file name */
+    File file;                  /* Log file */
+    File idxfile;               /* Index file descriptor */
+    long current_crc;           /* Current running crc value for the log file */
+} LogPage;
+
 typedef struct Log {
-    uint32_t version;               /* Log file format version */
-    char dbid[RAFT_DBID_LEN + 1];   /* DB unique ID */
-    raft_node_id_t node_id;         /* Node ID */
-    raft_term_t snapshot_last_term; /* Last term included in snapshot */
-    raft_index_t snapshot_last_idx; /* Last index included in snapshot */
-    raft_index_t num_entries;       /* Entries in log */
-    raft_index_t index;             /* Index of last entry */
-    char filename[PATH_MAX];        /* Log file name */
-    char idxfilename[PATH_MAX];     /* Index file name */
-    File file;                      /* Log file */
-    File idxfile;                   /* Index file descriptor */
-    raft_index_t fsync_index;       /* Last entry index included in the latest fsync() call */
-    uint64_t fsync_count;           /* Count of fsync() calls */
-    uint64_t fsync_max;             /* Slowest fsync() call in microseconds */
-    uint64_t fsync_total;           /* Total time fsync() calls consumed in microseconds */
-    long current_crc;               /* current running crc value for log */
+    LogPage *pages[2];
+    raft_index_t fsync_index; /* Last entry index included in the latest fsync() call */
+    uint64_t fsync_count;     /* Count of fsync() calls */
+    uint64_t fsync_max;       /* Slowest fsync() call in microseconds */
+    uint64_t fsync_total;     /* Total time fsync() calls consumed in microseconds */
 } Log;
 
-Log *LogCreate(const char *filename, const char *dbid,
-               raft_term_t snapshot_term, raft_index_t snapshot_index,
-               raft_node_id_t node_id);
-void LogFree(Log *raft_log);
-Log *LogOpen(const char *filename, bool keep_index);
+void LogInit(Log *log);
+void LogTerm(Log *log);
+
+int LogCreate(Log *log, const char *filename, const char *dbid,
+              raft_node_id_t node_id, raft_term_t snapshot_term,
+              raft_index_t snapshot_index);
+int LogOpen(Log *log, const char *filename);
+
+raft_node_id_t LogNodeId(Log *log);
+const char *LogDbid(Log *log);
+
 int LogAppend(Log *log, raft_entry_t *entry);
 int LogLoadEntries(Log *log);
 int LogSync(Log *log, bool sync);
+int LogFlush(Log *log);
+int LogCurrentFd(Log *log);
 raft_entry_t *LogGet(Log *log, raft_index_t idx);
 int LogDelete(Log *log, raft_index_t from_idx);
 int LogReset(Log *log, raft_index_t index, raft_term_t term);
+raft_term_t LogPrevLogTerm(Log *log);
+raft_index_t LogPrevLogIndex(Log *log);
 raft_index_t LogCount(Log *log);
+raft_index_t LogFirstPageIdx(Log *log);
 raft_index_t LogFirstIdx(Log *log);
 raft_index_t LogCurrentIdx(Log *log);
 size_t LogFileSize(Log *log);
 void LogArchiveFiles(Log *log);
 
-Log *LogRewrite(RedisRaftCtx *rr, const char *filename,
-                raft_index_t last_idx, raft_term_t last_term,
-                unsigned long *num_entries);
-int LogRewriteSwitch(RedisRaftCtx *rr, Log *new_log,
-                     raft_index_t new_log_entries);
+int LogCompactionBegin(Log *log);
+void LogCompactionEnd(Log *log);
+bool LogCompactionStarted(Log *log);
 
 #endif

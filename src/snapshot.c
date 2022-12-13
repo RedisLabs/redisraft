@@ -257,9 +257,6 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
-    Log *new_log = NULL;
-    unsigned long num_log_entries;
-
     char temp_log_filename[256];
     snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
              rr->config.log_filename);
@@ -268,49 +265,26 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     LOG_DEBUG("Finalizing snapshot.");
 
-    /* Rewrite any additional log entries beyond the snapshot to a new
-     * log file.
+    /* We now have to rename the snapshot file first. This guarantees we lose no
+     * data if we fail now before renaming the log -- all we'll have to do is
+     * skip redundant log entries.
      */
-    new_log = LogRewrite(rr, temp_log_filename,
-                         rr->curr_snapshot_last_idx,
-                         rr->curr_snapshot_last_term,
-                         &num_log_entries);
-
-    if (!new_log) {
-        LOG_WARNING("Failed to rewrite log");
-        cancelSnapshot(rr, sr);
-        return -1;
-    }
-
-    LOG_VERBOSE("Log rewrite complete, %lu entries rewritten (from idx %lu).",
-                num_log_entries, raft_get_snapshot_last_idx(rr->raft));
-
-    /* We now have to switch temp files. We need to rename two files in a non-atomic
-     * operation, so order is critical and we must rename the snapshot file first.
-     * This guarantees we lose no data if we fail now before renaming the log -- all
-     * we'll have to do is skip redundant log entries.
-     */
-
     if (rename(sr->rdb_filename, rr->config.rdb_filename) < 0) {
         LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
                     sr->rdb_filename, rr->config.rdb_filename, strerror(errno));
-        LogFree(new_log);
         cancelSnapshot(rr, sr);
         return -1;
     }
 
     fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
-
-    if (LogRewriteSwitch(rr, new_log, num_log_entries) != RR_OK) {
-        LogFree(new_log);
-        cancelSnapshot(rr, sr);
-        return -1;
-    }
-
     createOutgoingSnapshotMmap(rr);
 
-    /* Finalize snapshot */
+    /* Finalize snapshot. logImplPoll callback will be called and first log
+     * page will be deleted. */
     raft_end_snapshot(rr->raft);
+
+    LOG_NOTICE("Snapshot has been completed (snapshot idx=%lu).",
+               raft_get_snapshot_last_idx(rr->raft));
 
     rr->snapshots_created++;
     rr->last_snapshot_time = RedisModule_Milliseconds() - rr->curr_snapshot_start_time;
@@ -421,10 +395,6 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
     fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
-    if (LogSync(rr->log, true) != RR_OK) {
-        PANIC("RaftLogSync() failed.");
-    }
-
     pid_t child = RedisModule_Fork(NULL, NULL);
     if (child < 0) {
         LOG_WARNING("Failed to fork snapshot child: %s", strerror(errno));
@@ -533,8 +503,14 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 
     SnapshotLoad *sl = &rr->snapshot_load;
 
+    if (rr->disable_snapshot_load) {
+        return;
+    }
+
     LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu",
               sl->term, sl->index);
+
+    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
 
     int ret = raft_begin_load_snapshot(rr->raft, sl->term, sl->index);
     if (ret != 0) {
@@ -552,18 +528,9 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
     configRaftFromSnapshotInfo(rr);
     raft_end_load_snapshot(rr->raft);
 
-    /* Restart the log where the snapshot ends */
-    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
-    LogFree(rr->log);
-    rr->log = LogCreate(rr->config.log_filename,
-                        rr->snapshot_info.dbid,
-                        rr->snapshot_info.last_applied_term,
-                        rr->snapshot_info.last_applied_idx,
-                        rr->config.id);
-
     EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
-
     createOutgoingSnapshotMmap(rr);
+
     rr->snapshots_received++;
     rr->state = REDIS_RAFT_UP;
 

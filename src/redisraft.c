@@ -1067,9 +1067,9 @@ static void clusterInit(const char *cluster_id)
     MetadataSetClusterConfig(&rr->meta, rr->config.log_filename,
                              rr->snapshot_info.dbid, rr->config.id);
 
-    rr->log = LogCreate(rr->config.log_filename, rr->snapshot_info.dbid,
-                        1, 0, rr->config.id);
-    if (!rr->log) {
+    int rc = LogCreate(&rr->log, rr->config.log_filename,
+                       rr->snapshot_info.dbid, rr->config.id, 1, 0);
+    if (rc != RR_OK) {
         PANIC("Failed to initialize Raft log");
     }
 
@@ -1088,12 +1088,11 @@ static void clusterJoinCompleted(RaftReq *req)
     /* Initialize Raft log.  We delay this operation as we want to create the
      * log with the proper dbid which is only received now.
      */
-    rr->log = LogCreate(rr->config.log_filename,
-                        rr->snapshot_info.dbid,
-                        rr->snapshot_info.last_applied_term,
-                        rr->snapshot_info.last_applied_idx,
-                        rr->config.id);
-    if (!rr->log) {
+    int rc = LogCreate(&rr->log, rr->config.log_filename,
+                       rr->snapshot_info.dbid, rr->config.id,
+                       rr->snapshot_info.last_applied_term,
+                       rr->snapshot_info.last_applied_idx);
+    if (rc != RR_OK) {
         PANIC("Failed to initialize Raft log");
     }
 
@@ -1299,6 +1298,19 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  * Reply:
  *     Any standard Redis reply, depending on the commands.
  *
+ * RAFT.DEBUG BEGIN_COMPACTION
+ *     Advance to the second log page.
+ * Reply:
+ *   +OK
+ *   -ERR description
+ *
+ * RAFT.DEBUG DISABLE_SNAPSHOT <disable_snapshot> <disable_snapshot_load>
+ *     Set/unset disable_snapshot and disable_snapshot_load flags.
+ *     If disable_snapshot is set, node will not create a snapshot.
+ *     If disable_snapshot_load is set, node will not load the received snapshot.
+ * Reply:
+ *   +OK
+ *
  * RAFT.DEBUG DISABLE_APPLY <val>
  *     Set/unset disable_apply raft configuration flag
  *
@@ -1352,13 +1364,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         req->r.debug.fail = (int) fail;
 
         rr->debug_req = req;
-
-        if (initiateSnapshot(rr) != RR_OK) {
-            LOG_VERBOSE("RAFT.DEBUG COMPACT requested but failed.");
-            RedisModule_ReplyWithError(req->ctx, "ERR operation failed");
-            rr->debug_req = NULL;
-            RaftReqFree(req);
-        }
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -1436,6 +1441,38 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
         }
+    } else if (!strncasecmp(cmd, "disable_snapshot", cmdlen) && argc >= 3) {
+        long long val;
+
+        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR invalid value");
+            return REDISMODULE_OK;
+        }
+
+        if (argc == 4) {
+            long long load;
+
+            if (RedisModule_StringToLongLong(argv[3], &load) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid value");
+                return REDISMODULE_OK;
+            }
+            rr->disable_snapshot_load = load;
+        }
+
+        rr->disable_snapshot = val;
+
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else if (!strncasecmp(cmd, "begin_compaction", cmdlen) && argc == 2) {
+        if (checkRaftState(rr, ctx) != RR_OK) {
+            return REDISMODULE_OK;
+        }
+
+        if (LogCompactionBegin(&rr->log) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR failed to begin compaction");
+            return REDISMODULE_OK;
+        }
+
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
         long long val;
         if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
@@ -1765,16 +1802,16 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldLongLong(ctx, "current_index", rr->raft ? raft_get_current_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "commit_index", rr->raft ? raft_get_commit_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "last_applied_index", rr->raft ? raft_get_last_applied_idx(rr->raft) : 0);
-    RedisModule_InfoAddFieldULongLong(ctx, "file_size", rr->log ? LogFileSize(rr->log) : 0);
+    RedisModule_InfoAddFieldULongLong(ctx, "file_size", LogFileSize(&rr->log));
     RedisModule_InfoAddFieldULongLong(ctx, "cache_memory_size", rr->logcache ? rr->logcache->entries_memsize : 0);
     RedisModule_InfoAddFieldLongLong(ctx, "cache_entries", rr->logcache ? rr->logcache->len : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "client_attached_entries", rr->client_attached_entries);
-    RedisModule_InfoAddFieldULongLong(ctx, "fsync_count", rr->log ? rr->log->fsync_count : 0);
-    RedisModule_InfoAddFieldULongLong(ctx, "fsync_max_microseconds", rr->log ? rr->log->fsync_max : 0);
+    RedisModule_InfoAddFieldULongLong(ctx, "fsync_count", rr->log.fsync_count);
+    RedisModule_InfoAddFieldULongLong(ctx, "fsync_max_microseconds", rr->log.fsync_max);
 
     uint64_t avg = 0;
-    if (rr->log && rr->log->fsync_count) {
-        avg = rr->log->fsync_total / rr->log->fsync_count;
+    if (rr->log.fsync_count) {
+        avg = rr->log.fsync_total / rr->log.fsync_count;
     }
     RedisModule_InfoAddFieldULongLong(ctx, "fsync_avg_microseconds", avg);
 
@@ -1958,8 +1995,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
     int ret = MetadataRead(&rr->meta, rr->config.log_filename);
     if (ret == RR_OK) {
-        rr->log = LogOpen(rr->config.log_filename, false);
-        if (rr->log) {
+        ret = LogOpen(&rr->log, rr->config.log_filename);
+        if (ret == RR_OK) {
             rr->state = REDIS_RAFT_LOADING;
         }
     }
@@ -1989,8 +2026,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
         rr->ctx = NULL;
     }
 
-    LogFree(rr->log);
-    rr->log = NULL;
+    LogTerm(&rr->log);
 
     if (rr->logcache) {
         EntryCacheFree(rr->logcache);

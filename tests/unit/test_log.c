@@ -6,6 +6,7 @@
 
 #include "../src/entrycache.h"
 #include "../src/log.h"
+#include "../src/redisraft.h"
 #include "common/sc_crc32.h"
 
 #include <fcntl.h>
@@ -23,15 +24,19 @@
 
 static int setup_create_log(void **state)
 {
-    *state = LogCreate(LOGNAME, DBID, 1, 0, 1);
-    assert_non_null(*state);
+    *state = malloc(sizeof(Log));
+
+    LogInit(*state);
+    int rc = LogCreate(*state, LOGNAME, DBID, 1, 1, 0);
+    assert_int_equal(rc, RR_OK);
     return 0;
 }
 
 static int teardown_log(void **state)
 {
     Log *log = (Log *) *state;
-    LogFree(log);
+    LogTerm(log);
+    free(log);
     unlink(LOGNAME);
     unlink(LOGNAME ".idx");
     return 0;
@@ -142,8 +147,10 @@ static void test_log_index_rebuild(void **state)
     unlink(LOGNAME ".idx");
 
     /* Reopen the log */
-    Log *log2 = LogOpen(LOGNAME, false);
-    LogLoadEntries(log2);
+    Log log2;
+    LogInit(&log2);
+    LogOpen(&log2, LOGNAME);
+    LogLoadEntries(&log2);
 
     /* Invalid out of bound reads */
     assert_null(LogGet(log, 99));
@@ -159,7 +166,7 @@ static void test_log_index_rebuild(void **state)
     raft_entry_release(e);
 
     /* Close the log */
-    LogFree(log2);
+    LogTerm(&log2);
 }
 
 static void test_log_write_after_read(void **state)
@@ -245,7 +252,7 @@ static void test_log_delete(void **state)
     assert_int_equal(LogDelete(log, 52), RR_OK);
 
     /* Assert deleting a non-existing entry doesn't cause a problem. */
-    assert_int_equal(LogDelete(log, 52), RR_OK);
+    assert_int_equal(LogDelete(log, 52), RR_ERROR);
 
     /* Check log sanity after delete */
     assert_int_equal(LogCount(log), 1);
@@ -558,9 +565,12 @@ static void test_crc32c(void **state)
  * Verify we detect the corruption when we try to read the file. */
 static void test_corruption_header(void **state)
 {
+    Log log;
+
     /* Generate header on the disk. */
-    Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-    LogFree(log);
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+    LogTerm(&log);
 
     struct stat st;
     stat(LOGNAME, &st);
@@ -575,13 +585,15 @@ static void test_corruption_header(void **state)
         (void) rc;
         close(fd);
 
-        log = LogOpen(LOGNAME, 0);
-        assert_null(log);
+        LogInit(&log);
+        int ret = LogOpen(&log, LOGNAME);
+        assert_int_equal(ret, RR_ERROR);
 
         /* Create file again. */
         unlink(LOGNAME);
-        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-        LogFree(log);
+        LogInit(&log);
+        LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+        LogTerm(&log);
     }
 }
 
@@ -591,24 +603,27 @@ static void test_corruption_entry(void **state)
 {
     raft_entry_t *e;
     struct stat st;
+    Log log;
 
     /* In this test, we'll create a log file with three entries and then loop
      * over the bytes of the second entry (to change one byte at a time). We
      * need to find the position of the first and last byte of the second entry
      * on the disk before going into the loop. Here, creating a log file and
      * adding two entries just to detect the entry position. */
-    Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-    append_entry(log, 5000, "test5000");
-    LogFree(log);
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+    append_entry(&log, 5000, "test5000");
+    LogTerm(&log);
 
     /* Find out beginning and end bytes of the serialized entry.*/
     stat(LOGNAME, &st);
     size_t entry_begin = st.st_size;
 
-    log = LogOpen(LOGNAME, 0);
-    LogLoadEntries(log);
-    append_entry(log, 6000, "test6000");
-    LogFree(log);
+    LogInit(&log);
+    LogOpen(&log, LOGNAME);
+    LogLoadEntries(&log);
+    append_entry(&log, 6000, "test6000");
+    LogTerm(&log);
 
     stat(LOGNAME, &st);
     size_t entry_end = st.st_size;
@@ -617,11 +632,12 @@ static void test_corruption_entry(void **state)
     for (size_t i = entry_begin; i < entry_end; i++) {
         /* Prepare the log file. */
         unlink(LOGNAME);
-        log = LogCreate(LOGNAME, DBID, 1, 0, 1);
-        append_entry(log, 5000, "test5000");
-        append_entry(log, 6000, "test6000");
-        append_entry(log, 7000, "test7000");
-        LogFree(log);
+        LogInit(&log);
+        LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+        append_entry(&log, 5000, "test5000");
+        append_entry(&log, 6000, "test6000");
+        append_entry(&log, 7000, "test7000");
+        LogTerm(&log);
 
         int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
         assert_true(fd > 0);
@@ -631,25 +647,177 @@ static void test_corruption_entry(void **state)
         assert_int_equal(rc, 1);
         close(fd);
 
-        log = LogOpen(LOGNAME, 0);
-        LogLoadEntries(log);
+        LogInit(&log);
+        LogOpen(&log, LOGNAME);
+        LogLoadEntries(&log);
 
-        assert_int_equal(log->num_entries, 1);
+        assert_int_equal(LogCount(&log), 1);
         /* Verify entry with id 7000 does not exist. */
-        e = LogGet(log, 3);
+        e = LogGet(&log, 3);
         assert_null(e);
 
         /* Verify entry with id 6000 does not exist. */
-        e = LogGet(log, 2);
+        e = LogGet(&log, 2);
         assert_null(e);
 
         /* Verify entry with id 5000 exists. */
-        e = LogGet(log, 1);
+        e = LogGet(&log, 1);
         assert_int_equal(e->id, 5000);
         assert_memory_equal(e->data, "test5000", 8);
         raft_entry_release(e);
-        LogFree(log);
+        LogTerm(&log);
     }
+}
+
+/* Simulate log compaction. Log moves to second page and then the second page
+ * will be deleted when compaction ends. */
+static void test_log_compaction(void **state)
+{
+    (void) state;
+    int idx = 0;
+    Log log;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+
+    LogCompactionBegin(&log);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+    LogCompactionEnd(&log);
+    append_entry(&log, ++idx, NULL);
+    LogTerm(&log);
+
+    LogInit(&log);
+    LogOpen(&log, LOGNAME);
+    LogLoadEntries(&log);
+
+    raft_entry_t *e;
+
+    e = LogGet(&log, 3);
+    assert_null(e);
+
+    e = LogGet(&log, 4);
+    assert_int_equal(e->id, 4);
+    raft_entry_release(e);
+
+    e = LogGet(&log, 5);
+    assert_int_equal(e->id, 5);
+    raft_entry_release(e);
+
+    e = LogGet(&log, 6);
+    assert_int_equal(e->id, 6);
+    raft_entry_release(e);
+
+    LogTerm(&log);
+}
+
+/* Verify that on pop, we delete second page if necessary */
+static void test_log_delete_second_page(void **state)
+{
+    (void) state;
+    int idx = 0;
+    Log log;
+    raft_entry_t *e;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+
+    /* First index of the second page is 4. */
+    LogCompactionBegin(&log);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+
+    /* Sanity check */
+    assert_int_equal(LogCount(&log), 5);
+    assert_int_equal(LogFirstIdx(&log), 1);
+    assert_int_equal(LogCurrentIdx(&log), 5);
+
+    e = LogGet(&log, 1);
+    assert_int_equal(e->id, 1);
+    raft_entry_release(e);
+
+    e = LogGet(&log, 4);
+    assert_int_equal(e->id, 4);
+    raft_entry_release(e);
+
+    /* Delete from index 4 and verify second page is not deleted. */
+    LogDelete(&log, 4);
+    assert_non_null(log.pages[1]);
+
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+
+    /* Delete from index 3 and verify second page is deleted. */
+    LogDelete(&log, 3);
+    assert_null(log.pages[1]);
+    LogTerm(&log);
+
+    LogInit(&log);
+    LogOpen(&log, LOGNAME);
+    LogLoadEntries(&log);
+
+    e = LogGet(&log, 3);
+    assert_null(e);
+
+    e = LogGet(&log, 1);
+    assert_int_equal(e->id, 1);
+    raft_entry_release(e);
+
+    e = LogGet(&log, 2);
+    assert_int_equal(e->id, 2);
+    raft_entry_release(e);
+
+    LogTerm(&log);
+}
+
+/* Simulate shutdown/crash in the middle of compaction process. Try to read log
+ * from multiple pages. */
+static void test_log_start_with_two_pages(void **state)
+{
+    (void) state;
+    int idx = 0;
+    Log log;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+
+    LogCompactionBegin(&log);
+    append_entry(&log, ++idx, NULL);
+    append_entry(&log, ++idx, NULL);
+    LogTerm(&log);
+
+    /* Try to read files. */
+    LogInit(&log);
+    LogOpen(&log, LOGNAME);
+    LogLoadEntries(&log);
+
+    raft_entry_t *e;
+
+    assert_int_equal(LogCount(&log), 5);
+    assert_int_equal(LogFirstPageIdx(&log), 3);
+    assert_int_equal(LogCurrentIdx(&log), 5);
+
+    e = LogGet(&log, 5);
+    assert_int_equal(e->id, 5);
+    raft_entry_release(e);
+
+    e = LogGet(&log, 1);
+    assert_int_equal(e->id, 1);
+    raft_entry_release(e);
+
+    LogTerm(&log);
 }
 
 const struct CMUnitTest log_tests[] = {
@@ -685,5 +853,11 @@ const struct CMUnitTest log_tests[] = {
         test_corruption_header, NULL, NULL),
     cmocka_unit_test_setup_teardown(
         test_corruption_entry, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+        test_log_compaction, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+        test_log_delete_second_page, NULL, NULL),
+    cmocka_unit_test_setup_teardown(
+        test_log_start_with_two_pages, NULL, NULL),
     {.test_func = NULL},
 };

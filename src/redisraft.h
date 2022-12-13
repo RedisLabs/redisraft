@@ -23,6 +23,7 @@
 #include <openssl/ssl.h>
 #endif
 #include "file.h"
+#include "log.h"
 #include "metadata.h"
 #include "raft.h"
 #include "version.h"
@@ -372,7 +373,7 @@ typedef struct RedisRaftCtx {
     RedisRaftState state;          /* Raft module state */
     ThreadPool thread_pool;        /* Thread pool for slow operations */
     FsyncThread fsyncThread;       /* Thread to call fsync on raft log file */
-    struct Log *log;               /* Raft persistent log; May be NULL if not used */
+    Log log;                       /* Raft persistent log */
     Metadata meta;                 /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;   /* Log entry cache to keep entries in memory for faster access */
     struct RedisRaftConfig config; /* User provided configuration */
@@ -396,8 +397,11 @@ typedef struct RedisRaftCtx {
     struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;      /* A dict that tracks different client states */
     struct CommandSpecTable *commands_spec_table;
+
     /* Debug - Testing */
     struct RaftReq *debug_req;      /* Current RAFT.DEBUG request context, if processing one */
+    bool disable_snapshot;          /* If true, node will not take a snapshot */
+    bool disable_snapshot_load;     /* If true, node will not load the received rdb file */
     long long debug_delay_apply;    /* If not zero, sleep microseconds before the execution of a command */
     MigrationDebug migration_debug; /* for debugging migration, places to inject error */
 
