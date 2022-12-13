@@ -592,6 +592,11 @@ static void test_corruption_entry(void **state)
     raft_entry_t *e;
     struct stat st;
 
+    /* In this test, we'll create a log file with three entries and then loop
+     * over the bytes of the second entry (to change one byte at a time). We
+     * need to find the position of the first and last byte of the second entry
+     * on the disk before going into the loop. Here, creating a log file and
+     * adding two entries just to detect the entry position. */
     Log *log = LogCreate(LOGNAME, DBID, 1, 0, 1);
     append_entry(log, 5000, "test5000");
     LogFree(log);
