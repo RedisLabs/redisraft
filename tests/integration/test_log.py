@@ -480,3 +480,29 @@ def test_log_corrupt_middle_entry_data(cluster):
 
     assert cluster.execute('get', 'x') == b'2'
     assert n1.info()['raft_log_entries'] == 5
+
+
+def test_log_corrupt_middle_entry_crc(cluster):
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    cluster.execute('set', 'x', 2)
+    cluster.execute('set', 'x', 3)
+    cluster.execute('set', 'x', 4)
+    cluster.execute('set', 'x', 5)
+    cluster.execute('set', 'x', 6)
+
+    n1 = cluster.node(1)
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
+
+    log = RaftLog(n1.raftlog)
+    log.read()
+    assert log.entry_count() == 8
+    assert isinstance(log.entries[5], LogEntry)
+
+    corrupt_byte_location(n1.raftlog, log.entries[5].crc_location())
+
+    cluster.node(1).start()
+    assert cluster.execute('get', 'x') == b'2'
+    assert cluster.node(1).info()['raft_log_entries'] == 5
