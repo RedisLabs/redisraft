@@ -9,10 +9,8 @@ import time
 from random import seed, randint
 from re import match
 
-from _pytest.python_api import raises
 from redis import ResponseError
 from .raftlog import RaftLog, LogHeader, LogEntry
-from .sandbox import RedisRaftBug
 
 
 def test_log_append_random_size(cluster):
@@ -340,6 +338,18 @@ def test_log_partial_entry(cluster):
     assert cluster.execute('get', 'x') == ('b' * 15000).encode('utf-8')
 
 
+def corrupt_byte_location(filename, location):
+    file = open(filename, "r+b")
+    file.seek(location)
+    byte = file.read(1)
+    file.seek(location)
+    if byte == b"1":
+        file.write(b"2")
+    else:
+        file.write(b"1")
+    file.close()
+
+
 def test_log_corrupt_header_dbid(cluster):
     cluster.create(1)
 
@@ -350,29 +360,20 @@ def test_log_corrupt_header_dbid(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
 
-    log = RaftLog(cluster.node(1).raftlog)
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
+
+    log = RaftLog(n1.raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[0], LogHeader)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
+    corrupt_byte_location(n1.raftlog, log.header().dbid_location())
 
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.header().dbid_location())
-    cluster.node(1).start()
-    assert cluster.node(1).info()["raft_state"] == "uninitialized"
+    n1.start()
+    assert n1.info()["raft_state"] == "uninitialized"
 
 
 def test_log_corrupt_header_crc(cluster):
@@ -385,30 +386,20 @@ def test_log_corrupt_header_crc(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
+
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
 
     log = RaftLog(cluster.node(1).raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[0], LogHeader)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
+    corrupt_byte_location(n1.raftlog, log.header().crc_location())
 
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.header().crc_location())
-
-    cluster.node(1).start()
-    assert cluster.node(1).info()["raft_state"] == "uninitialized"
+    n1.start()
+    assert n1.info()["raft_state"] == "uninitialized"
 
 
 def test_log_corrupt_last_entry_data(cluster):
@@ -421,31 +412,21 @@ def test_log_corrupt_last_entry_data(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
+
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
 
     log = RaftLog(cluster.node(1).raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[8], LogEntry)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
+    corrupt_byte_location(n1.raftlog, log.entries[8].data_location())
+    n1.start()
 
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.entries[8].data_location())
-
-    cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'5'
-    assert cluster.node(1).info()['raft_log_entries'] == 8
+    assert n1.info()['raft_log_entries'] == 8
 
 
 def test_log_corrupt_last_entry_crc(cluster):
@@ -458,31 +439,21 @@ def test_log_corrupt_last_entry_crc(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
 
-    log = RaftLog(cluster.node(1).raftlog)
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
+
+    log = RaftLog(n1.raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[8], LogEntry)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
+    corrupt_byte_location(n1.raftlog, log.entries[8].crc_location())
+    n1.start()
 
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.entries[8].crc_location())
-
-    cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'5'
-    assert cluster.node(1).info()['raft_log_entries'] == 8
+    assert n1.info()['raft_log_entries'] == 8
 
 
 def test_log_corrupt_middle_entry_data(cluster):
@@ -495,34 +466,23 @@ def test_log_corrupt_middle_entry_data(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
 
-    log = RaftLog(cluster.node(1).raftlog)
+    log = RaftLog(n1.raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[5], LogEntry)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
+    corrupt_byte_location(n1.raftlog, log.entries[5].data_location())
+    n1.start()
 
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.entries[5].data_location())
-
-    cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'2'
-    assert cluster.node(1).info()['raft_log_entries'] == 5
+    assert n1.info()['raft_log_entries'] == 5
 
 
-def test_log_corrupt_last_entry_crc(cluster):
+def test_log_corrupt_middle_entry_crc(cluster):
     cluster.create(1)
 
     cluster.execute('set', 'x', 1)
@@ -532,27 +492,16 @@ def test_log_corrupt_last_entry_crc(cluster):
     cluster.execute('set', 'x', 5)
     cluster.execute('set', 'x', 6)
 
-    assert cluster.node(1).info()['raft_log_entries'] == 8
-    cluster.node(1).kill()
+    n1 = cluster.node(1)
+    assert n1.info()['raft_log_entries'] == 8
+    n1.kill()
 
-    log = RaftLog(cluster.node(1).raftlog)
+    log = RaftLog(n1.raftlog)
     log.read()
     assert log.entry_count() == 8
     assert isinstance(log.entries[5], LogEntry)
 
-    def corrupt_byte_location(filename, location):
-        file = open(filename, "r+b")
-        file.seek(location)
-        byte = file.read(1)
-        file.seek(location)
-        if byte == b"1":
-            file.write(b"2")
-        else:
-            file.write(b"1")
-        file.close()
-
-    filename = cluster.node(1).raftlog
-    corrupt_byte_location(filename, log.entries[5].crc_location())
+    corrupt_byte_location(n1.raftlog, log.entries[5].crc_location())
 
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'2'
