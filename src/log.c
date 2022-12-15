@@ -282,8 +282,8 @@ error:
 }
 
 static LogPage *pageCreate(const char *filename, const char *dbid,
-                           raft_node_id_t node_id, raft_term_t snapshot_term,
-                           raft_index_t snapshot_index)
+                           raft_node_id_t node_id, raft_term_t prev_log_term,
+                           raft_index_t prev_log_idx)
 {
     LogPage *p = pagePrepare(filename);
     if (!p) {
@@ -293,9 +293,9 @@ static LogPage *pageCreate(const char *filename, const char *dbid,
     memcpy(p->dbid, dbid, RAFT_DBID_LEN);
     p->dbid[RAFT_DBID_LEN] = '\0';
 
-    p->index = snapshot_index;
-    p->prev_log_idx = snapshot_index;
-    p->prev_log_term = snapshot_term;
+    p->index = prev_log_idx;
+    p->prev_log_idx = prev_log_idx;
+    p->prev_log_term = prev_log_term;
     p->node_id = node_id;
 
     if (pageWriteHeader(p) != RR_OK) {
@@ -549,11 +549,11 @@ void LogTerm(Log *log)
 }
 
 int LogCreate(Log *log, const char *filename, const char *dbid,
-              raft_node_id_t node_id, raft_term_t snapshot_term,
-              raft_index_t snapshot_index)
+              raft_node_id_t node_id, raft_term_t prev_log_term,
+              raft_index_t prev_log_index)
 {
-    log->pages[0] = pageCreate(filename, dbid, node_id, snapshot_term,
-                               snapshot_index);
+    log->pages[0] = pageCreate(filename, dbid, node_id, prev_log_term,
+                               prev_log_index);
     if (!log->pages[0]) {
         return RR_ERROR;
     }

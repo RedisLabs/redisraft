@@ -44,8 +44,8 @@ void LogInit(Log *log);
 void LogTerm(Log *log);
 
 int LogCreate(Log *log, const char *filename, const char *dbid,
-              raft_node_id_t node_id, raft_term_t snapshot_term,
-              raft_index_t snapshot_index);
+              raft_node_id_t node_id, raft_term_t prev_log_term,
+              raft_index_t prev_log_index);
 int LogOpen(Log *log, const char *filename);
 
 raft_node_id_t LogNodeId(Log *log);
