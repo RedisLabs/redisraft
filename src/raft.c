@@ -1339,7 +1339,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
          * can start the snapshot. */
         start = (rr->debug_req || !rr->disable_snapshot);
         if (start && LogCompactionStarted(&rr->log) &&
-            raft_get_commit_idx(rr->raft) >= LogFirstPageIdx(&rr->log)) {
+            raft_get_commit_idx(rr->raft) >= LogCompactionIdx(&rr->log)) {
 
             LOG_DEBUG("Log file is ready for compaction, initiating snapshot.");
             initiateSnapshot(rr);

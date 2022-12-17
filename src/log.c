@@ -669,7 +669,7 @@ raft_index_t LogPrevLogIndex(Log *log)
     return log->pages[0]->prev_log_idx;
 }
 
-raft_index_t LogFirstPageIdx(Log *log)
+raft_index_t LogCompactionIdx(Log *log)
 {
     return log->pages[0]->index;
 }

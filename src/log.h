@@ -62,7 +62,6 @@ int LogReset(Log *log, raft_index_t index, raft_term_t term);
 raft_term_t LogPrevLogTerm(Log *log);
 raft_index_t LogPrevLogIndex(Log *log);
 raft_index_t LogCount(Log *log);
-raft_index_t LogFirstPageIdx(Log *log);
 raft_index_t LogFirstIdx(Log *log);
 raft_index_t LogCurrentIdx(Log *log);
 size_t LogFileSize(Log *log);
@@ -71,5 +70,6 @@ void LogArchiveFiles(Log *log);
 int LogCompactionBegin(Log *log);
 void LogCompactionEnd(Log *log);
 bool LogCompactionStarted(Log *log);
+raft_index_t LogCompactionIdx(Log *log);
 
 #endif

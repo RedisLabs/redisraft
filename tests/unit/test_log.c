@@ -806,7 +806,7 @@ static void test_log_start_with_two_pages(void **state)
     raft_entry_t *e;
 
     assert_int_equal(LogCount(&log), 5);
-    assert_int_equal(LogFirstPageIdx(&log), 3);
+    assert_int_equal(LogCompactionIdx(&log), 3);
     assert_int_equal(LogCurrentIdx(&log), 5);
 
     e = LogGet(&log, 5);
