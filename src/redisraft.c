@@ -1276,10 +1276,14 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
 }
 
-/* RAFT.DEBUG COMPACT [delay]
- *   Initiate an immediate rewrite of the Raft log + snapshot.
- *   If [delay] is specified, introduce an artificial delay of [delay] seconds in
- *   the background rewrite child process.
+/* RAFT.DEBUG COMPACT [delay] [fail] [async]
+ *     Initiate the snapshot.
+ *     If [delay] is specified, introduce an artificial delay of [delay] seconds
+ *        in the background child process.
+ *     If [fail] is non-zero, snapshot will fail.
+ *     If [async] is non-zero, snapshot will be triggered and client will get
+ *        the reply without waiting the snapshot result. [delay] ahd [fail]
+ *        parameters will be ignored.
  * Reply:
  *   +OK
  *
@@ -1297,12 +1301,6 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *     Execute Redis commands locally (commands do not go through Raft interception)
  * Reply:
  *     Any standard Redis reply, depending on the commands.
- *
- * RAFT.DEBUG BEGIN_COMPACTION
- *     Advance to the second log page.
- * Reply:
- *   +OK
- *   -ERR description
  *
  * RAFT.DEBUG DISABLE_SNAPSHOT <disable_snapshot> <disable_snapshot_load>
  *     Set/unset disable_snapshot and disable_snapshot_load flags.
@@ -1344,6 +1342,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (!strncasecmp(cmd, "compact", cmdlen)) {
         long long fail = 0;
         long long delay = 0;
+        long long async = 0;
 
         if (argc == 3) {
             if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
@@ -1357,6 +1356,27 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
                 RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
                 return REDISMODULE_OK;
             }
+        }
+
+        if (argc == 5) {
+            if (RedisModule_StringToLongLong(argv[4], &async) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
+                return REDISMODULE_OK;
+            }
+        }
+
+        if (checkRaftState(rr, ctx) != RR_OK) {
+            return REDISMODULE_OK;
+        }
+
+        if (LogCompactionBegin(&rr->log) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR failed to begin compaction");
+            return REDISMODULE_OK;
+        }
+
+        if (async) {
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
+            return REDISMODULE_OK;
         }
 
         RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
@@ -1460,17 +1480,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         }
 
         rr->disable_snapshot = val;
-
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else if (!strncasecmp(cmd, "begin_compaction", cmdlen) && argc == 2) {
-        if (checkRaftState(rr, ctx) != RR_OK) {
-            return REDISMODULE_OK;
-        }
-
-        if (LogCompactionBegin(&rr->log) != RR_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR failed to begin compaction");
-            return REDISMODULE_OK;
-        }
 
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
