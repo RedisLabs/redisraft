@@ -1331,8 +1331,10 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
              * committed all the entries of the first log file. */
             int rc = LogCompactionBegin(&rr->log);
             RedisModule_Assert(rc == RR_OK);
-            LOG_DEBUG("Raft log file size is %lu, initiating compaction.",
-                      LogFileSize(&rr->log));
+
+            LOG_NOTICE("Raft log file size is %lu, "
+                       "initiating compaction for index: %ld",
+                       LogFileSize(&rr->log), LogCompactionIdx(&rr->log));
         }
 
         /* Step-2: If we've committed all the entries of the first log page, we
@@ -1341,7 +1343,11 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         if (start && LogCompactionStarted(&rr->log) &&
             raft_get_commit_idx(rr->raft) >= LogCompactionIdx(&rr->log)) {
 
-            LOG_DEBUG("Log file is ready for compaction, initiating snapshot.");
+            LOG_NOTICE("Log file is ready for compaction. "
+                       "log index:%ld, commit index: %ld.",
+                       LogCompactionIdx(&rr->log),
+                       raft_get_commit_idx(rr->raft));
+
             initiateSnapshot(rr);
         }
     }

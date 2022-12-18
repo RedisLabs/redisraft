@@ -33,7 +33,7 @@ typedef struct LogPage {
 } LogPage;
 
 typedef struct Log {
-    LogPage *pages[2];
+    LogPage *pages[2];        /* Log files. Second page will be created on log compaction */
     raft_index_t fsync_index; /* Last entry index included in the latest fsync() call */
     uint64_t fsync_count;     /* Count of fsync() calls */
     uint64_t fsync_max;       /* Slowest fsync() call in microseconds */
