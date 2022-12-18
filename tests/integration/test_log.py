@@ -9,10 +9,9 @@ import time
 from random import seed, randint
 from re import match
 
-from _pytest.python_api import raises
+from pytest import raises
 from redis import ResponseError
 from .raftlog import RaftLog, LogHeader, LogEntry
-from .sandbox import RedisRaftBug
 
 
 def test_log_append_random_size(cluster):
