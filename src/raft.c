@@ -1322,7 +1322,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         /* Step-1: Start compaction if we are over the file size limit or if
          * there is a debug req. */
         uint64_t limit = rr->config.log_max_file_size;
-        start = (rr->debug_req || (limit && LogFileSize(&rr->log) > limit));
+        start = (limit && LogFileSize(&rr->log) > limit);
 
         if (start && !LogCompactionStarted(&rr->log) &&
             raft_get_num_snapshottable_logs(rr->raft) > 0) {
