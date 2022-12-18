@@ -501,11 +501,11 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 {
     RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
 
-    SnapshotLoad *sl = &rr->snapshot_load;
-
     if (rr->disable_snapshot_load) {
         return;
     }
+
+    SnapshotLoad *sl = &rr->snapshot_load;
 
     LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu",
               sl->term, sl->index);
