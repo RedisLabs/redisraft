@@ -552,11 +552,16 @@ int LogCreate(Log *log, const char *filename, const char *dbid,
               raft_node_id_t node_id, raft_term_t prev_log_term,
               raft_index_t prev_log_index)
 {
+    RedisModule_Assert(strlen(dbid) == RAFT_DBID_LEN);
+
     log->pages[0] = pageCreate(filename, dbid, node_id, prev_log_term,
                                prev_log_index);
     if (!log->pages[0]) {
         return RR_ERROR;
     }
+
+    strncpy(log->dbid, dbid, RAFT_DBID_LEN);
+    log->node_id = node_id;
 
     return RR_OK;
 }
@@ -573,6 +578,9 @@ int LogOpen(Log *log, const char *filename)
     if (!log->pages[0]) {
         return RR_ERROR;
     }
+
+    strncpy(log->dbid, log->pages[0]->dbid, RAFT_DBID_LEN);
+    log->node_id = log->pages[0]->node_id;
 
     char buf[PATH_MAX];
     secondPageFileName(buf, sizeof(buf), filename);
@@ -615,12 +623,12 @@ size_t LogFileSize(Log *log)
 
 raft_node_id_t LogNodeId(Log *log)
 {
-    return log->pages[0]->node_id;
+    return log->node_id;
 }
 
 const char *LogDbid(Log *log)
 {
-    return log->pages[0]->dbid;
+    return log->dbid;
 }
 
 int LogAppend(Log *log, raft_entry_t *entry)
