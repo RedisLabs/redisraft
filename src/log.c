@@ -560,7 +560,8 @@ int LogCreate(Log *log, const char *filename, const char *dbid,
         return RR_ERROR;
     }
 
-    strncpy(log->dbid, dbid, RAFT_DBID_LEN);
+    memcpy(log->dbid, log->pages[0]->dbid, RAFT_DBID_LEN);
+    log->dbid[RAFT_DBID_LEN] = '\0';
     log->node_id = node_id;
 
     return RR_OK;
@@ -579,7 +580,8 @@ int LogOpen(Log *log, const char *filename)
         return RR_ERROR;
     }
 
-    strncpy(log->dbid, log->pages[0]->dbid, RAFT_DBID_LEN);
+    memcpy(log->dbid, log->pages[0]->dbid, RAFT_DBID_LEN);
+    log->dbid[RAFT_DBID_LEN] = '\0';
     log->node_id = log->pages[0]->node_id;
 
     char buf[PATH_MAX];
