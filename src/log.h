@@ -18,7 +18,7 @@
 extern raft_log_impl_t LogImpl;
 
 typedef struct LogPage {
-    char dbid[64];              /* DB unique ID */
+    char dbid[64];              /* DB unique ID, TODO: size should be RAFT_DBID_LEN + 1, will be fixed with RR-148 */
     raft_node_id_t node_id;     /* Node ID */
     raft_term_t prev_log_term;  /* Entry term that comes just before this page. */
     raft_index_t prev_log_idx;  /* Entry index that comes just before this page. */
@@ -32,7 +32,7 @@ typedef struct LogPage {
 } LogPage;
 
 typedef struct Log {
-    char dbid[64];            /* DB unique ID */
+    char dbid[64];            /* DB unique ID, TODO: size should be RAFT_DBID_LEN + 1, will be fixed with RR-148 */
     raft_node_id_t node_id;   /* Node ID */
     LogPage *pages[2];        /* Log files. Second page will be created on log compaction */
     raft_index_t fsync_index; /* Last entry index included in the latest fsync() call */
