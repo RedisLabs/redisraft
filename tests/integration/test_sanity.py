@@ -307,12 +307,7 @@ def test_proxying_with_interception(cluster):
     cluster.create(3)
     assert cluster.leader == 1
 
-    assert cluster.node(1).client.execute_command(
-        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
-    assert cluster.node(2).client.execute_command(
-        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
-    assert cluster.node(3).client.execute_command(
-        'CONFIG', 'SET', 'raft.follower-proxy', 'yes') == b'OK'
+    cluster.config_set('raft.follower-proxy', 'yes')
 
     assert cluster.node(1).client.rpush('list-a', 'x') == 1
     assert cluster.node(1).client.rpush('list-a', 'x') == 2
@@ -494,7 +489,7 @@ def test_appendentries_size_limit(cluster):
     for i in range(10000):
         cluster.execute('set', 'x', 1)
 
-    cluster.node(1).execute('config', 'set', 'raft.append-req-max-size', '1kb')
+    cluster.config_set('raft.append-req-max-size', '1kb')
 
     n2 = cluster.add_node()
     cluster.wait_for_unanimity()
@@ -542,7 +537,7 @@ def test_maxmemory(cluster):
     val = ''.join('1' for _ in range(2000000))
 
     cluster.execute('set', 'key1', val)
-    cluster.execute('config', 'set', 'maxmemory', 1)
+    cluster.config_set('maxmemory', 1)
 
     msg = "OOM command not allowed when used memory > 'maxmemory'"
     with raises(ResponseError, match=msg):
@@ -554,7 +549,7 @@ def test_maxmemory(cluster):
     with raises(ResponseError, match=msg):
         cluster.execute('set', 'key1', val)
 
-    cluster.execute('config', 'set', 'maxmemory', 0)
+    cluster.config_set('maxmemory', 0)
     cluster.execute('set', 'key1', val)
 
 
@@ -642,7 +637,7 @@ def test_acl(cluster):
         return 1234;""", '0')
 
 
-def test_ro_scripts(cluster):
+def test_ro_permutations(cluster):
     cluster.create(3)
 
     cluster.execute('set', 'abc', 1234)
@@ -664,37 +659,39 @@ def test_ro_scripts(cluster):
         return redis.call('GET','abc');""", '0') == b'1234'
     assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
     assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
+    assert cluster.execute("get", "abc") == b'1234'
 
     # oom, acl allow
-    cluster.execute('config', 'set', 'maxmemory', 1)
+    cluster.config_set('maxmemory', 1)
     assert cluster.execute('EVAL_RO', """
         return redis.call('GET','abc');""", '0') == b'1234'
     assert cluster.execute('EVALSHA_RO', sha.decode(), 0) == b'1234'
     assert cluster.execute('FCALL_RO', 'testfunc', 0) == b'1234'
-    cluster.execute('config', 'set', 'maxmemory', 0)
+    assert cluster.execute("get", "abc") == b'1234'
+    cluster.config_set('maxmemory', 0)
 
-    print("no oom, acl deny")
-
-    cluster.execute('acl', 'setuser', 'default', 'resetkeys')
     # no oom, acl deny
+    cluster.execute('acl', 'setuser', 'default', 'resetkeys')
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('EVAL_RO', "return redis.call('GET','abc');", '0')
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('EVALSHA_RO', sha.decode(), 0)
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('FCALL_RO', 'testfunc', 0)
-
-    print("oom, acl deny")
+    with raises(ResponseError, match="No permissions to access a key"):
+        cluster.execute("get", "abc")
 
     # oom, acl deny
-    cluster.execute('config', 'set', 'maxmemory', 1)
+    cluster.config_set('maxmemory', 1)
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('EVAL_RO', "return redis.call('GET','abc');", '0')
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('EVALSHA_RO', sha.decode(), 0)
     with raises(ResponseError, match="No permissions to access a key"):
         cluster.execute('FCALL_RO', 'testfunc', 0)
-    cluster.execute('config', 'set', 'maxmemory', 0)
+    with raises(ResponseError, match="No permissions to access a key"):
+        cluster.execute("get", "abc")
+    cluster.config_set('maxmemory', 0)
 
 
 def test_metadata_restore_after_restart(cluster):
