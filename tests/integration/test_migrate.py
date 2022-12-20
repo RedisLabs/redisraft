@@ -635,17 +635,19 @@ def test_migrate_fail_if_not_ready(cluster):
     cluster2 = None
 
     try:
-        cluster1 = RedisRaft(1, cluster.base_port, cluster.config, raft_args={
-            'sharding': 'yes',
-            'external-sharding': 'yes'
-        })
+        cluster1 = RedisRaft(1, cluster.base_port, cluster.config,
+                             raft_args={
+                                 'sharding': 'yes',
+                                 'external-sharding': 'yes'
+                             })
         cluster1.start()
         assert cluster1.info()["raft_state"] == "uninitialized"
 
-        cluster2 = RedisRaft(1, cluster.base_port+1, cluster.config, raft_args={
-            'sharding': 'yes',
-            'external-sharding': 'yes'
-        })
+        cluster2 = RedisRaft(1, cluster.base_port+1, cluster.config,
+                             raft_args={
+                                 'sharding': 'yes',
+                                 'external-sharding': 'yes'
+                             })
         cluster2.init()
 
         cluster2.execute("set", "key", "value")
@@ -663,7 +665,8 @@ def test_migrate_fail_if_not_ready(cluster):
             "{}00000001".format(cluster2_dbid).encode(), cluster2.address,
         ) == b'OK'
 
-        with raises(ResponseError, match="RAFT.IMPORT failed: NOCLUSTER No Raft Cluster"):
+        with raises(ResponseError,
+                    match="RAFT.IMPORT failed: NOCLUSTER No Raft Cluster"):
             cluster2.execute('migrate', '', '', '', '', '', 'keys', "key")
     finally:
         if cluster1 is not None:
