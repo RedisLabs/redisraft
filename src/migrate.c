@@ -140,6 +140,10 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
 
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return REDISMODULE_OK;
+    }
+
     /* argc must be at least 5, for 3 static args (cmd/migration_session_key/term) + 2 for 1 key
      * and must be odd, due to 2 args needed for each key
      */

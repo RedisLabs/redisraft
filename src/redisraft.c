@@ -501,6 +501,10 @@ exit:
 
 static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
+    if (checkRaftState(rr, ctx) == RR_ERROR) {
+        return;
+    }
+
     if (rr->migrate_req != NULL) {
         RedisModule_ReplyWithError(ctx, "ERR RedisRaft only supports one concurrent migration currently");
         return;
