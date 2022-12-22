@@ -97,11 +97,11 @@ int FileFlush(File *file)
 
 int FileFsync(File *file)
 {
-    int rc = fsync(file->fd);
-    if (rc != 0) {
+    int rc = fsyncFile(file->fd);
+    if (rc != RR_OK) {
         LOG_WARNING("error fd:%d, fsync:%s", file->fd, strerror(errno));
     }
-    return rc == 0 ? RR_OK : RR_ERROR;
+    return rc;
 }
 
 /* Set read position of the file. Required before read functions. */

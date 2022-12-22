@@ -4,12 +4,18 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+/* Required for F_FULLFSYNC  */
+#define _DARWIN_C_SOURCE
+#endif
+
 #include "log.h"
 #include "redisraft.h"
 
 #include "common/crc16.h"
 
-#include <ctype.h>
+#include <fcntl.h>
+#include <libgen.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -387,4 +393,94 @@ int multibulkWriteStr(void *buf, size_t cap, const char *val)
 {
     int len = lensnprintf("%s", val);
     return safesnprintf(buf, cap, "$%d\r\n%s\r\n", len, val);
+}
+
+int fsyncFile(int fd)
+{
+    int rc;
+
+#if defined(__APPLE__)
+    rc = fcntl(fd, F_FULLFSYNC);
+#else
+    rc = fsync(fd);
+#endif
+
+    return rc == 0 ? RR_OK : RR_ERROR;
+}
+
+/* Calls fsync() for the file and the directory. */
+int fsyncFileAt(const char *path)
+{
+    int fd = open(path, O_RDWR, S_IWUSR | S_IRUSR);
+    if (fd == -1) {
+        LOG_WARNING("open() file: %s, error:%s \n", path, strerror(errno));
+        return RR_ERROR;
+    }
+
+    if (fsyncFile(fd) != RR_OK) {
+        LOG_WARNING("fsyncFile(): %s, error: %s", path, strerror(errno));
+        close(fd);
+        return RR_ERROR;
+    }
+
+    if (close(fd) != 0) {
+        LOG_WARNING("close() file: %s, error: %s", path, strerror(errno));
+        return RR_ERROR;
+    }
+
+    fsyncDir(path);
+
+    return RR_OK;
+}
+
+/* This function calls fsync() for the parent directory of the `path`.
+ * If `path` is already a directory, fsync() will be called for `path`. */
+void fsyncDir(const char *path)
+{
+    char name[PATH_MAX];
+
+    RedisModule_Assert(strlen(path) < PATH_MAX);
+
+    /* Get the directory name. */
+    strcpy(name, path);
+    char *dir = dirname(name);
+
+    int fd = open(dir, O_RDONLY);
+    if (fd < 0) {
+        /* Return success if opening directories is not supported on the OS.*/
+        if (errno == EISDIR) {
+            return;
+        }
+
+        PANIC("open() file: %s, error: %s", dir, strerror(errno));
+    }
+
+    if (fsyncFile(fd) != RR_OK) {
+        /* If errno is `EBADF` or `EINVAL`, calling fsync() on a directory is
+         * not supported on the OS. Other errno values indicate an error.*/
+        if (!(errno == EBADF || errno == EINVAL)) {
+            PANIC("fsyncFile(): %s, error: %s", dir, strerror(errno));
+        }
+    }
+
+    if (close(fd) != 0) {
+        LOG_WARNING("close() file: %s, error: %s", dir, strerror(errno));
+    }
+}
+
+/* Directory operations require fsync() on the directory to provide durability.
+ * This function calls fsync() just after rename().
+ *
+ * fsync() for the files `oldname` and `newname` must be called beforehand to
+ * provide durability. */
+int syncRename(const char *oldname, const char *newname)
+{
+    if (rename(oldname, newname) != 0) {
+        LOG_WARNING("rename(): %s to %s: error: %s", oldname, newname,
+                    strerror(errno));
+        return RR_ERROR;
+    }
+
+    fsyncDir(oldname);
+    return RR_OK;
 }
