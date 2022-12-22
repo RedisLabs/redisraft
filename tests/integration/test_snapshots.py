@@ -240,13 +240,18 @@ def test_uncommitted_log_rewrite(cluster):
     cluster.node(1).client.set('key', 'value')  # Entry idx 6
     cluster.node(2).terminate()
     cluster.node(3).terminate()
-    conn = cluster.node(1).client.connection_pool.get_connection('RAFT')
-    conn.send_command('SET', 'key2', 'value2')  # Entry idx 7
+
+    conn = cluster.node(1).client.connection_pool.get_connection('compact')
+    conn.send_command('raft.debug', 'compact', '3')
+
+    cluster.node(1).wait_for_info_param('raft_snapshot_in_progress', 'yes')
+
+    conn2 = cluster.node(1).client.connection_pool.get_connection('raft')
+    conn2.send_command('set', 'key2', 'value2')  # Entry idx 7
 
     assert cluster.node(1).current_index() == 8
     assert cluster.node(1).commit_index() == 7
-    assert cluster.node(1).client.execute_command(
-        'RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert conn.read_response() == b'OK'
     assert cluster.node(1).info()['raft_log_entries'] == 1
 
     log = RaftLog(cluster.node(1).raftlog)
@@ -471,8 +476,11 @@ def test_snapshot_fork_failure(cluster):
     # will fail.
     time.sleep(3)
 
-    assert r1.execute('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    # Verify that retry was successful
     assert r1.info()['raft_snapshots_created'] == 1
+
+    assert r1.execute('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    assert r1.info()['raft_snapshots_created'] == 2
 
     r1.client.incr('testkey')
     r1.client.incr('testkey')
@@ -583,6 +591,9 @@ def test_snapshot_state_on_failure(cluster):
     assert r1.client.get('testkey') == b'4'
 
     assert r1.info()['raft_snapshots_created'] == 0
+
+    # Disable snapshot so, the node will not retry after snapshot failure
+    r1.execute('raft.debug', 'disable_snapshot', '1')
 
     with raises(ResponseError):
         r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')

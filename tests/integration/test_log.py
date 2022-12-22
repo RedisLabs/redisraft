@@ -9,6 +9,7 @@ import time
 from random import seed, randint
 from re import match
 
+from pytest import raises
 from redis import ResponseError
 from .raftlog import RaftLog, LogHeader, LogEntry
 
@@ -506,3 +507,119 @@ def test_log_corrupt_middle_entry_crc(cluster):
     cluster.node(1).start()
     assert cluster.execute('get', 'x') == b'2'
     assert cluster.node(1).info()['raft_log_entries'] == 5
+
+
+def test_startup_with_multiple_log_files(cluster):
+    """
+    Initiate log compaction and kill the server before compaction is completed.
+    Node will start with multiple log pages.
+    """
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+
+    n1 = cluster.node(1)
+
+    # Disable snapshot to prevent another snapshot attempt after the failure.
+    assert n1.execute('raft.debug', 'disable_snapshot', 1) == b'OK'
+
+    # 'compact' will fail, but it will create the second log file.
+    with raises(ResponseError):
+        n1.execute('raft.debug', 'compact', 0, 1)
+
+    assert n1.info()['raft_snapshots_created'] == 0
+
+    n1.execute('incr', 'x')
+    n1.execute('incr', 'x')
+    n1.kill()
+    n1.start()
+
+    n1.wait_for_election()
+    assert n1.execute('get', 'x') == b'3'
+
+    n1.wait_for_info_param('raft_snapshots_created', 1)
+    assert n1.execute('get', 'x') == b'3'
+
+
+def test_startup_with_empty_log_file(cluster):
+    """
+    Initiate log compaction and kill the server before compaction is completed.
+    Node will start with multiple log pages, second page will be empty and,
+    it should be deleted on startup.
+    """
+    cluster.create(1)
+
+    cluster.execute('set', 'x', 1)
+    n1 = cluster.node(1)
+
+    # Disable snapshot to prevent another snapshot attempt after the failure.
+    assert n1.execute('raft.debug', 'disable_snapshot', 1) == b'OK'
+
+    # 'compact' will fail, but it will create the second log file.
+    with raises(ResponseError):
+        n1.execute('raft.debug', 'compact', 0, 1)
+
+    assert n1.info()['raft_snapshots_created'] == 0
+
+    n1.kill()
+    n1.start()
+
+    n1.wait_for_election()
+    assert n1.execute('get', 'x') == b'1'
+
+    # Wait a bit just in case a late snapshot starts (it shouldn't)
+    time.sleep(3)
+    assert n1.info()['raft_snapshots_created'] == 0
+
+
+def test_startup_with_more_advanced_snapshot(cluster):
+    """
+    Test correctness when the node starts with a more advanced snapshot than
+    the logs. It can happen when a follower receives a snapshot and crashes
+    just after replacing the snapshot and before truncating the logs.
+    """
+    cluster.create(3)
+
+    cluster.execute('set', 'x', 1)
+    cluster.node(3).kill()
+
+    cluster.execute('incr', 'x')
+    cluster.execute('incr', 'x')
+
+    assert cluster.node(1).execute('raft.debug', 'compact') == b'OK'
+    assert cluster.node(2).execute('raft.debug', 'compact') == b'OK'
+
+    cluster.node(1).kill()
+    cluster.node(2).kill()
+
+    n3 = cluster.node(3)
+    n3.start()
+    n3.wait_for_info_param('raft_state', 'up')
+
+    # Make n3 have multiple log files
+    # Disable snapshot to prevent another snapshot attempt after the failure.
+    assert n3.execute('raft.debug', 'disable_snapshot', 0, 1) == b'OK'
+    assert n3.execute('raft.debug', 'compact', 0, 0, 1) == b'OK'
+
+    # Start other nodes, n3 will receive the snapshot but won't load.
+    cluster.node(1).start()
+    cluster.node(2).start()
+
+    n3.wait_for_info_param('raft_state', 'loading')
+    n3.kill()
+    cluster.node(1).kill()
+    cluster.node(2).kill()
+
+    # n3 will start with multiple log files and a more advanced snapshot.
+    n3.start()
+    n3.wait_for_info_param('raft_state', 'up')
+    assert n3.raft_debug_exec('get', 'x') == b'3'
+
+    cluster.node(1).start()
+    cluster.node(2).start()
+    cluster.wait_for_unanimity()
+
+    assert cluster.execute('get', 'x') == b'3'
+    cluster.execute('incr', 'x')
+    assert cluster.execute('get', 'x') == b'4'
+    assert n3.info()['raft_current_index'] == 12

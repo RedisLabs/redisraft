@@ -44,7 +44,7 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
     LOG_NOTICE("*** NODE REMOVED, SHUTTING DOWN.");
 
     MetadataArchiveFile(&rr->meta);
-    LogArchiveFiles(rr->log);
+    LogArchiveFiles(&rr->log);
 
     if (rr->config.rdb_filename) {
         archiveSnapshot(rr);
@@ -1137,14 +1137,14 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
 {
     int ret;
 
-    if (LogLoadEntries(rr->log) != RR_OK) {
+    if (LogLoadEntries(&rr->log) != RR_OK) {
         LOG_WARNING("Failed to read Raft log");
         return RR_ERROR;
     }
 
-    if (strcmp(rr->meta.dbid, rr->log->dbid) != 0) {
-        PANIC("Log and metadata have different dbids: [log=%s/metadata=%s]",
-              rr->log->dbid, rr->meta.dbid);
+    if (strcmp(rr->meta.dbid, LogDbid(&rr->log)) != 0) {
+        PANIC("Log and metadata have different dbids: [metadata=%s/log=%s]",
+              rr->meta.dbid, LogDbid(&rr->log));
     }
 
     /* Make sure the log we're going to apply matches the RDB we've loaded */
@@ -1153,24 +1153,28 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
             PANIC("Metadata and snapshot have different dbids: [metadata=%s/snapshot=%s]",
                   rr->meta.dbid, rr->snapshot_info.dbid);
         }
-        if (rr->snapshot_info.last_applied_term < rr->log->snapshot_last_term) {
+        if (rr->snapshot_info.last_applied_term < LogPrevLogTerm(&rr->log)) {
             PANIC("Log term (%lu) does not match snapshot term (%lu), aborting.",
-                  rr->log->snapshot_last_term, rr->snapshot_info.last_applied_term);
+                  LogPrevLogTerm(&rr->log), rr->snapshot_info.last_applied_term);
         }
-        if (rr->snapshot_info.last_applied_idx + 1 < rr->log->snapshot_last_idx) {
+        if (rr->snapshot_info.last_applied_idx + 1 < LogPrevLogIndex(&rr->log)) {
             PANIC("Log initial index (%lu) does not match snapshot last index (%lu), aborting.",
-                  rr->log->snapshot_last_idx, rr->snapshot_info.last_applied_idx);
+                  LogPrevLogIndex(&rr->log), rr->snapshot_info.last_applied_idx);
         }
     } else {
         /* If there is no snapshot, the log should also not refer to it */
-        if (rr->log->snapshot_last_idx) {
+        if (LogPrevLogIndex(&rr->log) != 0) {
             PANIC("Log refers to snapshot (term=%lu/index=%lu which was not loaded, aborting.",
-                  rr->log->snapshot_last_term, rr->log->snapshot_last_idx);
+                  LogPrevLogTerm(&rr->log), LogPrevLogIndex(&rr->log));
         }
     }
 
     /* Reset the log if snapshot is more advanced */
-    if (LogCurrentIdx(rr->log) < rr->snapshot_info.last_applied_idx) {
+    if (LogCurrentIdx(&rr->log) < rr->snapshot_info.last_applied_idx) {
+        LOG_WARNING("Snapshot (%ld) is more advanced than the log (%ld)",
+                    rr->snapshot_info.last_applied_idx,
+                    LogCurrentIdx(&rr->log));
+
         LogImpl.reset(rr, rr->snapshot_info.last_applied_idx + 1,
                       rr->snapshot_info.last_applied_term);
     }
@@ -1181,8 +1185,10 @@ static RRStatus loadRaftLog(RedisRaftCtx *rr)
     ret = raft_restore_log(rr->raft);
     RedisModule_Assert(ret == 0);
 
-    LOG_NOTICE("Raft state after loading log: log_count=%lu, current_idx=%lu, last_applied_idx=%lu",
+    LOG_NOTICE("Raft state after loading log: log_count=%lu, first_idx=%lu, "
+               "current_idx=%lu, last_applied_idx=%lu",
                raft_get_log_count(rr->raft),
+               raft_get_first_entry_idx(rr->raft),
                raft_get_current_idx(rr->raft),
                raft_get_last_applied_idx(rr->raft));
 
@@ -1229,9 +1235,9 @@ static void handleLoadingState(RedisRaftCtx *rr)
             rr->config.id = rr->meta.node_id;
         }
 
-        if (rr->config.id != rr->log->node_id) {
-            PANIC("Raft log node id [%d] does not match configured id [%d]",
-                  rr->log->node_id, rr->config.id);
+        if (rr->config.id != LogNodeId(&rr->log)) {
+            PANIC("Configured node id [%d] does not match Raft log node id [%d]",
+                  rr->config.id, LogNodeId(&rr->log));
         }
 
         if (rr->config.id != rr->meta.node_id) {
@@ -1304,13 +1310,46 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         EntryCacheCompact(rr->logcache, rr->config.log_max_cache_size);
     }
 
-    /* Initiate snapshot if log size exceeds raft-log-file-max */
-    if (!rr->snapshot_in_progress && rr->config.log_max_file_size &&
-        raft_get_num_snapshottable_logs(rr->raft) > 0 &&
-        LogFileSize(rr->log) > rr->config.log_max_file_size) {
-        LOG_DEBUG("Raft log file size is %lu, initiating snapshot.",
-                  LogFileSize(rr->log));
-        initiateSnapshot(rr);
+    /* Initiate snapshot if log size exceeds raft-log-file-max
+     *
+     * Compaction happens in two steps:
+     * 1- We call LogCompactionBegin() and start writing entries to a new file.
+     * 2- Once we commit all the entries of the first file, we initiate the
+     *    snapshot.
+     */
+    if (!rr->snapshot_in_progress) {
+        bool start;
+        /* Step-1: Start compaction if we are over the file size limit or if
+         * there is a debug req. */
+        uint64_t limit = rr->config.log_max_file_size;
+        start = (limit && LogFileSize(&rr->log) > limit);
+
+        if (start && !LogCompactionStarted(&rr->log) &&
+            raft_get_num_snapshottable_logs(rr->raft) > 0) {
+
+            /* Move to second log file. We'll trigger rdb save once we've
+             * committed all the entries of the first log file. */
+            int rc = LogCompactionBegin(&rr->log);
+            RedisModule_Assert(rc == RR_OK);
+
+            LOG_NOTICE("Raft log file size is %lu, "
+                       "initiating compaction for index: %ld",
+                       LogFileSize(&rr->log), LogCompactionIdx(&rr->log));
+        }
+
+        /* Step-2: If we've committed all the entries of the first log page, we
+         * can start the snapshot. */
+        start = (rr->debug_req || !rr->disable_snapshot);
+        if (start && LogCompactionStarted(&rr->log) &&
+            raft_get_commit_idx(rr->raft) >= LogCompactionIdx(&rr->log)) {
+
+            LOG_NOTICE("Log file is ready for compaction. "
+                       "log index:%ld, commit index: %ld.",
+                       LogCompactionIdx(&rr->log),
+                       raft_get_commit_idx(rr->raft));
+
+            initiateSnapshot(rr);
+        }
     }
 
     /* Call cluster */
@@ -1693,10 +1732,10 @@ void handleFsyncCompleted(void *result)
     FsyncThreadResult *rs = result;
     RedisRaftCtx *rr = &redis_raft;
 
-    rr->log->fsync_count++;
-    rr->log->fsync_index = rs->fsync_index;
-    rr->log->fsync_total += rs->time;
-    rr->log->fsync_max = MAX(rs->time, rr->log->fsync_max);
+    rr->log.fsync_count++;
+    rr->log.fsync_index = rs->fsync_index;
+    rr->log.fsync_total += rs->time;
+    rr->log.fsync_max = MAX(rs->time, rr->log.fsync_max);
 
     RedisModule_Free(rs);
 }
@@ -1716,14 +1755,14 @@ void handleBeforeSleep(RedisRaftCtx *rr)
         return;
     }
 
-    raft_index_t flushed = rr->log->fsync_index;
+    raft_index_t flushed = rr->log.fsync_index;
     raft_index_t next = raft_get_index_to_sync(rr->raft);
     if (next > 0) {
-        FileFlush(&rr->log->file);
+        LogFlush(&rr->log);
 
         if (rr->config.log_fsync) {
             /* Trigger async fsync() for the current index */
-            fsyncThreadAddTask(&rr->fsyncThread, rr->log->file.fd, next);
+            fsyncThreadAddTask(&rr->fsyncThread, LogCurrentFd(&rr->log), next);
         } else {
             /* Skipping fsync(), we can just update the sync'd index. */
             flushed = next;
