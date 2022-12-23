@@ -897,7 +897,7 @@ static void logImplReset(void *arg, raft_index_t index, raft_term_t term)
     /* Note: the RaftLogImpl API specifies the specified index is the one
      * to be assigned to the *next* entry, hence the adjustments below.
      */
-    assert(index >= 1);
+    RedisModule_Assert(index >= 1);
     LogReset(&rr->log, index - 1, term);
 
     RAFTLOG_TRACE("Reset(index=%lu,term=%lu)", index, term);

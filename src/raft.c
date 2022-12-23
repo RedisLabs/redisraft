@@ -960,7 +960,9 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
             }
 
             /* Ignore our own node, as we don't maintain a Node structure for it */
-            assert(entry->type == RAFT_LOGTYPE_ADD_NODE || entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
+            RedisModule_Assert(entry->type == RAFT_LOGTYPE_ADD_NODE ||
+                               entry->type == RAFT_LOGTYPE_ADD_NONVOTING_NODE);
+
             cfgchange = (RaftCfgChange *) entry->data;
             if (cfgchange->id == my_id) {
                 break;
@@ -968,7 +970,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
 
             /* Allocate a new node */
             node = NodeCreate(rr, cfgchange->id, &cfgchange->addr);
-            assert(node != NULL);
+            RedisModule_Assert(node != NULL);
 
             addUsedNodeId(rr, cfgchange->id);
 
@@ -984,7 +986,7 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
             break;
 
         default:
-            assert(0);
+            RedisModule_Assert(0);
     }
 }
 
@@ -1303,7 +1305,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
         shutdownAfterRemoval(rr);
     }
 
-    assert(ret == 0);
+    RedisModule_Assert(ret == 0);
 
     /* Compact cache */
     if (rr->config.log_max_cache_size) {
