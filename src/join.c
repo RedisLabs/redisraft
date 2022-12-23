@@ -16,7 +16,6 @@
 
 #include "redisraft.h"
 
-#include <assert.h>
 #include <string.h>
 
 /* Callback for the RAFT.NODE ADD command.

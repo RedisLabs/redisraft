@@ -9,7 +9,6 @@
 
 #include "common/crc16.h"
 
-#include <ctype.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>

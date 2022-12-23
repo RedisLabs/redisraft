@@ -8,7 +8,6 @@
 #include "redisraft.h"
 
 #include <arpa/inet.h>
-#include <assert.h>
 #include <netdb.h>
 #include <string.h>
 

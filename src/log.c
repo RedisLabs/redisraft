@@ -12,7 +12,6 @@
 
 #include "common/sc_crc32.h"
 
-#include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>

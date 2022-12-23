@@ -8,7 +8,6 @@
 #include "log.h"
 #include "redisraft.h"
 
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>

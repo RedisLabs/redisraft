@@ -12,7 +12,6 @@
 #include "common/sc_crc32.h"
 
 #include <dlfcn.h>
-#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
