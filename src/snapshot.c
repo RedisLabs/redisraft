@@ -257,10 +257,6 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
-    char temp_log_filename[256];
-    snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
-             rr->config.log_filename);
-
     RedisModule_Assert(rr->snapshot_in_progress);
 
     LOG_DEBUG("Finalizing snapshot.");
