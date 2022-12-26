@@ -95,8 +95,9 @@ int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
         PANIC("FileTerm(): %s", strerror(errno));
     }
 
-    if (rename(tmp, m->filename) != 0) {
-        PANIC("rename(): %s", strerror(errno));
+    if (fsyncFileAt(tmp) != RR_OK ||
+        syncRename(tmp, m->filename) != RR_OK) {
+        return RR_ERROR;
     }
 
     m->term = term;
