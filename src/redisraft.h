@@ -810,6 +810,10 @@ int multibulkWriteLen(void *buf, size_t cap, char prefix, int len);
 int multibulkWriteInt(void *buf, size_t cap, int val);
 int multibulkWriteLong(void *buf, size_t cap, long val);
 int multibulkWriteStr(void *buf, size_t cap, const char *val);
+int fsyncFile(int fd);
+int fsyncFileAt(const char *path);
+void fsyncDir(const char *path);
+int syncRename(const char *oldname, const char *newname);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);

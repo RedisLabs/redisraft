@@ -264,7 +264,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * data if we fail now before renaming the log -- all we'll have to do is
      * skip redundant log entries.
      */
-    if (rename(sr->rdb_filename, rr->config.rdb_filename) < 0) {
+    if (syncRename(sr->rdb_filename, rr->config.rdb_filename) != RR_OK) {
         LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
                     sr->rdb_filename, rr->config.rdb_filename, strerror(errno));
         cancelSnapshot(rr, sr);
@@ -541,7 +541,6 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
                      raft_index_t index)
 {
-    int ret;
     RedisRaftCtx *rr = user_data;
 
     if (rr->snapshot_in_progress || rr->state == REDIS_RAFT_LOADING) {
@@ -557,8 +556,12 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
 
     LOG_NOTICE("Received snapshot file, size: %lld", (long long) st.st_size);
 
-    ret = rename(rr->incoming_snapshot_file, rr->config.rdb_filename);
-    if (ret != 0) {
+    if (fsyncFileAt(rr->incoming_snapshot_file) != RR_OK) {
+        return -1;
+    }
+
+    int rc = syncRename(rr->incoming_snapshot_file, rr->config.rdb_filename);
+    if (rc != RR_OK) {
         LOG_WARNING("rename(): %s to %s failed with error: %s",
                     rr->incoming_snapshot_file, rr->config.rdb_filename,
                     strerror(errno));

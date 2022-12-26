@@ -303,6 +303,9 @@ static LogPage *pageCreate(const char *filename, const char *dbid,
         return NULL;
     }
 
+    /* Directory fsync() is required to make file creation operation durable. */
+    fsyncDir(filename);
+
     return p;
 }
 
@@ -316,8 +319,11 @@ static void pageFree(LogPage *p, bool delete_files)
     FileTerm(&p->idxfile);
 
     if (delete_files) {
-        unlink(p->filename);
         unlink(p->idxfilename);
+        unlink(p->filename);
+
+        /* Call fsync for the directory to make above unlink() durable. */
+        fsyncDir(p->filename);
     }
     RedisModule_Free(p);
 }
@@ -847,9 +853,12 @@ void LogCompactionEnd(Log *log)
 
     RedisModule_Assert(p1);
 
-    if (rename(p1->filename, p0->filename) != 0 ||
-        rename(p1->idxfilename, p0->idxfilename) != 0) {
+    if (rename(p1->idxfilename, p0->idxfilename) != 0) {
         PANIC("rename() failed: %s", strerror(errno));
+    }
+
+    if (syncRename(p1->filename, p0->filename) != RR_OK) {
+        PANIC("rename() failed.");
     }
 
     strcpy(p1->filename, p0->filename);

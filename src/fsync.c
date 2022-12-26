@@ -64,8 +64,8 @@ static void *fsyncLoop(void *arg)
         pthread_mutex_unlock(&th->mtx);
 
         uint64_t begin = RedisModule_MonotonicMicroseconds();
-        rc = fsync(fd);
-        if (rc != 0) {
+        rc = fsyncFile(fd);
+        if (rc != RR_OK) {
             PANIC("fsync(): %s \n", strerror(errno));
         }
 
