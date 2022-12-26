@@ -16,7 +16,6 @@
 
 #include "redisraft.h"
 
-#include <assert.h>
 #include <string.h>
 
 /* Callback for the RAFT.NODE ADD command.
@@ -60,7 +59,7 @@ static void handleNodeAddResponse(redisAsyncContext *c, void *r, void *privdata)
 
         rr->config.id = reply->element[0]->integer;
         state->complete_callback(state->req);
-        assert(rr->state == REDIS_RAFT_UP);
+        RedisModule_Assert(rr->state == REDIS_RAFT_UP);
 
         ConnAsyncTerminate(conn);
     }

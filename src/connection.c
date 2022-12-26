@@ -8,7 +8,6 @@
 #include "redisraft.h"
 
 #include <arpa/inet.h>
-#include <assert.h>
 #include <netdb.h>
 #include <string.h>
 
@@ -389,7 +388,7 @@ RRStatus ConnConnect(Connection *conn, const NodeAddr *addr, ConnectionCallbackF
 {
     CONN_TRACE(conn, "ConnConnect: connecting %s:%u.", addr->host, addr->port);
 
-    assert(ConnIsIdle(conn));
+    RedisModule_Assert(ConnIsIdle(conn));
 
     conn->addr = *addr;
     conn->state = CONN_RESOLVING;

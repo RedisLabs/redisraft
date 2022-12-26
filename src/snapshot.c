@@ -8,7 +8,6 @@
 #include "log.h"
 #include "redisraft.h"
 
-#include <assert.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -196,7 +195,7 @@ static SnapshotCfgEntry *generateSnapshotCfgEntryList(RedisRaftCtx *rr)
         } else if (node != NULL) {
             na = &node->addr;
         } else {
-            assert(0);
+            RedisModule_Assert(0);
         }
 
         *entry = RedisModule_Calloc(1, sizeof(SnapshotCfgEntry));
@@ -243,7 +242,7 @@ static void resetSnapshotState(RedisRaftCtx *rr)
 
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
-    assert(rr->snapshot_in_progress);
+    RedisModule_Assert(rr->snapshot_in_progress);
 
     raft_cancel_snapshot(rr->raft);
     resetSnapshotState(rr);
@@ -257,11 +256,7 @@ void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 {
-    char temp_log_filename[256];
-    snprintf(temp_log_filename, sizeof(temp_log_filename) - 1, "%s.tmp",
-             rr->config.log_filename);
-
-    assert(rr->snapshot_in_progress);
+    RedisModule_Assert(rr->snapshot_in_progress);
 
     LOG_DEBUG("Finalizing snapshot.");
 
@@ -616,7 +611,7 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
 
     /* dbid */
     buf = RedisModule_LoadStringBuffer(rdb, &len);
-    assert(len <= RAFT_DBID_LEN);
+    RedisModule_Assert(len <= RAFT_DBID_LEN);
     if (len) {
         memcpy(info->dbid, buf, len);
     }
@@ -651,7 +646,7 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
         buf = RedisModule_LoadStringBuffer(rdb, &len);
         entry->addr.port = RedisModule_LoadUnsigned(rdb);
 
-        assert(len < sizeof(entry->addr.host));
+        RedisModule_Assert(len < sizeof(entry->addr.host));
         memcpy(entry->addr.host, buf, len);
         RedisModule_Free(buf);
     } while (1);
