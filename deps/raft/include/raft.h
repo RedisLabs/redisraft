@@ -24,9 +24,8 @@ typedef enum {
     RAFT_ERR_INVALID_NODEID              = -8,
     RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS = -9,
     RAFT_ERR_DONE                        = -10,
-    RAFT_ERR_STALE_TERM                  = -11,
-    RAFT_ERR_NOTFOUND                    = -12,
-    RAFT_ERR_MISUSE                      = -13,
+    RAFT_ERR_NOTFOUND                    = -11,
+    RAFT_ERR_MISUSE                      = -12,
 } raft_error_e;
 
 typedef enum {
@@ -96,7 +95,7 @@ typedef struct raft_entry
     raft_entry_id_t id;
 
     /** type of entry */
-    short type;
+    int type;
 
     /** number of references */
     unsigned short refs;
@@ -957,7 +956,7 @@ void raft_set_callbacks(raft_server_t* me, raft_cbs_t* funcs, void* user_data);
  * @param[in] is_self Set to 1 if this "node" is this server
  * @return
  *  node if it was successfully added;
- *  NULL if the node already exists */
+ *  NULL if a voting node already exists */
 raft_node_t* raft_add_node(raft_server_t* me, void* user_data, raft_node_id_t id, int is_self);
 
 /** Add a node which does not participate in voting.

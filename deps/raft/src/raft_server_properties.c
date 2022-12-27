@@ -157,8 +157,6 @@ const char *raft_get_error_str(int err)
             return "leader transfer is in progress";
         case RAFT_ERR_DONE:
             return "done";
-        case RAFT_ERR_STALE_TERM:
-            return "stale term";
         case RAFT_ERR_NOTFOUND:
             return "not found";
         case RAFT_ERR_MISUSE:

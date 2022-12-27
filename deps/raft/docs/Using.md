@@ -292,10 +292,7 @@ struct config {
 };
 ....
 
-void app_configure_from_snapshot(raft_server_t *r, 
-                                 struct config *head, 
-                                 raft_term_t last_applied_term
-                                 raft_index_t last_applied_index)
+void app_configure_from_snapshot(raft_server_t *r, struct config *head)
 {
     struct config *cfg = head;
     
@@ -313,7 +310,14 @@ void app_configure_from_snapshot(raft_server_t *r,
         }
         cfg = cfg->next;
     }
-    
+}
+
+void app_restore_snapshot(raft_server_t *r, 
+                          struct config *head,
+                          raft_term_t last_applied_term
+                          raft_index_t last_applied_index)
+{
+    app_configure_from_snapshot(r, head);
     raft_restore_snapshot(r, last_applied_term, last_applied_index);
 }
 
@@ -348,7 +352,8 @@ void app_restore_raft_library()
     // extracted node configuration list,
     // extracted last_applied_term and last_applied_index
     // See the example implementation above for this function.
-    app_configure_from_snapshot(r, cfg, last_applied_term, last_applied_index);
+    app_configure_from_snapshot(r, cfg);
+    raft_restore_snapshot(r, snapshot_last_term, snapshot_last_index);
     
     app_load_logs_to_impl(); // Load log entries in your log implementation
     raft_restore_log();
@@ -438,7 +443,7 @@ int app_raft_store_snapshot_impl(raft_server_t *r,
         return -1;
     }
 
-    off_t ret_offset = lseek(fd, offset, SEEK_CUR);
+    off_t ret_offset = lseek(fd, offset, SEEK_SET);
     if (ret_offset != (off_t) offset) {
         close(fd);
         return -1;
