@@ -94,6 +94,9 @@ typedef struct raft_entry
     /** the entry's unique ID */
     raft_entry_id_t id;
 
+    /** session this entry belongs to **/
+    raft_session_t session;
+
     /** type of entry */
     int type;
 
