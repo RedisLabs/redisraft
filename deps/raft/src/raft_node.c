@@ -37,7 +37,7 @@ struct raft_node {
     raft_size_t snapshot_offset;
 };
 
-raft_node_t *raft_node_new(void *udata, raft_node_id_t id)
+raft_node_t *raft_node_new(void *udata, raft_node_id_t id, int voting)
 {
     raft_node_t *me;
 
@@ -50,7 +50,7 @@ raft_node_t *raft_node_new(void *udata, raft_node_id_t id)
     me->next_idx = 1;
     me->match_idx = 0;
     me->id = id;
-    me->flags = RAFT_NODE_VOTING;
+    raft_node_set_voting(me, voting);
 
     return me;
 }
@@ -128,7 +128,7 @@ void raft_node_clear_flags(raft_node_t *node)
     node->flags = 0;
 }
 
-void raft_node_vote_for_me(raft_node_t *node, const int vote)
+void raft_node_set_voted_for_me(raft_node_t *node, int vote)
 {
     if (vote) {
         node->flags |= RAFT_NODE_VOTED_FOR_ME;

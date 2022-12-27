@@ -136,7 +136,7 @@ static size_t generateEntryHeader(raft_entry_t *ety, unsigned char *buf, size_t 
     pos += multibulkWriteStr(pos, end - pos, ENTRY_STR);
     pos += multibulkWriteLong(pos, end - pos, ety->term);
     pos += multibulkWriteLong(pos, end - pos, ety->id);
-    pos += multibulkWriteLong(pos, end - pos, ety->type);
+    pos += multibulkWriteInt(pos, end - pos, ety->type);
     pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
 
     return pos - buf;
@@ -241,7 +241,7 @@ static raft_entry_t *pageReadEntry(LogPage *p, long *read_crc)
 
     e->term = term;
     e->id = id;
-    e->type = (short) type;
+    e->type = type;
 
     return e;
 
