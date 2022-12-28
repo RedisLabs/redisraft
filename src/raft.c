@@ -29,6 +29,7 @@ const char *RaftReqTypeStr[] = {
     [RR_IMPORT_KEYS] = "RR_IMPORT_KEYS",
     [RR_MIGRATE_KEYS] = "RR_MIGRATE_KEYS",
     [RR_DELETE_UNLOCK_KEYS] = "RR_DELETE_UNLOCK_KEYS",
+    [RR_END_SESSION] = "RR_END_SESSION",
 };
 
 /* Forward declarations */
@@ -347,6 +348,17 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         size_t cmdlen;
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
 
+        if (strncasecmp("watch", cmd, cmdlen) == 0) {
+            unsigned long long id = cmds->client_id;
+
+            int nokey;
+            RedisModule_DictGetC(rr->session_dict, &id, sizeof(id), &nokey);
+            if (nokey) {
+                void *session = RedisModule_Alloc(sizeof(void *));
+                RedisModule_DictSetC(rr->session_dict, &id, sizeof(id), session);
+            }
+        }
+
         /* We need to handle MULTI as a special case:
         * 1. Skip the command (no need to execute MULTI in a Module context).
         * 2. If we're returning a response, group it as an array (multibulk)
@@ -510,6 +522,31 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_FreeString(rr->ctx, keys[i]);
     }
     RedisModule_Free(keys);
+
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+    }
+}
+
+static void freeSession(void *session)
+{
+    RedisModule_Free(session);
+}
+
+static void endSession(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
+    RaftReq *req = entry->user_data;
+
+    unsigned long long id = entry->session;
+
+    void *session = NULL;
+    RedisModule_DictDelC(rr->session_dict, &id, sizeof(id), &session);
+    if (session) {
+        freeSession(session);
+    }
 
     if (req) {
         entryDetachRaftReq(rr, entry);
@@ -889,6 +926,8 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
         case RAFT_LOGTYPE_DELETE_UNLOCK_KEYS:
             unlockDeleteKeys(rr, entry);
             break;
+        case RAFT_LOGTYPE_END_SESSION:
+            endSession(rr, entry);
         default:
             break;
     }
