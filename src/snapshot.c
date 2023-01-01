@@ -264,6 +264,7 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
      * data if we fail now before renaming the log -- all we'll have to do is
      * skip redundant log entries.
      */
+    
     if (syncRename(sr->rdb_filename, rr->config.rdb_filename) != RR_OK) {
         LOG_WARNING("Failed to switch snapshot filename (%s to %s): %s",
                     sr->rdb_filename, rr->config.rdb_filename, strerror(errno));
