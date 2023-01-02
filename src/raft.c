@@ -751,7 +751,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = msg->entries[i];
         argv[5 + i * 2] = RedisModule_Alloc(64);
-        argvlen[5 + i * 2] = snprintf(argv[5 + i * 2], 63, "%ld:%d:%lld:%d", e->term, e->id, e->session, e->type);
+        argvlen[5 + i * 2] = snprintf(argv[5 + i * 2], 63, "%ld:%d:%llu:%d", e->term, e->id, e->session, e->type);
         argvlen[6 + i * 2] = e->data_len;
         argv[6 + i * 2] = e->data;
     }
