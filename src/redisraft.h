@@ -725,6 +725,7 @@ typedef struct MultiState {
 typedef struct ClientState {
     MultiState multi_state;
     bool asking;
+    bool user_client;
 } ClientState;
 
 /* common.c */
@@ -920,6 +921,7 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str);
 int encodeString(char *p, size_t sz, RedisModuleString *str);
 
 /* clientstate.c */
+ClientState *ClientStateGetById(RedisRaftCtx *rr, unsigned long long client_id);
 ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);

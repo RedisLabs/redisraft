@@ -11,6 +11,7 @@ import time
 from redis import ResponseError
 from pytest import raises
 from .sandbox import RedisRaft, RedisRaftFailedToStart, RawConnection
+from retry import retry
 
 
 def test_info_before_cluster_init(cluster):
@@ -753,36 +754,41 @@ def test_followers_in_oom(cluster):
 def test_session_counting(cluster):
     cluster.create(3)
 
-    assert cluster.node(1).info()["raft_num_sessions"] == 0
-    assert cluster.node(2).info()["raft_num_sessions"] == 0
-    assert cluster.node(3).info()["raft_num_sessions"] == 0
+    @retry(delay=1, tries=10)
+    def assert_num_sessions(val):
+        assert cluster.node(1).info()["raft_num_sessions"] == val
+        assert cluster.node(2).info()["raft_num_sessions"] == val
+        assert cluster.node(3).info()["raft_num_sessions"] == val
+
+    assert_num_sessions(0)
 
     conn1 = RawConnection(cluster.leader_node().client)
     conn1.execute("WATCH", "X")
     cluster.wait_for_unanimity()
 
-    assert cluster.node(1).info()["raft_num_sessions"] == 1
-    assert cluster.node(2).info()["raft_num_sessions"] == 1
-    assert cluster.node(3).info()["raft_num_sessions"] == 1
+    assert_num_sessions(1)
 
     conn2 = RawConnection(cluster.leader_node().client)
     conn2.execute("WATCH", "X")
     cluster.wait_for_unanimity()
 
-    assert cluster.node(1).info()["raft_num_sessions"] == 2
-    assert cluster.node(2).info()["raft_num_sessions"] == 2
-    assert cluster.node(3).info()["raft_num_sessions"] == 2
+    assert_num_sessions(2)
 
     conn1.execute("UNWATCH")
     cluster.wait_for_unanimity()
 
-    assert cluster.node(1).info()["raft_num_sessions"] == 1
-    assert cluster.node(2).info()["raft_num_sessions"] == 1
-    assert cluster.node(3).info()["raft_num_sessions"] == 1
+    assert_num_sessions(1)
 
     conn2.execute("UNWATCH")
     cluster.wait_for_unanimity()
 
-    assert cluster.node(1).info()["raft_num_sessions"] == 0
-    assert cluster.node(2).info()["raft_num_sessions"] == 0
-    assert cluster.node(3).info()["raft_num_sessions"] == 0
+    assert_num_sessions(0)
+
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(1)
+
+    conn1.disconnect()
+
+    assert_num_sessions(0)
