@@ -930,7 +930,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
         /* Parse additional entry fields */
         tmpstr = RedisModule_StringPtrLen(argv[5 + 2 * i], &tmplen);
-        if (sscanf(tmpstr, "%ld:%d:%lld:%d", &e->term, &e->id, &e->session, &e->type) != 4) {
+        if (sscanf(tmpstr, "%ld:%d:%llu:%d", &e->term, &e->id, &e->session, &e->type) != 4) {
             RedisModule_ReplyWithError(ctx, "invalid entry");
             goto out;
         }
