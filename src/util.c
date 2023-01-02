@@ -285,6 +285,24 @@ bool parseLongLong(const char *str, char **end, long long *val)
     return true;
 }
 
+bool parseULongLong(const char *str, char **end, unsigned long long *val)
+{
+    char *endp;
+
+    errno = 0;
+    *val = strtoull(str, &endp, 0);
+
+    if (end) {
+        *end = endp;
+    }
+
+    if (endp == str || (*val == UINT64_MAX && errno == ERANGE)) {
+        return false;
+    }
+
+    return true;
+}
+
 bool parseLong(const char *str, char **end, long *val)
 {
     long long num;
@@ -353,6 +371,18 @@ bool multibulkReadLong(File *fp, long *value)
     return true;
 }
 
+bool multibulkReadUInt64(File *fp, unsigned long long *value)
+{
+    char buf[64] = {0};
+
+    if (!multibulkReadStr(fp, buf, sizeof(buf)) ||
+        !parseULongLong(buf, NULL, value)) {
+        return false;
+    }
+
+    return true;
+}
+
 bool multibulkReadStr(File *fp, char *buf, size_t size)
 {
     int len;
@@ -387,6 +417,12 @@ int multibulkWriteLong(void *buf, size_t cap, long val)
 {
     int len = lensnprintf("%ld", val);
     return safesnprintf(buf, cap, "$%d\r\n%ld\r\n", len, val);
+}
+
+int multibulkWriteUInt64(void *buf, size_t cap, unsigned long long val)
+{
+    int len = lensnprintf("%llu", val);
+    return safesnprintf(buf, cap, "$%d\r\n%llu\r\n", len, val);
 }
 
 int multibulkWriteStr(void *buf, size_t cap, const char *val)

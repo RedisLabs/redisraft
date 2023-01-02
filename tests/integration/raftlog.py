@@ -117,8 +117,11 @@ class LogEntry(RawEntry):
     def id(self):
         return int(self.args[2])
 
+    def session(self):
+        return int(self.args[3])
+
     def type(self):
-        return self.LogType(int(self.args[3]))
+        return self.LogType(int(self.args[4]))
 
     def type_is_cfgchange(self):
         _type = self.type()
@@ -154,7 +157,7 @@ class LogEntry(RawEntry):
         return '|'.join(cmds)
 
     def data(self, decode=False):
-        value = self.args[4]
+        value = self.args[5]
         if self.type_is_cfgchange():
             return self.parse_cfgchange(value)
         elif self.type() == self.LogType.ADD_SHARDGROUP:
@@ -178,12 +181,13 @@ class LogEntry(RawEntry):
         return int(self.locations[5])
 
     def __repr__(self):
-        return '<LogEntry:%s:id=%s,term=%s,data=%s>' % (
-            self.type(), self.id(), self.term(), self.data())
+        return '<LogEntry:%s:id=%s,term=%s,session=%s,data=%s>' % (
+            self.type(), self.id(), self.term(), self.session(), self.data())
 
     def __str__(self):
-        return '{:4d} {:10d} {} {}'.format(
-            self.term(), self.id(), self.type().name, self.data(decode=True))
+        return '{:4d} {:10d} {} {} {}'.format(
+            self.term(), self.id(), self.session(), self.type().name,
+            self.data(decode=True))
 
 
 class RaftLog(object):

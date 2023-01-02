@@ -806,6 +806,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RaftRedisCommandArray cmds = {0};
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&cmds);
+    cmds.client_id = RedisModule_GetClientId(ctx);
 
     cmd->argc = argc - 1;
     cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
@@ -853,7 +854,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 /* RAFT.AE [target_node_id] [src_node_id]
  *         [leader_id]:[term]:[prev_log_idx]:[prev_log_term]:[leader_commit]:[msg_id]
- *         [n_entries] [<term>:<id>:<type> <entry>]...
+ *         [n_entries] [<term>:<id>:<session>:<type> <entry>]...
  *
  *   A leader request to append entries to the Raft log (per Raft paper).
  * Reply:
@@ -929,7 +930,7 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
         /* Parse additional entry fields */
         tmpstr = RedisModule_StringPtrLen(argv[5 + 2 * i], &tmplen);
-        if (sscanf(tmpstr, "%ld:%d:%d", &e->term, &e->id, &e->type) != 3) {
+        if (sscanf(tmpstr, "%ld:%d:%llu:%d", &e->term, &e->id, &e->session, &e->type) != 4) {
             RedisModule_ReplyWithError(ctx, "invalid entry");
             goto out;
         }

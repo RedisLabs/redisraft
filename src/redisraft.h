@@ -505,9 +505,10 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    bool asking; /* if this command array is in an asking mode */
-    int size;    /* Size of allocated array */
-    int len;     /* Number of elements in array */
+    unsigned long long client_id; /* client id for maintaining sessions */
+    bool asking;                  /* if this command array is in an asking mode */
+    int size;                     /* Size of allocated array */
+    int len;                      /* Number of elements in array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
 } RaftRedisCommandArray;
@@ -805,10 +806,12 @@ bool parseInt(const char *str, char **end, int *val);
 bool multibulkReadLen(File *fp, char type, int *length);
 bool multibulkReadInt(File *fp, int *value);
 bool multibulkReadLong(File *fp, long *value);
+bool multibulkReadUInt64(File *fp, unsigned long long *value);
 bool multibulkReadStr(File *fp, char *buf, size_t size);
 int multibulkWriteLen(void *buf, size_t cap, char prefix, int len);
 int multibulkWriteInt(void *buf, size_t cap, int val);
 int multibulkWriteLong(void *buf, size_t cap, long val);
+int multibulkWriteUInt64(void *buf, size_t cap, unsigned long long val);
 int multibulkWriteStr(void *buf, size_t cap, const char *val);
 int fsyncFile(int fd);
 int fsyncFileAt(const char *path);
