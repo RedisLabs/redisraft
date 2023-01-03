@@ -418,10 +418,10 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-    int entered_eval;              /* handling a lua script */
-    RedisModuleDict *locked_keys;  /* keys thar have been locked for migration */
-    RedisModuleDict *acl_dict;     /* maps acl strings to RedisModuleUser * objects */
-    RedisModuleDict *session_dict; /* maps session IDs to Session Objects */
+    int entered_eval;                     /* handling a lua script */
+    RedisModuleDict *locked_keys;         /* keys thar have been locked for migration */
+    RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
+    RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;

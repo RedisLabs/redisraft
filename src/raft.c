@@ -300,6 +300,30 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
     return validateRaftRedisCommandArray(rr, ctx, cmds, slot);
 }
 
+/* returns the client session object for this CommandArray if applicable
+ * starts/creates it if necessary
+ */
+static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
+    unsigned long long id = cmds->client_id;
+    int nokey;
+
+    void *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
+
+    if (nokey) {
+        RaftRedisCommand *c = cmds->commands[0];
+        size_t cmd_len;
+        const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmd_len);
+
+        if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
+            client_session = RedisModule_Alloc(sizeof(void *));
+            RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
+        }
+    }
+
+    return client_session;
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -342,22 +366,14 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         return;
     }
 
+    void *client_session = getClientSession(rr, cmds);
+    if (client_session) {} /* avoid unused variable check */
+
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
 
         size_t cmdlen;
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmdlen);
-
-        if (strncasecmp("watch", cmd, cmdlen) == 0) {
-            unsigned long long id = cmds->client_id;
-
-            int nokey;
-            RedisModule_DictGetC(rr->session_dict, &id, sizeof(id), &nokey);
-            if (nokey) {
-                void *session = RedisModule_Alloc(sizeof(void *));
-                RedisModule_DictSetC(rr->session_dict, &id, sizeof(id), session);
-            }
-        }
 
         /* We need to handle MULTI as a special case:
         * 1. Skip the command (no need to execute MULTI in a Module context).
@@ -530,23 +546,27 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
-static void freeSession(void *session)
+static void freeClientSession(void *client_session)
 {
-    RedisModule_Free(session);
+    RedisModule_Free(client_session);
 }
 
-static void endSession(RedisRaftCtx *rr, raft_entry_t *entry)
+static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
+{
+    void *client_session = NULL;
+    RedisModule_DictDelC(rr->client_session_dict, &id, sizeof(id), &client_session);
+    if (client_session) {
+        freeClientSession(client_session);
+    }
+}
+
+static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
     RaftReq *req = entry->user_data;
 
     unsigned long long id = entry->session;
-
-    void *session = NULL;
-    RedisModule_DictDelC(rr->session_dict, &id, sizeof(id), &session);
-    if (session) {
-        freeSession(session);
-    }
+    endClientSession(rr, id);
 
     if (req) {
         entryDetachRaftReq(rr, entry);
@@ -927,7 +947,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             unlockDeleteKeys(rr, entry);
             break;
         case RAFT_LOGTYPE_END_SESSION:
-            endSession(rr, entry);
+            handleEndClientSession(rr, entry);
         default:
             break;
     }
