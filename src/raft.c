@@ -367,7 +367,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 
     void *client_session = getClientSession(rr, cmds);
-    if (client_session) {} /* avoid unused variable check */
+    (void) client_sessions;
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
