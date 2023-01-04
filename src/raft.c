@@ -948,6 +948,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_END_SESSION:
             handleEndClientSession(rr, entry);
+            break;
         default:
             break;
     }
