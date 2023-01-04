@@ -555,7 +555,7 @@ static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-static void handleEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
+static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
 {
     raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
     entry->id = rand();
@@ -632,7 +632,7 @@ static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisComman
             if (cmd_len == 7 && strncasecmp(cmd, "UNWATCH", 7) == 0) {
                 RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
                 unsigned long long id = RedisModule_GetClientId(ctx);
-                handleEndClientSession(rr, req, id, "UNWATCH");
+                appendEndClientSession(rr, req, id, "UNWATCH");
 
                 return true;
             }
@@ -660,10 +660,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
 
         handleNonLeaderCommand(rr, ctx, leader, cmds);
-        return;
-    }
-
-    if (handleUnwatch(rr, ctx, cmds)) {
         return;
     }
 
@@ -712,6 +708,10 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             RedisModule_FreeCallReply(reply);
             return;
         }
+    }
+
+    if (handleUnwatch(rr, ctx, cmds)) {
+        return;
     }
 
     if (cmd_flags & CMD_SPEC_SCRIPTS) {
