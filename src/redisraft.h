@@ -418,9 +418,10 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-    int entered_eval;             /* handling a lua script */
-    RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
-    RedisModuleDict *acl_dict;    /* maps acl strings to RedisModuleUser * objects */
+    int entered_eval;                     /* handling a lua script */
+    RedisModuleDict *locked_keys;         /* keys that have been locked for migration */
+    RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
+    RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -489,6 +490,7 @@ enum RaftReqType {
     RR_IMPORT_KEYS,
     RR_MIGRATE_KEYS,
     RR_DELETE_UNLOCK_KEYS,
+    RR_END_SESSION,
     RR_RAFTREQ_MAX
 };
 
@@ -578,6 +580,7 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_LOCK_KEYS           (RAFT_LOGTYPE_NUM + 4)
 #define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM + 5)
 #define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM + 6)
+#define RAFT_LOGTYPE_END_SESSION         (RAFT_LOGTYPE_NUM + 7)
 
 #define MAX_AUTH_STRING_ARG_LENGTH 255
 

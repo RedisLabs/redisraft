@@ -222,3 +222,21 @@ def test_multi_with_acl(cluster):
 
     msg = str(ret[0])
     assert 'ACL failure in script: No permissions to access a key' in msg
+
+
+def test_watch_within_multi(cluster):
+    """
+    MULTI/EXEC doesn't allow WATCH within multi, but EXEC still works
+    """
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('get', 'key1') == b'QUEUED'
+    with raises(ResponseError, match='WATCH inside MULTI is not allowed'):
+        conn.execute('watch', 'x')
+    assert conn.execute('get', 'key1') == b'QUEUED'
+    assert conn.execute('exec') == [b'1', b'1']

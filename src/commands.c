@@ -20,8 +20,6 @@ static const CommandSpec commands[] = {
     {"slaveof",                     CMD_SPEC_UNSUPPORTED                     },
     {"replicaof",                   CMD_SPEC_UNSUPPORTED                     },
     {"debug",                       CMD_SPEC_UNSUPPORTED                     },
-    {"watch",                       CMD_SPEC_UNSUPPORTED                     },
-    {"unwatch",                     CMD_SPEC_UNSUPPORTED                     },
     {"save",                        CMD_SPEC_UNSUPPORTED                     },
     {"bgsave",                      CMD_SPEC_UNSUPPORTED                     },
 

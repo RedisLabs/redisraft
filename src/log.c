@@ -138,6 +138,7 @@ static size_t generateEntryHeader(raft_entry_t *ety, unsigned char *buf, size_t 
     pos += multibulkWriteLong(pos, end - pos, ety->id);
     pos += multibulkWriteUInt64(pos, end - pos, ety->session);
     pos += multibulkWriteInt(pos, end - pos, ety->type);
+
     pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
 
     return pos - buf;
