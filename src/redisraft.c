@@ -628,6 +628,21 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
+/* TODO: used to only add entry for clients that have actually watched,
+ *       needed to avoid testing inconsistencies for now
+ */
+static void handleWatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    if (cmds->size == 1) {
+        size_t cmd_len;
+        const char *cmd = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmd_len);
+        if (cmd_len == 5 && strncasecmp("WATCH", cmd, 5) == 0) {
+            ClientState *cs = ClientStateGet(rr, ctx);
+            cs->watched = true;
+        }
+    }
+}
+
 static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     if (cmds->len == 1) {
@@ -715,6 +730,11 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             return;
         }
     }
+
+    /* TODO: used to only add entry for clients that have actually watched,
+     *       needed to avoid testing inconsistencies for now
+     */
+    handleWatch(rr, ctx, cmds);
 
     if (handleUnwatch(rr, ctx, cmds)) {
         return;
@@ -1759,7 +1779,7 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                 /* only send session teardown if we are a "client" session
                  * i.e. already handled a normal redis command
                  */
-                if (cs && cs->user_client && rr->raft && raft_is_leader(rr->raft)) {
+                if (cs && cs->user_client && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
                     appendEndClientSession(rr, NULL, ci->id, "disconnect");
                 }
                 ClientStateFree(rr, ci->id);

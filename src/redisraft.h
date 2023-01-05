@@ -726,6 +726,10 @@ typedef struct ClientState {
     MultiState multi_state;
     bool asking;
     bool user_client;
+    /* TODO: used to only add entry for clients that have actually watched,
+     *       needed to avoid testing inconsistencies for now
+     */
+    bool watched;
 } ClientState;
 
 /* common.c */
