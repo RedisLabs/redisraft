@@ -253,32 +253,32 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     };
 
     struct iovec *iov = iovs;
-    size_t rem = iov[0].iov_len + iov[1].iov_len;
-    int iovcnt = 2;
+    size_t remaining = iov[0].iov_len + iov[1].iov_len;
+    const int IOV_COUNT = 2;
+    int current_iov = 0;
     ssize_t count;
 
     while (true) {
-        count = writev(file->fd, iov, iovcnt);
+        count = writev(file->fd, iov, IOV_COUNT - current_iov);
         if (count < 0) {
             LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
             return -1;
         }
 
-        if ((size_t) count == rem) {
+        if ((size_t) count == remaining) {
             file->wpos = file->buf;
             file->woffset += len;
             return (ssize_t) len;
         }
 
-        rem -= count;
-        if ((size_t) count > iov[0].iov_len) {
-            count -= (ssize_t) iov[0].iov_len;
-            iov++;
-            iovcnt--;
+        remaining -= count;
+        if ((size_t) count > iov[current_iov].iov_len) {
+            count -= (ssize_t) iov[current_iov].iov_len;
+            current_iov++;
         }
 
-        iov[0].iov_base = (char *) iov[0].iov_base + count;
-        iov[0].iov_len -= count;
+        iov[current_iov].iov_base = (char *) iov[current_iov].iov_base + count;
+        iov[current_iov].iov_len -= count;
     }
 }
 
