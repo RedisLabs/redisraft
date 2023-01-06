@@ -75,7 +75,7 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
     }
 
     if (close(fd) != 0) {
-        LOG_WARNING("close() failure for the file:%s, error: %s",
+        LOG_WARNING("close() failure for the file: %s, error: %s",
                     ctx->config.rdb_filename, strerror(errno));
     }
 

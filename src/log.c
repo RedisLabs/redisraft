@@ -1036,7 +1036,8 @@ static raft_index_t logImplCount(void *arg)
 static int logImplSync(void *arg)
 {
     RedisRaftCtx *rr = arg;
-    return LogSync(&rr->log, rr->config.log_fsync) == RR_OK ? 0 : -1;
+    LogSync(&rr->log, rr->config.log_fsync);
+    return RR_OK;
 }
 
 raft_log_impl_t LogImpl = {
