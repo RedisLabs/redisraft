@@ -25,17 +25,18 @@ void FileInit(File *file)
 int FileTerm(File *file)
 {
     int rc;
+    int fd = file->fd;
 
-    if (file->fd == -1) {
+    if (fd == -1) {
         return RR_OK;
     }
 
     rc = FileFlush(file);
+    file->fd = -1;
 
-    if (close(file->fd) != 0) {
+    if (close(fd) != 0) {
         return RR_ERROR;
     }
-    file->fd = -1;
 
     return rc;
 }
