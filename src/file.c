@@ -35,6 +35,7 @@ int FileTerm(File *file)
     file->fd = -1;
 
     if (close(fd) != 0) {
+        LOG_WARNING("error, fd:%d, close():%s", file->fd, strerror(errno));
         return RR_ERROR;
     }
 
@@ -55,6 +56,7 @@ int FileOpen(File *file, const char *filename, int flags)
     }
 
     if (stat(filename, &st) != 0) {
+        LOG_WARNING("error, fd:%d, stat():%s", file->fd, strerror(errno));
         close(fd);
         return RR_ERROR;
     }
@@ -82,7 +84,7 @@ int FileFlush(File *file)
 
         ssize_t wr = write(file->fd, wbegin, count);
         if (wr < 0) {
-            LOG_WARNING("error, fd:%d, write:%s", file->fd, strerror(errno));
+            LOG_WARNING("error, fd:%d, write():%s", file->fd, strerror(errno));
             return RR_ERROR;
         }
 
@@ -100,7 +102,7 @@ int FileFsync(File *file)
 {
     int rc = fsyncFile(file->fd);
     if (rc != RR_OK) {
-        LOG_WARNING("error fd:%d, fsync:%s", file->fd, strerror(errno));
+        LOG_WARNING("error fd:%d, fsync():%s", file->fd, strerror(errno));
     }
     return rc;
 }
@@ -118,6 +120,7 @@ int FileSetReadOffset(File *file, size_t offset)
 
     off_t ret = lseek(file->fd, (off_t) offset, SEEK_SET);
     if (ret != (off_t) offset) {
+        LOG_WARNING("error, fd:%d, lseek():%s", file->fd, strerror(errno));
         return RR_ERROR;
     }
 
@@ -257,6 +260,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     while (true) {
         count = writev(file->fd, iov, iovcnt);
         if (count < 0) {
+            LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
             return -1;
         }
 
@@ -290,8 +294,12 @@ size_t FileGetReadOffset(File *file)
 
 int FileTruncate(File *file, size_t len)
 {
-    if (FileFlush(file) != RR_OK ||
-        ftruncate(file->fd, (off_t) len) != 0) {
+    if (FileFlush(file) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    if (ftruncate(file->fd, (off_t) len) != 0) {
+        LOG_WARNING("error, fd:%d, ftruncate():%s", file->fd, strerror(errno));
         return RR_ERROR;
     }
 
