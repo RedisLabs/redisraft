@@ -724,7 +724,7 @@ int LogSync(Log *log, bool sync)
     uint64_t begin = RedisModule_MonotonicMicroseconds();
 
     if (pageSync(curr, sync) != RR_OK) {
-        PANIC("pageFsync() failed for the file :%s", curr->filename);
+        PANIC("pageFsync() failed for the file: %s", curr->filename);
     }
 
     uint64_t took = RedisModule_MonotonicMicroseconds() - begin;
@@ -857,7 +857,7 @@ int LogCompactionBegin(Log *log)
     raft_entry_release(e);
 
     if (pageSync(p0, true) != RR_OK) {
-        PANIC("pageFsync() failed for the file :%s", p0->filename);
+        PANIC("pageFsync() failed for the file: %s", p0->filename);
     }
 
     log->pages[1] = pageCreate(tmp, p0->dbid, p0->node_id, term, idx);

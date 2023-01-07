@@ -454,7 +454,7 @@ int fsyncFileAt(const char *path)
     }
 
     if (fsyncFile(fd) != RR_OK) {
-        LOG_WARNING("fsyncFile(): file %s, error: %s", path, strerror(errno));
+        LOG_WARNING("fsyncFile(): file: %s, error: %s", path, strerror(errno));
         close(fd);
         return RR_ERROR;
     }
