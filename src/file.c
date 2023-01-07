@@ -84,6 +84,10 @@ int FileFlush(File *file)
 
         ssize_t wr = write(file->fd, wbegin, count);
         if (wr < 0) {
+            /* Adjust userspace buffer if there was a partial write. */
+            memmove(file->buf, wbegin, count);
+            file->wpos = file->buf + count;
+            file->rpos = file->rend = NULL;
             LOG_WARNING("error, fd: %d, write(): %s", file->fd, strerror(errno));
             return RR_ERROR;
         }
@@ -247,20 +251,24 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* We have some data in the file buffer and need to write it first before
      * the user buffer. We'll write both buffers with a single writev() call.
      * We'll loop until all data is written in case of a partial write. */
-    struct iovec iovs[2] = {
+    struct iovec iov[2] = {
         {.iov_base = file->buf, .iov_len = file->wpos - file->buf},
         {.iov_base = buf,       .iov_len = len                   }
     };
 
-    struct iovec *iov = iovs;
     size_t remaining = iov[0].iov_len + iov[1].iov_len;
     const int IOV_COUNT = 2;
     int current_iov = 0;
     ssize_t count;
 
     while (true) {
-        count = writev(file->fd, iov, IOV_COUNT - current_iov);
+        count = writev(file->fd, &iov[current_iov], IOV_COUNT - current_iov);
         if (count < 0) {
+            /* Adjust userspace buffer if there was a partial write. */
+            memmove(file->buf, iov[0].iov_base, iov[0].iov_len);
+            file->wpos = file->buf + iov[0].iov_len;
+            /* Adjust write offset if there was a partial write. */
+            file->woffset += len - iov[1].iov_len;
             LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
             return -1;
         }
@@ -274,6 +282,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
         remaining -= count;
         if ((size_t) count > iov[current_iov].iov_len) {
             count -= (ssize_t) iov[current_iov].iov_len;
+            iov[current_iov].iov_len = 0;
             current_iov++;
         }
 
