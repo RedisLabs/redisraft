@@ -575,6 +575,19 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
+static void clearClientSessions(RedisRaftCtx *rr)
+{
+    void *client_session;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->client_session_dict, "^", NULL, 0);
+
+    while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
+        freeClientSession(client_session);
+    }
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
+    rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
+}
+
 /*
  * Execution of Raft log on the local instance.
  *
@@ -948,6 +961,9 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_END_SESSION:
             handleEndClientSession(rr, entry);
+            break;
+        case RAFT_LOGTYPE_NO_OP:
+            clearClientSessions(rr);
             break;
         default:
             break;
