@@ -10,6 +10,8 @@ import pytest as pytest
 import time
 from redis import ResponseError
 from pytest import raises
+from retry import retry
+
 from .sandbox import RedisRaft, RedisRaftFailedToStart, RawConnection
 from retry import retry
 
@@ -760,8 +762,10 @@ def test_session_counting(cluster):
         assert cluster.node(2).info()["raft_num_sessions"] == val
         assert cluster.node(3).info()["raft_num_sessions"] == val
 
+    # default, no sessions
     assert_num_sessions(0)
 
+    # normal watch/unwatch session setup tear down
     conn1 = RawConnection(cluster.leader_node().client)
     conn1.execute("WATCH", "X")
     cluster.wait_for_unanimity()
@@ -784,6 +788,21 @@ def test_session_counting(cluster):
 
     assert_num_sessions(0)
 
+    # leader election
+    conn1.execute("WATCH", "X")
+    conn2.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(2)
+
+    assert cluster.leader == 1
+    cluster.node(1).restart()
+    cluster.node(1).wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(0)
+
+    # client disconnect
     conn1.execute("WATCH", "X")
     cluster.wait_for_unanimity()
 
