@@ -1771,7 +1771,7 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
         switch (subevent) {
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
                 ClientState *cs = ClientStateGetById(rr, ci->id);
-                /* NOTE: see comment in rediraft.h on RedisRaftCtx->watched
+                /* NOTE: see comment in rediraft.h on ClientState->watched
                  *
                  * We only send the disconnect log entry if this client used
                  * session
