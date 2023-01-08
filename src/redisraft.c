@@ -2033,7 +2033,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     /* acl -> user dictionary */
     rr->acl_dict = RedisModule_CreateDict(rr->ctx);
 
-    rr->client_session_dict = RedisModule_CreateDict(ctx);
+    rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
