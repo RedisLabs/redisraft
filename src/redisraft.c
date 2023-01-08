@@ -628,9 +628,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-/* TODO: used to only add entry for clients that have actually watched,
- *       needed to avoid testing inconsistencies for now
- */
+/* NOTE: see comment in rediraft.h on RedisRaftCtx->watched */
 static void handleWatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     if (cmds->size == 1) {
@@ -731,9 +729,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
     }
 
-    /* TODO: used to only add entry for clients that have actually watched,
-     *       needed to avoid testing inconsistencies for now
-     */
     handleWatch(rr, ctx, cmds);
 
     if (handleUnwatch(rr, ctx, cmds)) {
@@ -1776,8 +1771,10 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
         switch (subevent) {
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
                 ClientState *cs = ClientStateGetById(rr, ci->id);
-                /* only send session teardown if we are a "client" session
-                 * i.e. already handled a normal redis command
+                /* NOTE: see comment in rediraft.h on RedisRaftCtx->watched
+                 *
+                 * We only send the disconnect log entry if this client used
+                 * session
                  */
                 if (cs && cs->user_client && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
                     appendEndClientSession(rr, NULL, ci->id, "disconnect");

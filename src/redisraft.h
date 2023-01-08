@@ -726,8 +726,33 @@ typedef struct ClientState {
     MultiState multi_state;
     bool asking;
     bool user_client;
-    /* TODO: used to only add entry for clients that have actually watched,
-     *       needed to avoid testing inconsistencies for now
+    /* we record "watched" at append time, for 2 reasons
+     * 1) It's possible to disconnect after append, but before apply.
+     *    Therefore, we can't depend on state machine
+     * 2) in a future pipelining world, the above is even more true
+     *    as we can have multiple items on the log (pre apply) for a
+     *    single client at a time
+     *
+     * This records that we have ever tried to use a session, not that we
+     * are currently in one.  It's for controlling when we send a disconnect
+     * log entry.  Motivated, primarily, by making our tests consistent, as we
+     * have tests that validate the log looks a they expect it to look, and
+     * adding disconnect log entries to end sessions introduces randomness.
+     *
+     * There are 3 primary options
+     *
+     * 1) always send a log entry on disconnect.  This is valid, but causes
+     * problems for our tests that expect the log to look a certain way.  In
+     * general the tests work, but this introduced randomness
+     *
+     * 2) only send a log entry based on the state machine (i.e. session is
+     * active because of apply time changes).  As noted above, sessions can
+     * be created after disconnect, which would cause sessions to "leak" until
+     * the next term/NO_OP, when they will be cleaned up.
+     *
+     * 3) this approach that only sends a diconnect, if this client ever used
+     * a WATCH/session.  The tests that care about the log being in a specific
+     * order, won't call WATCH and hence won't ever get a disconnect log entry.
      */
     bool watched;
 } ClientState;
