@@ -803,6 +803,8 @@ def test_session_counting(cluster):
     assert_num_sessions(0)
 
     # client disconnect
+    cluster.execute("get", "X")  # force update of leader ndode
+    conn1 = RawConnection(cluster.leader_node().client)
     conn1.execute("WATCH", "X")
     cluster.wait_for_unanimity()
 
