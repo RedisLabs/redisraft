@@ -2112,7 +2112,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
 
     if (rr->client_state) {
         RedisModule_FreeDict(rr->ctx, rr->client_state);
-        rr->client_state = NULL;
+ b       rr->client_state = NULL;
     }
 
     if (rr->debug_req) {
@@ -2123,6 +2123,16 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     if (rr->locked_keys) {
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
         rr->locked_keys = NULL;
+    }
+
+    if (rr->acl_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->acl_dict);
+        rr->acl_dict = NULL;
+    }
+
+    if (rr->client_session_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
+        rr->client_session_dict = NULL;
     }
 
     CommandSpecTableClear(rr->commands_spec_table);
