@@ -628,7 +628,7 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     return false;
 }
 
-/* NOTE: see comment in rediraft.h on RedisRaftCtx->watched */
+/* NOTE: see comment in rediraft.h on ClientState->watched */
 static void handleWatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
 {
     if (cmds->size == 1) {
