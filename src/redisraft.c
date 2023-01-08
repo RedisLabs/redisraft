@@ -2112,7 +2112,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
 
     if (rr->client_state) {
         RedisModule_FreeDict(rr->ctx, rr->client_state);
- b       rr->client_state = NULL;
+        rr->client_state = NULL;
     }
 
     if (rr->debug_req) {
