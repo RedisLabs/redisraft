@@ -52,15 +52,21 @@ int FileOpen(File *file, const char *filename, int flags)
 
     fd = open(filename, flags, S_IWUSR | S_IRUSR);
     if (fd < 0) {
+        int saved_errno = errno;
         if (errno != ENOENT) {
             LOG_WARNING("error, fd: %d, open(): %s", file->fd, strerror(errno));
         }
+        errno = saved_errno;
+
         return RR_ERROR;
     }
 
     if (stat(filename, &st) != 0) {
+        int saved_errno = errno;
         LOG_WARNING("error, fd: %d, stat(): %s", file->fd, strerror(errno));
         close(fd);
+        errno = saved_errno;
+
         return RR_ERROR;
     }
 
