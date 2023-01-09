@@ -605,6 +605,20 @@ static void lockedKeysRDBLoad(RedisModuleIO *rdb)
     }
 }
 
+static void clientSessionRDBLoad(RedisModuleIO *rdb)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    size_t count = RedisModule_LoadUnsigned(rdb);
+
+    for (size_t i = 0; i < count; i++) {
+        ClientSession *client_session = RedisModule_Alloc(sizeof(ClientSession));
+        unsigned long long id = RedisModule_LoadUnsigned(rdb);
+        client_session->client_id = id;
+        client_session->session_term = RedisModule_LoadSigned(rdb);
+        RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
+    }
+}
+
 static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
 {
     size_t len;
@@ -679,6 +693,9 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
     /* Load locked_keys dict */
     lockedKeysRDBLoad(rdb);
 
+    /* Load client_session dict */
+    clientSessionRDBLoad(rdb);
+
     info->loaded = true;
     return REDISMODULE_OK;
 }
@@ -697,6 +714,23 @@ static void lockedKeysRDBSave(RedisModuleIO *rdb)
 
     while ((key = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
         RedisModule_SaveStringBuffer(rdb, key, key_len);
+    }
+    RedisModule_DictIteratorStop(iter);
+}
+
+static void clientSessionRDBSave(RedisModuleIO *rdb)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RedisModuleDict *dict = rr->client_session_dict;
+
+    RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(dict));
+
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
+
+    ClientSession *clientSession;
+    while (RedisModule_DictNextC(iter, NULL, (void **) &clientSession) != NULL) {
+        RedisModule_SaveUnsigned(rdb, clientSession->client_id);
+        RedisModule_SaveSigned(rdb, clientSession->session_term);
     }
     RedisModule_DictIteratorStop(iter);
 }
@@ -741,6 +775,9 @@ static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
 
     /* Save LockedKeys dict */
     lockedKeysRDBSave(rdb);
+
+    /* Save client_session dict */
+    clientSessionRDBSave(rdb);
 }
 
 /* Do nothing -- AOF should never be used with RedisRaft, but we have to specify

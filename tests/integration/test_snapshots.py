@@ -10,7 +10,10 @@ import time
 
 from redis import ResponseError
 from pytest import raises
+from retry import retry
+
 from .raftlog import RaftLog, LogEntry
+from .sandbox import RawConnection
 
 
 def test_snapshot_delivery_to_new_node(cluster):
@@ -605,3 +608,58 @@ def test_snapshot_state_on_failure(cluster):
     assert info['raft_snapshot_last_term'] == 0
     assert info['raft_snapshot_size'] == 0
     assert info['raft_snapshot_time_secs'] == -1
+
+
+def test_snapshot_sessions(cluster):
+    cluster.create(3)
+
+    @retry(delay=1, tries=10)
+    def assert_num_sessions(val):
+        assert cluster.node(1).info()["raft_num_sessions"] == val
+        assert cluster.node(2).info()["raft_num_sessions"] == val
+        assert cluster.node(3).info()["raft_num_sessions"] == val
+
+    assert_num_sessions(0)
+
+    conn1 = RawConnection(cluster.leader_node().client)
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(1)
+
+    conn2 = RawConnection(cluster.leader_node().client)
+    conn2.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(2)
+
+    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(2).info()['raft_log_entries'] == 0
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_node_voting()
+
+    assert_num_sessions(2)
+
+    cluster.execute("set", "a", "123")
+
+    conn1.execute("UNWATCH")
+    cluster.wait_for_unanimity()
+    assert_num_sessions(1)
+
+    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(2).info()['raft_log_entries'] == 0
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_node_voting()
+    assert_num_sessions(1)
+
+    cluster.execute("set", "b", "123")
+
+    conn2.execute("UNWATCH")
+    cluster.wait_for_unanimity()
+    assert_num_sessions(0)
+
+    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.node(2).info()['raft_log_entries'] == 0
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_node_voting()
+    assert_num_sessions(0)
