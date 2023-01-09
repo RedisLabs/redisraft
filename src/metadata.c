@@ -123,6 +123,8 @@ int MetadataRead(Metadata *m, const char *filename)
         if (errno != ENOENT) {
             PANIC("FileOpen(): %s", strerror(errno));
         }
+
+        FileTerm(&f);
         return RR_ERROR;
     }
 
