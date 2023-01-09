@@ -548,12 +548,6 @@ static void setAskingState(RedisRaftCtx *rr, RedisModuleCtx *ctx, bool val)
     clientState->asking = val;
 }
 
-static void setUserClient(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    ClientState *clientState = ClientStateGet(rr, ctx);
-    clientState->user_client = true;
-}
-
 static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
     setAskingState(rr, ctx, true);
@@ -789,7 +783,6 @@ static void handleRedisCommand(RedisRaftCtx *rr,
     /* update cmds array with the client's saved "asking" state */
     cmds->asking = getAskingState(rr, ctx);
     setAskingState(rr, ctx, false);
-    setUserClient(rr, ctx);
 
     /* Handle intercepted commands. We do this also on non-leader nodes or if we
      * don't have a leader, so it's up to the commands to check these conditions
@@ -1774,9 +1767,12 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                 /* NOTE: see comment in rediraft.h on ClientState->watched
                  *
                  * We only send the disconnect log entry if this client used
-                 * session
+                 * sessions
+                 *
+                 * We can only append if we are leader, if we're not leader anymore,
+                 * then this would have already been cleaned up.
                  */
-                if (cs && cs->user_client && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
+                if (cs && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
                     appendEndClientSession(rr, NULL, ci->id, "disconnect");
                 }
                 ClientStateFree(rr, ci->id);
