@@ -156,12 +156,14 @@ static int pageWriteEntry(LogPage *p, raft_entry_t *ety)
     /* header */
     len = generateEntryHeader(ety, buf, sizeof(buf));
     if (FileWrite(&p->file, buf, len) != len) {
+        LOG_WARNING("FileWrite() failed for the file: %s", p->filename);
         goto error;
     }
 
     /* data */
     if (FileWrite(&p->file, ety->data, ety->data_len) != ety->data_len ||
         FileWrite(&p->file, "\r\n", 2) != 2) {
+        LOG_WARNING("FileWrite() failed for the file: %s", p->filename);
         goto error;
     }
 
@@ -174,11 +176,13 @@ static int pageWriteEntry(LogPage *p, raft_entry_t *ety)
     /* write crc as added element */
     len = multibulkWriteLong(buf, sizeof(buf), crc);
     if (FileWrite(&p->file, buf, len) != len) {
+        LOG_WARNING("FileWrite() failed for the file: %s", p->filename);
         goto error;
     }
 
     ssize_t ret = FileWrite(&p->idxfile, &offset, sizeof(offset));
     if (ret != sizeof(offset)) {
+        LOG_WARNING("FileWrite() failed for the file: %s", p->idxfilename);
         goto error;
     }
 
@@ -412,7 +416,9 @@ static int pageLoadEntries(LogPage *p)
                             bytes);
 
                 int rc = FileTruncate(&p->file, offset);
-                RedisModule_Assert(rc == RR_OK);
+                if (rc != RR_OK) {
+                    PANIC("FileTruncate() failed for the file: %s", p->filename);
+                }
             }
 
             return RR_OK;
@@ -424,8 +430,12 @@ static int pageLoadEntries(LogPage *p)
             LOG_WARNING("Entry failed crc32 check, truncating log to "
                         "previous entry: %ld",
                         p->index);
+
             int rc = FileTruncate(&p->file, offset);
-            RedisModule_Assert(rc == RR_OK);
+            if (rc != RR_OK) {
+                PANIC("FileTruncate() failed for the file: %s", p->filename);
+            }
+
             return RR_OK;
         }
 
@@ -434,19 +444,22 @@ static int pageLoadEntries(LogPage *p)
         p->num_entries++;
 
         ssize_t rc = FileWrite(&p->idxfile, &offset, sizeof(offset));
-        RedisModule_Assert(rc == sizeof(offset));
+        if (rc != sizeof(offset)) {
+            PANIC("FileWrite() failed for the file: %s", p->idxfilename);
+        }
     }
 }
 
 static int pageSync(LogPage *p, bool sync)
 {
     if (FileFlush(&p->file) != RR_OK) {
+        LOG_WARNING("FileFlush() failed for the file: %s", p->filename);
         return RR_ERROR;
     }
 
     if (sync) {
         if (FileFsync(&p->file) != RR_OK) {
-            LOG_WARNING("fsync(): %s", strerror(errno));
+            LOG_WARNING("FileFsync() failed for the file: %s", p->filename);
             return RR_ERROR;
         }
     }
@@ -711,7 +724,7 @@ int LogSync(Log *log, bool sync)
     uint64_t begin = RedisModule_MonotonicMicroseconds();
 
     if (pageSync(curr, sync) != RR_OK) {
-        return RR_ERROR;
+        PANIC("pageFsync() failed for the file: %s", curr->filename);
     }
 
     uint64_t took = RedisModule_MonotonicMicroseconds() - begin;
@@ -726,7 +739,12 @@ int LogSync(Log *log, bool sync)
 int LogFlush(Log *log)
 {
     LogPage *curr = log->pages[1] ? log->pages[1] : log->pages[0];
-    return FileFlush(&curr->file);
+
+    if (FileFlush(&curr->file) != RR_OK) {
+        PANIC("FileFlush() failed for the file: %s", curr->filename);
+    }
+
+    return RR_OK;
 }
 
 int LogCurrentFd(Log *log)
@@ -839,7 +857,7 @@ int LogCompactionBegin(Log *log)
     raft_entry_release(e);
 
     if (pageSync(p0, true) != RR_OK) {
-        return RR_ERROR;
+        PANIC("pageFsync() failed for the file: %s", p0->filename);
     }
 
     log->pages[1] = pageCreate(tmp, p0->dbid, p0->node_id, term, idx);
@@ -1018,7 +1036,8 @@ static raft_index_t logImplCount(void *arg)
 static int logImplSync(void *arg)
 {
     RedisRaftCtx *rr = arg;
-    return LogSync(&rr->log, rr->config.log_fsync) == RR_OK ? 0 : -1;
+    LogSync(&rr->log, rr->config.log_fsync);
+    return RR_OK;
 }
 
 raft_log_impl_t LogImpl = {
