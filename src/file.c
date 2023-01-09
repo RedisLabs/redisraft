@@ -52,6 +52,9 @@ int FileOpen(File *file, const char *filename, int flags)
 
     fd = open(filename, flags, S_IWUSR | S_IRUSR);
     if (fd < 0) {
+        if (errno != ENOENT) {
+            LOG_WARNING("error, fd: %d, open(): %s", file->fd, strerror(errno));
+        }
         return RR_ERROR;
     }
 
