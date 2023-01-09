@@ -589,6 +589,7 @@ static void clearClientSessions(RedisRaftCtx *rr)
             RedisModule_DeauthenticateAndCloseClient(rr->ctx, client_session->client_id);
         }
         freeClientSession(client_session);
+
     }
     RedisModule_DictIteratorStop(iter);
     RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
