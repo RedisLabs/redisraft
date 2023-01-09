@@ -418,9 +418,10 @@ typedef struct RedisRaftCtx {
     unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
     unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
-    int entered_eval;             /* handling a lua script */
-    RedisModuleDict *locked_keys; /* keys thar have been locked for migration */
-    RedisModuleDict *acl_dict;    /* maps acl strings to RedisModuleUser * objects */
+    int entered_eval;                     /* handling a lua script */
+    RedisModuleDict *locked_keys;         /* keys that have been locked for migration */
+    RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
+    RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -489,6 +490,7 @@ enum RaftReqType {
     RR_IMPORT_KEYS,
     RR_MIGRATE_KEYS,
     RR_DELETE_UNLOCK_KEYS,
+    RR_END_SESSION,
     RR_RAFTREQ_MAX
 };
 
@@ -505,9 +507,10 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    bool asking; /* if this command array is in an asking mode */
-    int size;    /* Size of allocated array */
-    int len;     /* Number of elements in array */
+    unsigned long long client_id; /* client id for maintaining sessions */
+    bool asking;                  /* if this command array is in an asking mode */
+    int size;                     /* Size of allocated array */
+    int len;                      /* Number of elements in array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
 } RaftRedisCommandArray;
@@ -577,6 +580,7 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_LOCK_KEYS           (RAFT_LOGTYPE_NUM + 4)
 #define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM + 5)
 #define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM + 6)
+#define RAFT_LOGTYPE_END_SESSION         (RAFT_LOGTYPE_NUM + 7)
 
 #define MAX_AUTH_STRING_ARG_LENGTH 255
 
@@ -805,10 +809,12 @@ bool parseInt(const char *str, char **end, int *val);
 bool multibulkReadLen(File *fp, char type, int *length);
 bool multibulkReadInt(File *fp, int *value);
 bool multibulkReadLong(File *fp, long *value);
+bool multibulkReadUInt64(File *fp, unsigned long long *value);
 bool multibulkReadStr(File *fp, char *buf, size_t size);
 int multibulkWriteLen(void *buf, size_t cap, char prefix, int len);
 int multibulkWriteInt(void *buf, size_t cap, int val);
 int multibulkWriteLong(void *buf, size_t cap, long val);
+int multibulkWriteUInt64(void *buf, size_t cap, unsigned long long val);
 int multibulkWriteStr(void *buf, size_t cap, const char *val);
 int fsyncFile(int fd);
 int fsyncFileAt(const char *path);

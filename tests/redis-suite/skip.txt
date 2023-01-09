@@ -1,4 +1,8 @@
 -- Blocking commands not supported
+/.*Unblock fairness is.*
+/.*Blocking command.*
+SLOWLOG - blocking command is reported only after unblocked
+MONITOR log blocked command only once
 BLPOP with variadic LPUSH
 Linked LMOVEs
 client unblock tests

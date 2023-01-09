@@ -555,6 +555,28 @@ static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
+{
+    raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_END_SESSION;
+    entry->session = id;
+    strncpy(entry->data, reason, strlen(reason) + 1);
+
+    if (req) {
+        entryAttachRaftReq(rr, entry, req);
+    }
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (req && e != 0) {
+        replyRaftError(req->ctx, e);
+        RaftReqFree(req);
+        entryDetachRaftReq(rr, entry);
+    }
+
+    raft_entry_release(entry);
+}
+
 /* Handle interception of Redis commands that have a different
  * implementation in RedisRaft.
  *
@@ -595,6 +617,26 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     if (len == strlen("ASKING") && strncasecmp(cmd_str, "ASKING", len) == 0) {
         handleAsking(rr, ctx);
         return true;
+    }
+
+    return false;
+}
+
+static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    if (cmds->len == 1) {
+        size_t cmd_len;
+        if (cmds->commands[0]->argc > 0) {
+            const char *cmd = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmd_len);
+
+            if (cmd_len == 7 && strncasecmp(cmd, "UNWATCH", 7) == 0) {
+                RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+                unsigned long long id = RedisModule_GetClientId(ctx);
+                appendEndClientSession(rr, req, id, "UNWATCH");
+
+                return true;
+            }
+        }
     }
 
     return false;
@@ -668,6 +710,10 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
     }
 
+    if (handleUnwatch(rr, ctx, cmds)) {
+        return;
+    }
+
     if (cmd_flags & CMD_SPEC_SCRIPTS) {
         RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
         RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
@@ -700,6 +746,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
+    entry->session = RedisModule_GetClientId(ctx);
     entry->type = RAFT_LOGTYPE_NORMAL;
     entryAttachRaftReq(rr, entry, req);
 
@@ -806,6 +853,7 @@ static int cmdRaft(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RaftRedisCommandArray cmds = {0};
     RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&cmds);
+    cmds.client_id = RedisModule_GetClientId(ctx);
 
     cmd->argc = argc - 1;
     cmd->argv = RedisModule_Alloc((argc - 1) * sizeof(RedisModuleString *));
@@ -853,7 +901,7 @@ static int cmdRaftEntry(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 /* RAFT.AE [target_node_id] [src_node_id]
  *         [leader_id]:[term]:[prev_log_idx]:[prev_log_term]:[leader_commit]:[msg_id]
- *         [n_entries] [<term>:<id>:<type> <entry>]...
+ *         [n_entries] [<term>:<id>:<session>:<type> <entry>]...
  *
  *   A leader request to append entries to the Raft log (per Raft paper).
  * Reply:
@@ -929,11 +977,10 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
         /* Parse additional entry fields */
         tmpstr = RedisModule_StringPtrLen(argv[5 + 2 * i], &tmplen);
-        if (sscanf(tmpstr, "%ld:%d:%d", &e->term, &e->id, &e->type) != 3) {
+        if (sscanf(tmpstr, "%ld:%d:%llu:%d", &e->term, &e->id, &e->session, &e->type) != 4) {
             RedisModule_ReplyWithError(ctx, "invalid entry");
             goto out;
         }
-
         msg.entries[i] = e;
     }
 
@@ -1852,6 +1899,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", rr->snapshotreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
+    RedisModule_InfoAddFieldULongLong(ctx, "num_sessions", RedisModule_DictSize(rr->client_session_dict));
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
@@ -1983,7 +2031,9 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
 
     /* acl -> user dictionary */
-    rr->acl_dict = RedisModule_CreateDict(ctx);
+    rr->acl_dict = RedisModule_CreateDict(rr->ctx);
+
+    rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
@@ -2073,6 +2123,16 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     if (rr->locked_keys) {
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
         rr->locked_keys = NULL;
+    }
+
+    if (rr->acl_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->acl_dict);
+        rr->acl_dict = NULL;
+    }
+
+    if (rr->client_session_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
+        rr->client_session_dict = NULL;
     }
 
     CommandSpecTableClear(rr->commands_spec_table);

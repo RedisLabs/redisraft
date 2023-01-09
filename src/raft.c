@@ -29,6 +29,7 @@ const char *RaftReqTypeStr[] = {
     [RR_IMPORT_KEYS] = "RR_IMPORT_KEYS",
     [RR_MIGRATE_KEYS] = "RR_MIGRATE_KEYS",
     [RR_DELETE_UNLOCK_KEYS] = "RR_DELETE_UNLOCK_KEYS",
+    [RR_END_SESSION] = "RR_END_SESSION",
 };
 
 /* Forward declarations */
@@ -299,6 +300,30 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
     return validateRaftRedisCommandArray(rr, ctx, cmds, slot);
 }
 
+/* returns the client session object for this CommandArray if applicable
+ * starts/creates it if necessary
+ */
+static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
+    unsigned long long id = cmds->client_id;
+    int nokey;
+
+    void *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
+
+    if (nokey) {
+        RaftRedisCommand *c = cmds->commands[0];
+        size_t cmd_len;
+        const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmd_len);
+
+        if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
+            client_session = RedisModule_Alloc(sizeof(void *));
+            RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
+        }
+    }
+
+    return client_session;
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -340,6 +365,9 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     if (handleSharding(rr, reply_ctx, cmds) != RR_OK) {
         return;
     }
+
+    void *client_session = getClientSession(rr, cmds);
+    (void) client_session;
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
@@ -518,6 +546,48 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
+static void freeClientSession(void *client_session)
+{
+    RedisModule_Free(client_session);
+}
+
+static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
+{
+    void *client_session = NULL;
+    RedisModule_DictDelC(rr->client_session_dict, &id, sizeof(id), &client_session);
+    if (client_session) {
+        freeClientSession(client_session);
+    }
+}
+
+static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
+    RaftReq *req = entry->user_data;
+
+    unsigned long long id = entry->session;
+    endClientSession(rr, id);
+
+    if (req) {
+        entryDetachRaftReq(rr, entry);
+        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        RaftReqFree(req);
+    }
+}
+
+static void clearClientSessions(RedisRaftCtx *rr)
+{
+    void *client_session;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->client_session_dict, "^", NULL, 0);
+
+    while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
+        freeClientSession(client_session);
+    }
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
+    rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
+}
+
 /*
  * Execution of Raft log on the local instance.
  *
@@ -543,6 +613,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
                                              entry->data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
+        tmp.client_id = entry->session;
 
         RaftExecuteCommandArray(rr, rr->ctx, NULL, &tmp);
         RaftRedisCommandArrayFree(&tmp);
@@ -750,7 +821,7 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
     for (i = 0; i < msg->n_entries; i++) {
         raft_entry_t *e = msg->entries[i];
         argv[5 + i * 2] = RedisModule_Alloc(64);
-        argvlen[5 + i * 2] = snprintf(argv[5 + i * 2], 63, "%ld:%d:%d", e->term, e->id, e->type);
+        argvlen[5 + i * 2] = snprintf(argv[5 + i * 2], 63, "%ld:%d:%llu:%d", e->term, e->id, e->session, e->type);
         argvlen[6 + i * 2] = e->data_len;
         argv[6 + i * 2] = e->data;
     }
@@ -887,6 +958,12 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_DELETE_UNLOCK_KEYS:
             unlockDeleteKeys(rr, entry);
+            break;
+        case RAFT_LOGTYPE_END_SESSION:
+            handleEndClientSession(rr, entry);
+            break;
+        case RAFT_LOGTYPE_NO_OP:
+            clearClientSessions(rr);
             break;
         default:
             break;

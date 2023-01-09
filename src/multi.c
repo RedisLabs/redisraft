@@ -103,6 +103,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
 
     /* Are we in MULTI? */
     if (multiState->active) {
+        /* can't call WATCH within a MULTI, but doesn't error out MULTI */
+        if (cmd_len == 5 && !strncasecmp(cmd_str, "WATCH", 5)) {
+            RedisModule_ReplyWithError(ctx, "ERR WATCH inside MULTI is not allowed");
+            return true;
+        }
+
         /* We have to detect commands that are unsupported or must not be
          * intercepted and reject the transaction.
          */
