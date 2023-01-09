@@ -633,10 +633,12 @@ def test_snapshot_sessions(cluster):
 
     assert_num_sessions(2)
 
-    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-    assert cluster.node(2).info()['raft_log_entries'] == 0
-    cluster.node(2).restart()
-    cluster.node(2).wait_for_node_voting()
+    n2 = cluster.node(2)
+
+    assert n2.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
 
     assert_num_sessions(2)
 
@@ -646,10 +648,11 @@ def test_snapshot_sessions(cluster):
     cluster.wait_for_unanimity()
     assert_num_sessions(1)
 
-    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-    assert cluster.node(2).info()['raft_log_entries'] == 0
-    cluster.node(2).restart()
-    cluster.node(2).wait_for_node_voting()
+    n2 = cluster.node(2)
+    assert n2.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
     assert_num_sessions(1)
 
     cluster.execute("set", "b", "123")
@@ -658,8 +661,9 @@ def test_snapshot_sessions(cluster):
     cluster.wait_for_unanimity()
     assert_num_sessions(0)
 
-    assert cluster.node(2).client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
-    assert cluster.node(2).info()['raft_log_entries'] == 0
-    cluster.node(2).restart()
-    cluster.node(2).wait_for_node_voting()
+    n2 = cluster.node(2)
+    assert n2.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
     assert_num_sessions(0)
