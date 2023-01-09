@@ -2031,9 +2031,9 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
 
     /* acl -> user dictionary */
-    rr->acl_dict = RedisModule_CreateDict(ctx);
+    rr->acl_dict = RedisModule_CreateDict(rr->ctx);
 
-    rr->client_session_dict = RedisModule_CreateDict(ctx);
+    rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
 
     /* Cluster configuration */
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
@@ -2123,6 +2123,16 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     if (rr->locked_keys) {
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
         rr->locked_keys = NULL;
+    }
+
+    if (rr->acl_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->acl_dict);
+        rr->acl_dict = NULL;
+    }
+
+    if (rr->client_session_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
+        rr->client_session_dict = NULL;
     }
 
     CommandSpecTableClear(rr->commands_spec_table);

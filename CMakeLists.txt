@@ -40,28 +40,42 @@ endif ()
 
 message(STATUS "Main build type: ${CMAKE_BUILD_TYPE}")
 
-# Detect x86 and sse4.2 support
-check_c_compiler_flag(-msse4.2 HAVE_CRC32_HARDWARE)
-if (${HAVE_CRC32_HARDWARE})
-    message(STATUS "CPU have -msse4.2, defined HAVE_CRC32C")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_CRC32C -msse4.2")
-endif ()
-
-# Detect aarch64 and set march=armv8.1-a. armv7 doesn't have CRC32c instruction,
-# so, armv7 will fallback to software version
-if (CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
-    message(STATUS "CPU = aarch64, defined HAVE_CRC32C, -march=armv8.1-a")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_CRC32C -march=armv8.1-a")
-endif()
-
 # Detect endianness
 test_big_endian(HAVE_BIG_ENDIAN)
 if (${HAVE_BIG_ENDIAN})
     message(STATUS "System is BIG ENDIAN")
     target_compile_definitions(${PROJECT_NAME}_test PRIVATE -DHAVE_BIG_ENDIAN)
-else()
+else ()
     message(STATUS "System is LITTLE ENDIAN")
 endif ()
+
+message(STATUS "CMAKE_SYSTEM_PROCESSOR is ${CMAKE_SYSTEM_PROCESSOR}")
+
+# Detect architecture and set HAVE_CRC32C flag if supported by the CPU
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+    message(STATUS "System is x86_64")
+
+    # Extra check for sse4.2 support
+    check_c_compiler_flag(-msse4.2 HAVE_CRC32_HARDWARE)
+    if (${HAVE_CRC32_HARDWARE})
+        message(STATUS "CPU have -msse4.2, defined HAVE_CRC32C")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_CRC32C -msse4.2")
+    endif ()
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    message(STATUS "System is arm64")
+
+    # Extra check for -march=armv8.1-a
+    check_c_compiler_flag(-march=armv8.1-a HAVE_CRC32_HARDWARE)
+    if (${HAVE_CRC32_HARDWARE})
+        message(STATUS "CPU have -march=armv8.1-a, defined HAVE_CRC32C")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DHAVE_CRC32C -march=armv8.1-a")
+    endif ()
+endif ()
+
+if (NOT HAVE_CRC32_HARDWARE)
+    message(STATUS "CRC32C implementation will use the software version")
+endif ()
+
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE")
 
