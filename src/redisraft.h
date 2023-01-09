@@ -727,6 +727,11 @@ typedef struct ClientState {
     bool asking;
 } ClientState;
 
+typedef struct ClientSession {
+    raft_term_t session_term;
+    unsigned long long client_id;
+} ClientSession;
+
 /* common.c */
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);

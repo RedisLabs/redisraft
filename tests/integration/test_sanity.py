@@ -8,7 +8,7 @@ import socket
 
 import pytest as pytest
 import time
-from redis import ResponseError
+from redis import ResponseError, ConnectionError
 from pytest import raises
 from retry import retry
 
@@ -798,3 +798,43 @@ def test_session_counting(cluster):
     cluster.wait_for_unanimity()
 
     assert_num_sessions(0)
+
+
+def test_session_not_persisting(cluster):
+    cluster.create(3)
+
+    @retry(delay=1, tries=10)
+    def assert_num_sessions(val):
+        assert cluster.node(1).info()["raft_num_sessions"] == val
+        assert cluster.node(2).info()["raft_num_sessions"] == val
+        assert cluster.node(3).info()["raft_num_sessions"] == val
+
+    assert_num_sessions(0)
+
+    conn1 = RawConnection(cluster.leader_node().client)
+    conn2 = RawConnection(cluster.leader_node().client)
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(1)
+
+    cluster.leader_node().transfer_leader(2)
+    cluster.leader_node().wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(0)
+
+    cluster.execute("get", "X")
+
+    cluster.leader_node().transfer_leader(1)
+    cluster.leader_node().wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(0)
+
+    # was in the middle of a session
+    with raises(ConnectionError, match="Connection closed by server"):
+        conn1.execute("get", "X")
+
+    # not in the middle of a session
+    conn2.execute("get", "x")

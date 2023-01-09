@@ -308,7 +308,7 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
     unsigned long long id = cmds->client_id;
     int nokey;
 
-    void *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
+    ClientSession *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
 
     if (nokey) {
         RaftRedisCommand *c = cmds->commands[0];
@@ -316,7 +316,9 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmd_len);
 
         if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
-            client_session = RedisModule_Alloc(sizeof(void *));
+            client_session = RedisModule_Alloc(sizeof(ClientSession));
+            client_session->client_id = id;
+            client_session->session_term = raft_get_current_term(rr->raft);
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
@@ -577,10 +579,10 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
 
 static void clearClientSessions(RedisRaftCtx *rr)
 {
-    void *client_session;
+    ClientSession *client_session;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->client_session_dict, "^", NULL, 0);
-
     while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
+        RedisModule_DeauthenticateAndCloseClient(rr->ctx, client_session->client_id);
         freeClientSession(client_session);
     }
     RedisModule_DictIteratorStop(iter);
