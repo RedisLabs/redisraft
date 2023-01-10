@@ -610,6 +610,9 @@ static void clientSessionRDBLoad(RedisModuleIO *rdb)
     RedisRaftCtx *rr = &redis_raft;
     size_t count = RedisModule_LoadUnsigned(rdb);
 
+    /* clear out client_session_dict, before loading */
+    clearClientSessions(rr);
+
     for (size_t i = 0; i < count; i++) {
         ClientSession *client_session = RedisModule_Alloc(sizeof(ClientSession));
         unsigned long long id = RedisModule_LoadUnsigned(rdb);

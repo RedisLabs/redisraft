@@ -826,6 +826,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void clearClientSessions(RedisRaftCtx *rr);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);

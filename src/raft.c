@@ -580,7 +580,7 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 }
 
-static void clearClientSessions(RedisRaftCtx *rr)
+void clearClientSessions(RedisRaftCtx *rr)
 {
     ClientSession *client_session;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->client_session_dict, "^", NULL, 0);
