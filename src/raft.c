@@ -368,7 +368,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 
     ClientSession *client_session = getClientSession(rr, cmds);
-    if (reply_ctx) {
+    if (client_session && reply_ctx) {
         client_session->local = true;
     }
     (void) client_session;
