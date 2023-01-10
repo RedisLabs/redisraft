@@ -728,8 +728,8 @@ typedef struct ClientState {
 } ClientState;
 
 typedef struct ClientSession {
-    raft_term_t session_term;
     unsigned long long client_id;
+    bool local;
 } ClientSession;
 
 /* common.c */
