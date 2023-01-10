@@ -561,7 +561,7 @@ static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_END_SESSION;
     entry->session = id;
-    strncpy(entry->data, reason, strlen(reason) + 1);
+    strncpy(entry->data, reason, entry->data_len);
 
     if (req) {
         entryAttachRaftReq(rr, entry, req);
@@ -620,6 +620,19 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
     }
 
     return false;
+}
+
+/* NOTE: see comment in rediraft.h on ClientState->watched */
+static void handleWatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
+{
+    if (cmds->size == 1) {
+        size_t cmd_len;
+        const char *cmd = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmd_len);
+        if (cmd_len == 5 && strncasecmp("WATCH", cmd, 5) == 0) {
+            ClientState *cs = ClientStateGet(rr, ctx);
+            cs->watched = true;
+        }
+    }
 }
 
 static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds)
@@ -709,6 +722,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             return;
         }
     }
+
+    handleWatch(rr, ctx, cmds);
 
     if (handleUnwatch(rr, ctx, cmds)) {
         return;
@@ -1748,6 +1763,18 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE) {
         switch (subevent) {
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
+                ClientState *cs = ClientStateGetById(rr, ci->id);
+                /* NOTE: see comment in rediraft.h on ClientState->watched
+                 *
+                 * We only send the disconnect log entry if this client used
+                 * sessions
+                 *
+                 * We can only append if we are leader, if we're not leader anymore,
+                 * then this would have already been cleaned up.
+                 */
+                if (cs && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
+                    appendEndClientSession(rr, NULL, ci->id, "disconnect");
+                }
                 ClientStateFree(rr, ci->id);
                 break;
             case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED:
