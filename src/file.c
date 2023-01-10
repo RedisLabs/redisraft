@@ -25,17 +25,19 @@ void FileInit(File *file)
 int FileTerm(File *file)
 {
     int rc;
+    int fd = file->fd;
 
-    if (file->fd == -1) {
+    if (fd == -1) {
         return RR_OK;
     }
 
     rc = FileFlush(file);
+    file->fd = -1;
 
-    if (close(file->fd) != 0) {
+    if (close(fd) != 0) {
+        LOG_WARNING("error, fd: %d, close(): %s", file->fd, strerror(errno));
         return RR_ERROR;
     }
-    file->fd = -1;
 
     return rc;
 }
@@ -50,11 +52,21 @@ int FileOpen(File *file, const char *filename, int flags)
 
     fd = open(filename, flags, S_IWUSR | S_IRUSR);
     if (fd < 0) {
+        int saved_errno = errno;
+        if (errno != ENOENT) {
+            LOG_WARNING("error, fd: %d, open(): %s", file->fd, strerror(errno));
+        }
+        errno = saved_errno;
+
         return RR_ERROR;
     }
 
     if (stat(filename, &st) != 0) {
+        int saved_errno = errno;
+        LOG_WARNING("error, fd: %d, stat(): %s", file->fd, strerror(errno));
         close(fd);
+        errno = saved_errno;
+
         return RR_ERROR;
     }
 
@@ -81,7 +93,11 @@ int FileFlush(File *file)
 
         ssize_t wr = write(file->fd, wbegin, count);
         if (wr < 0) {
-            LOG_WARNING("error, fd:%d, write:%s", file->fd, strerror(errno));
+            /* Adjust userspace buffer if there was a partial write. */
+            memmove(file->buf, wbegin, count);
+            file->wpos = file->buf + count;
+            file->rpos = file->rend = NULL;
+            LOG_WARNING("error, fd: %d, write(): %s", file->fd, strerror(errno));
             return RR_ERROR;
         }
 
@@ -99,7 +115,7 @@ int FileFsync(File *file)
 {
     int rc = fsyncFile(file->fd);
     if (rc != RR_OK) {
-        LOG_WARNING("error fd:%d, fsync:%s", file->fd, strerror(errno));
+        LOG_WARNING("error fd:%d, fsync(): %s", file->fd, strerror(errno));
     }
     return rc;
 }
@@ -117,6 +133,7 @@ int FileSetReadOffset(File *file, size_t offset)
 
     off_t ret = lseek(file->fd, (off_t) offset, SEEK_SET);
     if (ret != (off_t) offset) {
+        LOG_WARNING("error, fd: %d, lseek(): %s", file->fd, strerror(errno));
         return RR_ERROR;
     }
 
@@ -243,37 +260,43 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* We have some data in the file buffer and need to write it first before
      * the user buffer. We'll write both buffers with a single writev() call.
      * We'll loop until all data is written in case of a partial write. */
-    struct iovec iovs[2] = {
+    struct iovec iov[2] = {
         {.iov_base = file->buf, .iov_len = file->wpos - file->buf},
         {.iov_base = buf,       .iov_len = len                   }
     };
 
-    struct iovec *iov = iovs;
-    size_t rem = iov[0].iov_len + iov[1].iov_len;
-    int iovcnt = 2;
+    size_t remaining = iov[0].iov_len + iov[1].iov_len;
+    const int IOV_COUNT = 2;
+    int current_iov = 0;
     ssize_t count;
 
     while (true) {
-        count = writev(file->fd, iov, iovcnt);
+        count = writev(file->fd, &iov[current_iov], IOV_COUNT - current_iov);
         if (count < 0) {
+            /* Adjust userspace buffer if there was a partial write. */
+            memmove(file->buf, iov[0].iov_base, iov[0].iov_len);
+            file->wpos = file->buf + iov[0].iov_len;
+            /* Adjust write offset if there was a partial write. */
+            file->woffset += len - iov[1].iov_len;
+            LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
             return -1;
         }
 
-        if ((size_t) count == rem) {
+        if ((size_t) count == remaining) {
             file->wpos = file->buf;
             file->woffset += len;
             return (ssize_t) len;
         }
 
-        rem -= count;
-        if ((size_t) count > iov[0].iov_len) {
-            count -= (ssize_t) iov[0].iov_len;
-            iov++;
-            iovcnt--;
+        remaining -= count;
+        if ((size_t) count > iov[current_iov].iov_len) {
+            count -= (ssize_t) iov[current_iov].iov_len;
+            iov[current_iov].iov_len = 0;
+            current_iov++;
         }
 
-        iov[0].iov_base = (char *) iov[0].iov_base + count;
-        iov[0].iov_len -= count;
+        iov[current_iov].iov_base = (char *) iov[current_iov].iov_base + count;
+        iov[current_iov].iov_len -= count;
     }
 }
 
@@ -289,8 +312,12 @@ size_t FileGetReadOffset(File *file)
 
 int FileTruncate(File *file, size_t len)
 {
-    if (FileFlush(file) != RR_OK ||
-        ftruncate(file->fd, (off_t) len) != 0) {
+    if (FileFlush(file) != RR_OK) {
+        return RR_ERROR;
+    }
+
+    if (ftruncate(file->fd, (off_t) len) != 0) {
+        LOG_WARNING("error, fd: %d, ftruncate(): %s", file->fd, strerror(errno));
         return RR_ERROR;
     }
 

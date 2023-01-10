@@ -79,6 +79,10 @@ class RawConnection(object):
     def release(self):
         self._pool.release(self._conn)
 
+    def disconnect(self):
+        self._conn.disconnect()
+        self.release()
+
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,

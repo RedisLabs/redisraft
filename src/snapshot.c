@@ -37,8 +37,8 @@ void initSnapshotTransferData(RedisRaftCtx *ctx)
     /* Delete if there is a partial incoming snapshot file from previous run */
     int ret = unlink(ctx->incoming_snapshot_file);
     if (ret != 0 && errno != ENOENT) {
-        LOG_WARNING("Unlink file:%s, error :%s \n", ctx->incoming_snapshot_file,
-                    strerror(errno));
+        PANIC("Unlink file: %s, error: %s \n", ctx->incoming_snapshot_file,
+              strerror(errno));
     }
 }
 
@@ -61,7 +61,7 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
 
     int fd = open(ctx->config.rdb_filename, O_RDONLY, mode);
     if (fd == -1) {
-        PANIC("Cannot open rdb file at : %s \n", ctx->config.rdb_filename);
+        PANIC("Cannot open rdb file at: %s \n", ctx->config.rdb_filename);
     }
 
     int rc = stat(ctx->config.rdb_filename, &st);
@@ -74,7 +74,10 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
         PANIC("mmap failed: %s \n", strerror(errno));
     }
 
-    close(fd);
+    if (close(fd) != 0) {
+        LOG_WARNING("close() failure for the file: %s, error: %s",
+                    ctx->config.rdb_filename, strerror(errno));
+    }
 
     ctx->outgoing_snapshot_file.mmap = p;
     ctx->outgoing_snapshot_file.len = st.st_size;
@@ -121,7 +124,7 @@ int raftStoreSnapshotChunk(raft_server_t *raft, void *user_data,
     }
 
     if (rr->incoming_snapshot_idx != snapshot_index) {
-        PANIC("Snapshot index was : %ld, received a chunk for %ld \n",
+        PANIC("Snapshot index was: %ld, received a chunk for %ld \n",
               rr->incoming_snapshot_idx, snapshot_index);
     }
 
@@ -132,28 +135,31 @@ int raftStoreSnapshotChunk(raft_server_t *raft, void *user_data,
 
     int fd = open(rr->incoming_snapshot_file, flags, S_IWUSR | S_IRUSR);
     if (fd == -1) {
-        LOG_WARNING("open file:%s, error:%s \n", rr->incoming_snapshot_file,
+        LOG_WARNING("open() file: %s, error: %s \n", rr->incoming_snapshot_file,
                     strerror(errno));
         return -1;
     }
 
     off_t ret_offset = lseek(fd, (off_t) offset, SEEK_SET);
     if (ret_offset != (off_t) offset) {
-        LOG_WARNING("lseek file:%s, error:%s \n", rr->incoming_snapshot_file,
-                    strerror(errno));
+        LOG_WARNING("lseek() file: %s, error: %s \n",
+                    rr->incoming_snapshot_file, strerror(errno));
         close(fd);
         return -1;
     }
 
-    size_t len = write(fd, chunk->data, chunk->len);
-    if (len != chunk->len) {
-        LOG_WARNING("write, written: %zu, chunk len : %llu, err :%s \n", len,
+    ssize_t len = write(fd, chunk->data, chunk->len);
+    if (len != (ssize_t) chunk->len) {
+        LOG_WARNING("write(), written: %zd, chunk len: %llu, err: %s \n", len,
                     chunk->len, strerror(errno));
         close(fd);
         return -1;
     }
 
-    close(fd);
+    if (close(fd) != 0) {
+        LOG_WARNING("close() failure: %s, file: %s", strerror(errno),
+                    rr->incoming_snapshot_file);
+    }
     return 0;
 }
 
@@ -163,7 +169,7 @@ int raftClearSnapshot(raft_server_t *raft, void *user_data)
 
     int ret = unlink(rr->incoming_snapshot_file);
     if (ret != 0 && errno != ENOENT) {
-        LOG_WARNING("Unlink file:%s, error :%s \n", rr->incoming_snapshot_file,
+        LOG_WARNING("Unlink file: %s, error: %s \n", rr->incoming_snapshot_file,
                     strerror(errno));
     }
 
@@ -562,9 +568,6 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
 
     int rc = syncRename(rr->incoming_snapshot_file, rr->config.rdb_filename);
     if (rc != RR_OK) {
-        LOG_WARNING("rename(): %s to %s failed with error: %s",
-                    rr->incoming_snapshot_file, rr->config.rdb_filename,
-                    strerror(errno));
         return -1;
     }
 
