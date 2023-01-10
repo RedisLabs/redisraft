@@ -318,6 +318,7 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
         if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
             client_session = RedisModule_Alloc(sizeof(ClientSession));
             client_session->client_id = id;
+            client_session->local = false;
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
