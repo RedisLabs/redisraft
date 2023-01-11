@@ -132,7 +132,8 @@ The command to launch a new node should look familiar. Since we're running this 
     redis-server \
         --bind 0.0.0.0 --port 5002 --dbfilename raft2.rdb \
         --loadmodule <path-to>/redisraft.so \
-            raft-log-filename raftlog2.db addr 127.0.0.1:5002
+        --raft.log-filename raftlog2.db \
+        --raft.addr 127.0.0.1:5002
 
 As before, we can confirm the new node has also started in `uninitialized` state and is waiting to become part of a cluster.
 
