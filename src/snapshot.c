@@ -598,7 +598,9 @@ static void lockedKeysRDBLoad(RedisModuleIO *rdb)
     RedisRaftCtx *rr = &redis_raft;
     size_t count = RedisModule_LoadUnsigned(rdb);
 
-    RedisModule_FreeDict(rr->ctx, rr->locked_keys);
+    if (rr->locked_keys) {
+        RedisModule_FreeDict(rr->ctx, rr->locked_keys);
+    }
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
 
     for (size_t i = 0; i < count; i++) {
