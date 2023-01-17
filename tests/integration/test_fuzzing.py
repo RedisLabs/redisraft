@@ -157,7 +157,11 @@ def test_snapshot_delivery_with_config_changes(cluster):
 
     n1 = cluster.node(1)
     n1.execute('raft.debug', 'exec', 'debug', 'populate', 2000000, 'a', 200)
-    n1.execute('raft.debug', 'compact')
+
+    # After populating 2 million keys, snapshot can take a while. We just
+    # trigger it asynchronously and wait until completed for 30 seconds.
+    n1.execute('raft.debug', 'compact', 0, 0, 1)
+    n1.wait_for_info_param('raft_snapshots_created', 1, 30)
 
     cluster.add_node()
     cluster.add_node()
