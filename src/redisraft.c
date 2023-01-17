@@ -752,6 +752,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
         if (rc != 0) {
             replyRaftError(ctx, rc);
+            RaftReqFree(req);
         }
         return;
     }
