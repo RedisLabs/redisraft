@@ -756,6 +756,11 @@ typedef struct ClientState {
     bool watched;
 } ClientState;
 
+typedef struct ClientSession {
+    unsigned long long client_id;
+    bool local;
+} ClientSession;
+
 /* common.c */
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);

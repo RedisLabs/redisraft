@@ -83,6 +83,9 @@ class RawConnection(object):
         self._conn.disconnect()
         self.release()
 
+    def getClientId(self):
+        return self.execute("CLIENT", "ID")
+
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
