@@ -752,6 +752,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
         if (rc != 0) {
             replyRaftError(ctx, rc);
+            RaftReqFree(req);
         }
         return;
     }
@@ -1762,7 +1763,7 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
     if (eid.id == REDISMODULE_EVENT_CLIENT_CHANGE) {
         switch (subevent) {
-            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED:
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED: {
                 ClientState *cs = ClientStateGetById(rr, ci->id);
                 /* NOTE: see comment in rediraft.h on ClientState->watched
                  *
@@ -1776,10 +1777,11 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                     appendEndClientSession(rr, NULL, ci->id, "disconnect");
                 }
                 ClientStateFree(rr, ci->id);
-                break;
-            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED:
+            } break;
+
+            case REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED: {
                 ClientStateAlloc(rr, ci->id);
-                break;
+            } break;
         }
     }
 }
