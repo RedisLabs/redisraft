@@ -37,7 +37,8 @@ def migrate_slots(cluster, slots):
             if cursor == 0:
                 break
 
-        except (redis.ResponseError, redis.TimeoutError) as e:
+        except (redis.ConnectionError, redis.ResponseError,
+                redis.TimeoutError) as e:
             logging.info('raft.scan command failed with error: ' + str(e))
 
             max_retries -= 1
