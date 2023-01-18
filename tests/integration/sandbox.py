@@ -671,7 +671,10 @@ class Cluster(object):
             self.reset_leader()
 
     def random_node_id(self):
-        return random.choice(list(self.nodes.keys()))
+        while True:
+            node_id = random.choice(list(self.nodes.keys()))
+            if not self.node(node_id).paused:
+                return node_id
 
     def find_node_id_by_port(self, port):
         for node in self.nodes.values():
@@ -687,6 +690,13 @@ class Cluster(object):
 
     def leader_node(self):
         return self.nodes[self.leader]
+
+    def pause_leader(self) -> int:
+        old_leader = self.leader
+        self.node(old_leader).pause()
+        self.leader = self.random_node_id()
+
+        return old_leader
 
     def update_leader(self):
         def _func():

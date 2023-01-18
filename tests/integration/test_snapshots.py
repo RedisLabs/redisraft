@@ -8,7 +8,7 @@ import shutil
 import os
 import time
 
-from redis import ResponseError
+from redis import ResponseError, ConnectionError
 from pytest import raises
 from retry import retry
 
@@ -667,3 +667,38 @@ def test_snapshot_sessions(cluster):
     n2.restart()
     n2.wait_for_node_voting()
     assert_num_sessions(0)
+
+
+def test_session_cleaned_on_load(cluster):
+    cluster.create(3)
+
+    @retry(delay=1, tries=10)
+    def assert_num_sessions(val):
+        assert cluster.node(1).info()["raft_num_sessions"] == val
+        assert cluster.node(2).info()["raft_num_sessions"] == val
+        assert cluster.node(3).info()["raft_num_sessions"] == val
+
+    assert_num_sessions(0)
+
+    conn1 = RawConnection(cluster.leader_node().client)
+
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(1)
+
+    old_leader = cluster.pause_leader()
+    time.sleep(2)
+    cluster.update_leader()
+    cluster.execute("set", "x", 1)
+
+    assert cluster.leader_node().execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.leader_node().info()['raft_log_entries'] == 0
+
+    cluster.node(old_leader).resume()
+    cluster.wait_for_unanimity()
+
+    assert_num_sessions(0)
+
+    with raises(ConnectionError, match="Connection closed by server"):
+        conn1.execute("get", "X")
