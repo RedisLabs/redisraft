@@ -688,7 +688,7 @@ def test_session_cleaned_on_load(cluster):
     assert_num_sessions(1)
 
     old_leader = cluster.pause_leader()
-    time.sleep(2)
+    cluster.node(2).wait_for_leader_change(old_leader)
     cluster.update_leader()
     cluster.execute("set", "x", 1)
 

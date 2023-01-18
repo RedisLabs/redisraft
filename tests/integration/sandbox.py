@@ -447,6 +447,15 @@ class RedisRaft(object):
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
 
+    def wait_for_leader_change(self, old_leader, timeout=20):
+        def new_leader():
+            leader = self.info()['raft_leader_id']
+            return bool(leader != -1 and leader != old_leader)
+
+        def raise_no_master_error():
+            raise RedisRaftTimeout('No master elected')
+        self._wait_for_condition(new_leader, raise_no_master_error, timeout)
+
     def wait_for_log_committed(self, timeout=20):
         def current_idx_committed():
             ret = self.info()
