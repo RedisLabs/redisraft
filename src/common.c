@@ -29,37 +29,23 @@ const char *getStateStr(RedisRaftCtx *rr)
 
 /* Convert a Raft library error code to an error reply.
  */
-void replyRaftError(RedisModuleCtx *ctx, int error)
+void replyRaftError(RedisModuleCtx *ctx, const char *msg, int err)
 {
-    char buf[128];
+    char buf[256] = {0};
+    RedisRaftCtx *rr = &redis_raft;
 
-    switch (error) {
-        case RAFT_ERR_NOT_LEADER:
-            RedisModule_ReplyWithError(ctx, "ERR not leader");
-            break;
-        case RAFT_ERR_SHUTDOWN:
-            LOG_WARNING("Raft requires immediate shutdown!");
-            enterRedisModuleCall();
-            RedisModule_Call(ctx, "SHUTDOWN", "");
-            exitRedisModuleCall();
-            break;
-        case RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
-            RedisModule_ReplyWithError(ctx, "ERR a voting change is already in progress");
-            break;
-        case RAFT_ERR_NOMEM:
-            RedisModule_ReplyWithError(ctx, "OOM Raft out of memory");
-            break;
-        case RAFT_ERR_LEADER_TRANSFER_IN_PROGRESS:
-            RedisModule_ReplyWithError(ctx, "ERR transfer already in progress");
-            break;
-        case RAFT_ERR_INVALID_NODEID:
-            RedisModule_ReplyWithError(ctx, "ERR invalid node id");
-            break;
-        default:
-            snprintf(buf, sizeof(buf), "ERR Raft error %d", error);
-            RedisModule_ReplyWithError(ctx, buf);
-            break;
+    if (err == RAFT_ERR_SHUTDOWN) {
+        LOG_WARNING("Raft requires immediate shutdown!");
+        shutdownServer(rr);
     }
+
+    if (msg) {
+        snprintf(buf, sizeof(buf), "ERR %s (%s)", msg, raft_get_error_str(err));
+    } else {
+        snprintf(buf, sizeof(buf), "ERR %s", raft_get_error_str(err));
+    }
+
+    RedisModule_ReplyWithError(ctx, buf);
 }
 
 /* Create a -MOVED reply. */
