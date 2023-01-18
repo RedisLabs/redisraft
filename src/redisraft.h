@@ -73,13 +73,14 @@ extern RedisModuleCtx *redisraft_log_ctx;
 #define LOG_LEVEL_WARNING 3
 #define LOG_LEVEL_COUNT   (LOG_LEVEL_WARNING + 1)
 
-#define TRACE_OFF     0
-#define TRACE_NODE    1
-#define TRACE_CONN    2
-#define TRACE_RAFTLIB 4
-#define TRACE_RAFTLOG 8
-#define TRACE_GENERIC 16
-#define TRACE_ALL     ((TRACE_GENERIC * 2) - 1)
+#define TRACE_OFF       0
+#define TRACE_NODE      (1 << 0)
+#define TRACE_CONN      (1 << 1)
+#define TRACE_RAFTLIB   (1 << 2)
+#define TRACE_RAFTLOG   (1 << 3)
+#define TRACE_GENERIC   (1 << 4)
+#define TRACE_MIGRATION (1 << 5)
+#define TRACE_ALL       ((TRACE_MIGRATION * 2) - 1)
 
 #define LOG(level, fmt, ...)                                                 \
     do {                                                                     \
@@ -122,6 +123,9 @@ extern RedisModuleCtx *redisraft_log_ctx;
 #define NODE_LOG_VERBOSE(node, fmt, ...) NODE_LOG(LOG_LEVEL_VERBOSE, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_NOTICE(node, fmt, ...)  NODE_LOG(LOG_LEVEL_NOTICE, node, fmt, ##__VA_ARGS__)
 #define NODE_LOG_WARNING(node, fmt, ...) NODE_LOG(LOG_LEVEL_WARNING, node, fmt, ##__VA_ARGS__)
+
+#define MIGRATION_TRACE(fmt, ...) \
+    TRACE_MODULE(MIGRATION, "<migration> " fmt, ##__VA_ARGS__)
 
 /* -------------------- Connections -------------------- */
 
