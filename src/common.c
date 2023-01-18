@@ -281,3 +281,17 @@ void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id)
 {
     snprintf(output, RAFT_SHARDGROUP_NODEID_LEN + 1, "%.32s%08x", dbid, raft_id);
 }
+
+/* Try to shut down gracefully first, on failure abort() */
+void shutdownServer(RedisRaftCtx *rr)
+{
+    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "SHUTDOWN", "cE", "NOW");
+
+    size_t len;
+    const char *err = RedisModule_CallReplyStringPtr(r, &len);
+
+    LOG_WARNING("Shutdown failure: %.*s", (int) len, err);
+    (void) err;
+
+    abort();
+}

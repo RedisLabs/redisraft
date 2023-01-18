@@ -50,13 +50,7 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
         archiveSnapshot(rr);
     }
 
-    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "SHUTDOWN", "cE", "NOW");
-
-    size_t len;
-    const char *err = RedisModule_CallReplyStringPtr(r, &len);
-    LOG_WARNING("Shutdown failure: %.*s", (int) len, err);
-
-    abort();
+    shutdownServer(rr);
 }
 
 RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)

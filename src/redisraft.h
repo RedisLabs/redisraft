@@ -773,6 +773,7 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
+void shutdownServer(RedisRaftCtx *rr);
 /* common.c - common reply function */
 void replyRaftError(RedisModuleCtx *ctx, int error);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
