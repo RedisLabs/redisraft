@@ -598,6 +598,8 @@ static void lockedKeysRDBLoad(RedisModuleIO *rdb)
     RedisRaftCtx *rr = &redis_raft;
     size_t count = RedisModule_LoadUnsigned(rdb);
 
+    MIGRATION_TRACE("Rebuilding locked_keys dict from RDB");
+
     if (rr->locked_keys) {
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
     }
@@ -605,6 +607,11 @@ static void lockedKeysRDBLoad(RedisModuleIO *rdb)
 
     for (size_t i = 0; i < count; i++) {
         RedisModuleString *key = RedisModule_LoadString(rdb);
+
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(key, &len);
+        MIGRATION_TRACE("Loading key to locked_keys from RDB: %.*s ", (int) len, str);
+
         RedisModule_DictSet(rr->locked_keys, key, NULL);
         RedisModule_FreeString(NULL, key);
     }
@@ -701,6 +708,7 @@ static void lockedKeysRDBSave(RedisModuleIO *rdb)
     size_t key_len;
 
     while ((key = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
+        MIGRATION_TRACE("Saving locked key to RDB: %.*s", (int) key_len, key);
         RedisModule_SaveStringBuffer(rdb, key, key_len);
     }
     RedisModule_DictIteratorStop(iter);
