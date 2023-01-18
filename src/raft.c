@@ -497,7 +497,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         if (RedisModule_KeyExists(rr->ctx, keys[i])) {
             size_t str_len;
             const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
-            LOG_VERBOSE("locking %.*s", (int) str_len, str);
+            MIGRATION_TRACE("Locking key: %.*s", (int) str_len, str);
 
             RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
         }
@@ -539,6 +539,11 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_FreeCallReply(reply);
 
     for (size_t i = 0; i < num_keys; i++) {
+        size_t str_len;
+        const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
+
+        MIGRATION_TRACE("Unlocking key: %.*s", (int) str_len, str);
+
         RedisModule_DictDel(rr->locked_keys, keys[i], NULL);
         RedisModule_FreeString(rr->ctx, keys[i]);
     }
