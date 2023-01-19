@@ -649,7 +649,7 @@ def test_snapshot_sessions(cluster):
     assert_num_sessions(1)
 
     n2 = cluster.node(2)
-    assert n2.client.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert n2.info()['raft_log_entries'] == 0
     n2.restart()
     n2.wait_for_node_voting()
