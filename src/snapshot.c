@@ -743,9 +743,9 @@ static void clientSessionRDBSave(RedisModuleIO *rdb)
 
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
 
-    ClientSession *clientSession;
-    while (RedisModule_DictNextC(iter, NULL, (void **) &clientSession) != NULL) {
-        RedisModule_SaveUnsigned(rdb, clientSession->client_id);
+    ClientSession *client_session;
+    while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
+        RedisModule_SaveUnsigned(rdb, client_session->client_id);
     }
     RedisModule_DictIteratorStop(iter);
 }
