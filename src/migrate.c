@@ -185,7 +185,7 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        replyRaftError(req->ctx, e);
+        replyRaftError(req->ctx, NULL, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         goto fail;
@@ -215,8 +215,7 @@ static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        RedisModule_ReplyWithError(req->ctx, "ERR Unable to unlock/delete migrated keys, try again");
-        replyRaftError(req->ctx, e);
+        replyRaftError(req->ctx, "Unable to unlock/delete migrated keys, try again", e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         goto error;

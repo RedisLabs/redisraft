@@ -75,7 +75,7 @@ def test_single_voting_change_enforced(cluster):
 
     time.sleep(0.2)
 
-    with raises(ResponseError, match='a voting change is already in progress'):
+    with raises(ResponseError, match='one voting change only'):
         cluster.node(1).client.execute_command('RAFT.NODE', 'REMOVE', '4')
 
     assert cluster.node(1).info()['raft_num_nodes'] == 5
