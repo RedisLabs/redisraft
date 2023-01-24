@@ -151,7 +151,7 @@ def test_snapshot_delivery_with_config_changes(cluster):
     """
     cycles = 10
 
-    cluster.create(1)
+    cluster.create(1, raft_args={'response-timeout': 5000})
     cluster.execute('set', 'x', '1')
     cluster.execute('set', 'x', '1')
 
@@ -163,10 +163,11 @@ def test_snapshot_delivery_with_config_changes(cluster):
     n1.execute('raft.debug', 'compact', 0, 0, 1)
     n1.wait_for_info_param('raft_snapshots_created', 1, 30)
 
-    cluster.add_node()
-    cluster.add_node()
-    cluster.add_node()
-    cluster.add_node()
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
+
     cluster.wait_for_unanimity()
 
     for i in range(cycles):
@@ -176,7 +177,7 @@ def test_snapshot_delivery_with_config_changes(cluster):
         except ResponseError:
             continue
 
-        cluster.add_node().wait_for_node_voting()
+        cluster.add_node(use_cluster_args=True).wait_for_node_voting()
 
     logging.info('All cycles finished')
     assert int(cluster.execute('GET', 'counter')) == cycles
