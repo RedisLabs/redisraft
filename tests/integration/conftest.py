@@ -53,6 +53,17 @@ def pytest_addoption(parser):
     parser.addoption(
         '--elle-ops-per-tx', default=1,
         help='number of append/read pairs per transaction')
+    parser.addoption(
+        '--repeat', action='store',
+        help='Number of times to repeat each test')
+
+
+def pytest_generate_tests(metafunc):
+    if metafunc.config.option.repeat is not None:
+        count = int(metafunc.config.option.repeat)
+
+        metafunc.fixturenames.append('repeat_test')
+        metafunc.parametrize('repeat_test', range(count))
 
 
 def pytest_configure(config):
