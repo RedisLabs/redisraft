@@ -347,14 +347,19 @@ RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedis
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
  * Otherwise, no replies are delivered.
+ *
+ * Now handles blacking commands (ex: brpop) as well.
+ * If a blocking command is issued, we execute normally, but now use the return value
+ * of the function to indicate if we should continue blocking (i.e. should the req not be freed)
  */
-void RaftExecuteCommandArray(RedisRaftCtx *rr,
+bool RaftExecuteCommandArray(RedisRaftCtx *rr,
                              RedisModuleCtx *ctx,
                              RedisModuleCtx *reply_ctx,
                              RaftRedisCommandArray *cmds)
 {
     RedisModuleCallReply *reply;
     RedisModuleUser *user = NULL;
+    bool blocking = false; /* default, not blocking */
 
     if (cmds->acl) {
         user = RaftGetACLUser(ctx, rr, cmds);
@@ -367,7 +372,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     /* When we're in cluster mode, go through handleSharding. This will perform
      * hash slot validation and return an error / redirection if necessary. */
     if (handleSharding(rr, reply_ctx, cmds) != RR_OK) {
-        return;
+        return false; /* sharding error, so even if blocking command, don't */
     }
 
     ClientSession *client_session = getClientSession(rr, cmds, reply_ctx != NULL);
@@ -418,11 +423,27 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         rr->entered_eval = old_entered_eval;
 
         if (reply_ctx) {
-            RedisModule_ReplyWithCallReply(reply_ctx, reply);
+            /* reply to client if either
+             * 1) we are not a blocking command
+             * 2) we are a blockinng command that hasn't timed out / command didn't return nil.
+             *    if we have timed out, it means, that the timeout callback returned to the user
+             */
+            if (!cmds->blocking || (!cmds->timed_out && RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_NULL)) {
+                RedisModule_ReplyWithCallReply(reply_ctx, reply);
+            }
+            if (cmds->blocking && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_NULL) {
+                if (!cmds->timed_out) {
+                    blocking = true; /* no data  yet, so continue blocking */
+                } else {
+                    RedisModule_ReplyWithError(reply_ctx, "Request Timed Out");
+                }
+            }
         }
 
         RedisModule_FreeCallReply(reply);
     }
+
+    return blocking;
 }
 
 static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
@@ -602,7 +623,7 @@ static void clearClientSessions(RedisRaftCtx *rr)
 /*
  * Execution of Raft log on the local instance.
  *
- * There are two variants:
+ * There are two variants:fbl
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
@@ -612,10 +633,15 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
 
     RaftReq *req = entry->user_data;
 
-    if (req) {
-        RaftExecuteCommandArray(rr, req->ctx, req->ctx, &req->r.redis.cmds);
+    if (req) { /*  node instance where client issued command */
+        RedisModuleCtx *ctx = req->ctx;
+        bool blocking = RaftExecuteCommandArray(rr, ctx, ctx, &req->r.redis.cmds);
         entryDetachRaftReq(rr, entry);
-        RaftReqFree(req);
+        if (!blocking) {
+            RaftReqFree(req);
+        } else {
+            req->r.redis.appended_to_log = false;
+        }
     } else {
         RaftRedisCommandArray tmp = {0};
 
@@ -1597,9 +1623,21 @@ void RaftReqFree(RaftReq *req)
     TRACE("RaftReqFree: req=%p, req->ctx=%p, req->client=%p",
           req, req->ctx, req->client);
 
+    if (req->timeout_timer) {
+        RedisModule_StopTimer(req->ctx, req->timeout_timer, NULL);
+        req->timeout_timer = 0;
+    }
+
     if (req->type == RR_REDISCOMMAND) {
         if (req->r.redis.cmds.size) {
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
+        }
+        if (req->r.redis.blocked_keys) {
+            for (size_t i = 0; i < req->r.redis.blocked_keys_count; i++) {
+                RedisModule_FreeString(NULL, req->r.redis.blocked_keys[i]);
+            }
+            RedisModule_Free(req->r.redis.blocked_keys);
+            req->r.redis.blocked_keys = NULL;
         }
     } else if (req->type == RR_IMPORT_KEYS) {
         if (req->r.import_keys.key_names) {
@@ -1640,7 +1678,66 @@ void RaftReqFree(RaftReq *req)
         RedisModule_FreeThreadSafeContext(req->ctx);
         RedisModule_UnblockClient(req->client, NULL);
     }
+
     RedisModule_Free(req);
+}
+
+int blockedKeysReady(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisRaftCtx *rr = &redis_raft;
+    RaftReq *req = RedisModule_GetBlockedClientPrivateData(ctx);
+
+    /* already attached to an entry on the log that hasn't been applied yet */
+    if (req->r.redis.appended_to_log) {
+        return REDISMODULE_ERR;
+    }
+
+    req->r.redis.appended_to_log = true;
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
+    entry->id = rand();
+    entry->session = RedisModule_GetClientId(ctx);
+    entry->type = RAFT_LOGTYPE_NORMAL;
+    entryAttachRaftReq(rr, entry, req);
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (e != 0) {
+        /* if we failed to apply, it means we aren't leader, so return error to user */
+        replyRaftError(ctx, NULL, e);
+        entryDetachRaftReq(rr, entry);
+        raft_entry_release(entry);
+
+        /* Remove ctx before freeing as, returning from this callback will unblock client */
+        RedisModule_FreeThreadSafeContext(req->ctx);
+        req->ctx = NULL;
+        RaftReqFree(req);
+
+        return REDISMODULE_OK;
+    }
+
+    return REDISMODULE_ERR;
+}
+
+/* we can't rely on this time out, so always set it as infinite and have an RM_Timer control the timeout */
+static int nullTimeOut(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    return REDISMODULE_OK;
+}
+
+static void blockedTimedOut(RedisModuleCtx *ctx, void *data)
+{
+    RaftReq *req = (RaftReq *) data;
+
+    req->timeout_timer = 0;
+    req->r.redis.cmds.timed_out = true;
+
+    if (req->r.redis.appended_to_log) {
+        /* appended to log, can't return here, will return at apply time for this log entry */
+        return;
+    }
+
+    /* not on log, so reply with a timed out error here */
+    RedisModule_ReplyWithError(req->ctx, "Request Timed Out");
+    RaftReqFree(req);
 }
 
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
@@ -1657,6 +1754,26 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
     }
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
+          req, RaftReqTypeStr[req->type], req->client, req->ctx);
+
+    return req;
+}
+
+RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, RedisModuleString **keys, size_t num_keys, size_t timeout)
+{
+    RedisModule_Assert(ctx != NULL);
+
+    RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
+    req->type = RR_REDISCOMMAND;
+    req->client = RedisModule_BlockClientOnKeys(ctx, blockedKeysReady, nullTimeOut, NULL, 0, keys, num_keys, req);
+    req->ctx = RedisModule_GetThreadSafeContext(req->client);
+    req->r.redis.blocked_keys = keys;
+    req->r.redis.blocked_keys_count = num_keys;
+    if (timeout != 0) {
+        req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
+    }
+
+    TRACE("RaftReqInitBlocking: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
 
     return req;
