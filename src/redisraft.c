@@ -12,6 +12,7 @@
 #include "common/sc_crc32.h"
 
 #include <dlfcn.h>
+#include <execinfo.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -757,8 +758,32 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
-    RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+    RaftReq *req;
+
+    if ((cmd_flags & CMD_SPEC_BLOCKING) && cmds->len == 1) { /* blocking commands only block outside a multi */
+        /* extract timeout early, so can fail fast */
+        long long timeout;
+        if (RaftRedisExtractBlockingTimeout(cmds, &timeout) != REDISMODULE_OK) {
+            /* FIXME: note that this is the redis error message, but we are dealing with a long long
+             * keeping as is for ow, to fix later
+             */
+            RedisModule_ReplyWithError(ctx, "ERR timeout is not a float or out of range");
+            return;
+        }
+        timeout = timeout * 1000;
+
+        /* extract keys later, as they would have to be freed */
+        size_t count;
+        RedisModuleString **keys = RaftRedisExtractBlockedKeys(cmds, &count);
+
+        req = RaftReqInitBlocking(ctx, keys, count, timeout);
+        RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+        req->r.redis.cmds.blocking = true;
+        req->r.redis.appended_to_log = true;
+    } else {
+        req = RaftReqInit(ctx, RR_REDISCOMMAND);
+        RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
+    }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
