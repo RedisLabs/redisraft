@@ -25,6 +25,7 @@ def test_brpop(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s) == 2
     assert b'1' in s
     assert b'2' in s
     for i in range(1, 3):
@@ -55,6 +56,7 @@ def test_blpop(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s) == 2
     assert b'1' in s
     assert b'2' in s
     for i in range(1, 3):
@@ -85,6 +87,7 @@ def test_brpoplpush(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s) == 2
     assert b'1' in s
     assert b'2' in s
     for i in range(1, 3):
@@ -116,6 +119,7 @@ def test_blmove(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s) == 2
     assert b'1' in s
     assert b'2' in s
     for i in range(1, 3):
@@ -150,7 +154,9 @@ def test_blmpop(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s1) == 1
     assert b'1' in s1
+    assert len(s2) == 1
     assert b'2' in s2
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
@@ -181,7 +187,9 @@ def test_bzpopmin(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s1) == 1
     assert 0.0 in s1
+    assert len(s2) == 1
     assert 1.0 in s2
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("zrange", "x", 0, -1)
@@ -212,7 +220,9 @@ def test_bzpopmax(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s1) == 1
     assert 2.0 in s1
+    assert len(s2) == 1
     assert 1.0 in s2
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("zrange", "x", 0, -1)
@@ -243,13 +253,32 @@ def test_bzmpop(cluster):
     t2.join()
     cluster.wait_for_unanimity()
 
+    assert len(s1) == 1
     assert b'2' in s1
+    assert len(s2) == 1
     assert b'1' in s2
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("zrange", "x", 0, -1)
         assert val == [b'a']
 
-# more tests
-# 1. blocking commands in multi
-    # a. with data (return something)
-    # b. without data (return null)
+
+def test_multi_block_without_data(cluster):
+    cluster.create(3)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('brpop', 'x', 0) == b'QUEUED'
+    assert conn.execute('exec') == [None]
+
+
+def test_multi_block_with_data(cluster):
+    cluster.create(3)
+
+    cluster.leader_node().execute("lpush", "x", 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('brpop', 'x', 0) == b'QUEUED'
+    assert conn.execute('exec') == [[b'x', b'1']]
