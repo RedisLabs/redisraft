@@ -17,6 +17,7 @@ def test_brpop(cluster):
 
     t1 = Thread(target=client1, daemon=True)
     t1.start()
+    time.sleep(1)
     t2 = Thread(target=client2, daemon=True)
     t2.start()
 
@@ -78,6 +79,7 @@ def test_brpoplpush(cluster):
 
     t1 = Thread(target=client1, daemon=True)
     t1.start()
+    time.sleep(1)
     t2 = Thread(target=client2, daemon=True)
     t2.start()
 
@@ -111,6 +113,7 @@ def test_blmove(cluster):
 
     t1 = Thread(target=client1, daemon=True)
     t1.start()
+    time.sleep((1))
     t2 = Thread(target=client2, daemon=True)
     t2.start()
 
