@@ -424,17 +424,18 @@ bool RaftExecuteCommandArray(RedisRaftCtx *rr,
         if (reply_ctx) {
             /* reply to client if either
              * 1) we are not a blocking command
-             * 2) we are a blockinng command that hasn't timed out / command didn't return nil.
-             *    if we have timed out, it means, that the timeout callback returned to the user
+             * 2a) we are a blockinng command that didn't return nil.
+             * 2b) we are a blocking command that timed out, but couldn't return in timeout timer as on log
              */
-            if (!cmds->blocking || (!cmds->timed_out && RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_NULL)) {
+            if (!cmds->blocking) {
                 RedisModule_ReplyWithCallReply(reply_ctx, reply);
-            }
-            if (cmds->blocking && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_NULL) {
-                if (!cmds->timed_out) {
-                    blocking = true; /* no data  yet, so continue blocking */
-                } else {
+            } else {
+                if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_NULL) {
+                    RedisModule_ReplyWithCallReply(reply_ctx, reply);
+                } else if (cmds->timed_out) {
                     RedisModule_ReplyWithError(reply_ctx, "Request Timed Out");
+                } else {
+                    blocking = true; /* no data  yet, so continue blocking */
                 }
             }
         }
