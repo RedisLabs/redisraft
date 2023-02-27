@@ -770,6 +770,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             RedisModule_ReplyWithError(ctx, "ERR timeout is not a float or out of range");
             return;
         }
+        /* redis commands take timeout in seconds, timer takes time in milliseconds) */
         timeout = timeout * 1000;
 
         /* extract keys later, as they would have to be freed */
@@ -779,7 +780,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         req = RaftReqInitBlocking(ctx, keys, count, timeout);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
         req->r.redis.cmds.blocking = true;
-        req->r.redis.appended_to_log = true;
+        req->appended_to_log = true;
     } else {
         req = RaftReqInit(ctx, RR_REDISCOMMAND);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);

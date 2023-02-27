@@ -248,3 +248,8 @@ def test_bzmpop(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("zrange", "x", 0, -1)
         assert val == [b'a']
+
+# more tests
+# 1. blocking commands in multi
+    # a. with data (return something)
+    # b. without data (return null)
