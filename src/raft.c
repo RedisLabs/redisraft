@@ -623,7 +623,7 @@ static void clearClientSessions(RedisRaftCtx *rr)
 /*
  * Execution of Raft log on the local instance.
  *
- * There are two variants:fbl
+ * There are two variants:
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
@@ -640,7 +640,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         if (!blocking) {
             RaftReqFree(req);
         } else {
-            req->r.redis.appended_to_log = false;
+            req->appended_to_log = false;
         }
     } else {
         RaftRedisCommandArray tmp = {0};
@@ -1629,13 +1629,6 @@ void RaftReqFree(RaftReq *req)
         if (req->r.redis.cmds.size) {
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
         }
-        if (req->r.redis.blocked_keys) {
-            for (size_t i = 0; i < req->r.redis.blocked_keys_count; i++) {
-                RedisModule_FreeString(NULL, req->r.redis.blocked_keys[i]);
-            }
-            RedisModule_Free(req->r.redis.blocked_keys);
-            req->r.redis.blocked_keys = NULL;
-        }
     } else if (req->type == RR_IMPORT_KEYS) {
         if (req->r.import_keys.key_names) {
             for (size_t i = 0; i < req->r.import_keys.num_keys; i++) {
@@ -1685,11 +1678,11 @@ int blockedKeysReady(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RaftReq *req = RedisModule_GetBlockedClientPrivateData(ctx);
 
     /* already attached to an entry on the log that hasn't been applied yet */
-    if (req->r.redis.appended_to_log) {
+    if (req->appended_to_log) {
         return REDISMODULE_ERR;
     }
 
-    req->r.redis.appended_to_log = true;
+    req->appended_to_log = true;
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();
     entry->session = RedisModule_GetClientId(ctx);
@@ -1727,7 +1720,7 @@ static void blockedTimedOut(RedisModuleCtx *ctx, void *data)
     req->timeout_timer = 0;
     req->r.redis.cmds.timed_out = true;
 
-    if (req->r.redis.appended_to_log) {
+    if (req->appended_to_log) {
         /* appended to log, can't return here, will return at apply time for this log entry */
         return;
     }
@@ -1764,8 +1757,16 @@ RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, RedisModuleString **keys, size
     req->type = RR_REDISCOMMAND;
     req->client = RedisModule_BlockClientOnKeys(ctx, blockedKeysReady, nullTimeOut, NULL, 0, keys, num_keys, req);
     req->ctx = RedisModule_GetThreadSafeContext(req->client);
-    req->r.redis.blocked_keys = keys;
-    req->r.redis.blocked_keys_count = num_keys;
+
+    /* don't need to store these keys anymore, at least for now
+     * In the future, if we have more control over the callback/signaling mechanism, might need to keep them to recreate
+     * the callback */
+    for (size_t i = 0; i < num_keys; i++) {
+        RedisModule_FreeString(NULL, keys[i]);
+    }
+    RedisModule_Free(keys);
+
+    /* we don't use the timeout callback in RM_BlockClientOnKeys, as it can fire while we are on the log */
     if (timeout != 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
     }

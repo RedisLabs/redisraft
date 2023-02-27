@@ -624,15 +624,13 @@ typedef struct RaftReq {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
+    bool appended_to_log;
 
     union {
         struct {
             Node *proxy_node;
             int hash_slot;
             RaftRedisCommandArray cmds;
-            RedisModuleString **blocked_keys;
-            size_t blocked_keys_count;
-            bool appended_to_log;
         } redis;
 
         struct {
