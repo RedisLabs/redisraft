@@ -3,11 +3,54 @@ Copyright Redis Ltd. 2020 - present
 Licensed under your choice of the Redis Source Available License 2.0 (RSALv2)
 or the Server Side Public License v1 (SSPLv1).
 """
+import logging
+
+import redis
 
 from _pytest.python_api import raises
 from redis import ResponseError
 
-from .sandbox import RawConnection, RedisRaft
+from .sandbox import RawConnection, RedisRaft, RedisRaftTimeout
+
+
+def migrate_slots(cluster, slots):
+    cursor = 0
+    max_retries = 100
+
+    while True:
+        leader = cluster.leader_node()
+
+        try:
+            reply = leader.execute('raft.scan', str(cursor), slots)
+            cursor = int(reply[0])
+            keys = reply[1]
+
+            if len(keys) != 0:
+                key_names = []
+                for key in keys:
+                    key_names.append(key[0].decode('utf-8'))
+
+                assert leader.execute('migrate', '', '', '', '', '', 'keys',
+                                      *key_names) == b'OK'
+
+            # If cursor is zero, we've moved all the keys
+            if cursor == 0:
+                break
+
+        except (redis.ConnectionError, redis.ResponseError,
+                redis.TimeoutError) as e:
+            logging.info('raft.scan command failed with error: ' + str(e))
+
+            max_retries -= 1
+            if max_retries == 0:
+                raise RedisRaftTimeout("migrate command was not successful")
+
+            # In case of error, we just update the leader node and start from
+            # beginning. If leader has changed, our current 'cursor' value
+            # is not valid on the new leader.
+            cursor = 0
+            cluster.update_leader()
+            continue
 
 
 def test_migration_basic(cluster_factory):
@@ -68,25 +111,7 @@ def test_migration_basic(cluster_factory):
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
         ) == b'OK'
 
-    # Migrate keys
-    cursor = 0
-    while True:
-        reply = cluster1.execute('raft.scan', str(cursor), '8001-16383')
-
-        cursor = int(reply[0])
-        keys = reply[1]
-
-        if len(keys) != 0:
-            key_names = []
-            for key in keys:
-                key_names.append(key[0].decode('utf-8'))
-
-            assert cluster1.execute('migrate', '', '', '', '', '', 'keys',
-                                    *key_names) == b'OK'
-
-        # If cursor is zero, we've moved all the keys
-        if cursor == 0:
-            break
+    migrate_slots(cluster1, '8001-16383')
 
     # Finalize migration
     assert cluster1.execute(
@@ -202,25 +227,7 @@ def test_migration_basic_on_oom(cluster_factory):
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
         ) == b'OK'
 
-    # Migrate keys
-    cursor = 0
-    while True:
-        reply = cluster1.execute('raft.scan', str(cursor), '8001-16383')
-
-        cursor = int(reply[0])
-        keys = reply[1]
-
-        if len(keys) != 0:
-            key_names = []
-            for key in keys:
-                key_names.append(key[0].decode('utf-8'))
-
-            assert cluster1.execute('migrate', '', '', '', '', '', 'keys',
-                                    *key_names) == b'OK'
-
-        # If cursor is zero, we've moved all the keys
-        if cursor == 0:
-            break
+    migrate_slots(cluster1, '8001-16383')
 
     # Finalize migration
     assert cluster1.execute(

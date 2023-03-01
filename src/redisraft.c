@@ -150,7 +150,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         int e = raft_recv_entry(rr->raft, entry, NULL);
         if (e != 0) {
             entryDetachRaftReq(rr, entry);
-            replyRaftError(req->ctx, e);
+            replyRaftError(req->ctx, NULL, e);
             raft_entry_release(entry);
             RaftReqFree(req);
             return REDISMODULE_OK;
@@ -192,7 +192,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         int e = raft_recv_entry(rr->raft, entry, NULL);
         if (e != 0) {
             entryDetachRaftReq(rr, entry);
-            replyRaftError(req->ctx, e);
+            replyRaftError(req->ctx, NULL, e);
             raft_entry_release(entry);
             RaftReqFree(req);
             return REDISMODULE_OK;
@@ -243,7 +243,7 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     int err = raft_transfer_leader(rr->raft, target, 0);
     if (err != 0) {
-        replyRaftError(ctx, err);
+        replyRaftError(ctx, NULL, err);
         return REDISMODULE_OK;
     }
 
@@ -528,7 +528,7 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     entryAttachRaftReq(rr, entry, req);
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        replyRaftError(req->ctx, e);
+        replyRaftError(req->ctx, NULL, e);
         RaftReqFree(req);
         entryDetachRaftReq(rr, entry);
     }
@@ -569,7 +569,7 @@ static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (req && e != 0) {
-        replyRaftError(req->ctx, e);
+        replyRaftError(req->ctx, NULL, e);
         RaftReqFree(req);
         entryDetachRaftReq(rr, entry);
     }
@@ -751,7 +751,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
         int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
         if (rc != 0) {
-            replyRaftError(ctx, rc);
+            replyRaftError(ctx, NULL, rc);
+            RaftReqFree(req);
         }
         return;
     }
@@ -767,7 +768,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        replyRaftError(ctx, e);
+        replyRaftError(ctx, NULL, e);
         entryDetachRaftReq(rr, entry);
         raft_entry_release(entry);
         RaftReqFree(req);

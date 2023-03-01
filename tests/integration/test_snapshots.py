@@ -94,7 +94,7 @@ def test_big_snapshot_delivery(cluster):
     Ability to properly deliver and load a big snapshot file (~70 Mb on disk).
     """
 
-    cluster.create(1)
+    cluster.create(1, raft_args={'response-timeout': 5000})
     cluster.execute('set', 'x', '1')
     cluster.execute('set', 'x', '1')
 
@@ -102,8 +102,8 @@ def test_big_snapshot_delivery(cluster):
     n1.raft_debug_exec('debug', 'populate', 2000000, 100000)
     n1.client.execute_command('raft.debug', 'compact')
 
-    cluster.add_node()
-    cluster.add_node()
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
 
     cluster.wait_for_unanimity()
     assert cluster.node(2).info()['raft_snapshots_received'] > 0

@@ -17,6 +17,10 @@ on:
         description: 'git branch or sha to use'
         required: false
         default: 'master'
+      pytest_args:
+        description: 'additional pytest args (e.g. run tests matching a regex n times: -k lua --repeat 3)'
+        required: false
+        default: ''
 
 jobs:
   tests-with-elle:
@@ -40,7 +44,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.5-standalone.jar --elle-threads=3 -v"
+        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.5-standalone.jar --elle-threads=3 -v ${{github.event.inputs.pytest_args}}"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -92,7 +96,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
@@ -136,7 +140,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -180,7 +184,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -225,7 +229,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v ${{github.event.inputs.pytest_args}}" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -257,7 +261,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v ${{github.event.inputs.pytest_args}}" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
@@ -303,7 +307,7 @@ jobs:
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" 
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}" 
           make -j 4
       - name: Checkout Redis
         uses: actions/checkout@v2

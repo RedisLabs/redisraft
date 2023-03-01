@@ -27,6 +27,7 @@ static const char *trace_names[] = {
     "raftlib",
     "raftlog",
     "generic",
+    "migration",
     "all",
 };
 
@@ -37,6 +38,7 @@ static const int trace_flags[] = {
     TRACE_RAFTLIB,
     TRACE_RAFTLOG,
     TRACE_GENERIC,
+    TRACE_MIGRATION,
     TRACE_ALL,
 };
 

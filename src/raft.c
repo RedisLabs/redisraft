@@ -50,13 +50,7 @@ void shutdownAfterRemoval(RedisRaftCtx *rr)
         archiveSnapshot(rr);
     }
 
-    RedisModuleCallReply *r = RedisModule_Call(rr->ctx, "SHUTDOWN", "cE", "NOW");
-
-    size_t len;
-    const char *err = RedisModule_CallReplyStringPtr(r, &len);
-    LOG_WARNING("Shutdown failure: %.*s", (int) len, err);
-
-    abort();
+    shutdownServer(rr);
 }
 
 RaftReq *entryDetachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry)
@@ -308,7 +302,7 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
     unsigned long long id = cmds->client_id;
     int nokey;
 
-    void *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
+    ClientSession *client_session = RedisModule_DictGetC(rr->client_session_dict, &id, sizeof(id), &nokey);
 
     if (nokey) {
         RaftRedisCommand *c = cmds->commands[0];
@@ -316,7 +310,9 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
         const char *cmd = RedisModule_StringPtrLen(c->argv[0], &cmd_len);
 
         if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
-            client_session = RedisModule_Alloc(sizeof(void *));
+            client_session = RedisModule_Alloc(sizeof(ClientSession));
+            client_session->client_id = id;
+            client_session->local = false;
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
@@ -366,7 +362,10 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         return;
     }
 
-    void *client_session = getClientSession(rr, cmds);
+    ClientSession *client_session = getClientSession(rr, cmds);
+    if (client_session && reply_ctx) {
+        client_session->local = true;
+    }
     (void) client_session;
 
     for (int i = 0; i < cmds->len; i++) {
@@ -492,7 +491,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         if (RedisModule_KeyExists(rr->ctx, keys[i])) {
             size_t str_len;
             const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
-            LOG_VERBOSE("locking %.*s", (int) str_len, str);
+            MIGRATION_TRACE("Locking key: %.*s", (int) str_len, str);
 
             RedisModule_DictSet(rr->locked_keys, keys[i], NULL);
         }
@@ -534,6 +533,11 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_FreeCallReply(reply);
 
     for (size_t i = 0; i < num_keys; i++) {
+        size_t str_len;
+        const char *str = RedisModule_StringPtrLen(keys[i], &str_len);
+
+        MIGRATION_TRACE("Unlocking key: %.*s", (int) str_len, str);
+
         RedisModule_DictDel(rr->locked_keys, keys[i], NULL);
         RedisModule_FreeString(rr->ctx, keys[i]);
     }
@@ -577,10 +581,12 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
 
 static void clearClientSessions(RedisRaftCtx *rr)
 {
-    void *client_session;
+    ClientSession *client_session;
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rr->client_session_dict, "^", NULL, 0);
-
     while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
+        if (client_session->local) {
+            RedisModule_DeauthenticateAndCloseClient(rr->ctx, client_session->client_id);
+        }
         freeClientSession(client_session);
     }
     RedisModule_DictIteratorStop(iter);
