@@ -1077,3 +1077,11 @@ def crc16(data: bytes) -> int:
 def key_hash_slot(key: str) -> int:
     assert key is not None
     return crc16(key.encode()) % 16384
+
+
+class SlotRangeType():
+    UNDEF = '0'
+    STABLE = '1'
+    IMPORTING = '2'
+    MIGRATING = '3'
+    MAX = '4'
