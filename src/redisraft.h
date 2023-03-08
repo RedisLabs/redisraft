@@ -26,7 +26,6 @@
 #include "log.h"
 #include "metadata.h"
 #include "raft.h"
-#include "sc_list.h"
 #include "version.h"
 
 #include "common/redismodule.h"

@@ -293,7 +293,6 @@ add_executable(main
         src/proxy.c
         src/raft.c
         src/redisraft.c
-        src/sc_list.c
         src/serialization.c
         src/serialization_utils.c
         src/snapshot.c

@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "redisraft.h"
-#include "sc_list.h"
 
 /* A list of all current blocked commands */
 
