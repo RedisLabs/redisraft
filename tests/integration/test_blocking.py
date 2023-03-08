@@ -106,7 +106,8 @@ def test_blmove(cluster):
 
     def client():
         # val = popped value from source list
-        val = cluster.leader_node().execute("blmove", "x", "y", "right", "left", 0)
+        n = cluster.leader_node()
+        val = n.execute("blmove", "x", "y", "right", "left", 0)
         s.add(val)
 
     t1 = Thread(target=client, daemon=True)
