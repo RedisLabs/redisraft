@@ -407,7 +407,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         *    (although no harm is done).
         */
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
-            if (req->ctx) {
+            if (req) {
                 RedisModule_ReplyWithArray(req->ctx, cmds->len - 1);
             }
 
