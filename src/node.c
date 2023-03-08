@@ -17,8 +17,6 @@
  * and reconnects).
  */
 
-static LIST_HEAD(node_list, Node) node_list = LIST_HEAD_INITIALIZER(node_list);
-
 /* Clear all pending responses and metrics from the node. We have to do that
  * when reconnecting.
  */
@@ -27,9 +25,11 @@ static void clearPendingResponses(Node *node)
     node->pending_raft_response_num = 0;
     node->pending_proxy_response_num = 0;
 
-    while (!STAILQ_EMPTY(&node->pending_responses)) {
-        PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
-        STAILQ_REMOVE_HEAD(&node->pending_responses, entries);
+    struct sc_list *tmp, *it;
+
+    sc_list_foreach_safe (&node->pending_responses, tmp, it) {
+        PendingResponse *resp = sc_list_entry(it, PendingResponse, entries);
+        sc_list_del(&node->pending_responses, it);
         RedisModule_Free(resp);
     }
 }
@@ -68,7 +68,7 @@ static void NodeFree(Node *node)
 
     clearPendingResponses(node);
 
-    LIST_REMOVE(node, entries);
+    sc_list_del(&node->rr->nodes, &node->entries);
     RedisModule_Free(node);
 }
 
@@ -90,7 +90,8 @@ Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
 {
     Node *node = RedisModule_Calloc(1, sizeof(Node));
 
-    STAILQ_INIT(&node->pending_responses);
+    sc_list_init(&node->pending_responses);
+    sc_list_init(&node->entries);
 
     node->id = id;
     node->rr = rr;
@@ -98,7 +99,7 @@ Node *NodeCreate(RedisRaftCtx *rr, int id, const NodeAddr *addr)
     strcpy(node->addr.host, addr->host);
     node->addr.port = addr->port;
 
-    LIST_INSERT_HEAD(&node_list, node, entries);
+    sc_list_add_head(&rr->nodes, &node->entries);
 
     node->conn = ConnCreate(node->rr, node, nodeIdleCallback, nodeFreeCallback,
                             rr->config.cluster_user, rr->config.cluster_password);
@@ -117,13 +118,14 @@ void NodeAddPendingResponse(Node *node, bool proxy)
     resp->proxy = proxy;
     resp->request_time = RedisModule_Milliseconds();
     resp->id = ++response_id;
+    sc_list_init(&resp->entries);
 
     if (proxy) {
         node->pending_proxy_response_num++;
     } else {
         node->pending_raft_response_num++;
     }
-    STAILQ_INSERT_TAIL(&node->pending_responses, resp, entries);
+    sc_list_add_tail(&node->pending_responses, &resp->entries);
 
     NODE_TRACE(node, "NodeAddPendingResponse: id=%d, type=%s, request_time=%lld",
                resp->id, proxy ? "proxy" : "raft", resp->request_time);
@@ -134,8 +136,8 @@ void NodeAddPendingResponse(Node *node, bool proxy)
  */
 void NodeDismissPendingResponse(Node *node)
 {
-    PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
-    STAILQ_REMOVE_HEAD(&node->pending_responses, entries);
+    struct sc_list *elem = sc_list_pop_head(&node->pending_responses);
+    PendingResponse *resp = sc_list_entry(elem, PendingResponse, entries);
 
     if (resp->proxy) {
         node->pending_proxy_response_num--;
@@ -159,10 +161,14 @@ void HandleNodeStates(RedisRaftCtx *rr)
         return;
 
     /* Iterate nodes and find nodes that require reconnection */
-    Node *node, *tmp;
-    LIST_FOREACH_SAFE (node, &node_list, entries, tmp) {
-        if (ConnIsConnected(node->conn) && !STAILQ_EMPTY(&node->pending_responses)) {
-            PendingResponse *resp = STAILQ_FIRST(&node->pending_responses);
+    struct sc_list *tmp, *it;
+
+    sc_list_foreach_safe (&rr->nodes, tmp, it) {
+        Node *node = sc_list_entry(it, Node, entries);
+        struct sc_list *head = sc_list_head(&node->pending_responses);
+
+        if (ConnIsConnected(node->conn) && head != NULL) {
+            PendingResponse *resp = sc_list_entry(head, PendingResponse, entries);
             long timeout;
 
             if (raft_is_leader(rr->raft)) {

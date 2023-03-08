@@ -2047,6 +2047,8 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     };
 
     sc_crc32_init();
+    sc_list_init(&rr->nodes);
+    sc_list_init(&rr->connections);
 
     CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
 

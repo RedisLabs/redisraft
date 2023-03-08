@@ -28,8 +28,8 @@
 #include "raft.h"
 #include "version.h"
 
-#include "common/queue.h"
 #include "common/redismodule.h"
+#include "common/sc_list.h"
 #include "hiredis/async.h"
 
 #define UNUSED(x) ((void) (x))
@@ -206,7 +206,7 @@ typedef struct Connection {
     ConnectionFreeFunc free_callback;
 
     /* Linkage to global connections list */
-    LIST_ENTRY(Connection) entries;
+    struct sc_list entries;
 } Connection;
 
 /* -------------------- Global Raft Context -------------------- */
@@ -262,7 +262,7 @@ typedef struct SnapshotFile {
 
 /* threadpool.c */
 struct Task {
-    STAILQ_ENTRY(Task) entry;
+    struct sc_list entry;
     void *arg;
     void (*run)(void *arg);
 };
@@ -271,7 +271,7 @@ typedef struct ThreadPool {
     int thread_count;
     pthread_t *threads;
 
-    STAILQ_HEAD(tasks, Task) tasks;
+    struct sc_list tasks;
 
     pthread_mutex_t mtx;
     pthread_cond_t cond;
@@ -381,6 +381,8 @@ typedef struct RedisRaftCtx {
     Metadata meta;                 /* Raft metadata for voted_for and term */
     struct EntryCache *logcache;   /* Log entry cache to keep entries in memory for faster access */
     struct RedisRaftConfig config; /* User provided configuration */
+    struct sc_list nodes;          /* List of nodes */
+    struct sc_list connections;    /* List of connections to other nodes */
 
     raft_index_t incoming_snapshot_idx;  /* Incoming snapshot's last included idx to verify chunks
                                                     belong to the same snapshot */
@@ -455,19 +457,19 @@ typedef struct PendingResponse {
     bool proxy;
     int id;
     long long request_time;
-    STAILQ_ENTRY(PendingResponse) entries;
+    struct sc_list entries;
 } PendingResponse;
 
 /* Maintains all state about peer nodes */
 typedef struct Node {
-    raft_node_id_t id;               /* Raft unique node ID */
-    RedisRaftCtx *rr;                /* RedisRaftCtx handle */
-    Connection *conn;                /* Connection to node */
-    NodeAddr addr;                   /* Node's address */
-    long pending_raft_response_num;  /* Number of pending Raft responses */
-    long pending_proxy_response_num; /* Number of pending proxy responses */
-    STAILQ_HEAD(pending_responses, PendingResponse) pending_responses;
-    LIST_ENTRY(Node) entries;
+    raft_node_id_t id;                /* Raft unique node ID */
+    RedisRaftCtx *rr;                 /* RedisRaftCtx handle */
+    Connection *conn;                 /* Connection to node */
+    NodeAddr addr;                    /* Node's address */
+    long pending_raft_response_num;   /* Number of pending Raft responses */
+    long pending_proxy_response_num;  /* Number of pending proxy responses */
+    struct sc_list pending_responses; /* List of PendingResponse objects */
+    struct sc_list entries;           /* Next Node item in the list */
 } Node;
 
 /* General purpose status code.  Convention is this:
