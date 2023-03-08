@@ -343,7 +343,8 @@ RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedis
     return user;
 }
 
-void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data) {
+void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data)
+{
     UNUSED(ctx);
     BlockedCommand *bc = (BlockedCommand *) private_data;
     bc = getAndDeleteBlockedCommand(bc->idx); /* duplicative, but easiest way to manage the list */

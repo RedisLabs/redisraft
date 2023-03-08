@@ -548,11 +548,10 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
         if (RedisModule_StringToLongLong(cmd->argv[cmd->argc - 1], timeout) == REDISMODULE_ERR) {
             return REDISMODULE_ERR;
         }
-/*
-        LOG_WARNING("RaftRedisExtractBlockingTimeout: replacing argc %d with zero", cmd->argc-1);
+
         RedisModule_FreeString(NULL, cmd->argv[cmd->argc - 1]);
         cmd->argv[cmd->argc - 1] = RedisModule_HoldString(NULL, zero);
-*/
+
         return REDISMODULE_OK;
     } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
                strncasecmp(cmd_str, "bzmpop", 6) == 0) {
@@ -560,10 +559,10 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
         if (RedisModule_StringToLongLong(cmd->argv[1], timeout) == REDISMODULE_ERR) {
             return REDISMODULE_ERR;
         }
-/*
+
         RedisModule_FreeString(NULL, cmd->argv[1]);
         cmd->argv[1] = RedisModule_HoldString(NULL, zero);
-*/
+
         return REDISMODULE_OK;
     }
 

@@ -11,7 +11,8 @@
 
 /* A list of all current blocked commands */
 
-BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply) {
+BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
+{
     BlockedCommand *bc = RedisModule_Calloc(1, sizeof(BlockedCommand));
     sc_list_init(&bc->blocked_list);
     sc_list_add_tail(&redis_raft.blocked_command_list, &bc->blocked_list);
@@ -19,7 +20,7 @@ BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, 
     bc->idx = idx;
     bc->session = session;
     bc->data = RedisModule_Alloc(data_len);
-    memcpy(bc->data, data, data_len);;
+    memcpy(bc->data, data, data_len);
     bc->data_len = data_len;
     bc->req = req;
 
@@ -28,7 +29,8 @@ BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, 
     return bc;
 }
 
-void freeBlockedCommand(BlockedCommand *bc) {
+void freeBlockedCommand(BlockedCommand *bc)
+{
     if (bc->data) {
         RedisModule_Free(bc->data);
         bc->data = NULL;
@@ -36,7 +38,8 @@ void freeBlockedCommand(BlockedCommand *bc) {
     RedisModule_Free(bc);
 }
 
-BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx) {
+BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx)
+{
     BlockedCommand *blocked = NULL;
     RedisModule_DictDelC(redis_raft.blocked_command_dict, &idx, sizeof(idx), &blocked);
     if (blocked == NULL) {
@@ -48,7 +51,8 @@ BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx) {
     return blocked;
 }
 
-int timeoutBlockedCommand(raft_index_t idx) {
+int timeoutBlockedCommand(raft_index_t idx)
+{
     BlockedCommand *bc = getAndDeleteBlockedCommand(idx);
     if (bc == NULL) {
         return 0;
@@ -58,12 +62,14 @@ int timeoutBlockedCommand(raft_index_t idx) {
     return 0;
 }
 
-void blockedCommandsSave(RedisModuleIO *rdb) {
+void blockedCommandsSave(RedisModuleIO *rdb)
+{
     RaftSnapshotInfo *info = &redis_raft.snapshot_info;
     struct sc_list *it;
     int count = 0;
 
-    sc_list_foreach (&redis_raft.blocked_command_list, it) {
+    sc_list_foreach (&redis_raft.blocked_command_list, it)
+    {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
             count++;
@@ -73,7 +79,8 @@ void blockedCommandsSave(RedisModuleIO *rdb) {
     }
 
     RedisModule_SaveUnsigned(rdb, count);
-    sc_list_foreach (&redis_raft.blocked_command_list, it) {
+    sc_list_foreach (&redis_raft.blocked_command_list, it)
+    {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
             RedisModule_SaveUnsigned(rdb, bc->idx);
@@ -85,7 +92,8 @@ void blockedCommandsSave(RedisModuleIO *rdb) {
     }
 }
 
-void blockedCommandsLoad(RedisModuleIO *rdb) {
+void blockedCommandsLoad(RedisModuleIO *rdb)
+{
     RedisRaftCtx *rr = &redis_raft;
 
     if (rr->blocked_command_dict) {

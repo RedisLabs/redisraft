@@ -26,13 +26,12 @@
 #include "log.h"
 #include "metadata.h"
 #include "raft.h"
+#include "sc_list.h"
 #include "version.h"
 
 #include "common/redismodule.h"
 #include "common/sc_list.h"
 #include "hiredis/async.h"
-
-#include "sc_list.h"
 
 #define UNUSED(x) ((void) (x))
 
@@ -433,7 +432,7 @@ typedef struct RedisRaftCtx {
     RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
     RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
 
-    struct sc_list blocked_command_list;  /* list of blocked commands in order of them blocking */
+    struct sc_list blocked_command_list;   /* list of blocked commands in order of them blocking */
     RedisModuleDict *blocked_command_dict; /* raft entry id -> blocked command mapping, for fast lookup */
 } RedisRaftCtx;
 
@@ -660,7 +659,7 @@ typedef struct RaftReq {
 typedef struct BlockedCommand {
     raft_index_t idx;
     unsigned long long session;
-    char * data;
+    char *data;
     size_t data_len;
     RaftReq *req;
     RedisModuleCallReply *reply;
