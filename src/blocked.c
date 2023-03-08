@@ -4,9 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include <string.h>
-
 #include "redisraft.h"
+
+#include <string.h>
 
 /* A list of all current blocked commands */
 
@@ -67,7 +67,7 @@ void blockedCommandsSave(RedisModuleIO *rdb)
     struct sc_list *it;
     int count = 0;
 
-    sc_list_foreach (&redis_raft.blocked_command_list, it)
+    sc_list_foreach(&redis_raft.blocked_command_list, it)
     {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
@@ -78,7 +78,7 @@ void blockedCommandsSave(RedisModuleIO *rdb)
     }
 
     RedisModule_SaveUnsigned(rdb, count);
-    sc_list_foreach (&redis_raft.blocked_command_list, it)
+    sc_list_foreach(&redis_raft.blocked_command_list, it)
     {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
