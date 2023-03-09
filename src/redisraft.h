@@ -594,6 +594,7 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM + 5)
 #define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM + 6)
 #define RAFT_LOGTYPE_END_SESSION         (RAFT_LOGTYPE_NUM + 7)
+#define RAFT_LOGTYPE_TIMEOUT_BLOCKED     (RAFT_LOGTYPE_NUM + 8)
 
 #define MAX_AUTH_STRING_ARG_LENGTH 255
 
@@ -631,6 +632,7 @@ typedef struct RaftReq {
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
+    raft_index_t raft_idx;
 
     union {
         struct {
@@ -993,5 +995,6 @@ void freeBlockedCommand(BlockedCommand *bc);
 BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx);
 void blockedCommandsSave(RedisModuleIO *rdb);
 void blockedCommandsLoad(RedisModuleIO *rdb);
+void clearAllBlockCommands();
 
 #endif

@@ -637,6 +637,20 @@ static void clearClientSessions(RedisRaftCtx *rr)
     rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
 }
 
+static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
+{
+    RedisModule_Assert(entry->data_len == sizeof(raft_index_t));
+    raft_index_t idx;
+    memcpy(&idx, entry->data, sizeof(idx));
+    LOG_WARNING("timeoutBlockedCommand: timeout of idx %lu would be applied here", idx);
+}
+
+static void clearBlockedCommands(RedisRaftCtx *rr, raft_index_t entry_idx)
+{
+    LOG_WARNING("clearBlockedCommand: timeout of all pending blocked commands as new leade at idx %lu", entry_idx);
+    clearAllBlockCommands();
+}
+
 /*
  * Execution of Raft log on the local instance.
  *
@@ -677,6 +691,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         }
     } else {
         BlockedCommand *bc = addBlockedCommand(entry_idx, entry->session, entry->data, entry->data_len, req, reply);
+        LOG_WARNING("executeLogEntry: entry at idx %lu is blocking", entry_idx);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {
             ; /* nothing to do right now */
@@ -1030,6 +1045,10 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_NO_OP:
             clearClientSessions(rr);
+            clearBlockedCommands(rr, entry_idx);
+            break;
+        case RAFT_LOGTYPE_TIMEOUT_BLOCKED:
+            timeoutBlockedCommand(rr, entry);
             break;
         default:
             break;
@@ -1706,9 +1725,25 @@ void RaftReqFree(RaftReq *req)
 
 static void blockedTimedOut(RedisModuleCtx *ctx, void *data)
 {
+    RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = (RaftReq *) data;
-    /* TODO: add timeout entry to log */
-    UNUSED(req);
+
+    raft_entry_t *entry = raft_entry_new(sizeof(raft_index_t));
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
+    memcpy(entry->data, &req->raft_idx, entry->data_len);
+    entryAttachRaftReq(rr, entry, req);
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (req && e != 0) {
+        /* TODO: unsure if we should reply to user here, like in other case.
+         * I'd think in this case, it would be the timer went off and we aren't leader anymore,
+         * which will be more cleanly handled upon new term
+         */
+        entryDetachRaftReq(rr, entry);
+    }
+
+    raft_entry_release(entry);
 }
 
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)

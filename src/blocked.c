@@ -28,15 +28,6 @@ BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, 
     return bc;
 }
 
-void freeBlockedCommand(BlockedCommand *bc)
-{
-    if (bc->data) {
-        RedisModule_Free(bc->data);
-        bc->data = NULL;
-    }
-    RedisModule_Free(bc);
-}
-
 BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx)
 {
     BlockedCommand *blocked = NULL;
@@ -50,6 +41,16 @@ BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx)
     return blocked;
 }
 
+
+void freeBlockedCommand(BlockedCommand *bc)
+{
+    if (bc->data) {
+        RedisModule_Free(bc->data);
+        bc->data = NULL;
+    }
+    RedisModule_Free(bc);
+}
+
 int timeoutBlockedCommand(raft_index_t idx)
 {
     BlockedCommand *bc = getAndDeleteBlockedCommand(idx);
@@ -59,6 +60,22 @@ int timeoutBlockedCommand(raft_index_t idx)
     /* TODO: abort bc->reply */
     freeBlockedCommand(bc);
     return 0;
+}
+
+void clearAllBlockCommands()
+{
+    return; /* don't execute the rest for now */
+
+    struct sc_list *elem;
+    while ((elem = sc_list_pop_head(&redis_raft.blocked_command_list)) != NULL) {
+        BlockedCommand *bc = sc_list_entry(elem, BlockedCommand, blocked_list);
+        // How we will 'timeout'/'abort' the blocked command will go here'
+        freeBlockedCommand(bc);
+    }
+    if (redis_raft.blocked_command_dict != NULL) {
+        RedisModule_FreeDict(redis_raft.ctx, redis_raft.blocked_command_dict);
+    }
+    redis_raft.blocked_command_dict = RedisModule_CreateDict(redis_raft.ctx);
 }
 
 void blockedCommandsSave(RedisModuleIO *rdb)

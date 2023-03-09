@@ -797,6 +797,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         RaftReqFree(req);
         return;
     }
+    req->raft_idx = raft_get_current_idx(rr->raft);
 
     raft_entry_release(entry);
 }
