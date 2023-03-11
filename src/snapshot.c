@@ -412,12 +412,11 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
 
         /* Handle compact delay, used for strictly as a debugging tool for testing */
         if (rr->debug_req) {
-            int delay = rr->debug_req->r.debug.delay;
-            if (delay) {
-                sleep(delay);
+            if (rr->config.snapshot_delay) {
+                sleep(rr->config.snapshot_delay);
             }
 
-            if (rr->debug_req->r.debug.fail) {
+            if (rr->config.snapshot_fail) {
                 strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
                 sr.err[sizeof(sr.err) - 1] = '\0';
                 goto exit;
@@ -502,7 +501,7 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 {
     RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
 
-    if (rr->disable_snapshot_load) {
+    if (rr->config.snapshot_disable_load) {
         return;
     }
 

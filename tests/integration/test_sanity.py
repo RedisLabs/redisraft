@@ -204,7 +204,7 @@ def test_nonquorum_reads(cluster):
 
     # Disable apply on node-2 and make it leader. Node-2 will not be able to
     # apply NOOP entry and read requests should fail.
-    cluster.node(2).client.execute_command('raft.debug', 'disable_apply', '1')
+    cluster.node(2).config_set('raft.log-disable-apply', 'yes')
     cluster.node(2).timeout_now()
     cluster.node(2).wait_for_info_param('raft_leader_id', 2)
 
@@ -214,7 +214,7 @@ def test_nonquorum_reads(cluster):
 
     # Disable delay. The new leader can apply NOOP entry and verify it can
     # process read requests.
-    cluster.node(2).client.execute_command('raft.debug', 'disable_apply', '0')
+    cluster.node(2).config_set('raft.log-disable-apply', 'no')
     cluster.node(2).client.get('x')
 
 
@@ -512,14 +512,14 @@ def test_throttle_applying_entries(cluster):
     for i in range(60):
         cluster.execute('set', 'key', 'value')
 
-    # Restart nodes with delay_apply config.
+    # Restart nodes with log-delay-apply config.
     cluster.terminate()
     cluster.node(1).start()
-    cluster.node(1).execute('raft.debug', 'delay_apply', 100000)
+    cluster.node(1).config_set('raft.log-delay-apply', 100000)
     cluster.node(1).pause()
 
     cluster.node(2).start()
-    cluster.node(2).execute('raft.debug', 'delay_apply', 100000)
+    cluster.node(2).config_set('raft.log-delay-apply', 100000)
 
     # Resume node-1, so, nodes will elect a leader and start applying entries.
     cluster.node(1).resume()

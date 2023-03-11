@@ -241,8 +241,9 @@ def test_uncommitted_log_rewrite(cluster):
     cluster.node(2).terminate()
     cluster.node(3).terminate()
 
+    cluster.node(1).config_set("raft.snapshot-delay", "3")
     conn = cluster.node(1).client.connection_pool.get_connection('compact')
-    conn.send_command('raft.debug', 'compact', '3')
+    conn.send_command('raft.debug', 'compact')
 
     cluster.node(1).wait_for_info_param('raft_snapshot_in_progress', 'yes')
 
@@ -273,8 +274,9 @@ def test_new_uncommitted_during_rewrite(cluster):
     cluster.node(1).client.set('key', '1')
 
     # Initiate compaction and wait to see it's in progress
+    cluster.node(1).config_set("raft.snapshot-delay", "2")
     conn = cluster.node(1).client.connection_pool.get_connection('COMPACT')
-    conn.send_command('RAFT.DEBUG', 'COMPACT', '2')
+    conn.send_command('RAFT.DEBUG', 'COMPACT')
     cluster.node(1).wait_for_info_param('raft_snapshot_in_progress', 'yes')
     assert cluster.node(1).info()['raft_snapshot_in_progress'] == 'yes'
 
@@ -462,8 +464,11 @@ def test_snapshot_fork_failure(cluster):
 
     assert r1.info()['raft_snapshots_created'] == 0
 
+    r1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT')
+
+    r1.config_set("raft.snapshot-fail", "no")
     assert r1.info()['raft_snapshots_created'] == 0
     r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
 
@@ -479,7 +484,7 @@ def test_snapshot_fork_failure(cluster):
     # Verify that retry was successful
     assert r1.info()['raft_snapshots_created'] == 1
 
-    assert r1.execute('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    assert r1.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert r1.info()['raft_snapshots_created'] == 2
 
     r1.client.incr('testkey')
@@ -593,10 +598,11 @@ def test_snapshot_state_on_failure(cluster):
     assert r1.info()['raft_snapshots_created'] == 0
 
     # Disable snapshot so, the node will not retry after snapshot failure
-    r1.execute('raft.debug', 'disable_snapshot', '1')
+    r1.config_set('raft.snapshot-disable', 'yes')
 
+    r1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT')
 
     r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
     info = r1.info()
