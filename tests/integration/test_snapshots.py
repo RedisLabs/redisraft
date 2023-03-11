@@ -484,6 +484,10 @@ def test_snapshot_fork_failure(cluster):
     # Verify that retry was successful
     assert r1.info()['raft_snapshots_created'] == 1
 
+    # Verify in progress stats are cleared
+    assert r1.info()['raft_snapshot_in_progress_last_idx'] == -1
+    assert r1.info()['raft_snapshot_in_progress_last_term'] == -1
+
     assert r1.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert r1.info()['raft_snapshots_created'] == 2
 
@@ -524,6 +528,8 @@ def test_snapshot_state_after_restart(cluster):
     assert info['raft_snapshot_last_term'] == snapshot_term
     assert info['raft_snapshot_size'] == snapshot_size
     assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
 
 
 def test_snapshot_state_after_snapshot_receiving(cluster):
@@ -581,6 +587,8 @@ def test_snapshot_state_on_success(cluster):
     assert info['raft_snapshot_last_term'] == 1
     assert info['raft_snapshot_size'] != 0
     assert info['raft_snapshot_time_secs'] != -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
 
 
 def test_snapshot_state_on_failure(cluster):
@@ -611,3 +619,36 @@ def test_snapshot_state_on_failure(cluster):
     assert info['raft_snapshot_last_term'] == 0
     assert info['raft_snapshot_size'] == 0
     assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
+
+
+def test_snapshot_in_progress_stats(cluster):
+    """
+    Verify snapshot in progress stats are updated correctly.
+    """
+    r1 = cluster.add_node()
+    r1.client.incr('testkey')
+
+    # Verify initial state stats
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
+
+    r1.config_set('raft.snapshot-delay', 3)
+    r1.execute('RAFT.DEBUG', 'COMPACT', '1')
+
+    # Verify stats while snapshot is in progress
+    r1.wait_for_info_param('raft_snapshot_in_progress', 'yes')
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] != -1
+    assert info['raft_snapshot_in_progress_last_term'] != -1
+
+    # Verify stats after snapshot process has been completed
+    r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] != -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1

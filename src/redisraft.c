@@ -1140,7 +1140,6 @@ static void clusterInit(const char *cluster_id)
     }
 
     RaftLibraryInit(rr, true);
-    initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);
 
     LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s",
@@ -1167,7 +1166,6 @@ static void clusterJoinCompleted(RaftReq *req)
 
     AddBasicLocalShardGroup(rr);
     RaftLibraryInit(rr, false);
-    initSnapshotTransferData(rr);
 
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     RaftReqFree(req);
@@ -1797,14 +1795,18 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_idx", rr->raft ? raft_get_snapshot_last_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_term", rr->raft ? raft_get_snapshot_last_term(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_size", rr->outgoing_snapshot_file.len);
-    long long int snapshot_time = -1;
-    if (rr->last_snapshot_time != -1) {
-        snapshot_time = rr->last_snapshot_time / 1000;
+
+    long long snapshot_time = -1;
+    if (rr->snapshots_created != 0) {
+        snapshot_time = (long long) rr->last_snapshot_time;
     }
     RedisModule_InfoAddFieldLongLong(ctx, "snapshot_time_secs", snapshot_time);
+
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_received", rr->snapshots_received);
     RedisModule_InfoAddFieldCString(ctx, "snapshot_in_progress", rr->snapshot_in_progress ? "yes" : "no");
+    RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_idx", rr->curr_snapshot_last_idx);
+    RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_term", rr->curr_snapshot_last_term);
 
     RedisModule_InfoAddSection(ctx, "clients");
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
@@ -1957,8 +1959,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
 
     /* Snapshot state initialization */
-    rr->curr_snapshot_start_time = -1;
-    rr->last_snapshot_time = -1;
+    SnapshotInit(rr);
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *

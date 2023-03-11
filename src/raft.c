@@ -1334,7 +1334,6 @@ static void handleLoadingState(RedisRaftCtx *rr)
         }
 
         RaftLibraryInit(rr, false);
-        initSnapshotTransferData(rr);
 
         if (rr->snapshot_info.loaded) {
             createOutgoingSnapshotMmap(rr);

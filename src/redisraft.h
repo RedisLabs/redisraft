@@ -396,10 +396,10 @@ typedef struct RedisRaftCtx {
                                                     it will be renamed to the original rdb file */
     SnapshotLoad snapshot_load;          /* Indicates we've received a snapshot waiting to be loaded */
     bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
-    mstime_t curr_snapshot_start_time;   /* start time of the snapshot operation currently in progress */
     raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
     raft_term_t curr_snapshot_last_term; /* Last included term of the snapshot operation currently in progress */
-    mstime_t last_snapshot_time;         /* Total time (ms) of a last local snapshot operation */
+    uint64_t curr_snapshot_start_time;   /* Start time of the snapshot operation currently in progress */
+    uint64_t last_snapshot_time;         /* Total time (seconds) of a last local snapshot operation */
     int snapshot_child_fd;               /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file; /* Snapshot file memory table to send to followers */
     RaftSnapshotInfo snapshot_info;      /* Current snapshot info */
@@ -865,7 +865,6 @@ void ConfigRedisEventCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
-void initSnapshotTransferData(RedisRaftCtx *ctx);
 void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
@@ -879,6 +878,7 @@ int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 int raftStoreSnapshotChunk(raft_server_t *raft, void *udata, raft_index_t idx, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 void archiveSnapshot(RedisRaftCtx *rr);
+void SnapshotInit(RedisRaftCtx *rr);
 
 /* proxy.c */
 RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, Node *leader);
