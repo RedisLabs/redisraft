@@ -5,14 +5,22 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
-      repository:
-        description: 'Repository, e.g redislabs/redisraft'
+      redisraft_repo:
+        description: 'redisraft repo owner and name'
+        required: false
         default: 'redisLabs/redisraft'
+      redisraft_branch:
+        description: 'redisraft git branch or sha to use'
         required: false
-      version:
-        description: 'Commit hash or branch name for Redisraft repo'
         default: 'master'
+      redis_repo:
+        description: 'redis repo owner and name'
         required: false
+        default: 'redis/redis'
+      redis_branch:
+        description: 'redis git branch or sha to use'
+        required: false
+        default: 'unstable'
       jepsen-repo:
         description: 'Jepsen repository, e.g redislabs/jepsen-redisraft'
         default:  'redislabs/jepsen-redisraft'
@@ -28,13 +36,17 @@ jobs:
     - uses: actions/checkout@v1
     - name: Set repository variables
       env:
-        REDISRAFT_REPO: 'redislabs/redisraft'
-        REDISRAFT_VERSION: ${{ github.sha }}
-        JEPSEN_REPO: 'redislabs/jepsen-redisraft'
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+        DEFAULT_REDISRAFT_BRANCH: master
+        DEFAULT_JEPSEN_REPO: 'redislabs/jepsen-redisraft'
       run: |
-        echo "REDISRAFT_REPO=${{ github.event.inputs.repository || env.REDISRAFT_REPO }}" >> $GITHUB_ENV
-        echo "REDISRAFT_VERSION=${{ github.event.inputs.version || env.REDISRAFT_VERSION }}" >> $GITHUB_ENV
-        echo "JEPSEN_REPO=${{ github.event.inputs.jepsen-repo || env.JEPSEN_REPO }}" >> $GITHUB_ENV
+        echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+        echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
+        echo "JEPSEN_REPO=${{ github.event.inputs.jepsen-repo || env.DEFAULT_JEPSEN_REPO }}" >> $GITHUB_ENV
     - name: Install ripgrep
       run: sudo apt-get install ripgrep
     - name: Configure core_pattern
@@ -53,9 +65,10 @@ jobs:
                   --test-count 20 \
                   --concurrency 4n \
                   --nemesis kill,pause,partition,member \
-                  --redis-version unstable \
+                  --redis-repo https://github.com/${{ env.REDIS_REPO }} \
+                  --redis-version ${{ env.REDIS_BRANCH }} \
                   --raft-repo https://github.com/${{ env.REDISRAFT_REPO }} \
-                  --raft-version ${{ env.REDISRAFT_VERSION }} | rg --passthrough '^0 failures'
+                  --raft-version ${{ env.REDISRAFT_BRANCH }} | rg --passthrough '^0 failures'
     - name: Archive Jepsen results
       uses: actions/upload-artifact@v2
       if: failure() || cancelled()
