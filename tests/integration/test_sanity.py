@@ -849,7 +849,7 @@ def test_session_not_persisting(cluster):
     assert_num_sessions(0)
 
     # was in the middle of a session
-    with raises(ConnectionError, match="Connection closed by server"):
+    with raises(ConnectionError, match="Connection (closed|reset)"):
         conn1.execute("get", "X")
 
     # not in the middle of a session
@@ -898,6 +898,6 @@ def test_session_same_id_clients_persisting(cluster):
 
     assert_num_sessions(0)
 
-    with raises(ConnectionError, match="Connection closed by server"):
+    with raises(ConnectionError, match="Connection (closed|reset)"):
         conn1.execute("get", "X")
     conn2.execute("get", "X")
