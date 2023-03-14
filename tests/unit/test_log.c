@@ -680,7 +680,14 @@ static void test_log_compaction(void **state)
     LogInit(&log);
     LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
 
+    /* If there is no entry, it should fail. */
+    assert_int_equal(LogCompactionBegin(&log), RR_ERROR);
+
     append_entry(&log, ++idx, NULL);
+
+    /* If there is one entry, it should fail. */
+    assert_int_equal(LogCompactionBegin(&log), RR_ERROR);
+
     append_entry(&log, ++idx, NULL);
     append_entry(&log, ++idx, NULL);
 
