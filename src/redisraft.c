@@ -1386,7 +1386,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
         if (argc > 2) {
             if (RedisModule_StringToLongLong(argv[2], &async) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact async value");
                 return REDISMODULE_OK;
             }
         }
