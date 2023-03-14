@@ -845,7 +845,7 @@ int LogCompactionBegin(Log *log)
         return RR_OK;
     }
 
-    if (p0->num_entries == 1) {
+    if (p0->num_entries <= 1) {
         return RR_ERROR;
     }
 
