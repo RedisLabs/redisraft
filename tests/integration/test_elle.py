@@ -7,7 +7,7 @@ or the Server Side Public License v1 (SSPLv1).
 import time
 import pytest as pytest
 
-from .sandbox import ElleWorker, key_hash_slot
+from .sandbox import ElleWorker, key_hash_slot, SlotRangeType
 
 
 @pytest.mark.elle_test()
@@ -42,16 +42,16 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
         cluster1_dbid,
         3, 3,
-        0, slot-1, 1,  0,
-        slot, slot, 3, 0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot, slot, SlotRangeType.MIGRATING, 0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 2, 0,
+        slot, slot, SlotRangeType.IMPORTING, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -63,16 +63,16 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
         cluster1_dbid,
         3, 3,
-        0, slot-1, 1,  0,
-        slot, slot, 3, 0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot, slot, SlotRangeType.MIGRATING, 0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 2, 0,
+        slot, slot, SlotRangeType.IMPORTING, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -101,15 +101,15 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
         cluster1_dbid,
         2, 3,
-        0, slot-1, 1,  0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 1, 0,
+        slot, slot, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -121,15 +121,15 @@ def test_elle_migrating_manual(elle, cluster_factory):
 
         cluster1_dbid,
         2, 3,
-        0, slot-1, 1,  0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 1, 0,
+        slot, slot, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -178,16 +178,16 @@ def test_elle_migrating(cluster_factory):
 
         cluster1_dbid,
         3, 3,
-        0, slot-1, 1,  0,
-        slot, slot, 3, 0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot, slot, SlotRangeType.MIGRATING, 0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 2, 0,
+        slot, slot, SlotRangeType.IMPORTING, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -199,16 +199,16 @@ def test_elle_migrating(cluster_factory):
 
         cluster1_dbid,
         3, 3,
-        0, slot-1, 1,  0,
-        slot, slot, 3, 0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot, slot, SlotRangeType.MIGRATING, 0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 2, 0,
+        slot, slot, SlotRangeType.IMPORTING, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,
@@ -247,8 +247,8 @@ def test_elle_migrating(cluster_factory):
 
         cluster1_dbid,
         2, 3,
-        0, slot-1, 1,  0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
@@ -267,15 +267,15 @@ def test_elle_migrating(cluster_factory):
 
         cluster1_dbid,
         2, 3,
-        0, slot-1, 1,  0,
-        slot+1, 16383, 1, 0,
+        0, slot-1, SlotRangeType.STABLE,  0,
+        slot+1, 16383, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster1_dbid).encode(), cluster1.node(1).address,
         "{}00000002".format(cluster1_dbid).encode(), cluster1.node(2).address,
         "{}00000003".format(cluster1_dbid).encode(), cluster1.node(3).address,
 
         cluster2_dbid,
         1, 3,
-        slot, slot, 1, 0,
+        slot, slot, SlotRangeType.STABLE, 0,
         "{}00000001".format(cluster2_dbid).encode(), cluster2.node(1).address,
         "{}00000002".format(cluster2_dbid).encode(), cluster2.node(2).address,
         "{}00000003".format(cluster2_dbid).encode(), cluster2.node(3).address,

@@ -8,7 +8,7 @@ import time
 
 from redis import ResponseError
 from pytest import raises
-from .sandbox import assert_after, RawConnection
+from .sandbox import assert_after, RawConnection, SlotRangeType
 
 
 def test_invalid_shardgroup_replace(cluster):
@@ -24,7 +24,7 @@ def test_invalid_shardgroup_replace(cluster):
             '1',
             cluster.leader_node().info()['raft_dbid'],
             '1', '1',
-            '0', '16383', '1',
+            '0', '16383', SlotRangeType.STABLE,
             '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         )
 
@@ -38,7 +38,7 @@ def test_invalid_shardgroup_replace(cluster):
             '1234567890123456789012345678901234567890', '2.2.2.2:2222',
             cluster.leader_node().info()['raft_dbid'],
             '1', '1',
-            '0', '16383', '1',
+            '0', '16383', SlotRangeType.STABLE,
             '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         )
 
@@ -55,7 +55,7 @@ def test_cross_slot_violation(cluster):
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
         cluster.leader_node().info()['raft_dbid'],
         '1', '1',
-        '0', '16383', '1', '0',
+        '0', '16383', SlotRangeType.STABLE, '0',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -94,7 +94,7 @@ def test_shard_group_sanity(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1', '16382', '1', '0',
+        '1', '16382', SlotRangeType.STABLE, '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
     with raises(ResponseError, match='MOVED [0-9]+ 1.1.1.1:111'):
         c.set('key', 'value')
@@ -108,7 +108,7 @@ def test_shard_group_sanity(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '16383', '16383', '1', '0',
+            '16383', '16383', SlotRangeType.STABLE, '0',
             '1234567890123456789012345678901234567890', '   1.1.1.1:1111')
 
 
@@ -130,17 +130,17 @@ def test_shard_group_replace(cluster):
         '3',
         '12345678901234567890123456789012',
         '1', '1',
-        '6', '7', '1', '0',
+        '6', '7', SlotRangeType.STABLE, '0',
         '2' * 40, '2.2.2.2:2222',
 
         '12345678901234567890123456789013',
         '1', '1',
-        '8', '16383', '1', '0',
+        '8', '16383', SlotRangeType.STABLE, '0',
         '3' * 40, '3.3.3.3:3333',
 
         cluster_dbid,
         '1', '3',
-        '0', '5', '1', '0',
+        '0', '5', SlotRangeType.STABLE, '0',
         "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
         "{}00000002".format(cluster_dbid).encode(), cluster.node(2).address,
         "{}00000003".format(cluster_dbid).encode(), cluster.node(3).address,
@@ -224,7 +224,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1001', '20000', '1', '0',
+            '1001', '20000', SlotRangeType.STABLE, '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
     # Conflict
@@ -233,7 +233,7 @@ def test_shard_group_validation(cluster):
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
             '1', '1',
-            '1000', '1001', '1', '0',
+            '1000', '1001', SlotRangeType.STABLE, '0',
             '1234567890123456789012345678901234567890', '1.1.1.1:1111')
 
 
@@ -248,7 +248,7 @@ def test_shard_group_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '1' * 32,
         '1', '1',
-        '1001', '16383', '1', '0',
+        '1001', '16383', SlotRangeType.STABLE, '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     cluster.wait_for_unanimity()
@@ -269,7 +269,7 @@ def test_shard_group_snapshot_propagation(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '1', '0',
+        '1001', '16383', SlotRangeType.STABLE, '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     assert c.execute_command('RAFT.DEBUG', 'COMPACT') == b'OK'
@@ -295,7 +295,7 @@ def test_shard_group_persistence(cluster):
         'RAFT.SHARDGROUP', 'ADD',
         '12345678901234567890123456789012',
         '1', '1',
-        '1001', '16383', '1', '0',
+        '1001', '16383', SlotRangeType.STABLE, '0',
         '1234567890123456789012345678901234567890', '1.1.1.1:1111') == b'OK'
 
     # Make sure received cluster slots is sane
@@ -518,12 +518,12 @@ def test_shard_group_reshard_to_migrate(cluster):
 
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '2', '0',
+        '0', '16383', SlotRangeType.IMPORTING, '0',
         '3' * 40, '3.3.3.3:3333',
 
         cluster_dbid,
         '1', '1',
-        '0', '16383', '3', '0',
+        '0', '16383', SlotRangeType.MIGRATING, '0',
         "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
     ) == b'OK'
 
@@ -562,12 +562,12 @@ def test_shard_group_reshard_to_import(cluster):
 
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '3', '456',
+        '0', '16383', SlotRangeType.MIGRATING, '456',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
 
         cluster_dbid,
         '1', '1',
-        '0', '16383', '2', '456',
+        '0', '16383', SlotRangeType.IMPORTING, '456',
         "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
     ) == b'OK'
 
@@ -606,7 +606,7 @@ def test_asking_follower(cluster):
         1,
         cluster.leader_node().info()["raft_dbid"],
         '1', '3',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
         "{}00000002".format(cluster_dbid).encode(), cluster.node(2).address,
         "{}00000003".format(cluster_dbid).encode(), cluster.node(3).address,
@@ -661,17 +661,17 @@ def test_cluster_slots_for_single_slot_sg(cluster):
 
         stable_shardgroup_id,
         '1', '1',
-        '0', '0', '1', '123',
+        '0', '0', SlotRangeType.STABLE, '123',
         '%s00000001' % stable_shardgroup_id, cluster.node(1).address,
 
         importing_shardgroup_id,
         '1', '1',
-        '501', '501', '2', '123',
+        '501', '501', SlotRangeType.IMPORTING, '123',
         '%s00000001' % importing_shardgroup_id, '2.2.2.2:2222',
 
         migrating_shardgroup_id,
         '1', '1',
-        '501', '501', '3', '123',
+        '501', '501', SlotRangeType.MIGRATING, '123',
         '%s00000001' % migrating_shardgroup_id, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -713,17 +713,17 @@ def test_cluster_slots_for_single_slot_range_sg(cluster):
 
         stable_shardgroup_id,
         '1', '1',
-        '0', '500', '1', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
         '%s00000001' % stable_shardgroup_id, cluster.node(1).address,
 
         importing_shardgroup_id,
         '1', '1',
-        '501', '16383', '2', '123',
+        '501', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % importing_shardgroup_id, '2.2.2.2:2222',
 
         migrating_shardgroup_id,
         '1', '1',
-        '501', '16383', '3', '123',
+        '501', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % migrating_shardgroup_id, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -765,21 +765,21 @@ def test_cluster_slots_for_multiple_slots_range_sg(cluster):
 
         shardgroup_id_1,
         '3', '1',
-        '0', '500', '1', '123',
-        '600', '700', '2', '123',
-        '800', '1000', '3', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
+        '600', '700', SlotRangeType.IMPORTING, '123',
+        '800', '1000', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_1, cluster.node(1).address,
 
         shardgroup_id_2,
         '2', '1',
-        '1001', '16383', '2', '123',
-        '600', '700', '3', '123',
+        '1001', '16383', SlotRangeType.IMPORTING, '123',
+        '600', '700', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_2, '2.2.2.2:2222',
 
         shardgroup_id_3,
         '2', '1',
-        '800', '1000', '2', '123',
-        '1001', '16383', '3', '123',
+        '800', '1000', SlotRangeType.IMPORTING, '123',
+        '1001', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_3, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -863,17 +863,17 @@ def test_cluster_nodes_for_single_slot_range_sg(cluster):
 
         stable_shardgroup_id,
         '1', '1',
-        '0', '500', '1', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
         '%s00000001' % stable_shardgroup_id, '1.1.1.1:1111',
 
         importing_shardgroup_id,
         '1', '1',
-        '501', '16383', '2', '123',
+        '501', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % importing_shardgroup_id, '2.2.2.2:2222',
 
         migrating_shardgroup_id,
         '1', '1',
-        '501', '16383', '3', '123',
+        '501', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % migrating_shardgroup_id, cluster.node(1).address,
         ) == b'OK'
 
@@ -926,17 +926,17 @@ def test_cluster_nodes_for_single_slot_sg(cluster):
 
         stable_shardgroup_id,
         '1', '1',
-        '0', '0', '1', '123',
+        '0', '0', SlotRangeType.STABLE, '123',
         '%s00000001' % stable_shardgroup_id, cluster.node(1).address,
 
         importing_shardgroup_id,
         '1', '1',
-        '501', '501', '2', '123',
+        '501', '501', SlotRangeType.IMPORTING, '123',
         '%s00000001' % importing_shardgroup_id, '2.2.2.2:2222',
 
         migrating_shardgroup_id,
         '1', '1',
-        '501', '501', '3', '123',
+        '501', '501', SlotRangeType.MIGRATING, '123',
         '%s00000001' % migrating_shardgroup_id, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -985,21 +985,21 @@ def test_cluster_nodes_for_multiple_slots_range_sg(cluster):
 
         shardgroup_id_1,
         '3', '1',
-        '0', '500', '1', '123',
-        '600', '700', '2', '123',
-        '800', '1000', '3', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
+        '600', '700', SlotRangeType.IMPORTING, '123',
+        '800', '1000', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_1, cluster.node(1).address,
 
         shardgroup_id_2,
         '2', '1',
-        '1001', '16383', '2', '123',
-        '600', '700', '3', '123',
+        '1001', '16383', SlotRangeType.IMPORTING, '123',
+        '600', '700', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_2, '2.2.2.2:2222',
 
         shardgroup_id_3,
         '2', '1',
-        '800', '1000', '2', '123',
-        '1001', '16383', '3', '123',
+        '800', '1000', SlotRangeType.IMPORTING, '123',
+        '1001', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % shardgroup_id_3, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -1109,7 +1109,7 @@ def test_cluster_shards_for_single_slot_range_sg_multiple_nodes(cluster):
 
         cluster_shardgroup_id,
         1, 3,
-        1000, 2000, 1, 123,
+        1000, 2000, SlotRangeType.STABLE, 123,
         node_id_1, '1.1.1.1:1111',
         node_id_2, '2.2.2.2:2222',
         node_id_3, '3.3.3.3:3333'
@@ -1158,17 +1158,17 @@ def test_cluster_shards_for_single_slot_range_sg(cluster, pytestconfig):
 
         stable_shardgroup_id,
         '1', '1',
-        '0', '500', '1', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
         stable_node_id, '1.1.1.1:1111',
 
         importing_shardgroup_id,
         '1', '1',
-        '501', '16383', '2', '123',
+        '501', '16383', SlotRangeType.IMPORTING, '123',
         importing_node_id, '2.2.2.2:2222',
 
         migrating_shardgroup_id,
         '1', '1',
-        '501', '16383', '3', '123',
+        '501', '16383', SlotRangeType.MIGRATING, '123',
         migrating_node_id, '3.3.3.3:3333',
         ) == b'OK'
 
@@ -1236,21 +1236,21 @@ def test_cluster_shards_for_multiple_slots_range_sg(cluster):
 
         shardgroup_id_1,
         '3', '1',
-        '0', '500', '1', '123',
-        '600', '700', '2', '123',
-        '800', '1000', '3', '123',
+        '0', '500', SlotRangeType.STABLE, '123',
+        '600', '700', SlotRangeType.IMPORTING, '123',
+        '800', '1000', SlotRangeType.MIGRATING, '123',
         node_id_1, '1.1.1.1:1111',
 
         shardgroup_id_2,
         '2', '1',
-        '1001', '16383', '2', '123',
-        '600', '700', '3', '123',
+        '1001', '16383', SlotRangeType.IMPORTING, '123',
+        '600', '700', SlotRangeType.MIGRATING, '123',
         node_id_2, '2.2.2.2:2222',
 
         shardgroup_id_3,
         '2', '1',
-        '800', '1000', '2', '123',
-        '1001', '16383', '3', '123',
+        '800', '1000', SlotRangeType.IMPORTING, '123',
+        '1001', '16383', SlotRangeType.MIGRATING, '123',
         node_id_3, '3.3.3.3:3333',
         ) == b'OK'
 

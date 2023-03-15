@@ -9,14 +9,26 @@ on:
         description: 'jobs to skip (delete the ones you want to keep, do not leave empty)'
         required: false
         default: 'address,undefined,macos,tls,elle,alpine'
-      use_repo:
-        description: 'repo owner and name'
+      redisraft_repo:
+        description: 'redisraft repo owner and name'
         required: false
         default: 'redisLabs/redisraft'
-      use_git_ref:
-        description: 'git branch or sha to use'
+      redisraft_branch:
+        description: 'redisraft git branch or sha to use'
         required: false
         default: 'master'
+      redis_repo:
+        description: 'redis repo owner and name'
+        required: false
+        default: 'redis/redis'
+      redis_branch:
+        description: 'redis git branch or sha to use'
+        required: false
+        default: 'unstable'
+      pytest_args:
+        description: 'additional pytest args (e.g. run tests matching a regex n times: -k lua --repeat 3)'
+        required: false
+        default: ''
 
 jobs:
   tests-with-elle:
@@ -26,27 +38,33 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'elle')
     timeout-minutes: 14400
     steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
+    - name: Set variables
+      env:
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+        DEFAULT_REDISRAFT_BRANCH: master
       run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+        echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
+        repository: ${{ env.REDISRAFT_REPO }}
+        ref: ${{ env.REDISRAFT_BRANCH }}
     - name: Install build dependencies
       run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov leiningen default-jdk-headless
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.5-standalone.jar --elle-threads=3 -v"
+        cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --elle-cli=elle-cli/target/elle-cli-0.1.5-standalone.jar --elle-threads=3 -v ${{github.event.inputs.pytest_args}}"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'redis/redis'
-        ref: 'unstable'
+        repository: ${{ env.REDIS_REPO }}
+        ref: ${{ env.REDIS_BRANCH }}
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4
@@ -78,27 +96,33 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'address')
     timeout-minutes: 14400
     steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
+    - name: Set variables
+      env:
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+        DEFAULT_REDISRAFT_BRANCH: master
       run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+        echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+        echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+        echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
     - uses: actions/checkout@v2
       with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
+        repository: ${{ env.REDISRAFT_REPO }}
+        ref: ${{ env.REDISRAFT_BRANCH }}
     - name: Install build dependencies
       run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
     - name: Build
       run: |
         mkdir build && cd build
-        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+        cmake .. -DSANITIZER=address -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
         make
     - name: Checkout Redis
       uses: actions/checkout@v2
       with:
-        repository: 'redis/redis'
-        ref: 'unstable'
+        repository: ${{ env.REDIS_REPO }}
+        ref: ${{ env.REDIS_BRANCH }}
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 SANITIZER=address
@@ -122,27 +146,33 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'undefined')
     timeout-minutes: 14400
     steps:
-      - name: prep
-        if: github.event_name == 'workflow_dispatch'
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
         run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DSANITIZER=undefined -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'redis/redis'
-          ref: 'unstable'
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=undefined
@@ -166,27 +196,33 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'macos')
     timeout-minutes: 14400
     steps:
-      - name: prep
-        if: github.event_name == 'workflow_dispatch'
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
         run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
       - name: Install build dependencies
         run: brew install autoconf automake
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v"
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}"
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'redis/redis'
-          ref: 'unstable'
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 REDIS_LDFLAGS=-rdynamic
@@ -211,27 +247,33 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
-      - name: prep
-        if: github.event_name == 'workflow_dispatch'
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
         run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
       - name: Install build dependencies
         run: brew install autoconf automake
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v ${{github.event.inputs.pytest_args}}" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'redis/redis'
-          ref: 'unstable'
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
@@ -243,27 +285,33 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
-      - name: prep
-        if: github.event_name == 'workflow_dispatch'
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
         run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v" 
+          cmake .. -DSANITIZER=address -DBUILD_TLS=1 -DPYTEST_OPTS="--redis-executable=redis/src/redis-server --tls -v ${{github.event.inputs.pytest_args}}" 
           make
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'redis/redis'
-          ref: 'unstable'
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=address BUILD_TLS=yes
@@ -289,27 +337,33 @@ jobs:
     container: alpine:latest
     timeout-minutes: 14400
     steps:
-      - name: prep
-        if: github.event_name == 'workflow_dispatch'
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
         run: |
-          echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-          echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
         with:
-          repository: ${{ env.GITHUB_REPOSITORY }}
-          ref: ${{ env.GITHUB_HEAD_REF }}
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
       - name: Install build dependencies
         run: apk add build-base cmake python3 py3-pip
       - name: Build
         run: |
           mkdir build && cd build
-          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v" 
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v ${{github.event.inputs.pytest_args}}" 
           make -j 4
       - name: Checkout Redis
         uses: actions/checkout@v2
         with:
-          repository: 'redis/redis'
-          ref: 'unstable'
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4

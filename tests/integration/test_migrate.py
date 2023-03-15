@@ -10,7 +10,7 @@ import redis
 from _pytest.python_api import raises
 from redis import ResponseError
 
-from .sandbox import RawConnection, RedisRaft, RedisRaftTimeout
+from .sandbox import RawConnection, RedisRaft, RedisRaftTimeout, SlotRangeType
 
 
 def migrate_slots(cluster, slots):
@@ -82,13 +82,14 @@ def test_migration_basic(cluster_factory):
         '2',
         cluster1_dbid,
         '2', '3',
-        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
+        '8001', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '2', '123',
+        '8001', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -99,13 +100,14 @@ def test_migration_basic(cluster_factory):
         '2',
         cluster1_dbid,
         '2', '3',
-        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
+        '8001', '16383',  SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '2', '123',
+        '8001', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -119,13 +121,13 @@ def test_migration_basic(cluster_factory):
         '2',
         cluster1_dbid,
         '1', '3',
-        '0', '8000', '1', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '1', '123',
+        '8001', '16383', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -136,13 +138,13 @@ def test_migration_basic(cluster_factory):
         '2',
         cluster1_dbid,
         '1', '3',
-        '0', '8000', '1', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '1', '123',
+        '8001', '16383', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -198,13 +200,14 @@ def test_migration_basic_on_oom(cluster_factory):
         '2',
         cluster1_dbid,
         '2', '3',
-        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
+        '8001', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '2', '123',
+        '8001', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -215,13 +218,14 @@ def test_migration_basic_on_oom(cluster_factory):
         '2',
         cluster1_dbid,
         '2', '3',
-        '0', '8000', '1', '123', '8001', '16383', '3', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
+        '8001', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '2', '123',
+        '8001', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -235,13 +239,13 @@ def test_migration_basic_on_oom(cluster_factory):
         '2',
         cluster1_dbid,
         '1', '3',
-        '0', '8000', '1', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '1', '123',
+        '8001', '16383', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -252,13 +256,13 @@ def test_migration_basic_on_oom(cluster_factory):
         '2',
         cluster1_dbid,
         '1', '3',
-        '0', '8000', '1', '123',
+        '0', '8000', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         '%s00000002' % cluster1_dbid, 'localhost:%s' % cluster1.node(2).port,
         '%s00000003' % cluster1_dbid, 'localhost:%s' % cluster1.node(3).port,
         cluster2_dbid,
         '1', '3',
-        '8001', '16383', '1', '123',
+        '8001', '16383', SlotRangeType.STABLE, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         '%s00000002' % cluster2_dbid, 'localhost:%s' % cluster2.node(2).port,
         '%s00000003' % cluster2_dbid, 'localhost:%s' % cluster2.node(3).port,
@@ -306,12 +310,12 @@ def test_raft_import(cluster):
 
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
 
         cluster.leader_node().info()["raft_dbid"],
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -354,11 +358,11 @@ def test_import_with_snapshot(cluster):
         '2',
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
         cluster.leader_node().info()["raft_dbid"],
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '1234567890123456789012345678901234567890', '2.2.2.2:2222',
     ) == b'OK'
 
@@ -405,11 +409,11 @@ def test_happy_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -418,11 +422,11 @@ def test_happy_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -461,7 +465,7 @@ def test_happy_migrate(cluster_factory):
         '1',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '1', "123",
+        '0', '16383', SlotRangeType.STABLE, "123",
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         ) == b'OK'
 
@@ -493,11 +497,11 @@ def test_sad_path_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -506,11 +510,11 @@ def test_sad_path_migrate(cluster_factory):
         '2',
         cluster2_dbid,
         '1', '1',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
         cluster1_dbid,
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
         ) == b'OK'
 
@@ -526,7 +530,7 @@ def test_sad_path_migrate(cluster_factory):
             cluster2.leader_node().client.get(key_name)
 
         # remove injected error, should pass
-        cluster1.execute("raft.debug", "migration_debug", 'none')
+        cluster1.config_set("raft.migration-debug", "none")
         assert cluster1.execute("migrate", "", "", "", "", "", "keys",
                                 key_name) == b'OK'
 
@@ -540,15 +544,15 @@ def test_sad_path_migrate(cluster_factory):
         assert conn.execute('asking') == b'OK'
         assert conn.execute('get', key_name) == value
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_connect')
+    cluster1.config_set("raft.migration-debug", "fail-connect")
     verify_migration_fails("key1", b'value1', 9189,
                            "failed to connect to import cluster, try again")
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_import')
+    cluster1.config_set("raft.migration-debug", "fail-import")
     verify_migration_fails("key2", b'value2', 4998,
                            "failed to submit RAFT.IMPORT command, try again")
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_unlock')
+    cluster1.config_set("raft.migration-debug", "fail-unlock")
     verify_migration_fails("key3", b'value3', 935,
                            "Unable to unlock/delete migrated keys, try again")
 
@@ -586,11 +590,11 @@ def test_asking_multi(cluster):
         2,
         '12345678901234567890123456789013',
         '1', '1',
-        '0', '16383', '3', '123',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
         '1234567890123456789012345678901334567890', '3.3.3.3:3333',
         cluster.leader_node().info()["raft_dbid"],
         '1', '3',
-        '0', '16383', '2', '123',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
         "{}00000001".format(cluster_dbid).encode(), cluster.node(1).address,
         "{}00000002".format(cluster_dbid).encode(), cluster.node(2).address,
         "{}00000003".format(cluster_dbid).encode(), cluster.node(3).address,
@@ -664,11 +668,11 @@ def test_migrate_fail_if_not_ready(cluster):
             2,
             '12345678901234567890123456789013',
             '1', '1',
-            '0', '16383', '2', '123',
+            '0', '16383', SlotRangeType.IMPORTING, '123',
             '1234567890123456789012345678901334567890', cluster1.address,
             cluster2_dbid.encode(),
             '1', '1',
-            '0', '16383', '3', '123',
+            '0', '16383', SlotRangeType.MIGRATING, '123',
             "{}00000001".format(cluster2_dbid).encode(), cluster2.address,
         ) == b'OK'
 

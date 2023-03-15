@@ -97,7 +97,7 @@ def test_big_snapshot_delivery(cluster):
     Ability to properly deliver and load a big snapshot file (~70 Mb on disk).
     """
 
-    cluster.create(1)
+    cluster.create(1, raft_args={'response-timeout': 5000})
     cluster.execute('set', 'x', '1')
     cluster.execute('set', 'x', '1')
 
@@ -105,8 +105,8 @@ def test_big_snapshot_delivery(cluster):
     n1.raft_debug_exec('debug', 'populate', 2000000, 100000)
     n1.client.execute_command('raft.debug', 'compact')
 
-    cluster.add_node()
-    cluster.add_node()
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
 
     cluster.wait_for_unanimity()
     assert cluster.node(2).info()['raft_snapshots_received'] > 0
@@ -244,8 +244,9 @@ def test_uncommitted_log_rewrite(cluster):
     cluster.node(2).terminate()
     cluster.node(3).terminate()
 
+    cluster.node(1).config_set("raft.snapshot-delay", "3")
     conn = cluster.node(1).client.connection_pool.get_connection('compact')
-    conn.send_command('raft.debug', 'compact', '3')
+    conn.send_command('raft.debug', 'compact')
 
     cluster.node(1).wait_for_info_param('raft_snapshot_in_progress', 'yes')
 
@@ -276,8 +277,9 @@ def test_new_uncommitted_during_rewrite(cluster):
     cluster.node(1).client.set('key', '1')
 
     # Initiate compaction and wait to see it's in progress
+    cluster.node(1).config_set("raft.snapshot-delay", "2")
     conn = cluster.node(1).client.connection_pool.get_connection('COMPACT')
-    conn.send_command('RAFT.DEBUG', 'COMPACT', '2')
+    conn.send_command('RAFT.DEBUG', 'COMPACT')
     cluster.node(1).wait_for_info_param('raft_snapshot_in_progress', 'yes')
     assert cluster.node(1).info()['raft_snapshot_in_progress'] == 'yes'
 
@@ -465,8 +467,11 @@ def test_snapshot_fork_failure(cluster):
 
     assert r1.info()['raft_snapshots_created'] == 0
 
+    r1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT')
+
+    r1.config_set("raft.snapshot-fail", "no")
     assert r1.info()['raft_snapshots_created'] == 0
     r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
 
@@ -482,7 +487,11 @@ def test_snapshot_fork_failure(cluster):
     # Verify that retry was successful
     assert r1.info()['raft_snapshots_created'] == 1
 
-    assert r1.execute('RAFT.DEBUG', 'COMPACT', '0', '0') == b'OK'
+    # Verify in progress stats are cleared
+    assert r1.info()['raft_snapshot_in_progress_last_idx'] == -1
+    assert r1.info()['raft_snapshot_in_progress_last_term'] == -1
+
+    assert r1.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
     assert r1.info()['raft_snapshots_created'] == 2
 
     r1.client.incr('testkey')
@@ -522,6 +531,8 @@ def test_snapshot_state_after_restart(cluster):
     assert info['raft_snapshot_last_term'] == snapshot_term
     assert info['raft_snapshot_size'] == snapshot_size
     assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
 
 
 def test_snapshot_state_after_snapshot_receiving(cluster):
@@ -579,6 +590,8 @@ def test_snapshot_state_on_success(cluster):
     assert info['raft_snapshot_last_term'] == 1
     assert info['raft_snapshot_size'] != 0
     assert info['raft_snapshot_time_secs'] != -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
 
 
 def test_snapshot_state_on_failure(cluster):
@@ -596,10 +609,11 @@ def test_snapshot_state_on_failure(cluster):
     assert r1.info()['raft_snapshots_created'] == 0
 
     # Disable snapshot so, the node will not retry after snapshot failure
-    r1.execute('raft.debug', 'disable_snapshot', '1')
+    r1.config_set('raft.snapshot-disable', 'yes')
 
+    r1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        r1.client.execute_command('RAFT.DEBUG', 'COMPACT', '0', '1')
+        r1.client.execute_command('RAFT.DEBUG', 'COMPACT')
 
     r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
     info = r1.info()
@@ -608,6 +622,39 @@ def test_snapshot_state_on_failure(cluster):
     assert info['raft_snapshot_last_term'] == 0
     assert info['raft_snapshot_size'] == 0
     assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
+
+
+def test_snapshot_in_progress_stats(cluster):
+    """
+    Verify snapshot in progress stats are updated correctly.
+    """
+    r1 = cluster.add_node()
+    r1.client.incr('testkey')
+
+    # Verify initial state stats
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
+
+    r1.config_set('raft.snapshot-delay', 3)
+    r1.execute('RAFT.DEBUG', 'COMPACT', '1')
+
+    # Verify stats while snapshot is in progress
+    r1.wait_for_info_param('raft_snapshot_in_progress', 'yes')
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] == -1
+    assert info['raft_snapshot_in_progress_last_idx'] != -1
+    assert info['raft_snapshot_in_progress_last_term'] != -1
+
+    # Verify stats after snapshot process has been completed
+    r1.wait_for_info_param('raft_snapshot_in_progress', 'no')
+    info = r1.info()
+    assert info['raft_snapshot_time_secs'] != -1
+    assert info['raft_snapshot_in_progress_last_idx'] == -1
+    assert info['raft_snapshot_in_progress_last_term'] == -1
 
 
 def test_snapshot_sessions(cluster):

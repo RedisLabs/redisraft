@@ -25,23 +25,6 @@ int rdbSave(int flags, const char *filename, void *info);
 
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
-void initSnapshotTransferData(RedisRaftCtx *ctx)
-{
-    ctx->outgoing_snapshot_file.mmap = NULL;
-    ctx->outgoing_snapshot_file.len = 0;
-
-    /* Generate temp file name for incoming snapshots */
-    snprintf(ctx->incoming_snapshot_file, sizeof(ctx->incoming_snapshot_file),
-             "%s.tmp.recv", ctx->config.rdb_filename);
-
-    /* Delete if there is a partial incoming snapshot file from previous run */
-    int ret = unlink(ctx->incoming_snapshot_file);
-    if (ret != 0 && errno != ENOENT) {
-        PANIC("Unlink file: %s, error: %s \n", ctx->incoming_snapshot_file,
-              strerror(errno));
-    }
-}
-
 static void releaseSnapshotMmap(RedisRaftCtx *ctx)
 {
     if (ctx->outgoing_snapshot_file.mmap != NULL) {
@@ -241,9 +224,9 @@ static void freeNodeIdEntryList(NodeIdEntry *head)
 static void resetSnapshotState(RedisRaftCtx *rr)
 {
     rr->snapshot_in_progress = false;
-    rr->curr_snapshot_last_term = 0;
-    rr->curr_snapshot_last_idx = 0;
-    rr->curr_snapshot_start_time = -1;
+    rr->curr_snapshot_last_term = -1;
+    rr->curr_snapshot_last_idx = -1;
+    rr->curr_snapshot_start_time = 0;
 }
 
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
@@ -287,8 +270,12 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
     LOG_NOTICE("Snapshot has been completed (snapshot idx=%lu).",
                raft_get_snapshot_last_idx(rr->raft));
 
+    uint64_t took;
+
+    took = RedisModule_MonotonicMicroseconds() - rr->curr_snapshot_start_time;
+    rr->last_snapshot_time = took / 1000 / 1000;
     rr->snapshots_created++;
-    rr->last_snapshot_time = RedisModule_Milliseconds() - rr->curr_snapshot_start_time;
+
     resetSnapshotState(rr);
 
     return RR_OK;
@@ -367,7 +354,7 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
     rr->curr_snapshot_last_idx = rr->snapshot_info.last_applied_idx;
     rr->curr_snapshot_last_term = rr->snapshot_info.last_applied_term;
     rr->snapshot_in_progress = true;
-    rr->curr_snapshot_start_time = RedisModule_Milliseconds();
+    rr->curr_snapshot_start_time = RedisModule_MonotonicMicroseconds();
 
     /* Create a snapshot of the nodes configuration */
     freeSnapshotCfgEntryList(rr->snapshot_info.cfg);
@@ -410,18 +397,14 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
         snprintf(sr.rdb_filename, sizeof(sr.rdb_filename) - 1, "%s.tmp.%d",
                  rr->config.rdb_filename, (int) getpid());
 
-        /* Handle compact delay, used for strictly as a debugging tool for testing */
-        if (rr->debug_req) {
-            int delay = rr->debug_req->r.debug.delay;
-            if (delay) {
-                sleep(delay);
-            }
+        if (rr->config.snapshot_delay) {
+            sleep(rr->config.snapshot_delay);
+        }
 
-            if (rr->debug_req->r.debug.fail) {
-                strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
-                sr.err[sizeof(sr.err) - 1] = '\0';
-                goto exit;
-            }
+        if (rr->config.snapshot_fail) {
+            strncpy(sr.err, "debug rdbSave() failed", sizeof(sr.err));
+            sr.err[sizeof(sr.err) - 1] = '\0';
+            goto exit;
         }
 
         if (rdbSave(0, sr.rdb_filename, NULL) != 0) {
@@ -502,7 +485,7 @@ void loadPendingSnapshot(RedisRaftCtx *rr)
 {
     RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
 
-    if (rr->disable_snapshot_load) {
+    if (rr->config.snapshot_disable_load) {
         return;
     }
 
@@ -921,4 +904,22 @@ void archiveSnapshot(RedisRaftCtx *rr)
     snprintf(bak_rdb_filename, bak_rdb_filename_maxlen - 1,
              "%s.bak.%d", rr->config.rdb_filename, raft_get_nodeid(rr->raft));
     rename(rr->config.rdb_filename, bak_rdb_filename);
+}
+
+void SnapshotInit(RedisRaftCtx *rr)
+{
+    rr->outgoing_snapshot_file = (SnapshotFile){0};
+
+    /* Generate temp file name for incoming snapshots */
+    snprintf(rr->incoming_snapshot_file, sizeof(rr->incoming_snapshot_file),
+             "%s.tmp.recv", rr->config.rdb_filename);
+
+    /* Delete if there is a partial snapshot file from the previous run */
+    int ret = unlink(rr->incoming_snapshot_file);
+    if (ret != 0 && errno != ENOENT) {
+        PANIC("Unlink file: %s, error: %s \n", rr->incoming_snapshot_file,
+              strerror(errno));
+    }
+
+    resetSnapshotState(rr);
 }
