@@ -575,6 +575,8 @@ def test_maxmemory_with_cluster_ops(cluster):
     # Add new nodes. New nodes will receive the snapshot.
     n2 = cluster.add_node(redis_args=["--maxmemory", "1"])
     n3 = cluster.add_node(redis_args=["--maxmemory", "1"])
+
+    n1.wait_for_num_voting_nodes(3)
     cluster.wait_for_unanimity()
     assert n2.info()['raft_snapshots_received'] == 1
     assert n3.info()['raft_snapshots_received'] == 1

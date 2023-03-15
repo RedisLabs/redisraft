@@ -154,6 +154,7 @@ class RedisRaft(object):
                         'log-filename': self._raftlog,
                         'log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel,
+                        'trace': config.raft_trace,
                         'tls-enabled': 'yes' if config.tls else 'no'}
 
         for defkey, defval in default_args.items():
@@ -660,10 +661,13 @@ class Cluster(object):
         except redis.ResponseError as err:
             # If we are removing the leader, leader will shut down before
             # sending the reply. On retry, we should get
-            # "node id does not exist" reply.
-            if str(err).startswith("node id does not exist"):
-                if _id not in self.nodes:
-                    raise err
+            # "node id does not exist" reply. If we get this reply and still
+            # have '_id' in our local list, we know removal was successful.
+            # For other cases, we just propagate the exception.
+            missing_node_id = str(err).startswith("node id does not exist")
+            was_retry = missing_node_id and _id in self.nodes
+            if not was_retry:
+                raise err
 
         self.nodes[_id].destroy()
         del self.nodes[_id]
