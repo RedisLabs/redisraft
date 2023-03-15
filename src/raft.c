@@ -343,7 +343,6 @@ RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedis
     return user;
 }
 
-
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -372,7 +371,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 
     ClientSession *client_session = getClientSession(rr, cmds, reply_ctx != NULL);
-    (void) client_session;  /* unused for now */
+    (void) client_session; /* unused for now */
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
