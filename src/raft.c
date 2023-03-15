@@ -1513,11 +1513,13 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
 
     int eltimeo = rr->config.election_timeout;
     int reqtimeo = rr->config.request_timeout;
+    int log = redisraft_trace & TRACE_RAFTLIB ? 1 : 0;
 
     if (raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, eltimeo) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, reqtimeo) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_AUTO_FLUSH, 0) != 0 ||
-        raft_config(rr->raft, 1, RAFT_CONFIG_NONBLOCKING_APPLY, 1) != 0) {
+        raft_config(rr->raft, 1, RAFT_CONFIG_NONBLOCKING_APPLY, 1) != 0 ||
+        raft_config(rr->raft, 1, RAFT_CONFIG_LOG_ENABLED, log) != 0) {
         PANIC("Failed to configure libraft");
     }
 
