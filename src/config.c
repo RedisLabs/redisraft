@@ -44,6 +44,23 @@ static const int trace_flags[] = {
 
 #define TRACE_FLAG_COUNT (sizeof(trace_flags) / sizeof(int))
 
+/* Migration debug configs */
+static const char *migration_debug_names[] = {
+    "none",
+    "fail-connect",
+    "fail-import",
+    "fail-unlock",
+};
+
+static const int migration_debug_enums[] = {
+    DEBUG_MIGRATION_NONE,
+    DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
+    DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
+    DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
+};
+
+#define MIGRATION_CONF_COUNT (sizeof(migration_debug_enums) / sizeof(int))
+
 static const char *conf_id = "id";
 static const char *conf_addr = "addr";
 static const char *conf_periodic_interval = "periodic-interval";
@@ -75,8 +92,16 @@ static const char *conf_scan_size = "scan-size";
 static const char *conf_tls_enabled = "tls-enabled";
 static const char *conf_cluster_user = "cluster-user";
 static const char *conf_cluster_password = "cluster-password";
+static const char *conf_log_delay_apply = "log-delay-apply";
+static const char *conf_log_disable_apply = "log-disable-apply";
+static const char *conf_snapshot_delay = "snapshot-delay";
+static const char *conf_snapshot_fail = "snapshot-fail";
+static const char *conf_snapshot_disable = "snapshot-disable";
+static const char *conf_snapshot_disable_load = "snapshot-disable-load";
+static const char *conf_migration_debug = "migration-debug";
 
 const char *err_init = "Configuration change is not allowed after init/join for this parameter";
+const char *err_raft = "Failed to configure raft: internal error";
 
 static int setRedisConfig(RedisModuleCtx *ctx,
                           const char *param,
@@ -392,11 +417,14 @@ static int setString(const char *name,
 static int getEnum(const char *name, void *privdata)
 {
     (void) privdata;
+    RedisRaftCtx *rr = &redis_raft;
 
     if (strcasecmp(name, conf_loglevel) == 0) {
         return redisraft_loglevel;
     } else if (strcasecmp(name, conf_trace) == 0) {
         return redisraft_trace;
+    } else if (strcasecmp(name, conf_migration_debug) == 0) {
+        return rr->config.migration_debug;
     }
 
     return REDISMODULE_ERR;
@@ -421,6 +449,8 @@ static int setEnum(const char *name, int val, void *privdata, RedisModuleString 
             int flag = redisraft_trace & TRACE_RAFTLIB ? 1 : 0;
             raft_config(rr->raft, 1, RAFT_CONFIG_LOG_ENABLED, flag);
         }
+    } else if (strcasecmp(name, conf_migration_debug) == 0) {
+        rr->config.migration_debug = val;
     } else {
         return REDISMODULE_ERR;
     }
@@ -444,6 +474,14 @@ static int getBool(const char *name, void *privdata)
         return c->external_sharding;
     } else if (strcasecmp(name, conf_tls_enabled) == 0) {
         return c->tls_enabled;
+    } else if (strcasecmp(name, conf_log_disable_apply) == 0) {
+        return c->log_disable_apply;
+    } else if (strcasecmp(name, conf_snapshot_fail) == 0) {
+        return c->snapshot_fail;
+    } else if (strcasecmp(name, conf_snapshot_disable) == 0) {
+        return c->snapshot_disable;
+    } else if (strcasecmp(name, conf_snapshot_disable_load) == 0) {
+        return c->snapshot_disable_load;
     }
 
     return REDISMODULE_ERR;
@@ -505,6 +543,20 @@ static int setBool(const char *name, int val, void *pr, RedisModuleString **err)
             return REDISMODULE_ERR;
         }
         c->tls_enabled = val;
+    } else if (strcasecmp(name, conf_log_disable_apply) == 0) {
+        if (rr->state == REDIS_RAFT_UP) {
+            if (raft_config(rr->raft, 1, RAFT_CONFIG_DISABLE_APPLY, val) != 0) {
+                *err = RedisModule_CreateString(NULL, err_raft, strlen(err_raft));
+                return REDISMODULE_ERR;
+            }
+        }
+        c->log_disable_apply = val;
+    } else if (strcasecmp(name, conf_snapshot_fail) == 0) {
+        c->snapshot_fail = val;
+    } else if (strcasecmp(name, conf_snapshot_disable) == 0) {
+        c->snapshot_disable = val;
+    } else if (strcasecmp(name, conf_snapshot_disable_load) == 0) {
+        c->snapshot_disable_load = val;
     } else {
         return REDISMODULE_ERR;
     }
@@ -550,6 +602,10 @@ static long long getNumeric(const char *name, void *privdata)
         return c->snapshot_req_max_size;
     } else if (strcasecmp(name, conf_scan_size) == 0) {
         return c->scan_size;
+    } else if (strcasecmp(name, conf_log_delay_apply) == 0) {
+        return c->log_delay_apply;
+    } else if (strcasecmp(name, conf_snapshot_delay) == 0) {
+        return c->snapshot_delay;
     }
 
     return REDISMODULE_ERR;
@@ -579,7 +635,7 @@ static int setNumeric(const char *name, long long val, void *priv,
         if (rr->state == REDIS_RAFT_UP) {
             rc = raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, timeout);
             if (rc != 0) {
-                *err = RedisModule_CreateStringPrintf(NULL, "Failed to configure request timeout: internal error");
+                *err = RedisModule_CreateString(NULL, err_raft, strlen(err_raft));
                 return REDISMODULE_ERR;
             }
         }
@@ -591,7 +647,7 @@ static int setNumeric(const char *name, long long val, void *priv,
         if (rr->state == REDIS_RAFT_UP) {
             rc = raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, timeout);
             if (rc != 0) {
-                *err = RedisModule_CreateStringPrintf(NULL, "Failed to configure election timeout: internal error");
+                *err = RedisModule_CreateString(NULL, err_raft, strlen(err_raft));
                 return REDISMODULE_ERR;
             }
         }
@@ -622,6 +678,10 @@ static int setNumeric(const char *name, long long val, void *priv,
         c->snapshot_req_max_size = val;
     } else if (strcasecmp(name, conf_scan_size) == 0) {
         c->scan_size = val;
+    } else if (strcasecmp(name, conf_log_delay_apply) == 0) {
+        c->log_delay_apply = val;
+    } else if (strcasecmp(name, conf_snapshot_delay) == 0) {
+        c->snapshot_delay = val;
     } else {
         return REDISMODULE_ERR;
     }
@@ -738,6 +798,8 @@ RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c)
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_cache_size,         64000000,         REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_max_file_size,          128000000,        REDISMODULE_CONFIG_MEMORY,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
     ret |= RedisModule_RegisterNumericConfig(ctx, conf_scan_size,                  1000,             REDISMODULE_CONFIG_DEFAULT,   1, LLONG_MAX, getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_log_delay_apply,            0,                REDISMODULE_CONFIG_HIDDEN,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
+    ret |= RedisModule_RegisterNumericConfig(ctx, conf_snapshot_delay,             0,                REDISMODULE_CONFIG_HIDDEN,    0, LLONG_MAX, getNumeric, setNumeric, NULL, c);
 
                                                   /* name */                   /* default-value */   /* flags */
     ret |= RedisModule_RegisterBoolConfig(ctx,    conf_log_fsync,                  true,             REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
@@ -746,6 +808,10 @@ RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c)
     ret |= RedisModule_RegisterBoolConfig(ctx,    conf_sharding,                   false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
     ret |= RedisModule_RegisterBoolConfig(ctx,    conf_external_sharding,          false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
     ret |= RedisModule_RegisterBoolConfig(ctx,    conf_tls_enabled,                false,            REDISMODULE_CONFIG_DEFAULT,                 getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_log_disable_apply,          false,            REDISMODULE_CONFIG_HIDDEN,                  getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_snapshot_fail,              false,            REDISMODULE_CONFIG_HIDDEN,                  getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_snapshot_disable,           false,            REDISMODULE_CONFIG_HIDDEN,                  getBool,    setBool,    NULL, c);
+    ret |= RedisModule_RegisterBoolConfig(ctx,    conf_snapshot_disable_load,      false,            REDISMODULE_CONFIG_HIDDEN,                  getBool,    setBool,    NULL, c);
 
                                                   /* name */                   /* default-value */   /* flags */
     ret |= RedisModule_RegisterStringConfig(ctx,  conf_log_filename,               "redisraft.db",   REDISMODULE_CONFIG_DEFAULT,                 getString,  setString,  NULL, c);
@@ -757,8 +823,9 @@ RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c)
                                                                                                      REDISMODULE_CONFIG_HIDDEN,                  getString,  setString,  NULL, c);
 
                                                    /* name */                  /* default-value */   /* flags */
-    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_loglevel,                   LOG_LEVEL_NOTICE, REDISMODULE_CONFIG_DEFAULT,  redisraft_loglevels, redisraft_loglevel_enums, LOG_LEVEL_COUNT,  getEnum, setEnum, NULL, c);
-    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_trace,                      TRACE_OFF,        REDISMODULE_CONFIG_BITFLAGS, trace_names,         trace_flags,              TRACE_FLAG_COUNT, getEnum, setEnum, NULL, c);
+    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_loglevel,               LOG_LEVEL_NOTICE,     REDISMODULE_CONFIG_DEFAULT,  redisraft_loglevels,   redisraft_loglevel_enums, LOG_LEVEL_COUNT,      getEnum, setEnum, NULL, c);
+    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_trace,                  TRACE_OFF,            REDISMODULE_CONFIG_BITFLAGS, trace_names,           trace_flags,              TRACE_FLAG_COUNT,     getEnum, setEnum, NULL, c);
+    ret |= RedisModule_RegisterEnumConfig(ctx,    conf_migration_debug,        DEBUG_MIGRATION_NONE, REDISMODULE_CONFIG_HIDDEN,   migration_debug_names, migration_debug_enums,    MIGRATION_CONF_COUNT, getEnum, setEnum, NULL, c);
     /* clang-format on */
 
     ret |= RedisModule_LoadConfigs(ctx);

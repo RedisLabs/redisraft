@@ -1140,7 +1140,6 @@ static void clusterInit(const char *cluster_id)
     }
 
     RaftLibraryInit(rr, true);
-    initSnapshotTransferData(rr);
     AddBasicLocalShardGroup(rr);
 
     LOG_NOTICE("Raft Cluster initialized, node id: %d, dbid: %s",
@@ -1167,7 +1166,6 @@ static void clusterJoinCompleted(RaftReq *req)
 
     AddBasicLocalShardGroup(rr);
     RaftLibraryInit(rr, false);
-    initSnapshotTransferData(rr);
 
     RedisModule_ReplyWithSimpleString(req->ctx, "OK");
     RaftReqFree(req);
@@ -1342,14 +1340,10 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
 }
 
-/* RAFT.DEBUG COMPACT [delay] [fail] [async]
+/* RAFT.DEBUG COMPACT [async]
  *     Initiate the snapshot.
- *     If [delay] is specified, introduce an artificial delay of [delay] seconds
- *        in the background child process.
- *     If [fail] is non-zero, snapshot will fail.
  *     If [async] is non-zero, snapshot will be triggered and client will get
- *        the reply without waiting the snapshot result. [delay] ahd [fail]
- *        parameters will be ignored.
+ *        the reply without waiting the snapshot result.
  * Reply:
  *   +OK
  *
@@ -1367,24 +1361,6 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *     Execute Redis commands locally (commands do not go through Raft interception)
  * Reply:
  *     Any standard Redis reply, depending on the commands.
- *
- * RAFT.DEBUG DISABLE_SNAPSHOT <disable_snapshot> <disable_snapshot_load>
- *     Set/unset disable_snapshot and disable_snapshot_load flags.
- *     If disable_snapshot is set, node will not create a snapshot.
- *     If disable_snapshot_load is set, node will not load the received snapshot.
- * Reply:
- *   +OK
- *
- * RAFT.DEBUG DISABLE_APPLY <val>
- *     Set/unset disable_apply raft configuration flag
- *
- * RAFT.DEBUG DELAY_APPLY <val>
- *     Sleep <val> microseconds before executing a command
- *
- * RAFT.DEBUG MIGRATION_DEBUG [fail_connect|fail_import|fail_unlock|none]
- *     Inject errors at specific places in migration flow to test consistency
- * Reply:
- *     +OK
  *
  * RAFT.DEBUG COMMANDSPEC <command>
  *     Returns the flags associated with this command in the commandspec dict
@@ -1406,27 +1382,11 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cmd[cmdlen] = '\0';
 
     if (!strncasecmp(cmd, "compact", cmdlen)) {
-        long long fail = 0;
-        long long delay = 0;
         long long async = 0;
 
-        if (argc == 3) {
-            if (RedisModule_StringToLongLong(argv[2], &delay) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR invalid compact delay value");
-                return REDISMODULE_OK;
-            }
-        }
-
-        if (argc == 4) {
-            if (RedisModule_StringToLongLong(argv[3], &fail) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
-                return REDISMODULE_OK;
-            }
-        }
-
-        if (argc == 5) {
-            if (RedisModule_StringToLongLong(argv[4], &async) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR invalid compact fail value");
+        if (argc > 2) {
+            if (RedisModule_StringToLongLong(argv[2], &async) != REDISMODULE_OK) {
+                RedisModule_ReplyWithError(ctx, "ERR invalid compact async value");
                 return REDISMODULE_OK;
             }
         }
@@ -1445,11 +1405,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        RaftReq *req = RaftReqInit(ctx, RR_DEBUG);
-        req->r.debug.delay = (int) delay;
-        req->r.debug.fail = (int) fail;
-
-        rr->debug_req = req;
+        rr->debug_req = RaftReqInit(ctx, RR_DEBUG);
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
@@ -1527,75 +1483,6 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
         }
-    } else if (!strncasecmp(cmd, "disable_snapshot", cmdlen) && argc >= 3) {
-        long long val;
-
-        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid value");
-            return REDISMODULE_OK;
-        }
-
-        if (argc == 4) {
-            long long load;
-
-            if (RedisModule_StringToLongLong(argv[3], &load) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "ERR invalid value");
-                return REDISMODULE_OK;
-            }
-            rr->disable_snapshot_load = load;
-        }
-
-        rr->disable_snapshot = val;
-
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else if (!strncasecmp(cmd, "disable_apply", cmdlen) && argc == 3) {
-        long long val;
-        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid disable apply value");
-            return REDISMODULE_OK;
-        }
-
-        if (checkRaftState(rr, ctx) != RR_OK) {
-            return REDISMODULE_OK;
-        }
-
-        if (raft_config(rr->raft, 1, RAFT_CONFIG_DISABLE_APPLY, val) != 0) {
-            RedisModule_ReplyWithError(ctx, "ERR failed to configure libraft");
-            return REDISMODULE_OK;
-        }
-
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else if (!strncasecmp(cmd, "delay_apply", cmdlen) && argc == 3) {
-        long long val;
-        if (RedisModule_StringToLongLong(argv[2], &val) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR invalid delay apply value");
-            return REDISMODULE_OK;
-        }
-
-        rr->debug_delay_apply = val;
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-    } else if (!strncasecmp(cmd, "migration_debug", cmdlen) && argc == 3) {
-        MigrationDebug val;
-
-        size_t len;
-        const char *str = RedisModule_StringPtrLen(argv[2], &len);
-        if (!strncasecmp(str, "fail_connect", len)) {
-            val = DEBUG_MIGRATION_EMULATE_CONNECT_FAILED;
-        } else if (!strncasecmp(str, "fail_import", len)) {
-            val = DEBUG_MIGRATION_EMULATE_IMPORT_FAILED;
-        } else if (!strncasecmp(str, "fail_unlock", len)) {
-            val = DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED;
-        } else if (!strncasecmp(str, "none", len)) {
-            val = DEBUG_MIGRATION_NONE;
-        } else {
-            RedisModule_ReplyWithError(ctx, "ERR invalid migration debug value");
-            return REDISMODULE_OK;
-        }
-
-        rr->migration_debug = val;
-
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
-        return REDISMODULE_OK;
     } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
         const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, argv[2]);
         if (cs == NULL) {
@@ -1908,14 +1795,18 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_idx", rr->raft ? raft_get_snapshot_last_idx(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_term", rr->raft ? raft_get_snapshot_last_term(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_size", rr->outgoing_snapshot_file.len);
-    long long int snapshot_time = -1;
-    if (rr->last_snapshot_time != -1) {
-        snapshot_time = rr->last_snapshot_time / 1000;
+
+    long long snapshot_time = -1;
+    if (rr->snapshots_created != 0) {
+        snapshot_time = (long long) rr->last_snapshot_time;
     }
     RedisModule_InfoAddFieldLongLong(ctx, "snapshot_time_secs", snapshot_time);
+
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshots_received", rr->snapshots_received);
     RedisModule_InfoAddFieldCString(ctx, "snapshot_in_progress", rr->snapshot_in_progress ? "yes" : "no");
+    RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_idx", rr->curr_snapshot_last_idx);
+    RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_term", rr->curr_snapshot_last_term);
 
     RedisModule_InfoAddSection(ctx, "clients");
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_reqs", rr->proxy_reqs);
@@ -2068,8 +1959,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     ShardingInfoInit(rr->ctx, &rr->sharding_info);
 
     /* Snapshot state initialization */
-    rr->curr_snapshot_start_time = -1;
-    rr->last_snapshot_time = -1;
+    SnapshotInit(rr);
 
     /* Raft log exists -> go into RAFT_LOADING state:
      *
