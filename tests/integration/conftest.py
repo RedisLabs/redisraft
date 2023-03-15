@@ -22,6 +22,9 @@ def pytest_addoption(parser):
         '--raft-loglevel', default='debug',
         help='RedisRaft Module log level.')
     parser.addoption(
+        '--raft-trace', default='off',
+        help='RedisRaft Module trace log levels.')
+    parser.addoption(
         '--raft-module', default='redisraft.so',
         help='RedisRaft Module filename.')
     parser.addoption(
@@ -89,6 +92,7 @@ def create_config(pytest_config):
     config.raftmodule = pytest_config.getoption('--raft-module')
     config.up_timeout = pytest_config.getoption('--redis-up-timeout')
     config.raft_loglevel = pytest_config.getoption('--raft-loglevel')
+    config.raft_trace = pytest_config.getoption('--raft-trace')
     config.workdir = pytest_config.getoption('--work-dir')
     config.keepfiles = pytest_config.getoption('--keep-files')
     config.fsync = pytest_config.getoption('--fsync')

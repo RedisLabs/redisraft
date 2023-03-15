@@ -154,6 +154,7 @@ class RedisRaft(object):
                         'log-filename': self._raftlog,
                         'log-fsync': 'yes' if config.fsync else 'no',
                         'loglevel': config.raft_loglevel,
+                        'trace': config.raft_trace,
                         'tls-enabled': 'yes' if config.tls else 'no'}
 
         for defkey, defval in default_args.items():
