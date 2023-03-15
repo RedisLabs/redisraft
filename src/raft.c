@@ -729,7 +729,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         LOG_WARNING("executeLogEntry: entry at idx %lu is blocking", entry_idx);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {
-            ; /* nothing to do right now */
+            entryDetachRaftReq(rr, entry);
         } else {
             RaftRedisCommandArrayFree(cmds);
         }
