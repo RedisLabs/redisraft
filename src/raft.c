@@ -297,7 +297,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
 /* returns the client session object for this CommandArray if applicable
  * starts/creates it if necessary
  */
-static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, bool local)
 {
     unsigned long long id = cmds->client_id;
     int nokey;
@@ -312,12 +312,35 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
         if (cmd_len == 5 && strncasecmp("watch", cmd, cmd_len) == 0) {
             client_session = RedisModule_Alloc(sizeof(ClientSession));
             client_session->client_id = id;
-            client_session->local = false;
+            client_session->local = local;
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
 
     return client_session;
+}
+
+RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
+{
+    int nokey;
+    RedisModuleUser *user = RedisModule_DictGet(rr->acl_dict, cmds->acl, &nokey);
+    if (nokey) {
+        char user_name[64];
+        /* Note: This assumes we don't delete "acl users" */
+        uint64_t count = RedisModule_DictSize(rr->acl_dict);
+        count++;
+        snprintf(user_name, 64, "redis_raft%lu", (unsigned long) count);
+        user = RedisModule_CreateModuleUser(user_name);
+        RedisModule_Assert(user != NULL);
+
+        const char *acl_str = RedisModule_StringPtrLen(cmds->acl, NULL);
+        int ret = RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL);
+        RedisModule_Assert(ret == REDISMODULE_OK);
+
+        RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
+    }
+
+    return user;
 }
 
 /* Execute all commands in a specified RaftRedisCommandArray.
@@ -334,22 +357,7 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
     RedisModuleUser *user = NULL;
 
     if (cmds->acl) {
-        int nokey;
-        user = RedisModule_DictGet(rr->acl_dict, cmds->acl, &nokey);
-        if (nokey) {
-            char user_name[64];
-            uint64_t count = RedisModule_DictSize(rr->acl_dict);
-            count++;
-            snprintf(user_name, 64, "redis_raft%lu", (unsigned long) count);
-            user = RedisModule_CreateModuleUser(user_name);
-            RedisModule_Assert(user != NULL);
-
-            const char *acl_str = RedisModule_StringPtrLen(cmds->acl, NULL);
-            int ret = RedisModule_SetModuleUserACLString(ctx, user, acl_str, NULL);
-            RedisModule_Assert(ret == REDISMODULE_OK);
-
-            RedisModule_DictSet(rr->acl_dict, cmds->acl, user);
-        }
+        user = RaftGetACLUser(ctx, rr, cmds);
     }
 
     if (rr->config.log_delay_apply) {
@@ -362,11 +370,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         return;
     }
 
-    ClientSession *client_session = getClientSession(rr, cmds);
-    if (client_session && reply_ctx) {
-        client_session->local = true;
-    }
-    (void) client_session;
+    ClientSession *client_session = getClientSession(rr, cmds, reply_ctx != NULL);
+    (void) client_session; /* unused for now */
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
