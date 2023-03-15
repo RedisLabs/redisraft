@@ -1808,7 +1808,7 @@ void ShardGroupLink(RedisRaftCtx *rr,
     st->type = "link";
     st->connect_callback = linkSendRequest;
     st->start = time(NULL);
-    st->req = RaftReqInit(ctx, RR_SHARDGROUP_LINK);
+    st->req = RaftReqInit(ctx, RR_SHARDGROUP_LINK, 0);
     st->conn = ConnCreate(rr, st, joinLinkIdleCallback, joinLinkFreeCallback,
                           rr->config.cluster_user, rr->config.cluster_password);
 }
@@ -1887,7 +1887,7 @@ void ShardGroupAdd(RedisRaftCtx *rr,
         goto out;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUP_ADD);
+    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUP_ADD, 0);
 
     ret = ShardGroupAppendLogEntry(rr, sg, RAFT_LOGTYPE_ADD_SHARDGROUP, req);
     if (ret != RR_OK) {
@@ -1912,7 +1912,7 @@ void ShardGroupReplace(RedisRaftCtx *rr,
         return;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUPS_REPLACE);
+    RaftReq *req = RaftReqInit(ctx, RR_SHARDGROUPS_REPLACE, 0);
 
     ret = ShardGroupsAppendLogEntry(rr, num_elems, sg,
                                     RAFT_LOGTYPE_REPLACE_SHARDGROUPS, req);

@@ -164,7 +164,7 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_IMPORT_KEYS);
+    RaftReq *req = RaftReqInit(ctx, RR_IMPORT_KEYS, 0);
     req->r.import_keys.term = (raft_term_t) term;
     req->r.import_keys.migration_session_key = migration_session_key;
 

@@ -18,7 +18,7 @@ jobs:
       uses: actions/checkout@v2
       with:
         repository: 'redis/redis'
-        ref: '930f5a173ef281e0175e7b8968b049e34cdc8f0b'
+        ref: 'fe20cdd0191232d60d77f1e1341e94e03dce8ef9'
         path: 'redis'
     - name: Build Redis
       run: cd redis && make -j 4 gcov
@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: 'redis/redis'
-          ref: '930f5a173ef281e0175e7b8968b049e34cdc8f0b'
+          ref: 'fe20cdd0191232d60d77f1e1341e94e03dce8ef9'
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4 SANITIZER=address

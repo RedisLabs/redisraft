@@ -81,7 +81,7 @@ RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
         return RR_ERROR;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_GENERIC);
+    RaftReq *req = RaftReqInit(ctx, RR_GENERIC, 0);
     req->r.redis.proxy_node = leader;
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(cmds);

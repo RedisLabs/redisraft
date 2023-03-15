@@ -114,7 +114,9 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t sz = calcIntSerializedLen(source->asking) + calcIntSerializedLen(source->len);
+    size_t sz = calcIntSerializedLen(source->asking) +
+            calcIntSerializedLen(source->cmd_flags) +
+            calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
@@ -131,6 +133,12 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode Asking */
     n = encodeInteger('*', p, sz, source->asking);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    /* Encode cmd_flags */
+    n = encodeInteger('*', p, sz, source->cmd_flags);
     RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
@@ -231,6 +239,15 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     p += n;
     buf_size -= n;
     target->asking = asking;
+
+    /* Read cmd_flags */
+    size_t cmd_flags;
+    if ((n = decodeInteger(p, buf_size, '*', &cmd_flags)) < 0) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    target->cmd_flags = cmd_flags;
 
     /* Read ACL */
     RedisModuleString *acl;

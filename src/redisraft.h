@@ -431,6 +431,7 @@ typedef struct RedisRaftCtx {
     RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
     RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
 
+    /* we use a dict and an intrusive list to reproduce java's LinkedHashMap, fast lookup with order maintenance */
     struct sc_list blocked_command_list;   /* list of blocked commands in order of them blocking */
     RedisModuleDict *blocked_command_dict; /* raft entry id -> blocked command mapping, for fast lookup */
 } RedisRaftCtx;
@@ -522,7 +523,7 @@ typedef struct {
     bool asking;                  /* if this command array is in an asking mode */
     int size;                     /* Size of allocated array */
     int len;                      /* Number of elements in array */
-    bool blocking;                /* this is a converted blocking command */
+    size_t cmd_flags;             /* the calculated cmd_flags for all commands in this array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
     bool timed_out;
@@ -836,10 +837,9 @@ void RedisRaftCtxClear(RedisRaftCtx *rr);
 
 /* raft.c */
 void RaftReqFree(RaftReq *req);
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
-RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, size_t timeout);
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, size_t timeout);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
-RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftReq *req, RaftRedisCommandArray *array);
+RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
@@ -879,9 +879,8 @@ int fsyncFile(int fd);
 int fsyncFileAt(const char *path);
 void fsyncDir(const char *path);
 int syncRename(const char *oldname, const char *newname);
-RaftRedisCommandArray *RaftRedisBlockToNonBlockCmds(RaftRedisCommandArray *cmds);
-RedisModuleString **RaftRedisExtractBlockedKeys(RaftRedisCommandArray *cmds, size_t *count);
 int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *timeout);
+int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);
@@ -992,7 +991,8 @@ void MultiStateReset(MultiState *multi_state);
 /* blocked.c */
 BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
 void freeBlockedCommand(BlockedCommand *bc);
-BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx);
+void deleteBlockedCommandFromLinkMap(raft_index_t idx);
+BlockedCommand *getBlockedCommand(raft_index_t idx);
 void blockedCommandsSave(RedisModuleIO *rdb);
 void blockedCommandsLoad(RedisModuleIO *rdb);
 void clearAllBlockCommands();

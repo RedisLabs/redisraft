@@ -521,7 +521,24 @@ int syncRename(const char *oldname, const char *newname)
     return RR_OK;
 }
 
-static RedisModuleString *zero = NULL;
+int findTimeoutIndex(RaftRedisCommand *cmd) {
+    size_t cmd_len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
+
+    if (strncasecmp(cmd_str, "brpop", 5) == 0 ||
+        strncasecmp(cmd_str, "blpop", 5) == 0 ||
+        strncasecmp(cmd_str, "bzpopmin", 5) == 0 ||
+        strncasecmp(cmd_str, "bzpopmax", 5) == 0 ||
+        strncasecmp(cmd_str, "blmove", 6) == 0 ||
+        strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
+        return cmd->argc - 1;
+    } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
+        strncasecmp(cmd_str, "bzmpop", 6) == 0) {
+        return 1;
+    } else {
+        return -1;
+    }
+}
 
 int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *timeout)
 {
@@ -532,40 +549,47 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
         return REDISMODULE_ERR;
     }
 
+    int index = findTimeoutIndex(cmd);
+    if (index == -1) {
+        return REDISMODULE_ERR;
+    }
+
+    long double tmp;
+    if (RedisModule_StringToLongDouble(cmd->argv[index], &tmp) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_StringToLongLong(cmd->argv[index], timeout) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    *timeout = (long long) (tmp*1000);
+
+    return REDISMODULE_OK;
+}
+
+static RedisModuleString *zero = NULL;
+
+int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
+{
+    RedisModule_Assert(cmds->len == 1);
+
+    RaftRedisCommand *cmd = cmds->commands[0];
+    if (cmd->argc < 2) {
+        return REDISMODULE_ERR;
+    }
+
+    int index = findTimeoutIndex(cmd);
+    if (index == -1) {
+        return REDISMODULE_ERR;
+    }
+
     if (zero == NULL) {
         zero = RedisModule_CreateString(NULL, "0", 1);
     }
 
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-    if (strncasecmp(cmd_str, "brpop", 5) == 0 ||
-        strncasecmp(cmd_str, "blpop", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmin", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmax", 5) == 0 ||
-        strncasecmp(cmd_str, "blmove", 6) == 0 ||
-        strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
+    RedisModule_FreeString(NULL, cmd->argv[index]);
+    cmd->argv[index] = RedisModule_HoldString(NULL, zero);
 
-        if (RedisModule_StringToLongLong(cmd->argv[cmd->argc - 1], timeout) == REDISMODULE_ERR) {
-            return REDISMODULE_ERR;
-        }
-
-        RedisModule_FreeString(NULL, cmd->argv[cmd->argc - 1]);
-        cmd->argv[cmd->argc - 1] = RedisModule_HoldString(NULL, zero);
-
-        return REDISMODULE_OK;
-    } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
-               strncasecmp(cmd_str, "bzmpop", 6) == 0) {
-
-        if (RedisModule_StringToLongLong(cmd->argv[1], timeout) == REDISMODULE_ERR) {
-            return REDISMODULE_ERR;
-        }
-
-        RedisModule_FreeString(NULL, cmd->argv[1]);
-        cmd->argv[1] = RedisModule_HoldString(NULL, zero);
-
-        return REDISMODULE_OK;
-    }
-
-    /* unsupported command */
-    return REDISMODULE_ERR;
+    return REDISMODULE_OK;
 }

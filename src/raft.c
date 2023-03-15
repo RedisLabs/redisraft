@@ -347,7 +347,11 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
 {
     UNUSED(ctx);
     BlockedCommand *bc = (BlockedCommand *) private_data;
-    bc = getAndDeleteBlockedCommand(bc->idx); /* duplicative, but easiest way to manage the list */
+    /*
+     * the below lookup is duplicative, could have allocated memory just for idx, but that's a waste,
+     * so just use existing allocated object
+     */
+    bc = getBlockedCommand(bc->idx);
 
     if (bc->req) {
         RedisModule_ReplyWithCallReply(bc->req->ctx, reply);
@@ -355,6 +359,7 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
     }
 
     RedisModule_FreeCallReply(reply);
+    deleteBlockedCommandFromLinkMap(bc->idx);
     freeBlockedCommand(bc);
 }
 
@@ -369,15 +374,15 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
  * return the promise to the caller, otherwise we return NULL.
  */
 RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
-                                              RedisModuleCtx *ctx,
                                               RaftReq *req,
                                               RaftRedisCommandArray *cmds)
 {
     RedisModuleCallReply *reply = NULL;
     RedisModuleUser *user = NULL;
+    RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
 
     if (cmds->acl) {
-        user = RaftGetACLUser(ctx, rr, cmds);
+        user = RaftGetACLUser(rr->ctx, rr, cmds);
     }
 
     if (rr->config.log_delay_apply) {
@@ -392,6 +397,17 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
 
     ClientSession *client_session = getClientSession(rr, cmds, req != NULL);
     (void) client_session; /* unused for now */
+
+    if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
+        // LOG_WARNING("replacing timeout with zero at apply time");
+        if (RaftRedisReplaceBlockingTimeout(cmds) != REDISMODULE_OK) {
+            // LOG_WARNING("failed to replace timeout with zero at apply time");
+            if (req) {
+                RedisModule_ReplyWithError(req->ctx, "Failed to replace blocking command timeout with zero at apply time");
+                return NULL;
+            }
+        }
+    }
 
     for (int i = 0; i < cmds->len; i++) {
         RaftRedisCommand *c = cmds->commands[i];
@@ -433,12 +449,13 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
             /* don't block inside a MULTI */
             resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
         } else {
-            resp_call_fmt = cmds->acl ? "NKCE0v" : "NKE0v";
+            resp_call_fmt = cmds->acl ? "KCE0v" : "KE0v";
         }
 
         enterRedisModuleCall();
         RedisModule_SetContextUser(ctx, user);
         reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
+        RedisModule_SetContextUser(ctx, NULL);
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 
@@ -642,12 +659,30 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Assert(entry->data_len == sizeof(raft_index_t));
     raft_index_t idx;
     memcpy(&idx, entry->data, sizeof(idx));
-    LOG_WARNING("timeoutBlockedCommand: timeout of idx %lu would be applied here", idx);
+
+    BlockedCommand *bc = getBlockedCommand(idx);
+    if (!bc) {
+        /* unblock handler called before timeout was applied */
+        return;
+    }
+
+    if (RedisModule_CallReplyPromiseAbort(bc->reply, NULL) != REDISMODULE_OK) {
+        /* shouldn't happen with normal redis commands */
+        LOG_WARNING("timeoutBlockedCommand: failed to abort %lu", idx);
+        return;
+    }
+
+    if (bc->req) {
+        RedisModule_ReplyWithNull(bc->req->ctx);
+        RaftReqFree(bc->req);
+    }
+
+    deleteBlockedCommandFromLinkMap(bc->idx);
+    freeBlockedCommand(bc);
 }
 
 static void clearBlockedCommands(RedisRaftCtx *rr, raft_index_t entry_idx)
 {
-    LOG_WARNING("clearBlockedCommand: timeout of all pending blocked commands as new leade at idx %lu", entry_idx);
     clearAllBlockCommands();
 }
 
@@ -679,7 +714,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         cmds = &tmp;
     }
 
-    RedisModuleCallReply *reply = RaftExecuteCommandArray(rr, rr->ctx, req, cmds);
+    RedisModuleCallReply *reply = RaftExecuteCommandArray(rr, req, cmds);
 
     if (reply == NULL) {
         /* setup for req/non req nodes needs to mirror teardown below */
@@ -1746,7 +1781,7 @@ static void blockedTimedOut(RedisModuleCtx *ctx, void *data)
     raft_entry_release(entry);
 }
 
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, size_t timeout)
 {
     RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
     if (ctx != NULL) {
@@ -1759,22 +1794,11 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
         redis_raft.migrate_req = req;
     }
 
-    TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
-          req, RaftReqTypeStr[req->type], req->client, req->ctx);
-
-    return req;
-}
-
-RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, size_t timeout)
-{
-    RedisModule_Assert(ctx != NULL);
-
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
     if (timeout != 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
     }
 
-    TRACE("RaftReqInitBlocking: req=%p, type=%s, client=%p, ctx=%p",
+    TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
 
     return req;

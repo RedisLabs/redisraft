@@ -22,25 +22,27 @@ BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, 
     memcpy(bc->data, data, data_len);
     bc->data_len = data_len;
     bc->req = req;
+    bc->reply = reply;
 
     RedisModule_DictSetC(redis_raft.blocked_command_dict, &bc->idx, sizeof(bc->idx), bc);
 
     return bc;
 }
 
-BlockedCommand *getAndDeleteBlockedCommand(raft_index_t idx)
+void deleteBlockedCommandFromLinkMap(raft_index_t idx)
 {
     BlockedCommand *blocked = NULL;
     RedisModule_DictDelC(redis_raft.blocked_command_dict, &idx, sizeof(idx), &blocked);
     if (blocked == NULL) {
-        return NULL;
+        return;
     }
 
     sc_list_del(&redis_raft.blocked_command_list, &blocked->blocked_list);
-
-    return blocked;
 }
 
+BlockedCommand *getBlockedCommand(raft_index_t idx) {
+    return RedisModule_DictGetC(redis_raft.blocked_command_dict, &idx, sizeof(idx), NULL);
+}
 
 void freeBlockedCommand(BlockedCommand *bc)
 {
@@ -48,28 +50,23 @@ void freeBlockedCommand(BlockedCommand *bc)
         RedisModule_Free(bc->data);
         bc->data = NULL;
     }
-    RedisModule_Free(bc);
-}
-
-int timeoutBlockedCommand(raft_index_t idx)
-{
-    BlockedCommand *bc = getAndDeleteBlockedCommand(idx);
-    if (bc == NULL) {
-        return 0;
+    if (bc->reply) {
+        RedisModule_FreeCallReply(bc->reply);
+        bc->reply = NULL;
     }
-    /* TODO: abort bc->reply */
-    freeBlockedCommand(bc);
-    return 0;
+    RedisModule_Free(bc);
 }
 
 void clearAllBlockCommands()
 {
-    return; /* don't execute the rest for now */
-
     struct sc_list *elem;
     while ((elem = sc_list_pop_head(&redis_raft.blocked_command_list)) != NULL) {
         BlockedCommand *bc = sc_list_entry(elem, BlockedCommand, blocked_list);
-        // How we will 'timeout'/'abort' the blocked command will go here'
+        if (RedisModule_CallReplyPromiseAbort(bc->reply, NULL) != REDISMODULE_OK) {
+            /* shouldn't happen with normal redis commands */
+            LOG_WARNING("timeoutBlockedCommand: failed to abort %lu", bc->idx);
+            return;
+        }
         freeBlockedCommand(bc);
     }
     if (redis_raft.blocked_command_dict != NULL) {
@@ -141,7 +138,7 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
             PANIC("Invalid Raft entry");
         }
         tmp.client_id = bc->session;
-        bc->reply = RaftExecuteCommandArray(rr, rr->ctx, NULL, &tmp);
+        bc->reply = RaftExecuteCommandArray(rr, NULL, &tmp);
         RedisModule_Assert(bc->reply != NULL);
         RedisModule_CallReplyPromiseSetUnblockHandler(bc->reply, handleUnblock, bc);
         RaftRedisCommandArrayFree(&tmp);
