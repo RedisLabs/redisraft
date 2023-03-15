@@ -530,7 +530,7 @@ def test_sad_path_migrate(cluster_factory):
             cluster2.leader_node().client.get(key_name)
 
         # remove injected error, should pass
-        cluster1.execute("raft.debug", "migration_debug", 'none')
+        cluster1.config_set("raft.migration-debug", "none")
         assert cluster1.execute("migrate", "", "", "", "", "", "keys",
                                 key_name) == b'OK'
 
@@ -544,15 +544,15 @@ def test_sad_path_migrate(cluster_factory):
         assert conn.execute('asking') == b'OK'
         assert conn.execute('get', key_name) == value
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_connect')
+    cluster1.config_set("raft.migration-debug", "fail-connect")
     verify_migration_fails("key1", b'value1', 9189,
                            "failed to connect to import cluster, try again")
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_import')
+    cluster1.config_set("raft.migration-debug", "fail-import")
     verify_migration_fails("key2", b'value2', 4998,
                            "failed to submit RAFT.IMPORT command, try again")
 
-    cluster1.execute("raft.debug", "migration_debug", 'fail_unlock')
+    cluster1.config_set("raft.migration-debug", "fail-unlock")
     verify_migration_fails("key3", b'value3', 935,
                            "Unable to unlock/delete migrated keys, try again")
 

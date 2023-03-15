@@ -7,7 +7,6 @@ or the Server Side Public License v1 (SSPLv1).
 import pytest
 from redis import ResponseError
 from pytest import raises
-import os
 
 
 def test_config_sanity(cluster):
@@ -37,6 +36,8 @@ def test_config_sanity(cluster):
     verify('raft.log-max-cache-size', 999)
     verify('raft.log-max-file-size', 999)
     verify('raft.scan-size', 999)
+    verify('raft.log-delay-apply', 999)
+    verify('raft.snapshot-delay', 999)
 
     verify('raft.log-fsync', 'yes')
     verify('raft.log-fsync', 'no')
@@ -47,6 +48,14 @@ def test_config_sanity(cluster):
     verify('raft.sharding', 'yes')
     verify('raft.sharding', 'no')
     verify('raft.tls-enabled', 'no')
+    verify('raft.log-disable-apply', 'yes')
+    verify('raft.log-disable-apply', 'no')
+    verify('raft.snapshot-fail', 'yes')
+    verify('raft.snapshot-fail', 'no')
+    verify('raft.snapshot-disable', 'yes')
+    verify('raft.snapshot-disable', 'no')
+    verify('raft.snapshot-disable-load', 'yes')
+    verify('raft.snapshot-disable-load', 'no')
 
     verify('raft.ignored-commands', 'get')
     verify('raft.cluster-user', 'username')
@@ -56,6 +65,11 @@ def test_config_sanity(cluster):
     verify('raft.loglevel', 'verbose')
     verify('raft.loglevel', 'notice')
     verify('raft.loglevel', 'warning')
+
+    verify('raft.migration-debug', 'none')
+    verify('raft.migration-debug', 'fail-connect')
+    verify('raft.migration-debug', 'fail-import')
+    verify('raft.migration-debug', 'fail-unlock')
 
     verify('raft.trace', 'node conn')
 
@@ -148,12 +162,18 @@ def test_config_args(cluster):
                  'log-max-cache-size':         8011,
                  'log-max-file-size':          8012,
                  'scan-size':                  8013,
+                 'log-delay-apply':            8014,
+                 'snapshot-delay':             8015,
                  'log-fsync':                  'no',
                  'follower-proxy':             'yes',
                  'quorum-reads':               'no',
                  'sharding':                   'yes',
                  'external-sharding':          'yes',
                  'tls-enabled':                'no',
+                 'log-disable-apply':          'yes',
+                 'snapshot-fail':              'yes',
+                 'snapshot-disable':           'yes',
+                 'snapshot-disable-load':      'yes',
                  'log-filename':               'filename8001.log',
                  'addr':                       '80.80.80.80:1002',
                  'slot-config':                '0:8001',
@@ -161,6 +181,7 @@ def test_config_args(cluster):
                  'cluster-user':               'user1',
                  'cluster-password':           'password1',
                  'loglevel':                   'warning',
+                 'migration-debug':            'fail-unlock',
                  'trace':                      'raftlib'}
 
     r1 = cluster.add_node(raft_args, cluster_setup=False)
@@ -210,15 +231,22 @@ def test_invalid_configs(cluster):
     verify_failure('raft.log-max-cache-size', -1)
     verify_failure('raft.log-max-file-size', -1)
     verify_failure('raft.scan-size', -1)
+    verify_failure('raft.log-delay-apply', -1)
+    verify_failure('raft.snapshot-delay', -1)
 
     verify_failure('raft.log-fsync', 'someinvalidvalue')
     verify_failure('raft.follower-proxy', 'someinvalidvalue')
     verify_failure('raft.quorum-reads', 'someinvalidvalue')
     verify_failure('raft.sharding', 'someinvalidvalue')
     verify_failure('raft.tls-enabled', 'someinvalidvalue')
+    verify_failure('raft.log-disable-apply', 'someinvalidvalue')
+    verify_failure('raft.snapshot-fail', 'someinvalidvalue')
+    verify_failure('raft.snapshot-disable', 'someinvalidvalue')
+    verify_failure('raft.snapshot-disable-load', 'someinvalidvalue')
 
     verify_failure('raft.loglevel', 'somelevel')
     verify_failure('raft.trace', 'sometracelevel')
+    verify_failure('raft.migration-debug', 'somevalue')
 
 
 def test_ignored_commands(cluster):

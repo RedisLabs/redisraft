@@ -521,11 +521,12 @@ def test_startup_with_multiple_log_files(cluster):
     n1 = cluster.node(1)
 
     # Disable snapshot to prevent another snapshot attempt after the failure.
-    assert n1.execute('raft.debug', 'disable_snapshot', 1) == b'OK'
+    n1.config_set('raft.snapshot-disable', 'yes')
 
     # 'compact' will fail, but it will create the second log file.
+    n1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        n1.execute('raft.debug', 'compact', 0, 1)
+        n1.execute('raft.debug', 'compact')
 
     assert n1.info()['raft_snapshots_created'] == 0
 
@@ -553,11 +554,12 @@ def test_startup_with_empty_log_file(cluster):
     n1 = cluster.node(1)
 
     # Disable snapshot to prevent another snapshot attempt after the failure.
-    assert n1.execute('raft.debug', 'disable_snapshot', 1) == b'OK'
+    n1.config_set('raft.snapshot-disable', 'yes')
 
     # 'compact' will fail, but it will create the second log file.
+    n1.config_set("raft.snapshot-fail", "yes")
     with raises(ResponseError):
-        n1.execute('raft.debug', 'compact', 0, 1)
+        n1.execute('raft.debug', 'compact')
 
     assert n1.info()['raft_snapshots_created'] == 0
 
@@ -597,11 +599,11 @@ def test_startup_with_more_advanced_snapshot(cluster):
     n3.wait_for_info_param('raft_state', 'up')
 
     # Make n3 have multiple log files
-    # Disable snapshot to prevent another snapshot attempt after the failure.
-    assert n3.execute('raft.debug', 'disable_snapshot', 0, 1) == b'OK'
-    assert n3.execute('raft.debug', 'compact', 0, 0, 1) == b'OK'
+    n3.config_set('raft.snapshot-disable', 'yes')
+    assert n3.execute('raft.debug', 'compact', 1) == b'OK'
 
     # Start other nodes, n3 will receive the snapshot but won't load.
+    n3.config_set('raft.snapshot-disable-load', 'yes')
     cluster.node(1).start()
     cluster.node(2).start()
 

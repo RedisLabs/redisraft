@@ -352,8 +352,8 @@ void RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
     }
 
-    if (rr->debug_delay_apply) {
-        usleep(rr->debug_delay_apply);
+    if (rr->config.log_delay_apply) {
+        usleep(rr->config.log_delay_apply);
     }
 
     /* When we're in cluster mode, go through handleSharding. This will perform
@@ -1334,7 +1334,6 @@ static void handleLoadingState(RedisRaftCtx *rr)
         }
 
         RaftLibraryInit(rr, false);
-        initSnapshotTransferData(rr);
 
         if (rr->snapshot_info.loaded) {
             createOutgoingSnapshotMmap(rr);
@@ -1423,7 +1422,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
 
         /* Step-2: If we've committed all the entries of the first log page, we
          * can start the snapshot. */
-        start = (rr->debug_req || !rr->disable_snapshot);
+        start = (rr->debug_req || !rr->config.snapshot_disable);
         if (start && LogCompactionStarted(&rr->log) &&
             raft_get_commit_idx(rr->raft) >= LogCompactionIdx(&rr->log)) {
 
@@ -1514,9 +1513,11 @@ void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init)
     int eltimeo = rr->config.election_timeout;
     int reqtimeo = rr->config.request_timeout;
     int log = redisraft_trace & TRACE_RAFTLIB ? 1 : 0;
+    int noapply = rr->config.log_disable_apply;
 
     if (raft_config(rr->raft, 1, RAFT_CONFIG_ELECTION_TIMEOUT, eltimeo) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_REQUEST_TIMEOUT, reqtimeo) != 0 ||
+        raft_config(rr->raft, 1, RAFT_CONFIG_DISABLE_APPLY, noapply) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_AUTO_FLUSH, 0) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_NONBLOCKING_APPLY, 1) != 0 ||
         raft_config(rr->raft, 1, RAFT_CONFIG_LOG_ENABLED, log) != 0) {
