@@ -311,8 +311,7 @@ typedef enum {
     DEBUG_MIGRATION_NONE = 0,
     DEBUG_MIGRATION_EMULATE_CONNECT_FAILED,
     DEBUG_MIGRATION_EMULATE_IMPORT_FAILED,
-    DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED,
-    DEBUG_MIGRATION_MAX,
+    DEBUG_MIGRATION_EMULATE_UNLOCK_FAILED
 } MigrationDebug;
 
 typedef struct RedisRaftConfig {
@@ -342,6 +341,15 @@ typedef struct RedisRaftConfig {
     long long snapshot_req_max_count; /* Max in-flight snapshotreq message count between two nodes. */
     long long snapshot_req_max_size;  /* Max snapshotreq message size in bytes. Just an approximation. */
     long long scan_size;              /* how many keys to fetch at a time internally for raft.scan */
+
+    /* Debug configs */
+    long long log_delay_apply;  /* If not zero, sleep microseconds before the execution of a command.*/
+    bool log_disable_apply;     /* If true, node will not apply log entries. */
+    bool snapshot_fail;         /* If true, snapshot operation will fail. */
+    bool snapshot_disable;      /* If true, node will not create a snapshot. */
+    bool snapshot_disable_load; /* If true, node will not load the received snapshot. */
+    long long snapshot_delay;   /* If not zero, sleeps specified seconds before taking the snapshot. */
+    long long migration_debug;  /* For debugging migration, represents places to inject error. */
 
     /* Cache and file compaction */
     unsigned long log_max_cache_size; /* The memory limit for the in-memory Raft log cache */
@@ -390,26 +398,20 @@ typedef struct RedisRaftCtx {
                                                     it will be renamed to the original rdb file */
     SnapshotLoad snapshot_load;          /* Indicates we've received a snapshot waiting to be loaded */
     bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
-    mstime_t curr_snapshot_start_time;   /* start time of the snapshot operation currently in progress */
     raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
     raft_term_t curr_snapshot_last_term; /* Last included term of the snapshot operation currently in progress */
-    mstime_t last_snapshot_time;         /* Total time (ms) of a last local snapshot operation */
+    uint64_t curr_snapshot_start_time;   /* Start time of the snapshot operation currently in progress */
+    uint64_t last_snapshot_time;         /* Total time (seconds) of a last local snapshot operation */
     int snapshot_child_fd;               /* Pipe connected to snapshot child process */
     SnapshotFile outgoing_snapshot_file; /* Snapshot file memory table to send to followers */
     RaftSnapshotInfo snapshot_info;      /* Current snapshot info */
 
+    struct RaftReq *debug_req;          /* Current RAFT.DEBUG request context, if processing one */
     struct RaftReq *transfer_req;       /* RaftReq if a leader transfer is in progress */
     struct RaftReq *migrate_req;        /* RaftReq if a migration transfer is in progress */
     struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;      /* A dict that tracks different client states */
     struct CommandSpecTable *commands_spec_table;
-
-    /* Debug - Testing */
-    struct RaftReq *debug_req;      /* Current RAFT.DEBUG request context, if processing one */
-    bool disable_snapshot;          /* If true, node will not take a snapshot */
-    bool disable_snapshot_load;     /* If true, node will not load the received rdb file */
-    long long debug_delay_apply;    /* If not zero, sleep microseconds before the execution of a command */
-    MigrationDebug migration_debug; /* for debugging migration, places to inject error */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -630,11 +632,6 @@ typedef struct RaftReq {
             int hash_slot;
             RaftRedisCommandArray cmds;
         } redis;
-
-        struct {
-            int fail;
-            int delay;
-        } debug;
 
         ImportKeys import_keys;
 
@@ -870,7 +867,6 @@ void ConfigRedisEventCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_
 /* snapshot.c */
 extern RedisModuleTypeMethods RedisRaftTypeMethods;
 extern RedisModuleType *RedisRaftType;
-void initSnapshotTransferData(RedisRaftCtx *ctx);
 void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
@@ -884,6 +880,7 @@ int raftClearSnapshot(raft_server_t *raft, void *udata);
 int raftGetSnapshotChunk(raft_server_t *raft, void *udata, raft_node_t *node, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 int raftStoreSnapshotChunk(raft_server_t *raft, void *udata, raft_index_t idx, raft_size_t offset, raft_snapshot_chunk_t *chunk);
 void archiveSnapshot(RedisRaftCtx *rr);
+void SnapshotInit(RedisRaftCtx *rr);
 
 /* proxy.c */
 RRStatus ProxyCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, Node *leader);
