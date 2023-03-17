@@ -521,60 +521,7 @@ int syncRename(const char *oldname, const char *newname)
     return RR_OK;
 }
 
-RedisModuleString **RaftRedisExtractBlockedKeys(RaftRedisCommandArray *cmds, size_t *count)
-{
-    RedisModule_Assert(cmds->len == 1);
-
-    *count = 0;
-    RedisModuleString **keys = NULL;
-
-    RaftRedisCommand *cmd = cmds->commands[0];
-
-    if (cmd->argc < 1) {
-        return NULL;
-    }
-
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-    if (strncasecmp(cmd_str, "brpop", 5) == 0 ||
-        strncasecmp(cmd_str, "blpop", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmin", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmax", 5) == 0) {
-        if (cmd->argc < 3) {
-            return NULL;
-        }
-
-        *count = cmd->argc - 2;
-        keys = RedisModule_Alloc(sizeof(RedisModuleString *) * *count);
-        for (int i = 0; i < cmd->argc - 2; i++) {
-            keys[i] = RedisModule_HoldString(NULL, cmd->argv[i + 1]);
-        }
-    } else if (strncasecmp(cmd_str, "blmove", 6) == 0 ||
-               strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
-        if (cmd->argc < 3) {
-            return NULL;
-        }
-        *count = 1;
-        keys = RedisModule_Alloc(sizeof(RedisModuleString *));
-        keys[0] = RedisModule_HoldString(NULL, cmd->argv[1]);
-    } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
-               strncasecmp(cmd_str, "bzmpop", 6) == 0) {
-        if (cmd->argc < 3) {
-            return NULL;
-        }
-        long long tmp;
-        if (RedisModule_StringToLongLong(cmd->argv[2], &tmp) == REDISMODULE_ERR) {
-            return NULL;
-        }
-        *count = (size_t) tmp;
-        keys = RedisModule_Alloc(sizeof(RedisModuleString *) * *count);
-        for (size_t i = 0; i < *count; i++) {
-            keys[i] = RedisModule_HoldString(NULL, cmd->argv[i + 3]);
-        }
-    }
-
-    return keys;
-}
+static RedisModuleString *zero = NULL;
 
 int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *timeout)
 {
@@ -583,6 +530,10 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
     RaftRedisCommand *cmd = cmds->commands[0];
     if (cmd->argc < 2) {
         return REDISMODULE_ERR;
+    }
+
+    if (zero == NULL) {
+        zero = RedisModule_CreateString(NULL, "0", 1);
     }
 
     size_t cmd_len;
@@ -594,11 +545,26 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
         strncasecmp(cmd_str, "blmove", 6) == 0 ||
         strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
 
-        return RedisModule_StringToLongLong(cmd->argv[cmd->argc - 1], timeout);
+        if (RedisModule_StringToLongLong(cmd->argv[cmd->argc - 1], timeout) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+        }
+/*
+        LOG_WARNING("RaftRedisExtractBlockingTimeout: replacing argc %d with zero", cmd->argc-1);
+        RedisModule_FreeString(NULL, cmd->argv[cmd->argc - 1]);
+        cmd->argv[cmd->argc - 1] = RedisModule_HoldString(NULL, zero);
+*/
+        return REDISMODULE_OK;
     } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
                strncasecmp(cmd_str, "bzmpop", 6) == 0) {
 
-        return RedisModule_StringToLongLong(cmd->argv[1], timeout);
+        if (RedisModule_StringToLongLong(cmd->argv[1], timeout) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+        }
+/*
+        RedisModule_FreeString(NULL, cmd->argv[1]);
+        cmd->argv[1] = RedisModule_HoldString(NULL, zero);
+*/
+        return REDISMODULE_OK;
     }
 
     /* unsupported command */

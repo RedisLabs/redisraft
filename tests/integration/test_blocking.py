@@ -8,6 +8,7 @@ def test_brpop(cluster):
     s = set()
 
     def client():
+        # val = (b'popped key', b'value popped')
         val = cluster.leader_node().execute("brpop", "x", 0)
         assert val[0] == b'x'
         s.add(val[1])
@@ -39,6 +40,7 @@ def test_blpop(cluster):
     s = set()
 
     def client():
+        # val = (b'popped key', b'value popped')
         val = cluster.leader_node().execute("blpop", "x", 0)
         assert val[0] == b'x'
         s.add(val[1])
@@ -70,9 +72,10 @@ def test_brpoplpush(cluster):
     s = set()
 
     def client():
-        conn = RawConnection(cluster.leader_node().client)
-        val = conn.execute("brpoplpush", "x", "y", 0)
-        s.add(val)
+        # value = popped value from source list
+        value = cluster.leader_node().execute("brpoplpush", "x", "y", 0)
+        print(f"client value = {value}\n")
+        s.add(value)
 
     t1 = Thread(target=client, daemon=True)
     t1.start()
@@ -102,8 +105,8 @@ def test_blmove(cluster):
     s = set()
 
     def client():
-        conn = RawConnection(cluster.leader_node().client)
-        val = conn.execute("blmove", "x", "y", "right", "left", 0)
+        # val = popped value from source list
+        val = cluster.leader_node().execute("blmove", "x", "y", "right", "left", 0)
         s.add(val)
 
     t1 = Thread(target=client, daemon=True)
@@ -135,6 +138,7 @@ def test_blmpop(cluster):
     s2 = set()
 
     def client():
+        # val = [key popped from, [list of elements popped]
         val = cluster.leader_node().execute("blmpop", 0, 2, "x", "y", "left")
         if val[0] == b'x':
             s1.add(val[1][0])
@@ -161,6 +165,9 @@ def test_blmpop(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert val == [b'3']
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "y", 0, -1)
+        assert val == []
 
 
 def test_bzpopmin(cluster):
@@ -169,6 +176,7 @@ def test_bzpopmin(cluster):
     s2 = set()
 
     def client():
+        # val = (set popped from, set element popped, set element value popped)
         val = cluster.leader_node().execute("bzpopmin", "x", "y", 0)
         assert val[0] == b'x'
         if val[1] == b'a':
@@ -202,6 +210,7 @@ def test_bzpopmax(cluster):
     s2 = set()
 
     def client():
+        # val = (set popped from, set element popped, set element value popped)
         val = cluster.leader_node().execute("bzpopmax", "x", "y", 0)
         assert val[0] == b'x'
         if val[1] == b'c':
@@ -282,3 +291,41 @@ def test_multi_block_with_data(cluster):
     assert conn.execute('multi') == b'OK'
     assert conn.execute('brpop', 'x', 0) == b'QUEUED'
     assert conn.execute('exec') == [[b'x', b'1']]
+
+
+def test_blocking_with_snapshot(cluster):
+    cluster.create(3)
+    s = set()
+
+    def client():
+        # val = (b'popped key', b'value popped')
+        val = cluster.leader_node().execute("brpop", "x", 0)
+        assert val[0] == b'x'
+        s.add(val[1])
+
+    t1 = Thread(target=client, daemon=True)
+    t1.start()
+    t2 = Thread(target=client, daemon=True)
+    t2.start()
+
+    cluster.node(2).client.execute_command('raft.debug', 'compact')
+    cluster.node(3).client.execute_command('raft.debug', 'compact')
+    cluster.node(2).restart()
+    cluster.node(3).restart()
+    cluster.node(2).wait_for_info_param('raft_state', 'up')
+    cluster.node(3).wait_for_info_param('raft_state', 'up')
+
+    cluster.leader_node().execute("lpush", "x", 1)
+    cluster.leader_node().execute("lpush", "x", 2)
+    cluster.leader_node().execute("lpush", "x", 3)
+
+    t1.join()
+    t2.join()
+    cluster.wait_for_unanimity()
+
+    assert len(s) == 2
+    assert b'1' in s
+    assert b'2' in s
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
+        assert val == [b'3']

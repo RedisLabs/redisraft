@@ -354,7 +354,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftExecuteCommandArray(&redis_raft, req->ctx, req, &req->r.redis.cmds);
 
 exit:
     RaftReqFree(req);
@@ -743,7 +743,9 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * we're still a leader. Otherwise, just process the reads. */
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (!rr->config.quorum_reads) {
-            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
+            RaftReq req = {0};
+            req.ctx = ctx;
+            RaftExecuteCommandArray(rr, ctx, &req, cmds);
             return;
         }
 
@@ -773,14 +775,9 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         /* redis commands take timeout in seconds, timer takes time in milliseconds) */
         timeout = timeout * 1000;
 
-        /* extract keys later, as they would have to be freed */
-        size_t count;
-        RedisModuleString **keys = RaftRedisExtractBlockedKeys(cmds, &count);
-
-        req = RaftReqInitBlocking(ctx, keys, count, timeout);
+        req = RaftReqInitBlocking(ctx, timeout);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
         req->r.redis.cmds.blocking = true;
-        req->appended_to_log = true;
     } else {
         req = RaftReqInit(ctx, RR_REDISCOMMAND);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
@@ -1249,7 +1246,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
         clusterInit(cluster_id);
 
-        char reply[RAFT_DBID_LEN + 256];
+        char reply[RAFT_DBID_LEN + 260];
         snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
 
         RedisModule_ReplyWithSimpleString(ctx, reply);
@@ -1978,6 +1975,10 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     rr->client_state = RedisModule_CreateDict(rr->ctx);
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
 
+    /* setup blocked command state */
+    rr->blocked_command_dict = RedisModule_CreateDict(rr->ctx);
+    sc_list_init(&rr->blocked_command_list);
+
     /* acl -> user dictionary */
     rr->acl_dict = RedisModule_CreateDict(rr->ctx);
 
@@ -2070,6 +2071,16 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     if (rr->locked_keys) {
         RedisModule_FreeDict(rr->ctx, rr->locked_keys);
         rr->locked_keys = NULL;
+    }
+
+    if (rr->blocked_command_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->blocked_command_dict);
+        rr->blocked_command_dict = NULL;
+    }
+
+    struct sc_list *elem;
+    while ((elem = sc_list_pop_head(&rr->blocked_command_list)) != NULL) {
+        RedisModule_Free(sc_list_entry(elem, BlockedCommand, blocked_list));
     }
 
     if (rr->acl_dict) {

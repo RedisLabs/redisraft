@@ -212,6 +212,7 @@ add_library(redisraft MODULE
         deps/common/crc16.c
         deps/common/sc_crc32.c
         deps/common/sc_list.c
+        src/blocked.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
@@ -272,6 +273,7 @@ add_executable(main
         deps/common/crc16.c
         deps/common/sc_crc32.c
         deps/common/sc_list.c
+        src/blocked.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
@@ -291,6 +293,7 @@ add_executable(main
         src/proxy.c
         src/raft.c
         src/redisraft.c
+        src/sc_list.c
         src/serialization.c
         src/serialization_utils.c
         src/snapshot.c

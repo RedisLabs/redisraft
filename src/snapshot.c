@@ -674,6 +674,9 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
     /* Load locked_keys dict */
     lockedKeysRDBLoad(rdb);
 
+    /* load blocked command state */
+    blockedCommandsLoad(rdb);
+
     info->loaded = true;
     return REDISMODULE_OK;
 }
@@ -737,6 +740,9 @@ static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
 
     /* Save LockedKeys dict */
     lockedKeysRDBSave(rdb);
+
+    /* save blocked command state */
+    blockedCommandsSave(rdb);
 }
 
 /* Do nothing -- AOF should never be used with RedisRaft, but we have to specify
