@@ -58,8 +58,10 @@ DisableFormat: false
 ExperimentalAutoDetectBinPacking: false
 FixNamespaceComments: false
 ForEachMacros:
-  - LIST_FOREACH_SAFE
-  - STAILQ_FOREACH_SAFE
+  - sc_list_foreach
+  - sc_list_foreach_safe
+  - sc_list_foreach_r
+  - sc_list_foreach_safe_r
 IncludeBlocks: Regroup
 IncludeCategories:
   # cmocka header is last: "cmocka.h"

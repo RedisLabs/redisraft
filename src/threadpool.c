@@ -16,7 +16,7 @@ static void *loop(void *arg)
 
     while (true) {
         pthread_mutex_lock(&pool->mtx);
-        while (STAILQ_EMPTY(&pool->tasks) && pool->shutdown == 0) {
+        while (sc_list_is_empty(&pool->tasks) && pool->shutdown == 0) {
             int rc = pthread_cond_wait(&pool->cond, &pool->mtx);
             RedisModule_Assert(rc == 0);
         }
@@ -26,8 +26,9 @@ static void *loop(void *arg)
             return NULL;
         }
 
-        struct Task *t = STAILQ_FIRST(&pool->tasks);
-        STAILQ_REMOVE_HEAD(&pool->tasks, entry);
+        struct sc_list *elem = sc_list_pop_head(&pool->tasks);
+        struct Task *t = sc_list_entry(elem, struct Task, entry);
+
         pthread_mutex_unlock(&pool->mtx);
 
         t->run(t->arg);
@@ -44,7 +45,7 @@ void threadPoolInit(ThreadPool *pool, int thread_count)
     pool->threads = RedisModule_Alloc(sizeof(*pool->threads) * thread_count);
     pool->thread_count = thread_count;
     pool->mtx = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
-    STAILQ_INIT(&pool->tasks);
+    sc_list_init(&pool->tasks);
 
     int rc = pthread_cond_init(&pool->cond, NULL);
     if (rc != 0) {
@@ -78,9 +79,10 @@ void threadPoolAdd(ThreadPool *pool, void *arg, void (*run)(void *arg))
 
     t->arg = arg;
     t->run = run;
+    sc_list_init(&t->entry);
 
     pthread_mutex_lock(&pool->mtx);
-    STAILQ_INSERT_TAIL(&pool->tasks, t, entry);
+    sc_list_add_tail(&pool->tasks, &t->entry);
     pthread_cond_signal(&pool->cond);
     pthread_mutex_unlock(&pool->mtx);
 }
@@ -101,9 +103,10 @@ void threadPoolShutdown(ThreadPool *pool)
         }
     }
 
-    struct Task *it, *tmp;
-    STAILQ_FOREACH_SAFE (it, &pool->tasks, entry, tmp) {
-        STAILQ_REMOVE(&pool->tasks, it, Task, entry);
-        RedisModule_Free(it);
+    struct sc_list *it, *tmp;
+
+    sc_list_foreach_safe (&pool->tasks, tmp, it) {
+        struct Task *t = sc_list_entry(it, struct Task, entry);
+        RedisModule_Free(t);
     }
 }
