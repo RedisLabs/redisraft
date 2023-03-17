@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <libgen.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -527,8 +528,8 @@ int findTimeoutIndex(RaftRedisCommand *cmd) {
 
     if (strncasecmp(cmd_str, "brpop", 5) == 0 ||
         strncasecmp(cmd_str, "blpop", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmin", 5) == 0 ||
-        strncasecmp(cmd_str, "bzpopmax", 5) == 0 ||
+        strncasecmp(cmd_str, "bzpopmin", 8) == 0 ||
+        strncasecmp(cmd_str, "bzpopmax", 8) == 0 ||
         strncasecmp(cmd_str, "blmove", 6) == 0 ||
         strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
         return cmd->argc - 1;
@@ -540,7 +541,7 @@ int findTimeoutIndex(RaftRedisCommand *cmd) {
     }
 }
 
-int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *timeout)
+int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long double *timeout)
 {
     RedisModule_Assert(cmds->len == 1);
 
@@ -554,18 +555,7 @@ int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *time
         return REDISMODULE_ERR;
     }
 
-    long double tmp;
-    if (RedisModule_StringToLongDouble(cmd->argv[index], &tmp) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    if (RedisModule_StringToLongLong(cmd->argv[index], timeout) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    *timeout = (long long) (tmp*1000);
-
-    return REDISMODULE_OK;
+    return RedisModule_StringToLongDouble(cmd->argv[index], timeout);
 }
 
 static RedisModuleString *zero = NULL;
@@ -592,4 +582,28 @@ int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
     cmd->argv[index] = RedisModule_HoldString(NULL, zero);
 
     return REDISMODULE_OK;
+}
+
+int validTimeout(RedisModuleCtx *ctx, long double incoming, long long *outgoing) {
+    LOG_WARNING("validTimeout: timeout is %Lf", incoming);
+
+    incoming *= 1000.0;
+    if (incoming > LLONG_MAX) {
+        RedisModule_ReplyWithError(ctx, "ERR timeout is out of range");
+        return RR_ERROR;
+    }
+
+    *outgoing = (long long) ceill(incoming);
+
+    if (*outgoing < 0) {
+        RedisModule_ReplyWithError(ctx, "ERR timeout is negative");
+        return RR_ERROR;
+    }
+
+    if (*outgoing > (LLONG_MAX - RedisModule_Milliseconds())) {
+        RedisModule_ReplyWithError(ctx, "ERR timeout is out of range");
+        return RR_ERROR;
+    }
+
+    return RR_OK;
 }

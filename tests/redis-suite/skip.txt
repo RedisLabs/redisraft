@@ -1,18 +1,6 @@
--- Blocking commands not supported
-/.*Unblock fairness is.*
-/.*Blocking command.*
-SLOWLOG - blocking command is reported only after unblocked
-MONITOR log blocked command only once
-BLPOP with variadic LPUSH
-Linked LMOVEs
+-- "client unblock" command support needed
 client unblock tests
-/.*B[RL]POP.*
-/.*B[RLZ]MPOP.*
-/.*BLMOVE.*
-/.*B[LR]POP.*
-/.*BZM?POP_?MIN.*
-/.*BZM?POP_?MAX.*
-LPOP/RPOP/LMPOP NON-BLOCK or BLOCK against non list value
+Blocking command acounted only once in commandstats after timeout
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
@@ -24,11 +12,12 @@ COPY basic usage for stream-cgroups
 Keyspace notifications: stream events test
 lazy free a stream with all types of metadata
 lazy free a stream with deleted cgroup
+-- depends on streams
+Blocking commands ignores the timeout
 
 -- Timeouts and termination of Lua scripts is not possible when scripts are
 -- replicated and executed by individual nodes.
 /.*SCRIPT KILL.*
-Blocking commands ignores the timeout
 Timedout script does not cause a false dead client
 Timedout script link is still usable after Lua returns
 /function kill
@@ -37,6 +26,7 @@ Timedout script link is still usable after Lua returns
 
 -- RAFT command prefix shows up in SLOWLOG.
 SLOWLOG - Rewritten commands are logged as their original command
+SLOWLOG - blocking command is reported only after unblocked
 
 -- RAFT command prefix shows up in MONITOR
 MONITOR can log executed commands
@@ -49,10 +39,6 @@ UNLINK can reclaim memory in background
 
 -- ACL test fails because we prepend "raft" string to the command
 Script ACL check
-
--- Blocked clients not supported
-Test read commands are not blocked by client pause
-Test write commands are paused by RO
 
 -- WATCH (multi/exec) not supported
 /.*MULTI.*

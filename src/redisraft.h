@@ -434,6 +434,7 @@ typedef struct RedisRaftCtx {
     /* we use a dict and an intrusive list to reproduce java's LinkedHashMap, fast lookup with order maintenance */
     struct sc_list blocked_command_list;   /* list of blocked commands in order of them blocking */
     RedisModuleDict *blocked_command_dict; /* raft entry id -> blocked command mapping, for fast lookup */
+    RedisModuleDict *blocked_clients;      /* mapping blocked clients to blocked commands to timeout on disconnect or client unblock */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -634,6 +635,8 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
     raft_index_t raft_idx;
+    int null_reply_type;
+    unsigned long long client_id;
 
     union {
         struct {
@@ -657,6 +660,9 @@ typedef struct RaftReq {
         } migrate_keys;
     } r;
 } RaftReq;
+
+#define REDISRAFT_NULL_NONE 1
+#define REDISRAFT_NULL_ARRAY 2
 
 typedef struct BlockedCommand {
     raft_index_t idx;
@@ -837,7 +843,7 @@ void RedisRaftCtxClear(RedisRaftCtx *rr);
 
 /* raft.c */
 void RaftReqFree(RaftReq *req);
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, size_t timeout);
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
 RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
@@ -850,6 +856,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void blockedTimedOut(RedisModuleCtx *ctx, void *data);
 void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 
 /* util.c */
@@ -879,8 +886,9 @@ int fsyncFile(int fd);
 int fsyncFileAt(const char *path);
 void fsyncDir(const char *path);
 int syncRename(const char *oldname, const char *newname);
-int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long long *timeout);
+int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long double *timeout);
 int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
+int validTimeout(RedisModuleCtx *ctx, long double incoming, long long *outgoing);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);

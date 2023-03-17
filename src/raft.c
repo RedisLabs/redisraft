@@ -484,10 +484,7 @@ static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
 
-    RaftReq *req = entry->user_data;
-    if (req) {
-        entryDetachRaftReq(rr, entry);
-    }
+    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -579,7 +576,7 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
 
-    RaftReq *req = entry->user_data;
+    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     size_t num_keys;
     RedisModuleString **keys;
@@ -604,7 +601,6 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
     RedisModule_Free(keys);
 
     if (req) {
-        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }
@@ -627,13 +623,12 @@ static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
 static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
-    RaftReq *req = entry->user_data;
+    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     unsigned long long id = entry->session;
     endClientSession(rr, id);
 
     if (req) {
-        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
     }
@@ -673,7 +668,14 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (bc->req) {
-        RedisModule_ReplyWithNull(bc->req->ctx);
+        switch (bc->req->null_reply_type) {
+            case REDISRAFT_NULL_ARRAY:
+                RedisModule_ReplyWithNullArray(bc->req->ctx);
+                break;
+            default:
+                RedisModule_ReplyWithNull(bc->req->ctx);
+                break;
+        }
         RaftReqFree(bc->req);
     }
 
@@ -696,7 +698,7 @@ static void clearBlockedCommands(RedisRaftCtx *rr, raft_index_t entry_idx)
 static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_NORMAL);
-    RaftReq *req = entry->user_data;
+    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     RaftRedisCommandArray tmp = {0};
     RaftRedisCommandArray *cmds;
@@ -719,17 +721,17 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     if (reply == NULL) {
         /* setup for req/non req nodes needs to mirror teardown below */
         if (req) { /*  node instance where client issued command */
-            entryDetachRaftReq(rr, entry);
             RaftReqFree(req);
         } else {
             RaftRedisCommandArrayFree(cmds);
         }
     } else {
+        /* I'm wondering if this is better set on the req object, which can be done at append time? */
         BlockedCommand *bc = addBlockedCommand(entry_idx, entry->session, entry->data, entry->data_len, req, reply);
-        LOG_WARNING("executeLogEntry: entry at idx %lu is blocking", entry_idx);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {
-            entryDetachRaftReq(rr, entry);
+            /* nothing really happens here for now, but for symmetry, keeping it in place */
+            ;
         } else {
             RaftRedisCommandArrayFree(cmds);
         }
@@ -1758,34 +1760,44 @@ void RaftReqFree(RaftReq *req)
     RedisModule_Free(req);
 }
 
-static void blockedTimedOut(RedisModuleCtx *ctx, void *data)
+void blockedTimedOut(RedisModuleCtx *ctx, void *data)
 {
     RedisRaftCtx *rr = &redis_raft;
     RaftReq *req = (RaftReq *) data;
 
+    /* don't need to attach the req to this entry, as the req is part of the BlockedClient object */
     raft_entry_t *entry = raft_entry_new(sizeof(raft_index_t));
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
     memcpy(entry->data, &req->raft_idx, entry->data_len);
-    entryAttachRaftReq(rr, entry, req);
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
-    if (req && e != 0) {
-        /* TODO: unsure if we should reply to user here, like in other case.
-         * I'd think in this case, it would be the timer went off and we aren't leader anymore,
-         * which will be more cleanly handled upon new term
+    if (e != 0) {
+        /* if we timed out, but we couldn't apply the timeout entry, it means we lost leadership.
+         * Therefore, when we apply a new NO_OP, it will automaticall be timed out on all nodes.
+         * Therefore, don't have to do anything here
          */
-        entryDetachRaftReq(rr, entry);
     }
 
     raft_entry_release(entry);
 }
 
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, size_t timeout)
+/* timeout is used to determine if there is a timeout and if it's a blocking command.
+ * non blocking commands should use -1.  Blocking commands should use 0 if there's no timeout, or
+ * a positive numer if there is a timeout
+ */
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
 {
+    bool blocking = timeout >= 0 ? true : false;
+
     RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
     if (ctx != NULL) {
-        req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        req->client_id = RedisModule_GetClientId(ctx);
+        if (blocking) {
+            req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        } else {
+            req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+        }
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
@@ -1794,7 +1806,7 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, size_t timeout)
         redis_raft.migrate_req = req;
     }
 
-    if (timeout != 0) {
+    if (timeout > 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
     }
 

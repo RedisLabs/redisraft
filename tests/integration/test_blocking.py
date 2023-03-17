@@ -1,6 +1,3 @@
-import time
-from threading import Thread
-
 from _pytest.python_api import raises
 
 from redis.exceptions import ConnectionError
@@ -305,4 +302,3 @@ def test_blocking_with_key_reaname(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert val == [b'3', b'2']
-
