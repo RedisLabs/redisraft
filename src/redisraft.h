@@ -661,7 +661,7 @@ typedef struct RaftReq {
     } r;
 } RaftReq;
 
-#define REDISRAFT_NULL_NONE 1
+#define REDISRAFT_NULL_NONE  1
 #define REDISRAFT_NULL_ARRAY 2
 
 typedef struct BlockedCommand {

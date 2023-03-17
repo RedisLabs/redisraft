@@ -115,8 +115,8 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
     size_t sz = calcIntSerializedLen(source->asking) +
-            calcIntSerializedLen(source->cmd_flags) +
-            calcIntSerializedLen(source->len);
+                    calcIntSerializedLen(source->cmd_flags) +
+                    calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
@@ -139,7 +139,7 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode cmd_flags */
     n = encodeInteger('*', p, sz, source->cmd_flags);
-    RedisModule_Assert(n != -1);
+c    RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
 

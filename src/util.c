@@ -522,7 +522,8 @@ int syncRename(const char *oldname, const char *newname)
     return RR_OK;
 }
 
-int findTimeoutIndex(RaftRedisCommand *cmd) {
+int findTimeoutIndex(RaftRedisCommand *cmd)
+{
     size_t cmd_len;
     const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
 
@@ -534,7 +535,7 @@ int findTimeoutIndex(RaftRedisCommand *cmd) {
         strncasecmp(cmd_str, "brpoplpush", 10) == 0) {
         return cmd->argc - 1;
     } else if (strncasecmp(cmd_str, "blmpop", 6) == 0 ||
-        strncasecmp(cmd_str, "bzmpop", 6) == 0) {
+               strncasecmp(cmd_str, "bzmpop", 6) == 0) {
         return 1;
     } else {
         return -1;
@@ -584,9 +585,8 @@ int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
     return REDISMODULE_OK;
 }
 
-int validTimeout(RedisModuleCtx *ctx, long double incoming, long long *outgoing) {
-    LOG_WARNING("validTimeout: timeout is %Lf", incoming);
-
+int validTimeout(RedisModuleCtx *ctx, long double incoming, long long *outgoing)
+{
     incoming *= 1000.0;
     if (incoming > LLONG_MAX) {
         RedisModule_ReplyWithError(ctx, "ERR timeout is out of range");

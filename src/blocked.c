@@ -40,7 +40,8 @@ void deleteBlockedCommandFromLinkMap(raft_index_t idx)
     sc_list_del(&redis_raft.blocked_command_list, &blocked->blocked_list);
 }
 
-BlockedCommand *getBlockedCommand(raft_index_t idx) {
+BlockedCommand *getBlockedCommand(raft_index_t idx)
+{
     return RedisModule_DictGetC(redis_raft.blocked_command_dict, &idx, sizeof(idx), NULL);
 }
 
@@ -81,8 +82,7 @@ void blockedCommandsSave(RedisModuleIO *rdb)
     struct sc_list *it;
     int count = 0;
 
-    sc_list_foreach(&redis_raft.blocked_command_list, it)
-    {
+    sc_list_foreach (&redis_raft.blocked_command_list, it) {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
             count++;
@@ -92,8 +92,7 @@ void blockedCommandsSave(RedisModuleIO *rdb)
     }
 
     RedisModule_SaveUnsigned(rdb, count);
-    sc_list_foreach(&redis_raft.blocked_command_list, it)
-    {
+    sc_list_foreach (&redis_raft.blocked_command_list, it) {
         BlockedCommand *bc = sc_list_entry(it, BlockedCommand, blocked_list);
         if (bc->idx <= info->last_applied_idx) {
             RedisModule_SaveUnsigned(rdb, bc->idx);
