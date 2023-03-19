@@ -240,7 +240,7 @@ def test_blocking_with_timeout(cluster):
     c2 = cluster.leader_node().client.connection_pool.get_connection('c2')
     c2.send_command("brpop", "x", 10)
 
-    assert c1.read_response() == None
+    assert c1.read_response() is None
 
     cluster.leader_node().execute("lpush", "x", 1)
     cluster.leader_node().execute("lpush", "x", 2)
