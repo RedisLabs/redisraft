@@ -41,7 +41,7 @@ jobs:
     - name: Set variables
       env:
         DEFAULT_REDIS_REPO: redis/redis
-        DEFAULT_REDIS_BRANCH: unstable
+        DEFAULT_REDIS_BRANCH: 9a4c9cabda74a860f2f9bdf0889bb798ade1eb14
         DEFAULT_REDISRAFT_REPO: redislabs/redisraft
         DEFAULT_REDISRAFT_BRANCH: master
       run: |
