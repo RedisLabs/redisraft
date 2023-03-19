@@ -114,12 +114,13 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t sz = calcIntSerializedLen(source->asking) +
-                    calcIntSerializedLen(source->cmd_flags) +
-                    calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
+
+    size_t sz = calcIntSerializedLen(source->asking);
+    sz += calcIntSerializedLen(source->cmd_flags);
+    sz += calcIntSerializedLen(source->len);
 
     /* Compute sizes */
     for (i = 0; i < source->len; i++) {
