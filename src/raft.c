@@ -1763,7 +1763,7 @@ void RaftReqFree(RaftReq *req)
 void blockedTimedOut(RedisModuleCtx *ctx, void *data)
 {
     RedisRaftCtx *rr = &redis_raft;
-    RaftReq *req = (RaftReq *) data;
+    RaftReq *req = data;
 
     /* don't need to attach the req to this entry, as the req is part of the BlockedClient object */
     raft_entry_t *entry = raft_entry_new(sizeof(raft_index_t));

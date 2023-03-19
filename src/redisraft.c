@@ -766,8 +766,9 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * we're still a leader. Otherwise, just process the reads. */
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (!rr->config.quorum_reads) {
-            RaftReq req = {0};
-            req.ctx = ctx;
+            RaftReq req = {
+                    .ctx = ctx
+            };
             RaftExecuteCommandArray(rr, &req, cmds);
             return;
         }

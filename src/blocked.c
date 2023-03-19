@@ -10,7 +10,7 @@
 
 /* A list of all current blocked commands */
 
-BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
+BlockedCommand *addBlockedCommand(raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
 {
     BlockedCommand *bc = RedisModule_Calloc(1, sizeof(BlockedCommand));
     sc_list_init(&bc->blocked_list);

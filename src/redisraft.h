@@ -527,7 +527,6 @@ typedef struct {
     size_t cmd_flags;             /* the calculated cmd_flags for all commands in this array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
-    bool timed_out;
 } RaftRedisCommandArray;
 
 /* Max length of a ShardGroupNode string, including newline and null terminator */
@@ -666,7 +665,7 @@ typedef struct RaftReq {
 
 typedef struct BlockedCommand {
     raft_index_t idx;
-    unsigned long long session;
+    raft_session_t session;
     char *data;
     size_t data_len;
     RaftReq *req;

@@ -139,7 +139,7 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode cmd_flags */
     n = encodeInteger('*', p, sz, source->cmd_flags);
-c    RedisModule_Assert(n != -1);
+    RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
 
