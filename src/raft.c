@@ -1774,7 +1774,7 @@ void blockedTimedOut(RedisModuleCtx *ctx, void *data)
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
         /* if we timed out, but we couldn't apply the timeout entry, it means we lost leadership.
-         * Therefore, when we apply a new NO_OP, it will automaticall be timed out on all nodes.
+         * Therefore, when we apply a new NO_OP, it will automatically be timed out on all nodes.
          * Therefore, don't have to do anything here
          */
     }
@@ -1784,7 +1784,7 @@ void blockedTimedOut(RedisModuleCtx *ctx, void *data)
 
 /* timeout is used to determine if there is a timeout and if it's a blocking command.
  * non blocking commands should use -1.  Blocking commands should use 0 if there's no timeout, or
- * a positive numer if there is a timeout
+ * a positive number if there is a timeout
  */
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
 {
