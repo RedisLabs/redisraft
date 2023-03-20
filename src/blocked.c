@@ -137,8 +137,8 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
 
         /* setup handler */
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
+        RedisModule_Free(data);
         RaftRedisCommandArrayFree(&tmp);
-
     }
 }
 
