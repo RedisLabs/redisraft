@@ -40,8 +40,8 @@ jobs:
     steps:
     - name: Set variables
       env:
-        DEFAULT_REDIS_REPO: sjpotter/redis
-        DEFAULT_REDIS_BRANCH: fix-cmd-filter
+        DEFAULT_REDIS_REPO: redis/redis
+        DEFAULT_REDIS_BRANCH: unstable
         DEFAULT_REDISRAFT_REPO: redislabs/redisraft
         DEFAULT_REDISRAFT_BRANCH: master
       run: |

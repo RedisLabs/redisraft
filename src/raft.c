@@ -346,20 +346,15 @@ RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedis
 void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data)
 {
     UNUSED(ctx);
-    BlockedCommand *bc = (BlockedCommand *) private_data;
-    /*
-     * the below lookup is duplicative, could have allocated memory just for idx, but that's a waste,
-     * so just use existing allocated object
-     */
-    bc = getBlockedCommand(bc->idx);
 
+    BlockedCommand *bc = private_data;
     if (bc->req) {
         RedisModule_ReplyWithCallReply(bc->req->ctx, reply);
         RaftReqFree(bc->req);
     }
 
     RedisModule_FreeCallReply(reply);
-    deleteBlockedCommandFromLinkMap(bc->idx);
+    deleteBlockedCommand(bc->idx);
     freeBlockedCommand(bc);
 }
 
@@ -399,14 +394,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     (void) client_session; /* unused for now */
 
     if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
-        // LOG_WARNING("replacing timeout with zero at apply time");
-        if (RaftRedisReplaceBlockingTimeout(cmds) != REDISMODULE_OK) {
-            // LOG_WARNING("failed to replace timeout with zero at apply time");
-            if (req) {
-                RedisModule_ReplyWithError(req->ctx, "Failed to replace blocking command timeout with zero at apply time");
-                return NULL;
-            }
-        }
+        RedisModule_Assert(RaftRedisReplaceBlockingTimeout(cmds) == REDISMODULE_OK);
     }
 
     for (int i = 0; i < cmds->len; i++) {
@@ -679,7 +667,7 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
         RaftReqFree(bc->req);
     }
 
-    deleteBlockedCommandFromLinkMap(bc->idx);
+    deleteBlockedCommand(bc->idx);
     freeBlockedCommand(bc);
 }
 
@@ -727,7 +715,8 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
         }
     } else {
         /* I'm wondering if this is better set on the req object, which can be done at append time? */
-        BlockedCommand *bc = addBlockedCommand(entry_idx, entry->session, entry->data, entry->data_len, req, reply);
+        BlockedCommand *bc = newBlockedCommand(entry_idx, entry->session, entry->data, entry->data_len, req, reply);
+        addBlockedCommand(bc);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {
             /* nothing really happens here for now, but for symmetry, keeping it in place */

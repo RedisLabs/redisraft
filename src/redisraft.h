@@ -434,7 +434,6 @@ typedef struct RedisRaftCtx {
     /* we use a dict and an intrusive list to reproduce java's LinkedHashMap, fast lookup with order maintenance */
     struct sc_list blocked_command_list;   /* list of blocked commands in order of them blocking */
     RedisModuleDict *blocked_command_dict; /* raft entry id -> blocked command mapping, for fast lookup */
-    RedisModuleDict *blocked_clients;      /* mapping blocked clients to blocked commands to timeout on disconnect or client unblock */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -885,9 +884,6 @@ int fsyncFile(int fd);
 int fsyncFileAt(const char *path);
 void fsyncDir(const char *path);
 int syncRename(const char *oldname, const char *newname);
-int RaftRedisExtractBlockingTimeout(RaftRedisCommandArray *cmds, long double *timeout);
-int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
-int validTimeout(RedisModuleCtx *ctx, long double incoming, long long *outgoing);
 
 /* config.c */
 RRStatus ConfigInit(RedisModuleCtx *ctx, RedisRaftConfig *c);
@@ -996,12 +992,15 @@ void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
 
 /* blocked.c */
-BlockedCommand *addBlockedCommand(raft_index_t idx, unsigned long long session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
+BlockedCommand *newBlockedCommand(raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
+void addBlockedCommand(BlockedCommand *bc);
 void freeBlockedCommand(BlockedCommand *bc);
-void deleteBlockedCommandFromLinkMap(raft_index_t idx);
+void deleteBlockedCommand(raft_index_t idx);
 BlockedCommand *getBlockedCommand(raft_index_t idx);
 void blockedCommandsSave(RedisModuleIO *rdb);
 void blockedCommandsLoad(RedisModuleIO *rdb);
 void clearAllBlockCommands();
+int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout);
+int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
 
 #endif

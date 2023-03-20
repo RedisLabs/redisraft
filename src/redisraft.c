@@ -786,12 +786,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     bool blocking = false;
     if (cmd_flags & CMD_SPEC_BLOCKING) { /* protect against blocking commands in a MULTI above */
         blocking = true;
-        long double tmp;
-        if (RaftRedisExtractBlockingTimeout(cmds, &tmp) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "ERR timeout is not a float or out of range");
-            return;
-        }
-        if (validTimeout(ctx, tmp, &timeout) != RR_OK) {
+        if (RaftRedisExtractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
             return;
         }
     }
@@ -801,7 +796,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     if (blocking) {
         req->null_reply_type = getNullReplyType(&req->r.redis.cmds);
-        RedisModule_DictSetC(rr->blocked_clients, &req->client_id, sizeof(req->client_id), req);
     }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
@@ -2000,7 +1994,6 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     /* setup blocked command state */
     rr->blocked_command_dict = RedisModule_CreateDict(rr->ctx);
     sc_list_init(&rr->blocked_command_list);
-    rr->blocked_clients = RedisModule_CreateDict(rr->ctx);
 
     /* acl -> user dictionary */
     rr->acl_dict = RedisModule_CreateDict(rr->ctx);
