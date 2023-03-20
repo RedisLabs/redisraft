@@ -716,7 +716,7 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
     } else {
         size_t cmdstr_len;
         const char *cmdstr = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmdstr_len);
-        BlockedCommand *bc = newBlockedCommand(cmdstr, entry_idx, entry->session, entry->data, entry->data_len, req, reply);
+        BlockedCommand *bc = allocBlockedCommand(cmdstr, entry_idx, entry->session, entry->data, entry->data_len, req, reply);
         addBlockedCommand(bc);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {

@@ -994,7 +994,7 @@ void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
 
 /* blocked.c */
-BlockedCommand *newBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
+BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
 void addBlockedCommand(BlockedCommand *bc);
 void freeBlockedCommand(BlockedCommand *bc);
 void deleteBlockedCommand(raft_index_t idx);

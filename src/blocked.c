@@ -12,7 +12,7 @@
 
 /* A list of all current blocked commands */
 
-BlockedCommand *newBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
+BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
 {
     BlockedCommand *bc = RedisModule_Calloc(1, sizeof(BlockedCommand));
     bc->command = RedisModule_Strdup(cmd_name);
@@ -139,7 +139,7 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
         /* save blocked command info */
         size_t cmdstr_len;
         const char *cmdstr = RedisModule_StringPtrLen(tmp.commands[0]->argv[0], &cmdstr_len);
-        BlockedCommand *bc = newBlockedCommand(cmdstr, idx, session, data, data_len, NULL, reply);
+        BlockedCommand *bc = allocBlockedCommand(cmdstr, idx, session, data, data_len, NULL, reply);
         addBlockedCommand(bc);
 
         /* setup handler */
