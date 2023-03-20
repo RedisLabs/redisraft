@@ -12,10 +12,10 @@
 
 /* A list of all current blocked commands */
 
-BlockedCommand *newBlockedCommand(raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
+BlockedCommand *newBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply)
 {
     BlockedCommand *bc = RedisModule_Calloc(1, sizeof(BlockedCommand));
-
+    bc->command = RedisModule_Strdup(cmd_name);
     bc->idx = idx;
     bc->session = session;
     bc->data = RedisModule_Alloc(data_len);
@@ -47,6 +47,10 @@ void deleteBlockedCommand(raft_index_t idx)
 
 void freeBlockedCommand(BlockedCommand *bc)
 {
+    if (bc->command) {
+        RedisModule_Free(bc->command);
+        bc->command = NULL;
+    }
     if (bc->data) {
         RedisModule_Free(bc->data);
         bc->data = NULL;
@@ -133,7 +137,9 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
         RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_PROMISE);
 
         /* save blocked command info */
-        BlockedCommand *bc = newBlockedCommand(idx, session, data, data_len, NULL, reply);
+        size_t cmdstr_len;
+        const char *cmdstr = RedisModule_StringPtrLen(tmp.commands[0]->argv[0], &cmdstr_len);
+        BlockedCommand *bc = newBlockedCommand(cmdstr, idx, session, data, data_len, NULL, reply);
         addBlockedCommand(bc);
 
         /* setup handler */
@@ -230,4 +236,18 @@ int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
     cmd->argv[index] = RedisModule_HoldString(NULL, zero);
 
     return REDISMODULE_OK;
+}
+
+/* when we time out, we have to return the null value for a command, but the null value can differ per command */
+int getNullReplyType(const char *cmd_str)
+{
+    size_t cmd_len = strlen(cmd_str);
+
+    if ((cmd_len == 8 && strncasecmp("bzpopmin", cmd_str, cmd_len) == 0) ||
+        (cmd_len == 8 && strncasecmp("bzpopmax", cmd_str, cmd_len) == 0) ||
+        (cmd_len == 6 && strncasecmp("bzmpop", cmd_str, 6) == 0)) {
+        return REDISRAFT_NULL_ARRAY;
+    }
+
+    return REDISRAFT_NULL_NONE;
 }

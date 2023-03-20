@@ -655,24 +655,6 @@ static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisComman
     return false;
 }
 
-/* when we time out, we have to return the null value for a command, but the null value can differ per command */
-static int getNullReplyType(RaftRedisCommandArray *cmds)
-{
-    RedisModule_Assert(cmds->len == 1);
-    RaftRedisCommand *cmd = cmds->commands[0];
-
-    size_t cmd_len;
-    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[0], &cmd_len);
-
-    if ((cmd_len == 8 && strncasecmp("bzpopmin", cmd_str, cmd_len) == 0) ||
-        (cmd_len == 8 && strncasecmp("bzpopmax", cmd_str, cmd_len) == 0) ||
-        (cmd_len == 6 && strncasecmp("bzmpop", cmd_str, 6) == 0)) {
-        return REDISRAFT_NULL_ARRAY;
-    }
-
-    return REDISRAFT_NULL_NONE;
-}
-
 static void handleRedisCommandAppend(RedisRaftCtx *rr,
                                      RedisModuleCtx *ctx,
                                      RaftRedisCommandArray *cmds)
@@ -783,9 +765,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     }
 
     long long timeout = 0;
-    bool blocking = false;
     if (cmd_flags & CMD_SPEC_BLOCKING) { /* protect against blocking commands in a MULTI above */
-        blocking = true;
         if (RaftRedisExtractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
             return;
         }
@@ -793,10 +773,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     RaftReq *req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
-
-    if (blocking) {
-        req->null_reply_type = getNullReplyType(&req->r.redis.cmds);
-    }
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
     entry->id = rand();

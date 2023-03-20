@@ -656,7 +656,7 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (bc->req) {
-        switch (bc->req->null_reply_type) {
+        switch (getNullReplyType(bc->command)) {
             case REDISRAFT_NULL_ARRAY:
                 RedisModule_ReplyWithNullArray(bc->req->ctx);
                 break;
@@ -714,8 +714,9 @@ static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t 
             RaftRedisCommandArrayFree(cmds);
         }
     } else {
-        /* I'm wondering if this is better set on the req object, which can be done at append time? */
-        BlockedCommand *bc = newBlockedCommand(entry_idx, entry->session, entry->data, entry->data_len, req, reply);
+        size_t cmdstr_len;
+        const char *cmdstr = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmdstr_len);
+        BlockedCommand *bc = newBlockedCommand(cmdstr, entry_idx, entry->session, entry->data, entry->data_len, req, reply);
         addBlockedCommand(bc);
         RedisModule_CallReplyPromiseSetUnblockHandler(reply, handleUnblock, bc);
         if (req) {
