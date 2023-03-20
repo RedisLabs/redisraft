@@ -651,7 +651,7 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
 
     if (RedisModule_CallReplyPromiseAbort(bc->reply, NULL) != REDISMODULE_OK) {
         /* shouldn't happen with normal redis commands */
-        LOG_WARNING("timeoutBlockedCommand: failed to abort %lu", idx);
+        LOG_WARNING("timeoutBlockedCommand: failed to abort %s at %lu", bc->command, idx);
         return;
     }
 
@@ -669,11 +669,6 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
 
     deleteBlockedCommand(bc->idx);
     freeBlockedCommand(bc);
-}
-
-static void clearBlockedCommands(RedisRaftCtx *rr, raft_index_t entry_idx)
-{
-    clearAllBlockCommands();
 }
 
 /*
@@ -1072,7 +1067,7 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             break;
         case RAFT_LOGTYPE_NO_OP:
             clearClientSessions(rr);
-            clearBlockedCommands(rr, entry_idx);
+            clearAllBlockCommands();
             break;
         case RAFT_LOGTYPE_TIMEOUT_BLOCKED:
             timeoutBlockedCommand(rr, entry);
