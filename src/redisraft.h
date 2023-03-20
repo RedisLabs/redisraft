@@ -698,6 +698,7 @@ typedef struct {
 #define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
 #define CMD_SPEC_SCRIPTS        (1 << 7) /* Commands that have script/function flags */
 #define CMD_SPEC_BLOCKING       (1 << 8) /* Blocking command */
+#define CMD_SPEC_MULTI          (1 << 9) /* a MULTI */
 
 /* Command filtering re-entrancy counter handling.
  *

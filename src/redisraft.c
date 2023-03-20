@@ -716,7 +716,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * once.
      */
     unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, CMD_SPEC_WRITE);
-    if (cmds->len != 1) {
+    if (cmd_flags & CMD_SPEC_MULTI) {
         /* if this is a MULTI, we aren't blocking */
         cmd_flags &= ~CMD_SPEC_BLOCKING;
     }

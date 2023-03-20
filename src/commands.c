@@ -79,6 +79,8 @@ static const CommandSpec commands[] = {
     {"slowlog",                     CMD_SPEC_DONT_INTERCEPT                  },
     {"acl",                         CMD_SPEC_DONT_INTERCEPT                  },
 
+    {"multi",                       CMD_SPEC_MULTI                           },
+
  /* RedisRaft Commands */
     {"raft",                        CMD_SPEC_DONT_INTERCEPT                  },
     {"raft.entry",                  CMD_SPEC_DONT_INTERCEPT                  },
