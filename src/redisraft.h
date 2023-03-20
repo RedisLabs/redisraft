@@ -842,7 +842,8 @@ void RedisRaftCtxClear(RedisRaftCtx *rr);
 
 /* raft.c */
 void RaftReqFree(RaftReq *req);
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout);
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
+RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
 RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);

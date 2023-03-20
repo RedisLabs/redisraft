@@ -1771,29 +1771,36 @@ void blockedTimedOut(RedisModuleCtx *ctx, void *data)
     raft_entry_release(entry);
 }
 
-/* timeout is used to determine if there is a timeout and if it's a blocking command.
- * non blocking commands should use -1.  Blocking commands should use 0 if there's no timeout, or
- * a positive number if there is a timeout
- */
-RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
+static RaftReq *RaftReqInitCore(RedisModuleCtx *ctx, enum RaftReqType type)
 {
-    bool blocking = timeout >= 0 ? true : false;
-
     RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
     if (ctx != NULL) {
         req->client_id = RedisModule_GetClientId(ctx);
-        if (blocking) {
-            req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-        } else {
-            req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-        }
+        req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }
     req->type = type;
 
+    return req;
+}
+
+RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
+{
+    RaftReq *req = RaftReqInitCore(ctx, type);
+
     if (type == RR_MIGRATE_KEYS) {
         redis_raft.migrate_req = req;
     }
+
+    TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
+          req, RaftReqTypeStr[req->type], req->client, req->ctx);
+
+    return req;
+}
+
+RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
+{
+    RaftReq *req = RaftReqInitCore(ctx, type);
 
     if (timeout > 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);

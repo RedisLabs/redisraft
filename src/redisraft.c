@@ -139,7 +139,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE, -1);
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
         entry->id = rand();
@@ -181,7 +181,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             .id = (raft_node_id_t) node_id,
         };
 
-        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE, -1);
+        RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
         entry->id = rand();
@@ -247,7 +247,7 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
         return REDISMODULE_OK;
     }
 
-    rr->transfer_req = RaftReqInit(ctx, RR_TRANSFER_LEADER, -1);
+    rr->transfer_req = RaftReqInit(ctx, RR_TRANSFER_LEADER);
 
     return REDISMODULE_OK;
 }
@@ -484,7 +484,7 @@ static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCom
         keys[i] = RedisModule_HoldString(ctx, cmd->argv[idx + i]);
     }
 
-    req = RaftReqInit(ctx, RR_MIGRATE_KEYS, -1);
+    req = RaftReqInit(ctx, RR_MIGRATE_KEYS);
 
     /* Overwrite with new data */
     req->r.migrate_keys.num_keys = num_keys;
@@ -643,7 +643,7 @@ static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisComman
             const char *cmd = RedisModule_StringPtrLen(cmds->commands[0]->argv[0], &cmd_len);
 
             if (cmd_len == 7 && strncasecmp(cmd, "UNWATCH", 7) == 0) {
-                RaftReq *req = RaftReqInit(ctx, RR_END_SESSION, -1);
+                RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
                 unsigned long long id = RedisModule_GetClientId(ctx);
                 appendEndClientSession(rr, req, id, "UNWATCH");
 
@@ -771,7 +771,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
             return;
         }
 
-        RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND, -1);
+        RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
         RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
         int rc = raft_recv_read_request(rr->raft, handleReadOnlyCommand, req);
@@ -791,7 +791,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         }
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND, timeout);
+    RaftReq *req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
     if (blocking) {
@@ -1283,7 +1283,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             NodeAddrListAddElement(&addrs, &addr);
         }
 
-        RaftReq *req = RaftReqInit(ctx, RR_CLUSTER_JOIN, -1);
+        RaftReq *req = RaftReqInit(ctx, RR_CLUSTER_JOIN);
         JoinCluster(rr, addrs, req, clusterJoinCompleted);
 
         NodeAddrListFree(addrs);
@@ -1444,7 +1444,7 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             return REDISMODULE_OK;
         }
 
-        rr->debug_req = RaftReqInit(ctx, RR_DEBUG, -1);
+        rr->debug_req = RaftReqInit(ctx, RR_DEBUG);
     } else if (!strncasecmp(cmd, "nodecfg", cmdlen)) {
         if (argc != 4) {
             RedisModule_WrongArity(ctx);
