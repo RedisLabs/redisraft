@@ -30,9 +30,6 @@ static const char *ConnStateStr[] = {
     "connect_error",
 };
 
-/* A list of all connections */
-static LIST_HEAD(conn_list, Connection) conn_list = LIST_HEAD_INITIALIZER(conn_list);
-
 /* Create a new connection.
  *
  * The new connection is created in an idle state, so if it has an idle
@@ -47,12 +44,12 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
 
     Connection *conn = RedisModule_Calloc(1, sizeof(Connection));
 
-    LIST_INSERT_HEAD(&conn_list, conn, entries);
     conn->rr = rr;
     conn->privdata = privdata;
     conn->idle_callback = idle_cb;
     conn->free_callback = free_cb;
     conn->id = ++id;
+    sc_list_init(&conn->entries);
 
     if (username) {
         conn->username = RedisModule_Strdup(username);
@@ -68,6 +65,7 @@ Connection *ConnCreate(RedisRaftCtx *rr, void *privdata,
         .tv_usec = (timeout_millis % 1000) * 1000,
     };
 
+    sc_list_add_head(&rr->connections, &conn->entries);
     CONN_TRACE(conn, "Connection created.");
 
     return conn;
@@ -93,7 +91,7 @@ static void ConnFree(Connection *conn)
 
     CONN_TRACE(conn, "Connection freed.");
 
-    LIST_REMOVE(conn, entries);
+    sc_list_del(&conn->rr->connections, &conn->entries);
 
     RedisModule_Free(conn);
 }
@@ -454,14 +452,16 @@ void HandleIdleConnections(RedisRaftCtx *rr)
     if (rr->state == REDIS_RAFT_LOADING)
         return;
 
-    Connection *conn, *tmp;
-    LIST_FOREACH_SAFE (conn, &conn_list, entries, tmp) {
+    struct sc_list *tmp, *it;
+
+    sc_list_foreach_safe (&rr->connections, tmp, it) {
         /* Idle connections are either terminating and should be reaped,
          * or waiting for an idle callback which can re-connect them.
          */
+        Connection *conn = sc_list_entry(it, Connection, entries);
         if (ConnIsIdle(conn)) {
             if (conn->flags & CONN_TERMINATING) {
-                LIST_REMOVE(conn, entries);
+                sc_list_del(&rr->connections, &conn->entries);
                 if (conn->rc) {
                     /* Note: redisAsyncFree will call the connDataCleanupCallback
                      * callback which will free the Conn structure!
