@@ -211,6 +211,7 @@ add_dependencies(coverage-report coverage)
 add_library(redisraft MODULE
         deps/common/crc16.c
         deps/common/sc_crc32.c
+        deps/common/sc_list.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
@@ -270,6 +271,7 @@ target_include_directories(redisraft PUBLIC
 add_executable(main
         deps/common/crc16.c
         deps/common/sc_crc32.c
+        deps/common/sc_list.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
