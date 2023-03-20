@@ -203,7 +203,6 @@ int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *
     }
 
     return RR_OK;
-
 }
 
 static RedisModuleString *zero = NULL;
