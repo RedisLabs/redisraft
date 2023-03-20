@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <strings.h>
 
 /* A list of all current blocked commands */
 
