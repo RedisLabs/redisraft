@@ -108,6 +108,7 @@ void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
         RedisModule_Assert(reply != NULL);
 
         if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+            rr->importkeys_restore_failed_count++;
             size_t err_len;
             const char *err = RedisModule_CallReplyStringPtr(reply, &err_len);
             LOG_WARNING("importKeys: restore failed with %.*s", (int) err_len, err);

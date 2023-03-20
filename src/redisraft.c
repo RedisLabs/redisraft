@@ -1929,6 +1929,7 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", rr->snapshotreq_received);
     RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
     RedisModule_InfoAddFieldULongLong(ctx, "num_sessions", RedisModule_DictSize(rr->client_session_dict));
+    RedisModule_InfoAddFieldULongLong(ctx, "importkeys_restore_failed_count", rr->importkeys_restore_failed_count);
 }
 
 static int registerRaftCommands(RedisModuleCtx *ctx)
