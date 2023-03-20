@@ -123,7 +123,7 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
 
         /* execute blocking command again */
         RaftRedisCommandArray tmp = {0};
-        if (RaftRedisCommandArrayDeserialize(&tmp,data,data_len) != RR_OK) {
+        if (RaftRedisCommandArrayDeserialize(&tmp,data, data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
         tmp.client_id = session;
