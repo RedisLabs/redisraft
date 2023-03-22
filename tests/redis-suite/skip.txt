@@ -1,6 +1,6 @@
 -- "client unblock" command support needed
 client unblock tests
-Blocking command acounted only once in commandstats after timeout
+Blocking command accounted only once in commandstats after timeout
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
