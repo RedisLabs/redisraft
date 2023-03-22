@@ -363,9 +363,9 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
  * If reply_ctx is non-NULL, replies are delivered to it.
  * Otherwise, no replies are delivered.
  *
- * Now handles blacking commands (ex: brpop) as well.
+ * Now handles blocking commands (ex: brpop) as well.
  * If a blocking command is issued, we execute normally, but now use the return value of RM_Call()
- * to indicate if we areblocking (i.e. should the req not be freed).  If RM_Call returns a promise, we
+ * to indicate if we are blocking (i.e. should the req not be freed).  If RM_Call returns a promise, we
  * return the promise to the caller, otherwise we return NULL.
  */
 RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
@@ -394,7 +394,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     (void) client_session; /* unused for now */
 
     if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
-        RedisModule_Assert(RaftRedisReplaceBlockingTimeout(cmds) == REDISMODULE_OK);
+        RaftRedisReplaceBlockingTimeout(cmds);
     }
 
     for (int i = 0; i < cmds->len; i++) {
@@ -447,24 +447,24 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 
-        bool blocking = false;
-        if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_PROMISE) {
-            RedisModule_Assert(cmds->len == 1); /* should only block when there's a single command */
-            blocking = true;
-        }
+        if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_PROMISE) {
+            /* reply to client if we didn't block */
+            if (req) {
+                RedisModule_ReplyWithCallReply(req->ctx, reply);
+            }
 
-        /* reply to client if we didn't block */
-        if (req && !blocking) {
-            RedisModule_ReplyWithCallReply(req->ctx, reply);
-        }
-
-        /* we don't free a promise, but return it to the caller, to setup callback / saving state */
-        if (!blocking) {
+            /* only free non reply on non blocked commands */
             RedisModule_FreeCallReply(reply);
+
+            /* we return non blocked commands as NULL
             reply = NULL;
+        } else {
+            /* if we're blocking, there should only have been one command */
+            RedisModule_Assert(cmds->len == 1); /* should only block when there's a single command */
         }
     }
 
+    /* if blocking (this won't be NULL), return it to the caller, to setup callback / saving state */
     return reply;
 }
 
@@ -639,9 +639,10 @@ static void clearClientSessions(RedisRaftCtx *rr)
 
 static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
 {
-    RedisModule_Assert(entry->data_len == sizeof(raft_index_t));
     raft_index_t idx;
-    memcpy(&idx, entry->data, sizeof(idx));
+    bool error; /* not used yet */
+
+    RedisModule_Assert(RaftRedisDeserializeTimeout(entry->data, entry->data_len, &idx, &error) != RR_OK);
 
     BlockedCommand *bc = getBlockedCommand(idx);
     if (!bc) {
@@ -656,13 +657,12 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     if (bc->req) {
-        switch (getNullReplyType(bc->command)) {
-            case REDISRAFT_NULL_ARRAY:
-                RedisModule_ReplyWithNullArray(bc->req->ctx);
-                break;
-            default:
-                RedisModule_ReplyWithNull(bc->req->ctx);
-                break;
+        if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
+            (strncasecmp(bc->command, "bzpopmax", 8) == 0) ||
+            (strncasecmp(bc->command, "bzmpop", 6) == 0)) {
+            RedisModule_ReplyWithNullArray(bc->req->ctx);
+        } else {
+            RedisModule_ReplyWithNull(bc->req->ctx);
         }
         RaftReqFree(bc->req);
     }
@@ -1751,10 +1751,7 @@ void blockedTimedOut(RedisModuleCtx *ctx, void *data)
     RaftReq *req = data;
 
     /* don't need to attach the req to this entry, as the req is part of the BlockedClient object */
-    raft_entry_t *entry = raft_entry_new(sizeof(raft_index_t));
-    entry->id = rand();
-    entry->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
-    memcpy(entry->data, &req->raft_idx, entry->data_len);
+    raft_entry_t *entry = RaftRedisSerializeTimeout(req->raft_idx, false);
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
@@ -1771,7 +1768,6 @@ static RaftReq *RaftReqInitCore(RedisModuleCtx *ctx, enum RaftReqType type)
 {
     RaftReq *req = RedisModule_Calloc(1, sizeof(RaftReq));
     if (ctx != NULL) {
-        req->client_id = RedisModule_GetClientId(ctx);
         req->client = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
         req->ctx = RedisModule_GetThreadSafeContext(req->client);
     }

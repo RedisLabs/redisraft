@@ -465,3 +465,57 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
 
     return ret;
 }
+
+raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error) {
+    int n;
+    int err_val = error ? 1 : 0;
+
+    size_t sz = calcIntSerializedLen(idx); /* idx we are timing out */
+    sz += calcIntSerializedLen(err_val); /* encoding the error bool */
+
+    raft_entry_t *ety = raft_entry_new(sz);
+    ety->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
+
+    char *p = ety->data;
+
+    /* Encode idx of entry we are timing out */
+    n = encodeInteger('*', p, sz, idx);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    /* Encode if regular timeout or error */
+    n = encodeInteger('*', p, sz, err_val);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    return ety;
+}
+
+RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error) {
+    const char *p = buf;
+    int n;
+
+    size_t tmp;
+
+    /* Read idx */
+    if ((n = decodeInteger(p, buf_size, '*', &tmp)) < 0 || !idx) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    *idx = tmp;
+
+    /* read error */
+    if ((n = decodeInteger(p, buf_size, '*', &tmp)) < 0) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    *error = (tmp == 1);
+
+    RedisModule_Assert(buf_size == 0);
+
+    return RR_OK;
+}

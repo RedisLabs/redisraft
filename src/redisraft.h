@@ -519,11 +519,11 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    unsigned long long client_id; /* client id for maintaining sessions */
+    raft_session_t client_id;     /* client id for maintaining sessions */
     bool asking;                  /* if this command array is in an asking mode */
     int size;                     /* Size of allocated array */
     int len;                      /* Number of elements in array */
-    size_t cmd_flags;             /* the calculated cmd_flags for all commands in this array */
+    unsigned long cmd_flags;      /* the calculated cmd_flags for all commands in this array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
 } RaftRedisCommandArray;
@@ -633,7 +633,7 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
     raft_index_t raft_idx;
-    unsigned long long client_id;
+    raft_session_t client_id;
 
     union {
         struct {
@@ -835,6 +835,8 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys);
 RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t buf_size);
 raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc);
 RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys);
+raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error);
+RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error);
 
 /* redisraft.c */
 RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
@@ -1003,7 +1005,6 @@ void blockedCommandsSave(RedisModuleIO *rdb);
 void blockedCommandsLoad(RedisModuleIO *rdb);
 void clearAllBlockCommands();
 int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout);
-int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
-int getNullReplyType(const char *cmd_str);
+void RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
 
 #endif

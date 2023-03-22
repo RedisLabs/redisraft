@@ -764,14 +764,16 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    long long timeout = 0;
+    RaftReq *req;
     if (cmd_flags & CMD_SPEC_BLOCKING) { /* protect against blocking commands in a MULTI above */
+        long long timeout = 0;
         if (RaftRedisExtractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
             return;
         }
+        req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);
+    } else {
+        req = RaftReqInit(ctx, RR_REDISCOMMAND);
     }
-
-    RaftReq *req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);

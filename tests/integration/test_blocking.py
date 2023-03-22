@@ -1,6 +1,6 @@
 from _pytest.python_api import raises
 
-from redis.exceptions import ConnectionError
+from redis.exceptions import ConnectionError, ResponseError
 from .sandbox import RawConnection
 
 
@@ -284,7 +284,7 @@ def test_blocking_with_term_change(cluster):
         assert val == [b'3', b'2', b'1']
 
 
-def test_blocking_with_key_reaname(cluster):
+def test_blocking_with_key_rename(cluster):
     cluster.create(3)
 
     c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
@@ -302,3 +302,16 @@ def test_blocking_with_key_reaname(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert val == [b'3', b'2']
+
+
+def test_blocking_with_invalid_timeout(cluster):
+    cluster.create(3)
+
+    with raises(ResponseError, match="timeout is not a float or out of range"):
+        cluster.execute("blpop", "x", "a")
+
+    with raises(ResponseError, match="timeout is negative"):
+        cluster.execute("blpop", "x", "-1")
+
+    with raises(ResponseError, match="timeout is out of range"):
+        cluster.execute("blpop", "x", "0x7FFFFFFFFFFFFF")

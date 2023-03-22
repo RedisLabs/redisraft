@@ -24,12 +24,13 @@ BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft
     bc->req = req;
     bc->reply = reply;
 
+    sc_list_init(&bc->blocked_list);
+
     return bc;
 }
 
 void addBlockedCommand(BlockedCommand *bc)
 {
-    sc_list_init(&bc->blocked_list);
     sc_list_add_tail(&redis_raft.blocked_command_list, &bc->blocked_list);
     RedisModule_DictSetC(redis_raft.blocked_command_dict, &bc->idx, sizeof(bc->idx), bc);
 }
@@ -37,6 +38,7 @@ void addBlockedCommand(BlockedCommand *bc)
 void deleteBlockedCommand(raft_index_t idx)
 {
     BlockedCommand *blocked = NULL;
+
     RedisModule_DictDelC(redis_raft.blocked_command_dict, &idx, sizeof(idx), &blocked);
     if (blocked == NULL) {
         return;
@@ -47,18 +49,12 @@ void deleteBlockedCommand(raft_index_t idx)
 
 void freeBlockedCommand(BlockedCommand *bc)
 {
-    if (bc->command) {
-        RedisModule_Free(bc->command);
-        bc->command = NULL;
-    }
-    if (bc->data) {
-        RedisModule_Free(bc->data);
-        bc->data = NULL;
-    }
     if (bc->reply) {
         RedisModule_FreeCallReply(bc->reply);
-        bc->reply = NULL;
     }
+
+    RedisModule_Free(bc->command);
+    RedisModule_Free(bc->data);
     RedisModule_Free(bc);
 }
 
@@ -70,6 +66,7 @@ BlockedCommand *getBlockedCommand(raft_index_t idx)
 void clearAllBlockCommands()
 {
     struct sc_list *elem;
+
     while ((elem = sc_list_pop_head(&redis_raft.blocked_command_list)) != NULL) {
         BlockedCommand *bc = sc_list_entry(elem, BlockedCommand, blocked_list);
         if (RedisModule_CallReplyPromiseAbort(bc->reply, NULL) != REDISMODULE_OK) {
@@ -127,11 +124,12 @@ void blockedCommandsLoad(RedisModuleIO *rdb)
         char *data = RedisModule_LoadStringBuffer(rdb, &data_len);
 
         /* execute blocking command again */
-        RaftRedisCommandArray tmp = {0};
+        RaftRedisCommandArray tmp = {
+                .client_id = session,
+        };
         if (RaftRedisCommandArrayDeserialize(&tmp, data, data_len) != RR_OK) {
             PANIC("Invalid Raft entry");
         }
-        tmp.client_id = session;
         RedisModuleCallReply *reply = RaftExecuteCommandArray(rr, NULL, &tmp);
         RedisModule_Assert(reply != NULL);
         RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_PROMISE);
@@ -214,19 +212,15 @@ int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *
 
 static RedisModuleString *zero = NULL;
 
-int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
+void RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
 {
     RedisModule_Assert(cmds->len == 1);
 
     RaftRedisCommand *cmd = cmds->commands[0];
-    if (cmd->argc < 2) {
-        return REDISMODULE_ERR;
-    }
+    RedisModule_Assert(cmd->argc >= 2);
 
     int index = findTimeoutIndex(cmd);
-    if (index == -1) {
-        return REDISMODULE_ERR;
-    }
+    RedisModule_Assert(index != -1);
 
     if (zero == NULL) {
         zero = RedisModule_CreateString(NULL, "0", 1);
@@ -234,20 +228,4 @@ int RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
 
     RedisModule_FreeString(NULL, cmd->argv[index]);
     cmd->argv[index] = RedisModule_HoldString(NULL, zero);
-
-    return REDISMODULE_OK;
-}
-
-/* when we time out, we have to return the null value for a command, but the null value can differ per command */
-int getNullReplyType(const char *cmd_str)
-{
-    size_t cmd_len = strlen(cmd_str);
-
-    if ((cmd_len == 8 && strncasecmp("bzpopmin", cmd_str, cmd_len) == 0) ||
-        (cmd_len == 8 && strncasecmp("bzpopmax", cmd_str, cmd_len) == 0) ||
-        (cmd_len == 6 && strncasecmp("bzmpop", cmd_str, 6) == 0)) {
-        return REDISRAFT_NULL_ARRAY;
-    }
-
-    return REDISRAFT_NULL_NONE;
 }

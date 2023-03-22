@@ -93,7 +93,7 @@ int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
 {
     int n = snprintf(ptr, sz, "%c%lu\n", prefix, val);
 
-    if (n >= (int) sz) {
+    if (n > (int) sz) {
         return -1;
     }
     return n;
