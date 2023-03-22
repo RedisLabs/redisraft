@@ -472,7 +472,7 @@ raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
     int err_val = error ? 1 : 0;
 
     size_t sz = calcIntSerializedLen(idx); /* idx we are timing out */
-    sz += calcIntSerializedLen(err_val); /* encoding the error bool */
+    sz += calcIntSerializedLen(err_val);   /* encoding the error bool */
 
     raft_entry_t *ety = raft_entry_new(sz);
     ety->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
