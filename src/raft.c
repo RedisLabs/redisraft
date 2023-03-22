@@ -456,7 +456,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
             /* only free non reply on non blocked commands */
             RedisModule_FreeCallReply(reply);
 
-            /* we return non blocked commands as NULL
+            /* we return non blocked commands as NULL */
             reply = NULL;
         } else {
             /* if we're blocking, there should only have been one command */

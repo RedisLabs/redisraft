@@ -519,11 +519,11 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    raft_session_t client_id;     /* client id for maintaining sessions */
-    bool asking;                  /* if this command array is in an asking mode */
-    int size;                     /* Size of allocated array */
-    int len;                      /* Number of elements in array */
-    unsigned long cmd_flags;      /* the calculated cmd_flags for all commands in this array */
+    raft_session_t client_id; /* client id for maintaining sessions */
+    bool asking;              /* if this command array is in an asking mode */
+    int size;                 /* Size of allocated array */
+    int len;                  /* Number of elements in array */
+    unsigned long cmd_flags;  /* the calculated cmd_flags for all commands in this array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
 } RaftRedisCommandArray;

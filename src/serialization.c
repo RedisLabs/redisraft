@@ -466,7 +466,8 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
     return ret;
 }
 
-raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error) {
+raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
+{
     int n;
     int err_val = error ? 1 : 0;
 
@@ -493,7 +494,8 @@ raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error) {
     return ety;
 }
 
-RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error) {
+RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error)
+{
     const char *p = buf;
     int n;
 
