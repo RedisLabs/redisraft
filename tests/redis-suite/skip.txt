@@ -1,3 +1,6 @@
+-- 'reset' command is not supported
+RESET doesn NOT clean library name
+
 -- "client unblock" command support needed
 client unblock tests
 Blocking command accounted only once in commandstats after timeout
