@@ -767,7 +767,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     RaftReq *req;
     if (cmd_flags & CMD_SPEC_BLOCKING) { /* protect against blocking commands in a MULTI above */
         long long timeout = 0;
-        if (RaftRedisExtractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
+        if (extractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
             return;
         }
         req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);

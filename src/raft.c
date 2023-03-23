@@ -394,7 +394,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     (void) client_session; /* unused for now */
 
     if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
-        RaftRedisReplaceBlockingTimeout(cmds);
+        replaceBlockingTimeout(cmds);
     }
 
     for (int i = 0; i < cmds->len; i++) {

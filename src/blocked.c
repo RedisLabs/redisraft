@@ -167,7 +167,7 @@ static int findTimeoutIndex(RaftRedisCommand *cmd)
     }
 }
 
-int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout)
+int extractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout)
 {
     long double tmp;
     RedisModule_Assert(cmds->len == 1);
@@ -212,7 +212,7 @@ int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *
 
 static RedisModuleString *zero = NULL;
 
-void RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds)
+void replaceBlockingTimeout(RaftRedisCommandArray *cmds)
 {
     RedisModule_Assert(cmds->len == 1);
 

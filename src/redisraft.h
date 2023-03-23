@@ -633,7 +633,6 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
     raft_index_t raft_idx;
-    raft_session_t client_id;
 
     union {
         struct {
@@ -657,9 +656,6 @@ typedef struct RaftReq {
         } migrate_keys;
     } r;
 } RaftReq;
-
-#define REDISRAFT_NULL_NONE  1
-#define REDISRAFT_NULL_ARRAY 2
 
 typedef struct BlockedCommand {
     char *command;
@@ -1004,7 +1000,7 @@ BlockedCommand *getBlockedCommand(raft_index_t idx);
 void blockedCommandsSave(RedisModuleIO *rdb);
 void blockedCommandsLoad(RedisModuleIO *rdb);
 void clearAllBlockCommands();
-int RaftRedisExtractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout);
-void RaftRedisReplaceBlockingTimeout(RaftRedisCommandArray *cmds);
+int extractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout);
+void replaceBlockingTimeout(RaftRedisCommandArray *cmds);
 
 #endif
