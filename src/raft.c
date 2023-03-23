@@ -642,7 +642,8 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     raft_index_t idx;
     bool error; /* not used yet */
 
-    RedisModule_Assert(RaftRedisDeserializeTimeout(entry->data, entry->data_len, &idx, &error) != RR_OK);
+    int ret = RaftRedisDeserializeTimeout(entry->data, entry->data_len, &idx, &error);
+    RedisModule_Assert(ret == RR_OK);
 
     BlockedCommand *bc = getBlockedCommand(idx);
     if (!bc) {
@@ -651,7 +652,8 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* In future might have to handle abort failing, but for plain redis commands this is a panic condition */
-    RedisModule_Assert(RedisModule_CallReplyPromiseAbort(bc->reply, NULL) == REDISMODULE_OK);
+    ret = RedisModule_CallReplyPromiseAbort(bc->reply, NULL);
+    RedisModule_Assert(ret == REDISMODULE_OK);
 
     if (bc->req) {
         if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||

@@ -473,6 +473,7 @@ raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
 
     size_t sz = calcIntSerializedLen(idx); /* idx we are timing out */
     sz += calcIntSerializedLen(err_val);   /* encoding the error bool */
+    sz++;
 
     raft_entry_t *ety = raft_entry_new(sz);
     ety->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
@@ -517,7 +518,7 @@ RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_inde
     buf_size -= n;
     *error = (tmp == 1);
 
-    RedisModule_Assert(buf_size == 0);
+    RedisModule_Assert(buf_size == 1); /* should only have the final '\0' at the end of the data */
 
     return RR_OK;
 }
