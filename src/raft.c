@@ -651,7 +651,7 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* In future might have to handle abort failing, but for plain redis commands this is a panic condition */
-    RedisModule_Assert(RedisModule_CallReplyPromiseAbort(bc->reply, NULL) != REDISMODULE_OK);
+    RedisModule_Assert(RedisModule_CallReplyPromiseAbort(bc->reply, NULL) == REDISMODULE_OK);
 
     if (bc->req) {
         if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
