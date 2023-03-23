@@ -31,14 +31,14 @@ static const CommandSpec commands[] = {
     {"fcall_ro",                    CMD_SPEC_SCRIPTS                         },
 
  /* Blocking commands not supported */
-    {"brpop",                       CMD_SPEC_UNSUPPORTED                     },
-    {"brpoplpush",                  CMD_SPEC_UNSUPPORTED                     },
-    {"blmove",                      CMD_SPEC_UNSUPPORTED                     },
-    {"blpop",                       CMD_SPEC_UNSUPPORTED                     },
-    {"blmpop",                      CMD_SPEC_UNSUPPORTED                     },
-    {"bzpopmin",                    CMD_SPEC_UNSUPPORTED                     },
-    {"bzpopmax",                    CMD_SPEC_UNSUPPORTED                     },
-    {"bzmpop",                      CMD_SPEC_UNSUPPORTED                     },
+    {"brpop",                       CMD_SPEC_BLOCKING                        },
+    {"brpoplpush",                  CMD_SPEC_BLOCKING                        },
+    {"blmove",                      CMD_SPEC_BLOCKING                        },
+    {"blpop",                       CMD_SPEC_BLOCKING                        },
+    {"blmpop",                      CMD_SPEC_BLOCKING                        },
+    {"bzpopmin",                    CMD_SPEC_BLOCKING                        },
+    {"bzpopmax",                    CMD_SPEC_BLOCKING                        },
+    {"bzmpop",                      CMD_SPEC_BLOCKING                        },
 
  /* Stream commands not supported */
     {"xadd",                        CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM   },
@@ -78,6 +78,8 @@ static const CommandSpec commands[] = {
     {"quit",                        CMD_SPEC_DONT_INTERCEPT                  },
     {"slowlog",                     CMD_SPEC_DONT_INTERCEPT                  },
     {"acl",                         CMD_SPEC_DONT_INTERCEPT                  },
+
+    {"multi",                       CMD_SPEC_MULTI                           },
 
  /* RedisRaft Commands */
     {"raft",                        CMD_SPEC_DONT_INTERCEPT                  },

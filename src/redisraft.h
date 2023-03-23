@@ -430,6 +430,10 @@ typedef struct RedisRaftCtx {
     RedisModuleDict *locked_keys;         /* keys that have been locked for migration */
     RedisModuleDict *acl_dict;            /* maps acl strings to RedisModuleUser * objects */
     RedisModuleDict *client_session_dict; /* maps session IDs to Session Objects */
+
+    /* we use a dict and an intrusive list to reproduce java's LinkedHashMap, fast lookup with order maintenance */
+    struct sc_list blocked_command_list;   /* list of blocked commands in order of them blocking */
+    RedisModuleDict *blocked_command_dict; /* raft entry id -> blocked command mapping, for fast lookup */
 } RedisRaftCtx;
 
 extern RedisRaftCtx redis_raft;
@@ -515,10 +519,11 @@ typedef struct {
 } RaftRedisCommand;
 
 typedef struct {
-    unsigned long long client_id; /* client id for maintaining sessions */
-    bool asking;                  /* if this command array is in an asking mode */
-    int size;                     /* Size of allocated array */
-    int len;                      /* Number of elements in array */
+    raft_session_t client_id; /* client id for maintaining sessions */
+    bool asking;              /* if this command array is in an asking mode */
+    int size;                 /* Size of allocated array */
+    int len;                  /* Number of elements in array */
+    unsigned long cmd_flags;  /* the calculated cmd_flags for all commands in this array */
     RaftRedisCommand **commands;
     RedisModuleString *acl;
 } RaftRedisCommandArray;
@@ -589,6 +594,7 @@ typedef struct ShardGroup {
 #define RAFT_LOGTYPE_DELETE_UNLOCK_KEYS  (RAFT_LOGTYPE_NUM + 5)
 #define RAFT_LOGTYPE_IMPORT_KEYS         (RAFT_LOGTYPE_NUM + 6)
 #define RAFT_LOGTYPE_END_SESSION         (RAFT_LOGTYPE_NUM + 7)
+#define RAFT_LOGTYPE_TIMEOUT_BLOCKED     (RAFT_LOGTYPE_NUM + 8)
 
 #define MAX_AUTH_STRING_ARG_LENGTH 255
 
@@ -625,6 +631,8 @@ typedef struct RaftReq {
     int type;
     RedisModuleBlockedClient *client;
     RedisModuleCtx *ctx;
+    RedisModuleTimerID timeout_timer;
+    raft_index_t raft_idx;
 
     union {
         struct {
@@ -648,6 +656,17 @@ typedef struct RaftReq {
         } migrate_keys;
     } r;
 } RaftReq;
+
+typedef struct BlockedCommand {
+    char *command;
+    raft_index_t idx;
+    raft_session_t session;
+    char *data;
+    size_t data_len;
+    RaftReq *req;
+    RedisModuleCallReply *reply;
+    struct sc_list blocked_list;
+} BlockedCommand;
 
 #define SNAPSHOT_RESULT_MAGIC 0x70616e73 /* "snap" */
 
@@ -674,6 +693,8 @@ typedef struct {
 #define CMD_SPEC_SORT_REPLY     (1 << 5) /* Command output should be sorted within a lua script */
 #define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
 #define CMD_SPEC_SCRIPTS        (1 << 7) /* Commands that have script/function flags */
+#define CMD_SPEC_BLOCKING       (1 << 8) /* Blocking command */
+#define CMD_SPEC_MULTI          (1 << 9) /* a MULTI */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -810,6 +831,8 @@ raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys);
 RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t buf_size);
 raft_entry_t *RaftRedisLockKeysSerialize(RedisModuleString **argv, size_t argc);
 RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_size, size_t *num_keys);
+raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error);
+RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error);
 
 /* redisraft.c */
 RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
@@ -818,8 +841,9 @@ void RedisRaftCtxClear(RedisRaftCtx *rr);
 /* raft.c */
 void RaftReqFree(RaftReq *req);
 RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type);
+RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout);
 void RaftLibraryInit(RedisRaftCtx *rr, bool cluster_init);
-void RaftExecuteCommandArray(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleCtx *reply_ctx, RaftRedisCommandArray *array);
+RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr, RaftReq *req, RaftRedisCommandArray *array);
 void addUsedNodeId(RedisRaftCtx *rr, raft_node_id_t node_id);
 raft_node_id_t makeRandomNodeId(RedisRaftCtx *rr);
 void entryAttachRaftReq(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
@@ -830,6 +854,8 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void blockedTimedOut(RedisModuleCtx *ctx, void *data);
+void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 
 /* util.c */
 int RedisModuleStringToInt(RedisModuleString *str, int *value);
@@ -964,5 +990,17 @@ void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
+
+/* blocked.c */
+BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);
+void addBlockedCommand(BlockedCommand *bc);
+void freeBlockedCommand(BlockedCommand *bc);
+void deleteBlockedCommand(raft_index_t idx);
+BlockedCommand *getBlockedCommand(raft_index_t idx);
+void blockedCommandsSave(RedisModuleIO *rdb);
+void blockedCommandsLoad(RedisModuleIO *rdb);
+void clearAllBlockCommands();
+int extractBlockingTimeout(RedisModuleCtx *ctx, RaftRedisCommandArray *cmds, long long *timeout);
+void replaceBlockingTimeout(RaftRedisCommandArray *cmds);
 
 #endif
