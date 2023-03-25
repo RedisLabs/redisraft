@@ -412,6 +412,7 @@ typedef struct RedisRaftCtx {
     struct ShardingInfo *sharding_info; /* Information about sharding, when cluster mode is enabled */
     RedisModuleDict *client_state;      /* A dict that tracks different client states */
     struct CommandSpecTable *commands_spec_table;
+    RedisModuleDict *subcommand_spec_tables; /* a dict that maps aggregate commands to its subcommand table */
 
     /* General stats */
     unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
@@ -686,15 +687,16 @@ typedef struct {
     unsigned int flags; /* Command flags, see CMD_SPEC_* */
 } CommandSpec;
 
-#define CMD_SPEC_READONLY       (1 << 1) /* Command is a read-only command */
-#define CMD_SPEC_WRITE          (1 << 2) /* Command is a (potentially) write command */
-#define CMD_SPEC_UNSUPPORTED    (1 << 3) /* Command is not supported, should be rejected */
-#define CMD_SPEC_DONT_INTERCEPT (1 << 4) /* Command should not be intercepted to RAFT */
-#define CMD_SPEC_SORT_REPLY     (1 << 5) /* Command output should be sorted within a lua script */
-#define CMD_SPEC_RANDOM         (1 << 6) /* Commands that are always random */
-#define CMD_SPEC_SCRIPTS        (1 << 7) /* Commands that have script/function flags */
-#define CMD_SPEC_BLOCKING       (1 << 8) /* Blocking command */
-#define CMD_SPEC_MULTI          (1 << 9) /* a MULTI */
+#define CMD_SPEC_READONLY       (1 << 1)  /* Command is a read-only command */
+#define CMD_SPEC_WRITE          (1 << 2)  /* Command is a (potentially) write command */
+#define CMD_SPEC_UNSUPPORTED    (1 << 3)  /* Command is not supported, should be rejected */
+#define CMD_SPEC_DONT_INTERCEPT (1 << 4)  /* Command should not be intercepted to RAFT */
+#define CMD_SPEC_SORT_REPLY     (1 << 5)  /* Command output should be sorted within a lua script */
+#define CMD_SPEC_RANDOM         (1 << 6)  /* Commands that are always random */
+#define CMD_SPEC_SCRIPTS        (1 << 7)  /* Commands that have script/function flags */
+#define CMD_SPEC_BLOCKING       (1 << 8)  /* Blocking command */
+#define CMD_SPEC_MULTI          (1 << 9)  /* a MULTI */
+#define CMD_SPEC_SUBCOMMAND     (1 << 10) /* a command with subcommand specs */
 
 /* Command filtering re-entrancy counter handling.
  *
@@ -778,10 +780,11 @@ typedef struct ClientState {
      * order, won't call WATCH and hence won't ever get a disconnect log entry.
      */
     bool watched;
+    RaftReq *blocked_req;
 } ClientState;
 
 typedef struct ClientSession {
-    unsigned long long client_id;
+    raft_session_t client_id;
     bool local;
 } ClientSession;
 
@@ -960,14 +963,20 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 
 /* commands.c */
+typedef struct CommandSpecTable {
+    RedisModuleDict *table;
+} CommandSpecTable;
+
 void CommandSpecTableInit(RedisModuleCtx *ctx, struct CommandSpecTable **cmd_spec_table);
 void CommandSpecTableClear(struct CommandSpecTable *cmd_spec_table);
+void SubCommandsSpecTableInit(RedisModuleCtx *ctx, RedisModuleDict **subcommandspec_dict);
+void FreeSubCommandSpecTables(RedisRaftCtx *rr, RedisModuleDict *tables);
 uint64_t CommandSpecTableSize(struct CommandSpecTable *cmd_spec_table);
 CommandSpec *CommandSpecTableGetC(struct CommandSpecTable *cmd_spec_table, void *key, size_t keylen, int *nokey);
-const CommandSpec *CommandSpecTableGet(struct CommandSpecTable *cmd_spec_table, const RedisModuleString *cmd);
+int CommandSpecTableGetFlags(CommandSpecTable *cmd_spec_table, RedisModuleDict *sub_command_tables, const RedisModuleString *cmd, const RedisModuleString *subcmd);
 RRStatus CommandSpecTableSetC(struct CommandSpecTable *cmd_spec_table, void *key, size_t keylen, CommandSpec *cs);
 void CommandSpecTableRebuild(RedisModuleCtx *ctx, struct CommandSpecTable *cmd_spec_table, const char *ignored_commands);
-unsigned int CommandSpecTableGetAggregateFlags(struct CommandSpecTable *cmd_spec_table, RaftRedisCommandArray *array, unsigned int default_flags);
+unsigned int CommandSpecTableGetAggregateFlags(CommandSpecTable *cmd_spec_table, RedisModuleDict *sub_command_tables, RaftRedisCommandArray *array, unsigned int default_flags);
 
 /* sort.c */
 void handleSort(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
