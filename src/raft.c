@@ -30,6 +30,7 @@ const char *RaftReqTypeStr[] = {
     [RR_MIGRATE_KEYS] = "RR_MIGRATE_KEYS",
     [RR_DELETE_UNLOCK_KEYS] = "RR_DELETE_UNLOCK_KEYS",
     [RR_END_SESSION] = "RR_END_SESSION",
+    [RR_CLIENT_UNBLOCK] = "RR_CLIENT_UNBLOCK",
 };
 
 /* Forward declarations */
@@ -639,8 +640,10 @@ static void clearClientSessions(RedisRaftCtx *rr)
 
 static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
 {
+    RaftReq *req = entryDetachRaftReq(rr, entry);
+
     raft_index_t idx;
-    bool error; /* not used yet */
+    bool error;
 
     int ret = RaftRedisDeserializeTimeout(entry->data, entry->data_len, &idx, &error);
     RedisModule_Assert(ret == RR_OK);
@@ -648,26 +651,46 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     BlockedCommand *bc = getBlockedCommand(idx);
     if (!bc) {
         /* unblock handler called before timeout was applied */
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        RaftReqFree(req);
         return;
     }
 
     /* In future might have to handle abort failing, but for plain redis commands this is a panic condition */
     ret = RedisModule_CallReplyPromiseAbort(bc->reply, NULL);
-    RedisModule_Assert(ret == REDISMODULE_OK);
 
-    if (bc->req) {
-        if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
-            (strncasecmp(bc->command, "bzpopmax", 8) == 0) ||
-            (strncasecmp(bc->command, "bzmpop", 6) == 0)) {
-            RedisModule_ReplyWithNullArray(bc->req->ctx);
-        } else {
-            RedisModule_ReplyWithNull(bc->req->ctx);
+    if (ret == REDISMODULE_OK) {
+        if (bc->req) {
+            /* responding to blocked command */
+            if (error) {
+                RedisModule_ReplyWithError(bc->req->ctx, "UNBLOCKED client unblocked via CLIENT UNBLOCK");
+            } else {
+                if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
+                    (strncasecmp(bc->command, "bzpopmax", 8) == 0) ||
+                    (strncasecmp(bc->command, "bzmpop", 6) == 0)) {
+                    RedisModule_ReplyWithNullArray(bc->req->ctx);
+                } else {
+                    RedisModule_ReplyWithNull(bc->req->ctx);
+                }
+            }
+
+            RaftReqFree(bc->req);
         }
-        RaftReqFree(bc->req);
+
+        deleteBlockedCommand(bc->idx);
+        freeBlockedCommand(bc);
     }
 
-    deleteBlockedCommand(bc->idx);
-    freeBlockedCommand(bc);
+    if (req) {
+        /* respond to initiator of the timeout, i.e. CLIENT UNBLOCK */
+        if (ret == REDISMODULE_OK) {
+            RedisModule_ReplyWithLongLong(req->ctx, 1);
+        } else {
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+        }
+
+        RaftReqFree(req);
+    }
 }
 
 /*
@@ -1697,6 +1720,10 @@ void RaftReqFree(RaftReq *req)
         req->timeout_timer = 0;
     }
 
+    if (req->client_id) {
+        BlockedReqResetById(&redis_raft, req->client_id);
+    }
+
     if (req->type == RR_REDISCOMMAND) {
         if (req->r.redis.cmds.size) {
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
@@ -1791,11 +1818,16 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 
 RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     RaftReq *req = RaftReqInitCore(ctx, type);
 
     if (timeout > 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
     }
+
+    req->client_id = RedisModule_GetClientId(ctx);
+    ClientStateSetBlockedReq(rr, req->client_id, req);
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);

@@ -315,3 +315,53 @@ def test_blocking_with_invalid_timeout(cluster):
 
     with raises(ResponseError, match="timeout is out of range"):
         cluster.execute("blpop", "x", "0x7FFFFFFFFFFFFF")
+
+
+def test_blocking_with_unblock(cluster):
+    cluster.create(3)
+
+    c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
+    c1.send_command("client", "id")
+    id = c1.read_response()
+
+    c1.send_command("brpop", "x", 0)
+
+    cluster.execute("client", "unblock", id)
+
+    assert c1.read_response() is None
+
+
+def test_blocking_with_unblock_error(cluster):
+    cluster.create(3)
+
+
+
+    c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
+    c1.send_command("client", "id")
+    id = c1.read_response()
+
+    c1.send_command("brpop", "x", 0)
+
+    cluster.execute("client", "unblock", id, "error")
+
+    with raises(ResponseError, match="UNBLOCKED client unblocked via CLIENT UNBLOCK"):
+        c1.read_response()
+
+
+def test_blocking_with_disconnect(cluster):
+    cluster.create(3)
+
+    c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
+    c1.send_command("brpop", "x", 0)
+    c1.disconnect()
+    cluster.leader_node().client.connection_pool.release(c1)
+
+    cluster.wait_for_unanimity()
+
+    cluster.execute("lpush", "x", "1")
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
+        assert val == [b'1']

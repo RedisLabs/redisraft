@@ -555,6 +555,66 @@ static void handleAsking(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    raft_session_t id;
+    bool error = false;
+
+    if (cmd->argc != 3 && cmd->argc != 4) {
+        RedisModule_ReplyWithError(ctx, "ERR syntax error");
+        return;
+    }
+
+    int ret = RedisModule_StringToULongLong(cmd->argv[2], &id);
+    if (ret != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR value is not an integer or out of range");
+        return;
+    }
+
+    if (cmd->argc == 4) {
+        size_t str_len;
+        const char *str = RedisModule_StringPtrLen(cmd->argv[3], &str_len);
+
+        if (!strcasecmp(str, "timeout")) {
+            error = false;
+        } else if (!strcasecmp(str, "error")) {
+            error = true;
+        } else {
+            RedisModule_ReplyWithError(ctx, "ERR CLIENT UNBLOCK reason should be TIMEOUT or ERROR");
+            return;
+        }
+    }
+
+    ClientState *cs = ClientStateGetById(&redis_raft, id);
+    if (!cs || cs->blocked_req == NULL) {
+        RedisModule_ReplyWithLongLong(ctx, 0);
+        return;
+    }
+
+    raft_entry_t *entry = RaftRedisSerializeTimeout(cs->blocked_req->raft_idx, error);
+    RaftReq *req = RaftReqInit(ctx, RR_CLIENT_UNBLOCK);
+    entryAttachRaftReq(rr, entry, req);
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (e != 0) {
+        RedisModule_ReplyWithLongLong(req->ctx, 0);
+        RaftReqFree(req);
+    }
+    raft_entry_release(entry);
+}
+
+static void handleClientCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+{
+    size_t len;
+    const char *cmd_str = RedisModule_StringPtrLen(cmd->argv[1], &len);
+    if (len == strlen("UNBLOCK") && strncasecmp(cmd_str, "UNBLOCK", len) == 0) {
+        handleClientUnblock(rr, ctx, cmd);
+        return;
+    }
+
+    RedisModule_ReplyWithError(ctx, "ERR should only handle CLIENT UNBLOCK commands");
+}
+
 static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
 {
     raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
@@ -588,6 +648,7 @@ static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long
  * - INFO
  * - MIGRATE
  * - ASKING
+ * - CLIENT UNBLOCK
  *
  * Returns true if the command was intercepted, in which case the client has been replied to
  */
@@ -616,6 +677,11 @@ static bool handleInterceptedCommands(RedisRaftCtx *rr,
 
     if (len == strlen("ASKING") && strncasecmp(cmd_str, "ASKING", len) == 0) {
         handleAsking(rr, ctx);
+        return true;
+    }
+
+    if (len == strlen("CLIENT") && strncasecmp(cmd_str, "CLIENT", len) == 0) {
+        handleClientCommand(rr, ctx, cmd);
         return true;
     }
 
@@ -1677,8 +1743,15 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                  * We can only append if we are leader, if we're not leader anymore,
                  * then this would have already been cleaned up.
                  */
-                if (cs && cs->watched && rr->raft && raft_is_leader(rr->raft)) {
-                    appendEndClientSession(rr, NULL, ci->id, "disconnect");
+                if (cs) {
+                    if (cs->watched && rr->raft && raft_is_leader(rr->raft)) {
+                        appendEndClientSession(rr, NULL, ci->id, "disconnect");
+                    }
+                    if (cs->blocked_req && rr->raft && raft_is_leader(rr->raft))  {
+                        raft_entry_t *entry = RaftRedisSerializeTimeout(cs->blocked_req->raft_idx, false);
+                        raft_recv_entry(rr->raft, entry, NULL);
+                        raft_entry_release(entry);
+                    }
                 }
                 ClientStateFree(rr, ci->id);
             } break;

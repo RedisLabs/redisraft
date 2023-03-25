@@ -504,6 +504,7 @@ enum RaftReqType {
     RR_MIGRATE_KEYS,
     RR_DELETE_UNLOCK_KEYS,
     RR_END_SESSION,
+    RR_CLIENT_UNBLOCK,
     RR_RAFTREQ_MAX
 };
 
@@ -634,6 +635,7 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
     raft_index_t raft_idx;
+    raft_session_t client_id;
 
     union {
         struct {
@@ -999,6 +1001,8 @@ void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
+void ClientStateSetBlockedReq(RedisRaftCtx *rr, raft_session_t client_id, RaftReq *req);
+void BlockedReqResetById(RedisRaftCtx *rr, raft_session_t client_id);
 
 /* blocked.c */
 BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);

@@ -36,6 +36,20 @@ void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id)
     }
 }
 
+void ClientStateSetBlockedReq(RedisRaftCtx *rr, raft_session_t client_id, RaftReq *req)
+{
+    ClientState *cs = RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
+    cs->blocked_req = req;
+}
+
+void BlockedReqResetById(RedisRaftCtx *rr, raft_session_t client_id)
+{
+    ClientState *cs = RedisModule_DictGetC(rr->client_state, &client_id, sizeof(client_id), NULL);
+    if (cs) {
+        cs->blocked_req = NULL;
+    }
+}
+
 void MultiStateReset(MultiState *multi_state)
 {
     RaftRedisCommandArrayFree(&multi_state->cmds);
