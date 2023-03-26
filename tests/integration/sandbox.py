@@ -86,12 +86,6 @@ class RawConnection(object):
     def getClientId(self):
         return self.execute("CLIENT", "ID")
 
-    def send_command(self, *cmd):
-        self._conn.send_command(*cmd)
-
-    def read_response(self):
-        return self._conn.read_response()
-
 
 class RedisRaft(object):
     def __init__(self, _id, port, config, redis_args=None, raft_args=None,
