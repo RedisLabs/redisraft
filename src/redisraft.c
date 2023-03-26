@@ -1747,7 +1747,7 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                     if (cs->watched && rr->raft && raft_is_leader(rr->raft)) {
                         appendEndClientSession(rr, NULL, ci->id, "disconnect");
                     }
-                    if (cs->blocked_req && rr->raft && raft_is_leader(rr->raft))  {
+                    if (cs->blocked_req && rr->raft && raft_is_leader(rr->raft)) {
                         raft_entry_t *entry = RaftRedisSerializeTimeout(cs->blocked_req->raft_idx, false);
                         raft_recv_entry(rr->raft, entry, NULL);
                         raft_entry_release(entry);
