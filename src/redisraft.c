@@ -612,7 +612,7 @@ static void handleClientCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
         return;
     }
 
-    RedisModule_ReplyWithError(ctx, "ERR should only handle CLIENT UNBLOCK commands");
+    RedisModule_ReplyWithError(ctx, "ERR RedisRaft should only handle CLIENT UNBLOCK commands");
 }
 
 static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
