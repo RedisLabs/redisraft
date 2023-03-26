@@ -390,7 +390,7 @@ int CommandSpecTableGetFlags(CommandSpecTable *cmd_spec_table, RedisModuleDict *
     }
 
     /* flags are now for subcommand, so mask it out of flags */
-    flags &= ~CMD_SPEC_SUBCOMMAND;  /* flags is now the default set of flags for all subcommands */
+    flags &= ~CMD_SPEC_SUBCOMMAND; /* flags is now the default set of flags for all subcommands */
 
     CommandSpecTable *sub_cmd_spec_table = RedisModule_DictGetC(sub_command_tables, cs->name, strlen(cs->name), NULL);
     if (sub_cmd_spec_table == NULL) {
@@ -399,10 +399,10 @@ int CommandSpecTableGetFlags(CommandSpecTable *cmd_spec_table, RedisModuleDict *
 
     CommandSpec *sub_cs = getOrCreateCommandSpec(sub_cmd_spec_table, subcmd, false);
     if (sub_cs == NULL) {
-        return flags;  /* command not specified in table, return default set of flags */
+        return flags; /* command not specified in table, return default set of flags */
     }
 
-    return sub_cs->flags;  /* command is in table, return its flags */
+    return sub_cs->flags; /* command is in table, return its flags */
 }
 
 /* For a given RaftRedisCommandArray, return a flags value that represents
