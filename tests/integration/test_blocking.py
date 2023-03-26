@@ -334,8 +334,6 @@ def test_blocking_with_unblock(cluster):
 def test_blocking_with_unblock_error(cluster):
     cluster.create(3)
 
-
-
     c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
     c1.send_command("client", "id")
     id = c1.read_response()
@@ -344,7 +342,8 @@ def test_blocking_with_unblock_error(cluster):
 
     cluster.execute("client", "unblock", id, "error")
 
-    with raises(ResponseError, match="UNBLOCKED client unblocked via CLIENT UNBLOCK"):
+    with raises(ResponseError,
+                match="UNBLOCKED client unblocked via CLIENT UNBLOCK"):
         c1.read_response()
 
 
