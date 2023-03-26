@@ -11,8 +11,8 @@
 #include <strings.h>
 
 static const CommandSpec clientCommands[] = {
-    { "unblock", 0},
-    { NULL,      0},
+    {"unblock", 0},
+    {NULL,      0},
 };
 
 static const CommandSpec commands[] = {
