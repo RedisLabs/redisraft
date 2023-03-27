@@ -811,6 +811,10 @@ class Cluster(object):
         for node in self.nodes.values():
             node.start()
 
+    def wait_for_info_param(self, name, value, timeout=20):
+        for node in self.nodes.values():
+            node.wait_for_info_param(name, value, timeout)
+
 
 class ElleOp(object):
     def __init__(self, op_type: str, key: str,
