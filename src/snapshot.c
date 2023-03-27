@@ -693,7 +693,7 @@ static int rdbLoadSnapshotInfo(RedisModuleIO *rdb, int encver, int when)
 
     /* Load client_session dict */
     clientSessionRDBLoad(rdb);
-    
+
     /* load blocked command state */
     blockedCommandsLoad(rdb);
 
@@ -779,7 +779,7 @@ static void rdbSaveSnapshotInfo(RedisModuleIO *rdb, int when)
 
     /* Save client_session dict */
     clientSessionRDBSave(rdb);
-    
+
     /* save blocked command state */
     blockedCommandsSave(rdb);
 }
