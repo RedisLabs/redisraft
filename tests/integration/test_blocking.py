@@ -346,6 +346,16 @@ def test_blocking_with_unblock_error(cluster):
                 match="UNBLOCKED client unblocked via CLIENT UNBLOCK"):
         c1.read_response()
 
+    # ensure that log plays correctly after restart
+    cluster.node(2).restart()
+    cluster.node(3).restart()
+
+    cluster.execute("lpush", "x", 1)
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
+        assert val == [b'1']
+
 
 def test_blocking_with_disconnect(cluster):
     cluster.create(3)

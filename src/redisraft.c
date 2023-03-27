@@ -561,7 +561,7 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     bool error = false;
 
     if (cmd->argc != 3 && cmd->argc != 4) {
-        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP"
+        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP");
         return;
     }
 
