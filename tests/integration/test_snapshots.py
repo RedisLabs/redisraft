@@ -659,7 +659,8 @@ def test_snapshot_in_progress_stats(cluster):
 
 def test_snapshot_sessions(cluster):
     """
-    tests that sessions are saved to/loaded from snapshots correctly/consistently to cluster
+    tests that sessions are saved to/loaded from snapshots
+    correctly/consistently to cluster
     """
     cluster.create(3)
 
