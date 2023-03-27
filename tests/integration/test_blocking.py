@@ -352,6 +352,8 @@ def test_blocking_with_unblock_error(cluster):
 
     cluster.execute("lpush", "x", 1)
 
+    cluster.wait_for_unanimity()
+
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert val == [b'1']
