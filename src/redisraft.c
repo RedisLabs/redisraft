@@ -353,7 +353,7 @@ static void handleReadOnlyCommand(void *arg, int can_read)
         goto exit;
     }
 
-    RaftExecuteCommandArray(&redis_raft, req->ctx, req->ctx, &req->r.redis.cmds);
+    RaftExecuteCommandArray(&redis_raft, req, &req->r.redis.cmds);
 
 exit:
     RaftReqFree(req);
@@ -697,7 +697,13 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * MULTI/EXEC transaction in which case all queued commands are handled at
      * once.
      */
-    unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, cmds, CMD_SPEC_WRITE);
+    unsigned int cmd_flags = CommandSpecTableGetAggregateFlags(rr->commands_spec_table, rr->subcommand_spec_tables, cmds, CMD_SPEC_WRITE);
+    if (cmd_flags & CMD_SPEC_MULTI) {
+        /* if this is a MULTI, we aren't blocking */
+        cmd_flags &= ~CMD_SPEC_BLOCKING;
+    }
+    cmds->cmd_flags = cmd_flags;
+
     if (cmd_flags & CMD_SPEC_UNSUPPORTED) {
         RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft");
         return;
@@ -742,7 +748,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      * we're still a leader. Otherwise, just process the reads. */
     if (cmd_flags & CMD_SPEC_READONLY && !(cmd_flags & CMD_SPEC_WRITE)) {
         if (!rr->config.quorum_reads) {
-            RaftExecuteCommandArray(rr, ctx, ctx, cmds);
+            RaftReq req = {.ctx = ctx};
+            RaftExecuteCommandArray(rr, &req, cmds);
             return;
         }
 
@@ -757,7 +764,16 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         return;
     }
 
-    RaftReq *req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    RaftReq *req;
+    if (cmd_flags & CMD_SPEC_BLOCKING) { /* protect against blocking commands in a MULTI above */
+        long long timeout = 0;
+        if (extractBlockingTimeout(ctx, cmds, &timeout) != RR_OK) {
+            return;
+        }
+        req = RaftReqInitBlocking(ctx, RR_REDISCOMMAND, timeout);
+    } else {
+        req = RaftReqInit(ctx, RR_REDISCOMMAND);
+    }
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
@@ -774,6 +790,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
         RaftReqFree(req);
         return;
     }
+    req->raft_idx = raft_get_current_idx(rr->raft);
 
     raft_entry_release(entry);
 }
@@ -1223,7 +1240,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
         clusterInit(cluster_id);
 
-        char reply[RAFT_DBID_LEN + 256];
+        char reply[RAFT_DBID_LEN + 260];
         snprintf(reply, sizeof(reply) - 1, "OK %s", rr->snapshot_info.dbid);
 
         RedisModule_ReplyWithSimpleString(ctx, reply);
@@ -1484,11 +1501,11 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_FreeCallReply(reply);
         }
     } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
-        const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, argv[2]);
-        if (cs == NULL) {
+        int flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, argv[2], NULL);
+        if (flags == -1) {
             RedisModule_ReplyWithError(ctx, "ERR unknown command");
         } else {
-            RedisModule_ReplyWithLongLong(ctx, cs->flags);
+            RedisModule_ReplyWithLongLong(ctx, flags);
         }
         return REDISMODULE_OK;
     } else {
@@ -1678,16 +1695,21 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
+    RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
+    RedisModuleString *subcmd = NULL;
+    if (RedisModule_CommandFilterArgsCount(filter) > 1) {
+        subcmd = RedisModule_CommandFilterArgGet(filter, 1);
+    }
+
     if (checkInRedisModuleCall()) {
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
         if (redis_raft.entered_eval) {
-            RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-            const CommandSpec *cs;
-            if ((cs = CommandSpecTableGet(redis_raft.commands_spec_table, cmd)) != NULL) {
-                if (cs->flags & CMD_SPEC_SORT_REPLY) {
+            int flags;
+            if ((flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, cmd, subcmd)) != -1) {
+                if (flags & CMD_SPEC_SORT_REPLY) {
                     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
                     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
-                } else if (cs->flags & CMD_SPEC_RANDOM) {
+                } else if (flags & CMD_SPEC_RANDOM) {
                     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
                     RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
                 }
@@ -1697,8 +1719,8 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    const CommandSpec *cs = CommandSpecTableGet(redis_raft.commands_spec_table, RedisModule_CommandFilterArgGet(filter, 0));
-    if (cs && (cs->flags & CMD_SPEC_DONT_INTERCEPT))
+    int flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, cmd, subcmd);
+    if (flags != -1 && (flags & CMD_SPEC_DONT_INTERCEPT))
         return;
 
     /* Prepend RAFT to the original command */
@@ -1938,8 +1960,11 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     };
 
     sc_crc32_init();
+    sc_list_init(&rr->nodes);
+    sc_list_init(&rr->connections);
 
     CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
+    SubCommandsSpecTableInit(rr->ctx, &rr->subcommand_spec_tables);
 
     if (ConfigInit(rr->ctx, &rr->config) != RR_OK) {
         LOG_WARNING("Failed to init configuration");
@@ -1949,6 +1974,10 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     /* Client state for MULTI/ASKING support */
     rr->client_state = RedisModule_CreateDict(rr->ctx);
     rr->locked_keys = RedisModule_CreateDict(rr->ctx);
+
+    /* setup blocked command state */
+    rr->blocked_command_dict = RedisModule_CreateDict(rr->ctx);
+    sc_list_init(&rr->blocked_command_list);
 
     /* acl -> user dictionary */
     rr->acl_dict = RedisModule_CreateDict(rr->ctx);
@@ -2044,6 +2073,16 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
         rr->locked_keys = NULL;
     }
 
+    if (rr->blocked_command_dict) {
+        RedisModule_FreeDict(rr->ctx, rr->blocked_command_dict);
+        rr->blocked_command_dict = NULL;
+    }
+
+    struct sc_list *elem;
+    while ((elem = sc_list_pop_head(&rr->blocked_command_list)) != NULL) {
+        RedisModule_Free(sc_list_entry(elem, BlockedCommand, blocked_list));
+    }
+
     if (rr->acl_dict) {
         RedisModule_FreeDict(rr->ctx, rr->acl_dict);
         rr->acl_dict = NULL;
@@ -2052,6 +2091,10 @@ void RedisRaftCtxClear(RedisRaftCtx *rr)
     if (rr->client_session_dict) {
         RedisModule_FreeDict(rr->ctx, rr->client_session_dict);
         rr->client_session_dict = NULL;
+    }
+
+    if (rr->subcommand_spec_tables) {
+        FreeSubCommandSpecTables(rr, rr->subcommand_spec_tables);
     }
 
     CommandSpecTableClear(rr->commands_spec_table);

@@ -31,7 +31,6 @@ run_tests() {
     ./runtest \
         --host 127.0.0.1 \
         --port 5001 \
-        --cluster-mode \
         --singledb \
         --ignore-encoding \
         --ignore-digest \

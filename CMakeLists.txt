@@ -211,6 +211,8 @@ add_dependencies(coverage-report coverage)
 add_library(redisraft MODULE
         deps/common/crc16.c
         deps/common/sc_crc32.c
+        deps/common/sc_list.c
+        src/blocked.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
@@ -254,7 +256,7 @@ endif ()
 
 set_property(TARGET redisraft PROPERTY LINK_FLAGS ${LINKER_FLAGS})
 
-target_link_libraries(redisraft PUBLIC raft hiredis_static)
+target_link_libraries(redisraft PUBLIC raft hiredis_static m)
 if (BUILD_TLS)
     target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
 endif ()
@@ -270,6 +272,8 @@ target_include_directories(redisraft PUBLIC
 add_executable(main
         deps/common/crc16.c
         deps/common/sc_crc32.c
+        deps/common/sc_list.c
+        src/blocked.c
         src/clientstate.c
         src/cluster.c
         src/commands.c
@@ -302,7 +306,7 @@ add_executable(main
         tests/unit/test_util.c)
 
 target_compile_options(main PUBLIC -include unit/dut_premble.h)
-target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl)
+target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl m)
 if (BUILD_TLS)
     target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
 endif ()

@@ -54,6 +54,7 @@ void RaftRedisCommandArrayMove(RaftRedisCommandArray *target, RaftRedisCommandAr
 
     target->asking |= source->asking;
     target->client_id = source->client_id;
+    target->cmd_flags |= source->cmd_flags;
 }
 
 /* Free a RaftRedisCommand */
@@ -114,10 +115,13 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t sz = calcIntSerializedLen(source->asking) + calcIntSerializedLen(source->len);
     size_t len;
     int n, i, j;
     char *p;
+
+    size_t sz = calcIntSerializedLen(source->asking);
+    sz += calcIntSerializedLen(source->cmd_flags);
+    sz += calcIntSerializedLen(source->len);
 
     /* Compute sizes */
     for (i = 0; i < source->len; i++) {
@@ -131,6 +135,12 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
 
     /* Encode Asking */
     n = encodeInteger('*', p, sz, source->asking);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    /* Encode cmd_flags */
+    n = encodeInteger('*', p, sz, source->cmd_flags);
     RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
@@ -231,6 +241,15 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
     p += n;
     buf_size -= n;
     target->asking = asking;
+
+    /* Read cmd_flags */
+    size_t cmd_flags;
+    if ((n = decodeInteger(p, buf_size, '*', &cmd_flags)) < 0) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    target->cmd_flags = cmd_flags;
 
     /* Read ACL */
     RedisModuleString *acl;
@@ -445,4 +464,61 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
     }
 
     return ret;
+}
+
+raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
+{
+    int n;
+    int err_val = error ? 1 : 0;
+
+    size_t sz = calcIntSerializedLen(idx); /* idx we are timing out */
+    sz += calcIntSerializedLen(err_val);   /* encoding the error bool */
+    sz++;
+
+    raft_entry_t *ety = raft_entry_new(sz);
+    ety->type = RAFT_LOGTYPE_TIMEOUT_BLOCKED;
+
+    char *p = ety->data;
+
+    /* Encode idx of entry we are timing out */
+    n = encodeInteger('*', p, sz, idx);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    /* Encode if regular timeout or error */
+    n = encodeInteger('*', p, sz, err_val);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    return ety;
+}
+
+RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error)
+{
+    const char *p = buf;
+    int n;
+
+    size_t tmp;
+
+    /* Read idx */
+    if ((n = decodeInteger(p, buf_size, '*', &tmp)) < 0 || !idx) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    *idx = tmp;
+
+    /* read error */
+    if ((n = decodeInteger(p, buf_size, '*', &tmp)) < 0) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+    *error = (tmp == 1);
+
+    RedisModule_Assert(buf_size == 1); /* should only have the final '\0' at the end of the data */
+
+    return RR_OK;
 }
