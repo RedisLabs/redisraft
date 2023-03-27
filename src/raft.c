@@ -651,8 +651,10 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     BlockedCommand *bc = getBlockedCommand(idx);
     if (!bc) {
         /* unblock handler called before timeout was applied */
-        RedisModule_ReplyWithLongLong(req->ctx, 0);
-        RaftReqFree(req);
+        if (req) {
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+            RaftReqFree(req);
+        }
         return;
     }
 

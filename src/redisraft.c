@@ -561,13 +561,13 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     bool error = false;
 
     if (cmd->argc != 3 && cmd->argc != 4) {
-        RedisModule_ReplyWithError(ctx, "ERR syntax error");
+        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP"
         return;
     }
 
     int ret = RedisModule_StringToULongLong(cmd->argv[2], &id);
     if (ret != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR value is not an integer or out of range");
+        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for 'unblock'. Try client HELP");
         return;
     }
 
@@ -575,9 +575,9 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
         size_t str_len;
         const char *str = RedisModule_StringPtrLen(cmd->argv[3], &str_len);
 
-        if (!strcasecmp(str, "timeout")) {
+        if (!strncasecmp(str, "timeout", strlen("timeout"))) {
             error = false;
-        } else if (!strcasecmp(str, "error")) {
+        } else if (!strncasecmp(str, "error", strlen("error"))) {
             error = true;
         } else {
             RedisModule_ReplyWithError(ctx, "ERR CLIENT UNBLOCK reason should be TIMEOUT or ERROR");
@@ -599,6 +599,7 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     if (e != 0) {
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         RaftReqFree(req);
+        return;
     }
     raft_entry_release(entry);
 }
@@ -1743,11 +1744,11 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                  * We can only append if we are leader, if we're not leader anymore,
                  * then this would have already been cleaned up.
                  */
-                if (cs) {
-                    if (cs->watched && rr->raft && raft_is_leader(rr->raft)) {
+                if (cs && rr->raft && raft_is_leader(rr->raft)) {
+                    if (cs->watched) {
                         appendEndClientSession(rr, NULL, ci->id, "disconnect");
                     }
-                    if (cs->blocked_req && rr->raft && raft_is_leader(rr->raft)) {
+                    if (cs->blocked_req) {
                         raft_entry_t *entry = RaftRedisSerializeTimeout(cs->blocked_req->raft_idx, false);
                         raft_recv_entry(rr->raft, entry, NULL);
                         raft_entry_release(entry);
