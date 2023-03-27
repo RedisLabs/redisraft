@@ -55,3 +55,6 @@ SWAPDB is able to touch the watched keys that do not exist
 -- After fixing this: https://github.com/RedisLabs/redisraft/issues/367
 -- We don't need to skip this test as it doesn't actually configure a replica.
 not enough good replicas
+
+-- We can't handle normal plain eval (without flags) the same way as redis aborting oom on demand
+Consistent eval error reporting
