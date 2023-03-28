@@ -182,8 +182,8 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         entry->type = RAFT_LOGTYPE_REMOVE_NODE;
         memcpy(entry->data, &cfg, sizeof(cfg));
 
-        int e;
-        if ((e = RedisRaftRecvEntry(rr, entry, req)) != 0) {
+        int e = RedisRaftRecvEntry(rr, entry, req);
+        if (e != 0) {
             replyRaftError(req->ctx, NULL, e);
             RaftReqFree(req);
             return REDISMODULE_OK;
@@ -516,8 +516,8 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     entry->type = RAFT_LOGTYPE_LOCK_KEYS;
     entryAttachRaftReq(rr, entry, req);
 
-    int e;
-    if ((e = RedisRaftRecvEntry(rr, entry, req)) != 0) {
+    int e = RedisRaftRecvEntry(rr, entry, req);
+    if (e != 0) {
         replyRaftError(req->ctx, NULL, e);
         RaftReqFree(req);
     }
@@ -581,8 +581,8 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     raft_entry_t *entry = RaftRedisSerializeTimeout(cs->blocked_req->raft_idx, error);
     RaftReq *req = RaftReqInit(ctx, RR_CLIENT_UNBLOCK);
 
-    int e;
-    if ((e = RedisRaftRecvEntry(rr, entry, req)) != 0) {
+    int e = RedisRaftRecvEntry(rr, entry, req);
+    if (e != 0) {
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         RaftReqFree(req);
     }
@@ -608,8 +608,8 @@ static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long
     entry->session = id;
     strncpy(entry->data, reason, entry->data_len);
 
-    int e;
-    if ((e = RedisRaftRecvEntry(rr, entry, req)) != 0) {
+    int e = RedisRaftRecvEntry(rr, entry, req);
+    if (e != 0) {
         if (req) {
             replyRaftError(req->ctx, NULL, e);
             RaftReqFree(req);
