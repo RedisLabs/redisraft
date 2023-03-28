@@ -27,9 +27,17 @@ const char *getStateStr(RedisRaftCtx *rr)
     }
 }
 
+void replyZero(RedisModuleCtx *ctx, const char *msg, int err)
+{
+    UNUSED(msg);
+    UNUSED(err);
+
+    RedisModule_ReplyWithLongLong(ctx, 0);
+}
+
 /* Convert a Raft library error code to an error reply.
  */
-void replyRaftError(RedisModuleCtx *ctx, const char *msg, int err)
+    void replyRaftError(RedisModuleCtx *ctx, const char *msg, int err)
 {
     char buf[256] = {0};
     RedisRaftCtx *rr = &redis_raft;
@@ -280,4 +288,32 @@ void shutdownServer(RedisRaftCtx *rr)
     (void) err;
 
     abort();
+}
+
+int RedisRaftRecvEntry(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req, RedisRaftReplyErrorFn fn)
+{
+    if (req) {
+        entryAttachRaftReq(rr, entry, req);
+    }
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (e != 0) {
+        if (req) {
+            RedisModule_Assert(fn != NULL);
+            entryDetachRaftReq(rr, entry);
+            (*fn)(req->ctx, NULL, e);
+        }
+
+        raft_entry_release(entry);
+
+        if (req) {
+            RaftReqFree(req);
+        }
+
+        return RR_ERROR;
+    }
+
+    raft_entry_release(entry);
+
+    return RR_OK;
 }

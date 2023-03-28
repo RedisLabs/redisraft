@@ -804,12 +804,15 @@ void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
 void shutdownServer(RedisRaftCtx *rr);
 /* common.c - common reply function */
+typedef void (*RedisRaftReplyErrorFn)(RedisModuleCtx *ctx, const char *msg, int error);
 void replyRaftError(RedisModuleCtx *ctx, const char *msg, int error);
+void replyZero(RedisModuleCtx *ctx, const char *msg, int err);
 void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyClusterDown(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
+int RedisRaftRecvEntry(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req, RedisRaftReplyErrorFn fn);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
