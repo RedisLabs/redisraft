@@ -8,9 +8,12 @@ import shutil
 import os
 import time
 
-from redis import ResponseError
+from redis import ResponseError, ConnectionError
 from pytest import raises
+from retry import retry
+
 from .raftlog import RaftLog, LogEntry
+from .sandbox import RawConnection
 
 
 def test_snapshot_delivery_to_new_node(cluster):
@@ -652,3 +655,93 @@ def test_snapshot_in_progress_stats(cluster):
     assert info['raft_snapshot_time_secs'] != -1
     assert info['raft_snapshot_in_progress_last_idx'] == -1
     assert info['raft_snapshot_in_progress_last_term'] == -1
+
+
+def test_snapshot_sessions(cluster):
+    """
+    tests that sessions are saved to/loaded from snapshots
+    correctly/consistently to cluster
+    """
+    cluster.create(3)
+
+    cluster.wait_for_info_param("raft_num_sessions", 0)
+
+    conn1 = RawConnection(cluster.leader_node().client)
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    cluster.wait_for_info_param("raft_num_sessions", 1)
+
+    conn2 = RawConnection(cluster.leader_node().client)
+    conn2.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    cluster.wait_for_info_param("raft_num_sessions", 2)
+
+    n2 = cluster.node(2)
+
+    assert n2.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
+
+    cluster.wait_for_info_param("raft_num_sessions", 2)
+
+    cluster.execute("set", "a", "123")
+
+    conn1.execute("UNWATCH")
+    cluster.wait_for_unanimity()
+    cluster.wait_for_info_param("raft_num_sessions", 1)
+
+    n2 = cluster.node(2)
+    assert n2.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
+    cluster.wait_for_info_param("raft_num_sessions", 1)
+
+    cluster.execute("set", "b", "123")
+
+    conn2.execute("UNWATCH")
+    cluster.wait_for_unanimity()
+    cluster.wait_for_info_param("raft_num_sessions", 0)
+
+    n2 = cluster.node(2)
+    assert n2.execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert n2.info()['raft_log_entries'] == 0
+    n2.restart()
+    n2.wait_for_node_voting()
+    cluster.wait_for_info_param("raft_num_sessions", 0)
+
+
+def test_session_cleaned_on_load(cluster):
+    """
+    Enssure that if we load a snapshot (i.e. rejoin cluster), we clear up
+    session state, so nothing remains from before snapshot load
+    """
+    cluster.create(3)
+
+    cluster.wait_for_info_param("raft_num_sessions", 0)
+
+    conn1 = RawConnection(cluster.leader_node().client)
+
+    conn1.execute("WATCH", "X")
+    cluster.wait_for_unanimity()
+
+    cluster.wait_for_info_param("raft_num_sessions", 1)
+
+    old_leader = cluster.pause_leader()
+    cluster.node(2).wait_for_leader_change(old_leader)
+    cluster.update_leader()
+    cluster.execute("set", "x", 1)
+
+    assert cluster.leader_node().execute('RAFT.DEBUG', 'COMPACT') == b'OK'
+    assert cluster.leader_node().info()['raft_log_entries'] == 0
+
+    cluster.node(old_leader).resume()
+    cluster.wait_for_unanimity()
+
+    cluster.wait_for_info_param("raft_num_sessions", 0)
+
+    with raises(ConnectionError, match="Connection closed by server"):
+        conn1.execute("get", "X")

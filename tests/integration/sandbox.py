@@ -448,6 +448,15 @@ class RedisRaft(object):
             raise RedisRaftTimeout('No master elected')
         self._wait_for_condition(has_leader, raise_no_master_error, timeout)
 
+    def wait_for_leader_change(self, old_leader, timeout=20):
+        def new_leader():
+            leader = self.info()['raft_leader_id']
+            return bool(leader != -1 and leader != old_leader)
+
+        def raise_no_master_error():
+            raise RedisRaftTimeout('No master elected')
+        self._wait_for_condition(new_leader, raise_no_master_error, timeout)
+
     def wait_for_log_committed(self, timeout=20):
         def current_idx_committed():
             ret = self.info()
@@ -675,7 +684,10 @@ class Cluster(object):
             self.reset_leader()
 
     def random_node_id(self):
-        return random.choice(list(self.nodes.keys()))
+        while True:
+            node_id = random.choice(list(self.nodes.keys()))
+            if not self.node(node_id).paused:
+                return node_id
 
     def find_node_id_by_port(self, port):
         for node in self.nodes.values():
@@ -691,6 +703,13 @@ class Cluster(object):
 
     def leader_node(self):
         return self.nodes[self.leader]
+
+    def pause_leader(self) -> int:
+        old_leader = self.leader
+        self.node(old_leader).pause()
+        self.leader = self.random_node_id()
+
+        return old_leader
 
     def update_leader(self):
         def _func():
@@ -791,6 +810,10 @@ class Cluster(object):
             node.terminate()
         for node in self.nodes.values():
             node.start()
+
+    def wait_for_info_param(self, name, value, timeout=20):
+        for node in self.nodes.values():
+            node.wait_for_info_param(name, value, timeout)
 
 
 class ElleOp(object):
