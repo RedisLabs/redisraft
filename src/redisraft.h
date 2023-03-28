@@ -857,6 +857,7 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg);
 void callHandleNodeStates(RedisModuleCtx *ctx, void *arg);
 void handleBeforeSleep(RedisRaftCtx *rr);
 void handleFsyncCompleted(void *arg);
+void clearClientSessions(RedisRaftCtx *rr);
 void blockedTimedOut(RedisModuleCtx *ctx, void *data);
 void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 
