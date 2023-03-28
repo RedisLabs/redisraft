@@ -961,7 +961,7 @@ ShardGroup *GetShardGroupById(RedisRaftCtx *rr, const char *id);
 void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req, void (*complete_callback)(RaftReq *req));
 
 /* migrate.c */
-void importKeys(RedisRaftCtx *rr, raft_entry_t *entry);
+void importKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 

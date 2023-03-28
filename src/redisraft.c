@@ -582,7 +582,7 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     RaftReq *req = RaftReqInit(ctx, RR_CLIENT_UNBLOCK);
 
     int e;
-    if ((e = RedisRaftRecvEntry(rr, entry, req) )!= 0) {
+    if ((e = RedisRaftRecvEntry(rr, entry, req)) != 0) {
         RedisModule_ReplyWithLongLong(req->ctx, 0);
         RaftReqFree(req);
     }

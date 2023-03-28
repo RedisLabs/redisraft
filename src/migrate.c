@@ -53,11 +53,9 @@ static bool validSlot(RedisRaftCtx *rr, unsigned int slot)
     return false;
 }
 
-void importKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+void importKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_IMPORT_KEYS);
-
-    RaftReq *req = entry->user_data;
 
     ImportKeys import_keys = {0};
     int ret = RaftRedisDeserializeImport(&import_keys, entry->data, entry->data_len);
