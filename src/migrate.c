@@ -181,17 +181,12 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     raft_entry_t *entry = RaftRedisSerializeImport(&req->r.import_keys);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_IMPORT_KEYS;
-    entryAttachRaftReq(rr, entry, req);
 
-    int e = raft_recv_entry(rr->raft, entry, NULL);
+    int e = RedisRaftRecvEntry(rr, entry, req);
     if (e != 0) {
         replyRaftError(req->ctx, NULL, e);
-        entryDetachRaftReq(rr, entry);
-        raft_entry_release(entry);
         goto fail;
     }
-
-    raft_entry_release(entry);
 
     return REDISMODULE_OK;
 
@@ -211,17 +206,12 @@ static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
     entry->id = rand();
     entry->type = RAFT_LOGTYPE_DELETE_UNLOCK_KEYS;
-    entryAttachRaftReq(rr, entry, req);
 
-    int e = raft_recv_entry(rr->raft, entry, NULL);
+    int e = RedisRaftRecvEntry(rr, entry, req);
     if (e != 0) {
         replyRaftError(req->ctx, "Unable to unlock/delete migrated keys, try again", e);
-        entryDetachRaftReq(rr, entry);
-        raft_entry_release(entry);
         goto error;
     }
-
-    raft_entry_release(entry);
 
     /* Unless applied by raft_apply_all() (and freed by it), the request
      * is pending so we don't free it or unblock the client.
