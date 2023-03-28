@@ -528,9 +528,11 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     entryAttachRaftReq(rr, entry, req);
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        replyRaftError(req->ctx, NULL, e);
-        RaftReqFree(req);
         entryDetachRaftReq(rr, entry);
+        replyRaftError(req->ctx, NULL, e);
+        raft_entry_release(entry);
+        RaftReqFree(req);
+        return;
     }
 
     raft_entry_release(entry);
@@ -561,7 +563,7 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     bool error = false;
 
     if (cmd->argc != 3 && cmd->argc != 4) {
-        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP");
+        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for 'unblock'. Try client HELP");
         return;
     }
 
@@ -597,7 +599,9 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
+        entryDetachRaftReq(rr, entry);
         RedisModule_ReplyWithLongLong(req->ctx, 0);
+        raft_entry_release(entry);
         RaftReqFree(req);
         return;
     }
@@ -630,9 +634,11 @@ static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (req && e != 0) {
-        replyRaftError(req->ctx, NULL, e);
-        RaftReqFree(req);
         entryDetachRaftReq(rr, entry);
+        replyRaftError(req->ctx, NULL, e);
+        raft_entry_release(entry);
+        RaftReqFree(req);
+        return;
     }
 
     raft_entry_release(entry);
@@ -851,8 +857,8 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
 
     int e = raft_recv_entry(rr->raft, entry, NULL);
     if (e != 0) {
-        replyRaftError(ctx, NULL, e);
         entryDetachRaftReq(rr, entry);
+        replyRaftError(ctx, NULL, e);
         raft_entry_release(entry);
         RaftReqFree(req);
         return;
