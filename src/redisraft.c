@@ -554,7 +554,7 @@ static void handleClientUnblock(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
 
     int ret = RedisModule_StringToULongLong(cmd->argv[2], &id);
     if (ret != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR unknown subcommand or wrong number of arguments for 'unblock'. Try client HELP");
+        RedisModule_ReplyWithError(ctx, "ERR value is not an integer or out of range");
         return;
     }
 
