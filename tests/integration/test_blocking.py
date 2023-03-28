@@ -376,3 +376,25 @@ def test_blocking_with_disconnect(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert val == [b'1']
+
+
+def test_blocking_with_timeout_after_unblock(cluster):
+    cluster.create(3)
+
+    c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
+    c1.send_command("brpop", "x", 0)
+
+    idx = cluster.leader_node().current_index()
+
+    cluster.execute("raft.debug", "lpush-timeout", "x", idx)
+
+    val = c1.read_response()
+    assert type(val) == list
+    assert len(val) == 2
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
+        assert type(val) == list
+        assert len(val) == 0

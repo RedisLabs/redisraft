@@ -1398,6 +1398,43 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
 }
 
+static void doDebugLpushTimeout(RedisRaftCtx *rr, RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *idx)
+{
+    RaftRedisCommandArray cmds = {0};
+    RaftRedisCommand *cmd = RaftRedisCommandArrayExtend(&cmds);
+
+    cmd->argc = 3;
+    cmd->argv = RedisModule_Alloc(cmd->argc * sizeof(RedisModuleString *));
+    cmd->argv[0] = RedisModule_CreateString(ctx, "lpush", strlen("lpush"));
+    cmd->argv[1] = key;
+    RedisModule_RetainString(ctx, key);
+    cmd->argv[2] = idx;
+    RedisModule_RetainString(ctx, idx);
+
+    raft_entry_t *entry = RaftRedisCommandArraySerialize(&cmds);
+    entry->id = rand();
+    entry->type = RAFT_LOGTYPE_NORMAL;
+
+    int e = RedisRaftRecvEntry(rr, entry, NULL);
+    if (e != 0) {
+        replyRaftError(ctx, NULL, e);
+        goto out;
+    }
+
+    entry = RaftRedisSerializeTimeout(raft_get_current_idx(rr->raft), false);
+    e = raft_recv_entry(rr->raft, entry, NULL);
+    raft_entry_release(entry);
+    if (e != 0) {
+        replyRaftError(ctx, NULL, e);
+        goto out;
+    }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+out:
+    RaftRedisCommandArrayFree(&cmds);
+}
+
 /* RAFT.DEBUG COMPACT [async]
  *     Initiate the snapshot.
  *     If [async] is non-zero, snapshot will be triggered and client will get
@@ -1422,9 +1459,10 @@ static int cmdRaftShardGroup(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  *
  * RAFT.DEBUG COMMANDSPEC <command>
  *     Returns the flags associated with this command in the commandspec dict
+ *
+ * RAFT.DEBUG LPUSH-TIMEOUT <key> <raft idx>
  */
-static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
+static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisRaftCtx *rr = &redis_raft;
 
     if (argc < 2) {
@@ -1542,13 +1580,16 @@ static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             RedisModule_FreeCallReply(reply);
         }
     } else if (!strncasecmp(cmd, "commandspec", cmdlen) && argc == 3) {
-        int flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, argv[2], NULL);
+        int flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, argv[2],
+                                             NULL);
         if (flags == -1) {
             RedisModule_ReplyWithError(ctx, "ERR unknown command");
         } else {
             RedisModule_ReplyWithLongLong(ctx, flags);
         }
         return REDISMODULE_OK;
+    } else if (!strncasecmp(cmd, "lpush-timeout", cmdlen) && argc == 4) {
+        doDebugLpushTimeout(rr, ctx, argv[2], argv[3]);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR invalid debug subcommand");
     }
