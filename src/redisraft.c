@@ -1462,7 +1462,8 @@ out:
  *
  * RAFT.DEBUG LPUSH-TIMEOUT <key> <raft idx>
  */
-static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int cmdRaftDebug(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
     RedisRaftCtx *rr = &redis_raft;
 
     if (argc < 2) {
