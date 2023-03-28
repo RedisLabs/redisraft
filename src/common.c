@@ -27,14 +27,6 @@ const char *getStateStr(RedisRaftCtx *rr)
     }
 }
 
-void replyZero(RedisModuleCtx *ctx, const char *msg, int err)
-{
-    UNUSED(msg);
-    UNUSED(err);
-
-    RedisModule_ReplyWithLongLong(ctx, 0);
-}
-
 /* Convert a Raft library error code to an error reply.
  */
 void replyRaftError(RedisModuleCtx *ctx, const char *msg, int err)
