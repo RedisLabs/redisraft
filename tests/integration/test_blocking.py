@@ -381,7 +381,8 @@ def test_blocking_with_disconnect(cluster):
         assert val == [b'1']
 
 
-@pytest.mark.skip(reason="skipping, as promise/handler isn't atomic and abort isnt working as expected")
+@pytest.mark.skip(reason="skipping, as promise/handler isn't atomic "
+                         "and abort isnt working as expected")
 def test_blocking_with_timeout_after_unblock(cluster):
     cluster.create(3)
 
@@ -397,14 +398,12 @@ def test_blocking_with_timeout_after_unblock(cluster):
     cluster.wait_for_unanimity()
     time.sleep(1)
 
-    for i in range(1, 3):
-        cluster.node(i).execute("config", "set", "raft.log-disable-apply", "yes")
+    cluster.execute("config", "set", "raft.log-disable-apply", "yes")
 
     c2.send_command("lpush", "x", 1)
     c3.send_command("client", "unblock", id)
 
-    for i in range(1, 3):
-        cluster.node(i).execute("config", "set", "raft.log-disable-apply", "no")
+    cluster.execute("config", "set", "raft.log-disable-apply", "no")
 
     assert c1.read_response() == [b'x', b'1']
     assert c2.read_response()
