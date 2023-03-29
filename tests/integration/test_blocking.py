@@ -382,7 +382,7 @@ def test_blocking_with_disconnect(cluster):
 
 
 @pytest.mark.skip(reason="skipping, as promise/handler isn't atomic "
-                         "and abort isnt working as expected")
+                         "and abort is not working as expected")
 def test_blocking_with_timeout_after_unblock(cluster):
     cluster.create(3)
 
