@@ -398,12 +398,12 @@ def test_blocking_with_timeout_after_unblock(cluster):
     cluster.wait_for_unanimity()
     time.sleep(1)
 
-    cluster.execute("config", "set", "raft.log-disable-apply", "yes")
+    cluster.config_set("raft.log-disable-apply", "yes")
 
     c2.send_command("lpush", "x", 1)
     c3.send_command("client", "unblock", id)
 
-    cluster.execute("config", "set", "raft.log-disable-apply", "no")
+    cluster.config_set("raft.log-disable-apply", "no")
 
     assert c1.read_response() == [b'x', b'1']
     assert c2.read_response()
