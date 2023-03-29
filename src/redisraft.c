@@ -103,6 +103,11 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return REDISMODULE_OK;
     }
 
+    if (raft_get_current_term(rr->raft) != raft_get_last_applied_term(rr->raft)) {
+        replyClusterDown(ctx);
+        return REDISMODULE_OK;
+    }
+
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[1], &cmd_len);
 
@@ -687,8 +692,7 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
      *
      * 2- As we know we've built the latest state machine, we'll have more
      * accurate info about memory usage for 'maxmemory' handling. */
-    raft_term_t term = raft_get_current_term(rr->raft);
-    if (term != rr->snapshot_info.last_applied_term) {
+    if (raft_get_current_term(rr->raft) != raft_get_last_applied_term(rr->raft)) {
         replyClusterDown(ctx);
         return;
     }

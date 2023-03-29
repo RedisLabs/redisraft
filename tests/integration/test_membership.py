@@ -338,3 +338,32 @@ def test_nodeshutdown_wrong_id(cluster):
 
     with raises(ResponseError, match='invalid node id'):
         cluster.node(1).client.execute_command('RAFT.NODESHUTDOWN', 51423122)
+
+
+def test_node_operations_on_restart(cluster):
+    """
+    On restart, RedisRaft should not allow node add/remove before replaying
+    all the log entries. Because, there might be an add/remove log entry in the
+    log already and before replay, node does not know if those entries are
+    committed and applied in the previous run. So, node may reject new
+    add/remove operations with "one voting change only" error, it might be
+    confusing for the users. Instead, it should return -CLUSTERDOWN.
+    """
+
+    cluster.create(2)
+
+    # Have voting change entry in the log.
+    cluster.remove_node(2)
+
+    # Restart the node without applying entries. Voting change entry will be
+    # in the log but won't be applied.
+    cluster.node(1).terminate()
+    cluster.node(1).start(extra_raft_args=["--raft.log-disable-apply", "yes"])
+    cluster.node(1).wait_for_election()
+
+    # Before log replay, node should reject add/remove operations
+    with raises(ResponseError, match='CLUSTERDOWN'):
+        cluster.node(1).execute("raft.node", "remove", 100)
+
+    with raises(ResponseError, match='CLUSTERDOWN'):
+        cluster.node(1).execute("raft.node", "add", 100)
