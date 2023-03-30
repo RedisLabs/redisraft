@@ -281,3 +281,21 @@ void shutdownServer(RedisRaftCtx *rr)
 
     abort();
 }
+
+int RedisRaftRecvEntry(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
+{
+    if (req) {
+        entryAttachRaftReq(rr, entry, req);
+    }
+
+    int e = raft_recv_entry(rr->raft, entry, NULL);
+    if (e != 0) {
+        if (req) {
+            entryDetachRaftReq(rr, entry);
+        }
+    }
+
+    raft_entry_release(entry);
+
+    return e;
+}

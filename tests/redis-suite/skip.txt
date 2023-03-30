@@ -1,5 +1,4 @@
--- "client unblock" command support needed
-client unblock tests
+-- doesn't work, as command appears as "raft", not "blpop"
 Blocking command accounted only once in commandstats after timeout
 
 -- Streams not supported

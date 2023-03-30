@@ -504,6 +504,7 @@ enum RaftReqType {
     RR_MIGRATE_KEYS,
     RR_DELETE_UNLOCK_KEYS,
     RR_END_SESSION,
+    RR_CLIENT_UNBLOCK,
     RR_RAFTREQ_MAX
 };
 
@@ -634,6 +635,7 @@ typedef struct RaftReq {
     RedisModuleCtx *ctx;
     RedisModuleTimerID timeout_timer;
     raft_index_t raft_idx;
+    raft_session_t client_id;
 
     union {
         struct {
@@ -808,6 +810,7 @@ void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyClusterDown(RedisModuleCtx *ctx);
 void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
+int RedisRaftRecvEntry(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 
 /* node_addr.c */
 bool NodeAddrParse(const char *node_addr, size_t node_addr_len, NodeAddr *result);
@@ -959,7 +962,7 @@ ShardGroup *GetShardGroupById(RedisRaftCtx *rr, const char *id);
 void JoinCluster(RedisRaftCtx *rr, NodeAddrListElement *el, RaftReq *req, void (*complete_callback)(RaftReq *req));
 
 /* migrate.c */
-void importKeys(RedisRaftCtx *rr, raft_entry_t *entry);
+void importKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 void MigrateKeys(RedisRaftCtx *rr, RaftReq *req);
 
@@ -1000,6 +1003,8 @@ void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateFree(RedisRaftCtx *rr, unsigned long long client_id);
 void ClientStateReset(ClientState *client_state);
 void MultiStateReset(MultiState *multi_state);
+void ClientStateSetBlockedReq(RedisRaftCtx *rr, raft_session_t client_id, RaftReq *req);
+void BlockedReqResetById(RedisRaftCtx *rr, raft_session_t client_id);
 
 /* blocked.c */
 BlockedCommand *allocBlockedCommand(const char *cmd_name, raft_index_t idx, raft_session_t session, const char *data, size_t data_len, RaftReq *req, RedisModuleCallReply *reply);

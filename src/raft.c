@@ -30,12 +30,13 @@ const char *RaftReqTypeStr[] = {
     [RR_MIGRATE_KEYS] = "RR_MIGRATE_KEYS",
     [RR_DELETE_UNLOCK_KEYS] = "RR_DELETE_UNLOCK_KEYS",
     [RR_END_SESSION] = "RR_END_SESSION",
+    [RR_CLIENT_UNBLOCK] = "RR_CLIENT_UNBLOCK",
 };
 
 /* Forward declarations */
 static void configureFromSnapshot(RedisRaftCtx *rr);
-static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry);
-static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry);
+static void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
+static void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 
 /* ------------------------------------ Common helpers ------------------------------------ */
 
@@ -468,11 +469,9 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     return reply;
 }
 
-static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+static void lockKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_LOCK_KEYS);
-
-    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     /* FIXME: can optimize this for leader by getting it out of the req, keeping code simple for now */
     size_t num_keys;
@@ -560,11 +559,9 @@ exit:
     RedisModule_Free(keys);
 }
 
-static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry)
+static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_DELETE_UNLOCK_KEYS);
-
-    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     size_t num_keys;
     RedisModuleString **keys;
@@ -608,10 +605,9 @@ static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
     }
 }
 
-static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry)
+static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
-    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     unsigned long long id = entry->session;
     endClientSession(rr, id);
@@ -637,10 +633,10 @@ void clearClientSessions(RedisRaftCtx *rr)
     rr->client_session_dict = RedisModule_CreateDict(rr->ctx);
 }
 
-static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
+static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     raft_index_t idx;
-    bool error; /* not used yet */
+    bool error;
 
     int ret = RaftRedisDeserializeTimeout(entry->data, entry->data_len, &idx, &error);
     RedisModule_Assert(ret == RR_OK);
@@ -648,26 +644,48 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
     BlockedCommand *bc = getBlockedCommand(idx);
     if (!bc) {
         /* unblock handler called before timeout was applied */
+        if (req) {
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+            RaftReqFree(req);
+        }
         return;
     }
 
     /* In future might have to handle abort failing, but for plain redis commands this is a panic condition */
     ret = RedisModule_CallReplyPromiseAbort(bc->reply, NULL);
-    RedisModule_Assert(ret == REDISMODULE_OK);
 
-    if (bc->req) {
-        if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
-            (strncasecmp(bc->command, "bzpopmax", 8) == 0) ||
-            (strncasecmp(bc->command, "bzmpop", 6) == 0)) {
-            RedisModule_ReplyWithNullArray(bc->req->ctx);
-        } else {
-            RedisModule_ReplyWithNull(bc->req->ctx);
+    if (ret == REDISMODULE_OK) {
+        if (bc->req) {
+            /* responding to blocked command */
+            if (error) {
+                RedisModule_ReplyWithError(bc->req->ctx, "UNBLOCKED client unblocked via CLIENT UNBLOCK");
+            } else {
+                if ((strncasecmp(bc->command, "bzpopmin", 8) == 0) ||
+                    (strncasecmp(bc->command, "bzpopmax", 8) == 0) ||
+                    (strncasecmp(bc->command, "bzmpop", 6) == 0)) {
+                    RedisModule_ReplyWithNullArray(bc->req->ctx);
+                } else {
+                    RedisModule_ReplyWithNull(bc->req->ctx);
+                }
+            }
+
+            RaftReqFree(bc->req);
         }
-        RaftReqFree(bc->req);
+
+        deleteBlockedCommand(bc->idx);
+        freeBlockedCommand(bc);
     }
 
-    deleteBlockedCommand(bc->idx);
-    freeBlockedCommand(bc);
+    if (req) {
+        /* respond to initiator of the timeout, i.e. CLIENT UNBLOCK */
+        if (ret == REDISMODULE_OK) {
+            RedisModule_ReplyWithLongLong(req->ctx, 1);
+        } else {
+            RedisModule_ReplyWithLongLong(req->ctx, 0);
+        }
+
+        RaftReqFree(req);
+    }
 }
 
 /*
@@ -677,10 +695,9 @@ static void timeoutBlockedCommand(RedisRaftCtx *rr, raft_entry_t *entry)
  * 1) Execution of a raft entry received from another node.
  * 2) Execution of a locally initiated command.
  */
-static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx)
+static void executeLogEntry(RedisRaftCtx *rr, raft_entry_t *entry, raft_index_t entry_idx, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_NORMAL);
-    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     RaftRedisCommandArray tmp = {0};
     RaftRedisCommandArray *cmds;
@@ -1009,13 +1026,11 @@ static int raftPersistMetadata(raft_server_t *raft, void *user_data,
 static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entry, raft_index_t entry_idx)
 {
     RedisRaftCtx *rr = user_data;
-    RaftCfgChange *cfg;
-    RaftReq *req;
+    RaftReq *req = entryDetachRaftReq(rr, entry);
 
     switch (entry->type) {
-        case RAFT_LOGTYPE_ADD_NONVOTING_NODE:
-            req = entryDetachRaftReq(rr, entry);
-            cfg = (RaftCfgChange *) entry->data;
+        case RAFT_LOGTYPE_ADD_NONVOTING_NODE: {
+            RaftCfgChange *cfg = (RaftCfgChange *) entry->data;
             if (!req) {
                 break;
             }
@@ -1025,9 +1040,9 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
             RedisModule_ReplyWithSimpleString(req->ctx, rr->snapshot_info.dbid);
             RaftReqFree(req);
             break;
-        case RAFT_LOGTYPE_REMOVE_NODE:
-            req = entryDetachRaftReq(rr, entry);
-            cfg = (RaftCfgChange *) entry->data;
+        }
+        case RAFT_LOGTYPE_REMOVE_NODE: {
+            RaftCfgChange *cfg = (RaftCfgChange *) entry->data;
 
             if (req) {
                 RedisModule_ReplyWithSimpleString(req->ctx, "OK");
@@ -1042,34 +1057,35 @@ static int raftApplyLog(raft_server_t *raft, void *user_data, raft_entry_t *entr
                 raftSendNodeShutdown(raft_get_node(raft, cfg->id));
             }
             break;
+        }
         case RAFT_LOGTYPE_NORMAL:
-            executeLogEntry(rr, entry, entry_idx);
+            executeLogEntry(rr, entry, entry_idx, req);
             break;
         case RAFT_LOGTYPE_ADD_SHARDGROUP:
         case RAFT_LOGTYPE_UPDATE_SHARDGROUP:
-            applyShardGroupChange(rr, entry);
+            applyShardGroupChange(rr, entry, req);
             break;
         case RAFT_LOGTYPE_REPLACE_SHARDGROUPS:
-            replaceShardGroups(rr, entry);
+            replaceShardGroups(rr, entry, req);
             break;
         case RAFT_LOGTYPE_IMPORT_KEYS:
-            importKeys(rr, entry);
+            importKeys(rr, entry, req);
             break;
         case RAFT_LOGTYPE_LOCK_KEYS:
-            lockKeys(rr, entry);
+            lockKeys(rr, entry, req);
             break;
         case RAFT_LOGTYPE_DELETE_UNLOCK_KEYS:
-            unlockDeleteKeys(rr, entry);
+            unlockDeleteKeys(rr, entry, req);
             break;
         case RAFT_LOGTYPE_END_SESSION:
-            handleEndClientSession(rr, entry);
+            handleEndClientSession(rr, entry, req);
             break;
         case RAFT_LOGTYPE_NO_OP:
             clearClientSessions(rr);
             clearAllBlockCommands();
             break;
         case RAFT_LOGTYPE_TIMEOUT_BLOCKED:
-            timeoutBlockedCommand(rr, entry);
+            timeoutBlockedCommand(rr, entry, req);
             break;
         default:
             break;
@@ -1697,6 +1713,10 @@ void RaftReqFree(RaftReq *req)
         req->timeout_timer = 0;
     }
 
+    if (req->client_id) {
+        BlockedReqResetById(&redis_raft, req->client_id);
+    }
+
     if (req->type == RR_REDISCOMMAND) {
         if (req->r.redis.cmds.size) {
             RaftRedisCommandArrayFree(&req->r.redis.cmds);
@@ -1791,11 +1811,16 @@ RaftReq *RaftReqInit(RedisModuleCtx *ctx, enum RaftReqType type)
 
 RaftReq *RaftReqInitBlocking(RedisModuleCtx *ctx, enum RaftReqType type, long long timeout)
 {
+    RedisRaftCtx *rr = &redis_raft;
+
     RaftReq *req = RaftReqInitCore(ctx, type);
 
     if (timeout > 0) {
         req->timeout_timer = RedisModule_CreateTimer(req->ctx, timeout, blockedTimedOut, req);
     }
+
+    req->client_id = RedisModule_GetClientId(ctx);
+    ClientStateSetBlockedReq(rr, req->client_id, req);
 
     TRACE("RaftReqInit: req=%p, type=%s, client=%p, ctx=%p",
           req, RaftReqTypeStr[req->type], req->client, req->ctx);
@@ -1849,7 +1874,7 @@ void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e re
  * persisted log, or through AppendEntries). In that case, we also need to
  * generate the reply as the client is blocked waiting for it.
  */
-void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
+void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RRStatus ret;
 
@@ -1876,20 +1901,17 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* If we have an attached client, handle the reply */
-    if (entry->user_data) {
-        RaftReq *req = entry->user_data;
+    if (req) {
         if (ret == RR_OK) {
             RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         } else {
             RedisModule_ReplyWithError(req->ctx, "ERR Invalid ShardGroup Update");
         }
         RaftReqFree(req);
-
-        entry->user_data = NULL;
     }
 }
 
-void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
+void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     // 1. reset sharding info
     ShardingInfo *si = rr->sharding_info;
@@ -1948,13 +1970,9 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry)
     }
 
     /* If we have an attached client, handle the reply */
-    if (entry->user_data) {
-        RaftReq *req = entry->user_data;
-
+    if (req) {
         RedisModule_ReplyWithSimpleString(req->ctx, "OK");
         RaftReqFree(req);
-
-        entry->user_data = NULL;
     }
 }
 
