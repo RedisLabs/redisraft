@@ -708,10 +708,13 @@ class Cluster(object):
         return self.nodes[self.leader]
 
     def follower_node(self):
-        for _id, node in self.nodes.items():
+        if len(self.nodes) <= 1:
+            raise RedisRaftError('No followers in the cluster')
+
+        while True:
+            _id = random.choice(list(self.nodes.keys()))
             if _id != self.leader:
-                return node
-        raise RedisRaftError('No followers in the cluster')
+                return self.node(_id)
 
     def pause_leader(self) -> int:
         old_leader = self.leader
