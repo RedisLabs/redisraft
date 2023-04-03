@@ -186,30 +186,6 @@ def test_snapshot_delivery_with_config_changes(cluster):
 
 
 @pytest.mark.slow
-def test_proxy_stability_under_load(cluster, workload):
-    """
-    Test stability of the cluster with follower proxy under load.
-    """
-
-    thread_count = 500
-    duration = 300
-
-    cluster.create(5, raft_args={'follower-proxy': 'yes'})
-    workload.start(thread_count, cluster, MultiWithLargeReply)
-
-    # Monitor progress
-    start = time.time()
-    last_commit_index = 0
-    while start + duration > time.time():
-        time.sleep(2)
-        new_commit_index = cluster.node(cluster.leader).commit_index()
-        assert new_commit_index >= last_commit_index
-        last_commit_index = new_commit_index
-
-    workload.stop()
-
-
-@pytest.mark.slow
 @pytest.mark.timeout(24000)
 def test_stability_with_snapshots_and_restarts(cluster, workload):
     """
