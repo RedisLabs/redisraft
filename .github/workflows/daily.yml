@@ -8,7 +8,7 @@ on:
       skipjobs:
         description: 'jobs to skip (delete the ones you want to keep, do not leave empty)'
         required: false
-        default: 'address,undefined,macos,tls,elle,alpine'
+        default: 'address,undefined,macos,tls,elle,alpine,slow'
       redisraft_repo:
         description: 'redisraft repo owner and name'
         required: false
@@ -367,6 +367,56 @@ jobs:
           path: 'redis'
       - name: Build Redis
         run: cd redis && make -j 4
+      - name: Install Python dependencies
+        run:
+          python -m pip install -r tests/integration/requirements.txt
+      - name: Run tests
+        run: |
+          cd build
+          make tests
+
+  test-slow:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.repository == 'redislabs/redisraft')) && !contains(github.event.inputs.skipjobs, 'slow')
+    timeout-minutes: 14400
+    steps:
+      - name: Set variables
+        env:
+          DEFAULT_REDIS_REPO: redis/redis
+          DEFAULT_REDIS_BRANCH: unstable
+          DEFAULT_REDISRAFT_REPO: redislabs/redisraft
+          DEFAULT_REDISRAFT_BRANCH: master
+        run: |
+          echo "REDIS_REPO=${{github.event.inputs.redis_repo || env.DEFAULT_REDIS_REPO}}" >> $GITHUB_ENV
+          echo "REDIS_BRANCH=${{github.event.inputs.redis_branch || env.DEFAULT_REDIS_BRANCH}}" >> $GITHUB_ENV
+          echo "REDISRAFT_REPO=${{github.event.inputs.redisraft_repo || env.DEFAULT_REDISRAFT_REPO}}" >> $GITHUB_ENV
+          echo "REDISRAFT_BRANCH=${{github.event.inputs.redisraft_branch || env.DEFAULT_REDISRAFT_BRANCH}}" >> $GITHUB_ENV
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ env.REDISRAFT_REPO }}
+          ref: ${{ env.REDISRAFT_BRANCH }}
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential autoconf automake libtool cmake lcov
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DPYTEST_OPTS="--redis-executable=redis/src/redis-server -v --runslow ${{github.event.inputs.pytest_args}}"
+          make
+      - name: Checkout Redis
+        uses: actions/checkout@v2
+        with:
+          repository: ${{ env.REDIS_REPO }}
+          ref: ${{ env.REDIS_BRANCH }}
+          path: 'redis'
+      - name: Build Redis
+        run: cd redis && make -j 4
+      - name: Setup Python for testing
+        uses: actions/setup-python@v1
+        with:
+          python-version: '3.9'
+          architecture: 'x64'
       - name: Install Python dependencies
         run:
           python -m pip install -r tests/integration/requirements.txt

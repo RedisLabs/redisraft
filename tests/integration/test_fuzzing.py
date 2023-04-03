@@ -7,6 +7,8 @@ or the Server Side Public License v1 (SSPLv1).
 import random
 import logging
 import time
+from enum import Enum
+
 import pytest
 from redis import ResponseError
 from .workload import MultiWithLargeReply, MonotonicIncrCheck
@@ -161,7 +163,7 @@ def test_snapshot_delivery_with_config_changes(cluster):
     # After populating 2 million keys, snapshot can take a while. We just
     # trigger it asynchronously and wait until completed for 30 seconds.
     n1.execute('raft.debug', 'compact', 1)
-    n1.wait_for_info_param('raft_snapshots_created', 1, 30)
+    n1.wait_for_info_param('raft_snapshots_created', 1, timeout=30)
 
     cluster.add_node(use_cluster_args=True)
     cluster.add_node(use_cluster_args=True)
@@ -208,6 +210,7 @@ def test_proxy_stability_under_load(cluster, workload):
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(24000)
 def test_stability_with_snapshots_and_restarts(cluster, workload):
     """
     Test stability of the cluster with frequent snapshotting.
@@ -216,8 +219,7 @@ def test_stability_with_snapshots_and_restarts(cluster, workload):
     thread_count = 100
     duration = 300
 
-    cluster.create(5, raft_args={'follower-proxy': 'yes',
-                                 'log-max-file-size': '2000'})
+    cluster.create(5, raft_args={'log-max-file-size': '10kb'})
 
     workload.start(thread_count, cluster, MultiWithLargeReply)
 
@@ -229,3 +231,160 @@ def test_stability_with_snapshots_and_restarts(cluster, workload):
         cluster.random_node().restart()
 
     workload.stop()
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(24000)
+def test_fuzzing_with_large_snapshots(cluster, workload):
+    """
+    Fill nodes with 1,7 Gb of data (~800 mb RDB file) and do some fuzzing.
+    """
+
+    class Operation(Enum):
+        ADD_NODE = 0
+        ADD_MULTIPLE_NODES = 1
+        RESTART_FOLLOWER = 2
+        RESTART_FOLLOWER_WITH_DELAY = 3
+        RESTART_LEADER = 4
+        RESTART_LEADER_WITH_DELAY = 5
+        RESTART_CLUSTER = 6
+        LEADER_TRANSFER = 7
+
+    cluster.create(1)
+
+    n1 = cluster.node(1)
+
+    # Just to avoid socket timeouts, populate db in a few steps.
+    for i in range(0, 4):
+        prefix = '_dummydummykeyname' + str(i)
+        n1.raft_debug_exec('debug', 'populate', 4000000, prefix, 20)
+
+    # Create a snapshot
+    n1.execute('set', 'x', 1)
+    n1.execute('raft.debug', 'compact', 1)
+    n1.wait_for_info_param('raft_snapshots_created', 1, timeout=240)
+
+    # Add followers
+    cluster.add_node()
+    cluster.add_node()
+
+    workload.start(10, cluster, MonotonicIncrCheck)
+
+    for i in range(40):
+        # Starting condition: 3 voting nodes, all entries are applied.
+        cluster.wait_for_info_param("raft_num_voting_nodes", 3, timeout=240)
+        cluster.wait_for_unanimity(timeout=240)
+
+        op = random.choice(list(Operation))
+
+        logging.info("Iteration: %s , Op: %s" % (i, op))
+
+        if op == Operation.ADD_NODE:
+            cluster.remove_node(cluster.random_node_id())
+            cluster.add_node()
+
+        elif op == Operation.ADD_MULTIPLE_NODES:
+            # Remove two nodes and add two new nodes. Snapshot will be
+            # delivered to both of them at the same time.
+            cluster.remove_node(cluster.random_node_id())
+            cluster.wait_for_info_param("raft_num_voting_nodes", 2)
+
+            cluster.remove_node(cluster.random_node_id())
+            cluster.wait_for_info_param("raft_num_voting_nodes", 1)
+
+            cluster.add_node()
+            cluster.add_node()
+
+        elif op == Operation.RESTART_FOLLOWER:
+            n = cluster.follower_node()
+            n.restart()
+
+        elif op == Operation.RESTART_FOLLOWER_WITH_DELAY:
+            # Sleep a bit before starting it back. Node will lag behind and
+            # entries and/or snapshot will be delivered.
+            n = cluster.follower_node()
+            n.terminate()
+            time.sleep(10)
+            n.start()
+
+        elif op == Operation.RESTART_LEADER:
+            n = cluster.leader_node()
+            n.restart()
+
+        elif op == Operation.RESTART_LEADER_WITH_DELAY:
+            # Sleep a bit before starting it back. Node will lag behind and
+            # entries and/or snapshot will be delivered.
+            n = cluster.leader_node()
+            n.terminate()
+            time.sleep(10)
+            n.start()
+
+        elif op == Operation.RESTART_CLUSTER:
+            cluster.restart()
+            cluster.random_node().wait_for_election()
+
+        elif op == Operation.LEADER_TRANSFER:
+            # Leader transfer can fail, e.g. destination node can't catch up
+            # the leader. Then, we just skip the operation.
+            n = cluster.leader_node()
+            try:
+                n.transfer_leader()
+            except ResponseError:
+                continue
+
+            cluster.update_leader()
+            assert cluster.leader_node() != n
+
+    workload.stop()
+
+    logging.info('All cycles finished')
+    logging.info('Stats: ' + workload.stats())
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(24000)
+def test_stability_with_snapshot_delivery(cluster, workload):
+    """
+    Fill nodes with 1,7 Gb of data (~800 mb RDB file) and constantly deliver
+    snapshot to a node under traffic.
+    """
+    cluster.create(1)
+
+    n1 = cluster.node(1)
+
+    # Just to avoid socket timeouts, populate db in a few steps.
+    for i in range(0, 4):
+        prefix = '_dummydummykeyname' + str(i)
+        n1.raft_debug_exec('debug', 'populate', 4000000, prefix, 20)
+
+    # Create a snapshot
+    n1.execute('set', 'x', 1)
+    n1.execute('raft.debug', 'compact', 1)
+    n1.wait_for_info_param('raft_snapshots_created', 1, timeout=240)
+
+    # Add followers
+    cluster.add_node()
+    cluster.add_node()
+
+    cluster.wait_for_info_param("raft_num_voting_nodes", 3, timeout=240)
+    cluster.wait_for_unanimity(timeout=240)
+    cluster.config_set("raft.log-max-file-size", "16mb")
+
+    workload.start(10, cluster, MonotonicIncrCheck)
+
+    for i in range(10):
+        leader = cluster.leader_node()
+        snapshots = leader.info()["raft_snapshots_created"]
+
+        follower = cluster.follower_node()
+        follower.terminate()
+
+        leader.wait_for_info_param("raft_snapshots_created", snapshots,
+                                   timeout=240, greater=True)
+        follower.start()
+        cluster.wait_for_unanimity(timeout=240)
+
+    workload.stop()
+
+    logging.info('All cycles finished')
+    logging.info('Stats: ' + workload.stats())

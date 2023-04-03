@@ -299,7 +299,7 @@ class RedisRaft(object):
             try:
                 self.client.ping()
                 return
-            except redis.exceptions.ConnectionError:
+            except (redis.exceptions.ConnectionError, redis.TimeoutError):
                 if retries is not None:
                     retries -= 1
                     if not retries:
@@ -433,7 +433,7 @@ class RedisRaft(object):
             try:
                 if test_func():
                     return
-            except redis.ConnectionError:
+            except (redis.ConnectionError, redis.TimeoutError):
                 pass
 
             retries -= 1
@@ -548,9 +548,12 @@ class RedisRaft(object):
 
         self._wait_for_condition(check_voting, raise_not_voting, timeout)
 
-    def wait_for_info_param(self, name, value, timeout=20):
+    def wait_for_info_param(self, name, value, greater=False, timeout=20):
         def check_param():
             info = self.info()
+            if greater:
+                return bool(info.get(name) > value)
+
             return bool(info.get(name) == value)
 
         def raise_not_matched():
@@ -704,6 +707,12 @@ class Cluster(object):
     def leader_node(self):
         return self.nodes[self.leader]
 
+    def follower_node(self):
+        for _id, node in self.nodes.items():
+            if _id != self.leader:
+                return node
+        raise RedisRaftError('No followers in the cluster')
+
     def pause_leader(self) -> int:
         old_leader = self.leader
         self.node(old_leader).pause()
@@ -717,13 +726,13 @@ class Cluster(object):
             self.node(self.leader).client.execute_command('get x')
         self.raft_retry(_func)
 
-    def wait_for_unanimity(self, exclude=None):
+    def wait_for_unanimity(self, exclude=None, timeout=20):
         commit_idx = self.node(self.leader).commit_index()
         for _id, node in self.nodes.items():
             if exclude is not None and int(_id) in exclude:
                 continue
-            node.wait_for_commit_index(commit_idx, gt_ok=True)
-            node.wait_for_log_applied()
+            node.wait_for_commit_index(commit_idx, gt_ok=True, timeout=timeout)
+            node.wait_for_log_applied(timeout=timeout)
 
     def wait_for_replication(self, exclude=None):
         current_idx = self.node(self.leader).current_index()
@@ -731,6 +740,12 @@ class Cluster(object):
             if exclude is not None and int(_id) in exclude:
                 continue
             node.wait_for_current_index(current_idx)
+
+    def wait_for_info_param(self, name, value, exclude=None, timeout=20):
+        for _id, node in self.nodes.items():
+            if exclude is not None and int(_id) in exclude:
+                continue
+            node.wait_for_info_param(name, value, timeout=timeout)
 
     def raft_retry(self, func):
         start_time = time.time()
@@ -810,10 +825,6 @@ class Cluster(object):
             node.terminate()
         for node in self.nodes.values():
             node.start()
-
-    def wait_for_info_param(self, name, value, timeout=20):
-        for node in self.nodes.values():
-            node.wait_for_info_param(name, value, timeout)
 
 
 class ElleOp(object):
