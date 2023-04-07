@@ -170,7 +170,7 @@ def test_snapshot_delivery_with_config_changes(cluster):
     cluster.add_node(use_cluster_args=True)
     cluster.add_node(use_cluster_args=True)
 
-    cluster.wait_for_unanimity()
+    cluster.wait_for_unanimity(timeout=60)
 
     for i in range(cycles):
         assert cluster.execute('INCRBY', 'counter', 1) == i + 1
@@ -252,7 +252,7 @@ def test_fuzzing_with_large_snapshots(cluster, workload):
         RESTART_CLUSTER = 6
         LEADER_TRANSFER = 7
 
-    cluster.create(1)
+    cluster.create(1, raft_args={'response-timeout': 5000})
 
     n1 = cluster.node(1)
 
@@ -267,8 +267,8 @@ def test_fuzzing_with_large_snapshots(cluster, workload):
     n1.wait_for_info_param('raft_snapshots_created', 1, timeout=240)
 
     # Add followers
-    cluster.add_node()
-    cluster.add_node()
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
 
     workload.start(10, cluster, MonotonicIncrCheck)
 
@@ -283,7 +283,7 @@ def test_fuzzing_with_large_snapshots(cluster, workload):
 
         if op == Operation.ADD_NODE:
             cluster.remove_node(cluster.random_node_id())
-            cluster.add_node()
+            cluster.add_node(use_cluster_args=True)
 
         elif op == Operation.ADD_MULTIPLE_NODES:
             # Remove two nodes and add two new nodes. Snapshot will be
@@ -294,8 +294,8 @@ def test_fuzzing_with_large_snapshots(cluster, workload):
             cluster.remove_node(cluster.random_node_id())
             cluster.wait_for_info_param("raft_num_voting_nodes", 1)
 
-            cluster.add_node()
-            cluster.add_node()
+            cluster.add_node(use_cluster_args=True)
+            cluster.add_node(use_cluster_args=True)
 
         elif op == Operation.RESTART_FOLLOWER:
             n = cluster.follower_node()
@@ -350,7 +350,7 @@ def test_stability_with_snapshot_delivery(cluster, workload):
     Fill nodes with 1,7 Gb of data (~800 mb RDB file) and constantly deliver
     snapshot to a node under traffic.
     """
-    cluster.create(1)
+    cluster.create(1, raft_args={'response-timeout': 5000})
 
     n1 = cluster.node(1)
 
@@ -365,12 +365,12 @@ def test_stability_with_snapshot_delivery(cluster, workload):
     n1.wait_for_info_param('raft_snapshots_created', 1, timeout=240)
 
     # Add followers
-    cluster.add_node()
-    cluster.add_node()
+    cluster.add_node(use_cluster_args=True)
+    cluster.add_node(use_cluster_args=True)
 
     cluster.wait_for_info_param("raft_num_voting_nodes", 3, timeout=240)
     cluster.wait_for_unanimity(timeout=240)
-    cluster.config_set("raft.log-max-file-size", "16mb")
+    cluster.config_set("raft.log-max-file-size", "4mb")
 
     workload.start(10, cluster, MonotonicIncrCheck)
 
@@ -382,7 +382,7 @@ def test_stability_with_snapshot_delivery(cluster, workload):
         follower.terminate()
 
         leader.wait_for_info_param("raft_snapshots_created", snapshots,
-                                   timeout=240, greater=True)
+                                   timeout=300, greater=True)
         follower.start()
         cluster.wait_for_unanimity(timeout=240)
 
