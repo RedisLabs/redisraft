@@ -83,7 +83,7 @@ class RawConnection(object):
         self._conn.disconnect()
         self.release()
 
-    def getClientId(self):
+    def get_client_id(self):
         return self.execute("CLIENT", "ID")
 
 
@@ -1120,7 +1120,7 @@ def key_hash_slot(key: str) -> int:
     return crc16(key.encode()) % 16384
 
 
-class SlotRangeType():
+class SlotRangeType:
     UNDEF = '0'
     STABLE = '1'
     IMPORTING = '2'

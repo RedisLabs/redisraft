@@ -876,7 +876,7 @@ def test_session_same_id_clients_persisting(cluster):
             conn1.disconnect()
         conn1 = RawConnection(cluster.leader_node().client)
 
-    conn1_id = conn1.getClientId()
+    conn1_id = conn1.get_client_id()
 
     conn2: typing.Optional[RawConnection] = None
     conn2_id = -1
@@ -885,7 +885,7 @@ def test_session_same_id_clients_persisting(cluster):
         if conn2 is not None:
             conn2.disconnect()
         conn2 = RawConnection(cluster.node(2).client)
-        conn2_id = conn2.getClientId()
+        conn2_id = conn2.get_client_id()
 
     assert conn1_id == conn2_id
 
