@@ -349,7 +349,7 @@ typedef struct RedisRaftConfig {
     bool snapshot_disable;      /* If true, node will not create a snapshot. */
     bool snapshot_disable_load; /* If true, node will not load the received snapshot. */
     long long snapshot_delay;   /* If not zero, sleeps specified seconds before taking the snapshot. */
-    long long migration_debug;  /* For debugging migration, represents places to inject error. */
+    int migration_debug;        /* For debugging migration, represents places to inject error. */
 
     /* Cache and file compaction */
     unsigned long log_max_cache_size; /* The memory limit for the in-memory Raft log cache */
