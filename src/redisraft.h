@@ -809,7 +809,7 @@ void replyRedirect(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyAsk(RedisModuleCtx *ctx, unsigned int slot, NodeAddr *addr);
 void replyCrossSlot(RedisModuleCtx *ctx);
 void replyClusterDown(RedisModuleCtx *ctx);
-void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...);
+void replyError(RedisModuleCtx *ctx, const char *fmt, ...);
 int RedisRaftRecvEntry(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req);
 
 /* node_addr.c */
