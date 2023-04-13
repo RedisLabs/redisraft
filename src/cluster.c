@@ -1408,10 +1408,6 @@ static void addClusterNodeReplyFromNode(RedisRaftCtx *rr,
 
 static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
-    if (!leader_node) {
-        return;
-    }
     ShardingInfo *si = rr->sharding_info;
 
     RedisModuleString *ret = RedisModule_CreateString(ctx, "", 0);
@@ -1466,12 +1462,9 @@ static void addClusterNodesReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
 static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
-    if (!leader_node) {
-        return;
-    }
-
+    raft_node_t *leader = raft_get_leader_node(rr->raft);
     ShardingInfo *si = rr->sharding_info;
+
     if (!si->shard_group_map) {
         RedisModule_ReplyWithArray(ctx, 0);
         return;
@@ -1508,7 +1501,7 @@ static void addClusterSlotsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
                  * come from the ShardGroup.
                  */
 
-                slot_len += addClusterSlotNodeReply(rr, ctx, leader_node);
+                slot_len += addClusterSlotNodeReply(rr, ctx, leader);
                 for (int j = 0; j < raft_get_num_nodes(rr->raft); j++) {
                     raft_node_t *raft_node = raft_get_node_from_idx(rr->raft, j);
                     if (raft_node_get_id(raft_node) == raft_get_leader_id(rr->raft) ||
@@ -1589,12 +1582,9 @@ static int addClusterShardsLocalNodeReply(RedisRaftCtx *rr, RedisModuleCtx *ctx,
 
 static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 {
-    raft_node_t *leader_node = getLeaderRaftNodeOrReply(rr, ctx);
-    if (!leader_node) {
-        return;
-    }
-
+    raft_node_t *leader = raft_get_leader_node(rr->raft);
     ShardingInfo *si = rr->sharding_info;
+
     if (!si->shard_group_map) {
         RedisModule_ReplyWithNullArray(ctx);
         return;
@@ -1636,7 +1626,7 @@ static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
                 if (!raft_node_is_active(raft_node)) {
                     continue;
                 }
-                node_count += addClusterShardsLocalNodeReply(rr, ctx, raft_node, leader_node);
+                node_count += addClusterShardsLocalNodeReply(rr, ctx, raft_node, leader);
             }
             RedisModule_ReplySetArrayLength(ctx, node_count);
         } else {
@@ -1663,15 +1653,16 @@ static void addClusterShardsReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
  *   - NODES.
  *   - SHARDS,
  */
-void ShardingHandleClusterCommand(RedisRaftCtx *rr,
-                                  RedisModuleCtx *ctx, RaftRedisCommand *cmd)
+void ShardingHandleClusterCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                                  RaftRedisCommand *cmd)
 {
     if (cmd->argc != 2) {
         RedisModule_WrongArity(ctx);
         return;
     }
 
-    if (checkRaftState(rr, ctx) == RR_ERROR) {
+    if (checkRaftState(rr, ctx) != RR_OK ||
+        checkLeaderExists(rr, ctx) != RR_OK) {
         return;
     }
 
