@@ -1787,7 +1787,7 @@ void ShardGroupLink(RedisRaftCtx *rr,
     NodeAddr addr = {0};
 
     if (!NodeAddrParse(str, len, &addr)) {
-        RedisModule_ReplyWithError(ctx, "invalid address/port specified");
+        RedisModule_ReplyWithError(ctx, "ERR invalid address/port specified");
         return;
     }
 
