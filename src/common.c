@@ -77,7 +77,7 @@ void replyClusterDown(RedisModuleCtx *ctx)
     RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
 }
 
-void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...)
+void replyError(RedisModuleCtx *ctx, const char *fmt, ...)
 {
     char buf[512];
     va_list ap;

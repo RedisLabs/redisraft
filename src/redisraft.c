@@ -251,9 +251,16 @@ static int cmdRaftTimeoutNow(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         return REDISMODULE_OK;
     }
 
-    raft_timeout_now(rr->raft);
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    int e = raft_timeout_now(rr->raft);
+    if (e != 0) {
+        const char *str = raft_get_error_str(e);
 
+        LOG_WARNING("raft_timeout_now() err=(%d) %s", e, str);
+        replyError(ctx, "ERR failed to start an election: %s", str);
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 

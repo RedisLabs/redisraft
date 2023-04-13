@@ -967,7 +967,6 @@ static int raftSendAppendEntries(raft_server_t *raft, void *user_data,
 static void handleTimeoutNowResponse(redisAsyncContext *c, void *r, void *privdata)
 {
     Node *node = privdata;
-    //RedisRaftCtx *rr = node->rr;
 
     NodeDismissPendingResponse(node);
 
