@@ -31,7 +31,7 @@ def pytest_addoption(parser):
         '--work-dir', default='tests/tmp',
         help='Working directory for tests temporary files.')
     parser.addoption(
-        '--redis-up-timeout', default=120,
+        '--redis-up-timeout', default=3,
         help='Seconds to wait for Redis to start before timing out.')
     parser.addoption(
         '--valgrind', default=False, action='store_true',
