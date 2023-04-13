@@ -2171,10 +2171,11 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
                     REDISRAFT_VERSION, REDISRAFT_GIT_SHA1);
 
     const int MIN_SUPPORTED_REDIS_VERSION = 0x00070000;
-    if (!RMAPI_FUNC_SUPPORTED(RedisModule_GetServerVersion) ||
+    if (!RMAPI_FUNC_SUPPORTED(RedisModule_CallReplyPromiseAbort) ||
+        !RMAPI_FUNC_SUPPORTED(RedisModule_GetServerVersion) ||
         RedisModule_GetServerVersion() < MIN_SUPPORTED_REDIS_VERSION) {
         RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
-                        "RedisRaft requires Redis 7.0 or above");
+                        "RedisRaft requires Redis build from 'unstable' branch");
         return REDISMODULE_ERR;
     }
 
