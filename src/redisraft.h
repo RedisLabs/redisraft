@@ -787,11 +787,11 @@ typedef struct ClientSession {
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
-raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkLeaderExists(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
