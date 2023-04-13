@@ -1613,6 +1613,44 @@ static int cmdRaftRandom(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+static bool allowSubscribe(RedisRaftCtx *rr)
+{
+    /* Allow subscription only if we are the leader and the log replay is
+     * completed. Otherwise, if PUBLISH messages are in a multi or lua script,
+     * subscribers can receive it while we are replaying the log entries. */
+    if (rr->state != REDIS_RAFT_UP ||
+        !raft_is_leader(rr->raft) ||
+        raft_get_last_applied_term(rr->raft) != raft_get_current_term(rr->raft)) {
+        return false;
+    }
+
+    return true;
+}
+
+static int cmdRaftRejectSubscribe(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                  int argc)
+{
+    (void) argv;
+    (void) argc;
+
+    RedisRaftCtx *rr = &redis_raft;
+
+    if (checkRaftState(rr, ctx) != RR_OK) {
+        return REDISMODULE_OK;
+    }
+
+    if (!raft_is_leader(rr->raft)) {
+        Node *leader = getLeaderNodeOrReply(rr, ctx);
+        if (leader) {
+            redirectCommand(rr, ctx, leader);
+        }
+        return REDISMODULE_OK;
+    }
+
+    replyClusterDown(ctx);
+    return REDISMODULE_OK;
+}
+
 static int cmdRaftScan(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisRaftCtx *rr = &redis_raft;
@@ -1744,23 +1782,25 @@ void handleClientEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
  */
 static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
 {
+    RedisRaftCtx *rr = &redis_raft;
+    RedisModuleString *s, *subcmd = NULL;
     RedisModuleString *cmd = RedisModule_CommandFilterArgGet(filter, 0);
-    RedisModuleString *subcmd = NULL;
+
     if (RedisModule_CommandFilterArgsCount(filter) > 1) {
         subcmd = RedisModule_CommandFilterArgGet(filter, 1);
     }
 
     if (checkInRedisModuleCall()) {
         /* if we are running a command in lua that has to be sorted to be deterministic across all nodes */
-        if (redis_raft.entered_eval) {
+        if (rr->entered_eval) {
             int flags;
-            if ((flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, cmd, subcmd)) != -1) {
+            if ((flags = CommandSpecTableGetFlags(rr->commands_spec_table, rr->subcommand_spec_tables, cmd, subcmd)) != -1) {
                 if (flags & CMD_SPEC_SORT_REPLY) {
-                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
-                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                    s = RedisModule_CreateString(NULL, "RAFT._SORT_REPLY", 16);
+                    RedisModule_CommandFilterArgInsert(filter, 0, s);
                 } else if (flags & CMD_SPEC_RANDOM) {
-                    RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
-                    RedisModule_CommandFilterArgInsert(filter, 0, raft_str);
+                    s = RedisModule_CreateString(NULL, "RAFT._REJECT_RANDOM_COMMAND", 27);
+                    RedisModule_CommandFilterArgInsert(filter, 0, s);
                 }
             }
         }
@@ -1768,9 +1808,23 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
         return;
     }
 
-    int flags = CommandSpecTableGetFlags(redis_raft.commands_spec_table, redis_raft.subcommand_spec_tables, cmd, subcmd);
+    int flags = CommandSpecTableGetFlags(rr->commands_spec_table, rr->subcommand_spec_tables, cmd, subcmd);
     if (flags != -1 && (flags & CMD_SPEC_DONT_INTERCEPT))
         return;
+
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(cmd, &len);
+
+    if ((len == 9 && strncasecmp(str, "SUBSCRIBE", len) == 0) ||
+        (len == 10 && strncasecmp(str, "SSUBSCRIBE", len) == 0) ||
+        (len == 10 && strncasecmp(str, "PSUBSCRIBE", len) == 0)) {
+
+        if (!allowSubscribe(rr)) {
+            s = RedisModule_CreateString(NULL, "RAFT._REJECT_SUBSCRIBE", 22);
+            RedisModule_CommandFilterArgInsert(filter, 0, s);
+        }
+        return;
+    }
 
     /* Prepend RAFT to the original command */
     RedisModuleString *raft_str = RedisModule_CreateString(NULL, "RAFT", 4);
@@ -1969,6 +2023,12 @@ static int registerRaftCommands(RedisModuleCtx *ctx)
 
     if (RedisModule_CreateCommand(ctx, "raft._reject_random_command",
                                   cmdRaftRandom,
+                                  "admin", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "raft._reject_subscribe",
+                                  cmdRaftRejectSubscribe,
                                   "admin", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }

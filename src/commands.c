@@ -62,13 +62,13 @@ static const CommandSpec commands[] = {
     {"xdel",                        CMD_SPEC_UNSUPPORTED                         },
     {"xtrim",                       CMD_SPEC_UNSUPPORTED | CMD_SPEC_RANDOM       },
 
- /* Pubsub commands not supported */
-    {"subscribe",                   CMD_SPEC_DONT_INTERCEPT                      },
-    {"psubscribe",                  CMD_SPEC_DONT_INTERCEPT                      },
+ /* Pubsub commands */
     {"unsubscribe",                 CMD_SPEC_DONT_INTERCEPT                      },
+    {"sunsubscribe",                CMD_SPEC_DONT_INTERCEPT                      },
     {"punsubscribe",                CMD_SPEC_DONT_INTERCEPT                      },
-    {"publish",                     CMD_SPEC_DONT_INTERCEPT                      },
-    {"pubsub",                      CMD_SPEC_DONT_INTERCEPT                      },
+    {"publish",                     CMD_SPEC_READONLY                            },
+    {"spublish",                    CMD_SPEC_READONLY                            },
+    {"pubsub",                      CMD_SPEC_READONLY                            },
 
  /* Admin commands - bypassed */
     {"auth",                        CMD_SPEC_DONT_INTERCEPT                      },

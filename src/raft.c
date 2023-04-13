@@ -1229,6 +1229,24 @@ static void raftNotifyTransferEvent(raft_server_t *raft, void *user_data, raft_l
     handleTransferLeaderComplete(raft, result);
 }
 
+static void killPubsubClients()
+{
+    RedisModuleCallReply *r;
+    RedisRaftCtx *rr = &redis_raft;
+
+    r = RedisModule_Call(rr->ctx, "CLIENT", "cccE", "KILL", "TYPE", "PUBSUB");
+
+    RedisModule_Assert(r);
+    RedisModule_Assert(RedisModule_CallReplyType(r) == REDISMODULE_REPLY_INTEGER);
+
+    long long n = RedisModule_CallReplyInteger(r);
+    if (n) {
+        LOG_NOTICE("Closed %lld pubsub client connections", n);
+    }
+
+    RedisModule_FreeCallReply(r);
+}
+
 static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_state_e state)
 {
     switch (state) {
@@ -1255,6 +1273,12 @@ static void raftNotifyStateEvent(raft_server_t *raft, void *user_data, raft_stat
     char *s = raftMembershipInfoString(raft);
     LOG_NOTICE("Cluster Membership: %s", s);
     RedisModule_Free(s);
+
+    /* Kill subscribers if this is node is not the leader. On retry, they'll be
+     * redirected to the leader. */
+    if (state != RAFT_STATE_LEADER) {
+        killPubsubClients();
+    }
 }
 
 /* Apply some backpressure for the node. Helps in two cases, first we don't
