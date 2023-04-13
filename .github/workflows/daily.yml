@@ -225,7 +225,7 @@ jobs:
           ref: ${{ env.REDIS_BRANCH }}
           path: 'redis'
       - name: Build Redis
-        run: cd redis && make -j 4 REDIS_LDFLAGS=-rdynamic
+        run: cd redis && make -j 4
       - name: Setup Python for testing
         uses: actions/setup-python@v1
         with:
