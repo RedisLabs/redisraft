@@ -54,7 +54,7 @@ static RRStatus getNodeAddrFromArg(RedisModuleCtx *ctx, RedisModuleString *arg, 
     size_t node_addr_len;
     const char *node_addr_str = RedisModule_StringPtrLen(arg, &node_addr_len);
     if (!NodeAddrParse(node_addr_str, node_addr_len, addr)) {
-        RedisModule_ReplyWithError(ctx, "invalid node address");
+        RedisModule_ReplyWithError(ctx, "ERR invalid node address");
         return RR_ERROR;
     }
 
@@ -116,12 +116,12 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         long long node_id;
         if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
             (node_id && !VALID_NODE_ID(node_id))) {
-            RedisModule_ReplyWithError(ctx, "invalid node id");
+            RedisModule_ReplyWithError(ctx, "ERR invalid node id");
             return REDISMODULE_OK;
         }
 
         if (hasNodeIdBeenUsed(rr, (raft_node_id_t) node_id)) {
-            RedisModule_ReplyWithError(ctx, "node id has already been used in this cluster");
+            RedisModule_ReplyWithError(ctx, "ERR node id has already been used in this cluster");
             return REDISMODULE_OK;
         }
 
@@ -161,13 +161,13 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         long long node_id;
         if (RedisModule_StringToLongLong(argv[2], &node_id) != REDISMODULE_OK ||
             !VALID_NODE_ID(node_id)) {
-            RedisModule_ReplyWithError(ctx, "invalid node id");
+            RedisModule_ReplyWithError(ctx, "ERR invalid node id");
             return REDISMODULE_OK;
         }
 
         /* Validate it exists */
         if (!raft_get_node(rr->raft, (raft_node_id_t) node_id)) {
-            RedisModule_ReplyWithError(ctx, "node id does not exist");
+            RedisModule_ReplyWithError(ctx, "ERR node id does not exist");
             return REDISMODULE_OK;
         }
 
@@ -195,7 +195,7 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
             shutdownAfterRemoval(rr);
         }
     } else {
-        RedisModule_ReplyWithError(ctx, "RAFT.NODE supports ADD / REMOVE only");
+        RedisModule_ReplyWithError(ctx, "ERR RAFT.NODE supports ADD / REMOVE only");
     }
 
     return REDISMODULE_OK;
@@ -221,7 +221,7 @@ static int cmdRaftTransferLeader(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     if (argc == 2) {
         if (RedisModuleStringToInt(argv[1], &target) == REDISMODULE_ERR) {
-            RedisModule_ReplyWithError(ctx, "invalid target node id");
+            RedisModule_ReplyWithError(ctx, "ERR invalid target node id");
             return REDISMODULE_OK;
         }
     }
@@ -300,13 +300,13 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
     if (RedisModuleStringToInt(argv[1], &target_node_id) == REDISMODULE_ERR ||
         target_node_id != rr->config.id) {
 
-        RedisModule_ReplyWithError(ctx, "invalid or incorrect target node id");
+        RedisModule_ReplyWithError(ctx, "ERR invalid target node id");
         return REDISMODULE_OK;
     }
 
     int src_node_id;
     if (RedisModuleStringToInt(argv[2], &src_node_id) == REDISMODULE_ERR) {
-        RedisModule_ReplyWithError(ctx, "invalid source node id");
+        RedisModule_ReplyWithError(ctx, "ERR invalid source node id");
         return REDISMODULE_OK;
     }
 
@@ -319,7 +319,7 @@ static int cmdRaftRequestVote(RedisModuleCtx *ctx, RedisModuleString **argv, int
                &req.candidate_id,
                &req.last_log_idx,
                &req.last_log_term) != 5) {
-        RedisModule_ReplyWithError(ctx, "invalid message");
+        RedisModule_ReplyWithError(ctx, "ERR invalid message");
         return REDISMODULE_OK;
     }
 

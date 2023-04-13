@@ -231,11 +231,11 @@ static void transferKeysResponse(redisAsyncContext *c, void *r, void *privdata)
 
     if (!reply) {
         ConnMarkDisconnected(conn);
-        RedisModule_ReplyWithError(req->ctx, "ERR: connection dropped importing keys into remote cluster, try again");
+        RedisModule_ReplyWithError(req->ctx, "ERR connection dropped importing keys into remote cluster, try again");
         RaftReqFree(req);
     } else if (reply->type == REDIS_REPLY_ERROR) {
         ConnAsyncTerminate(conn);
-        replyError(req->ctx, "RAFT.IMPORT failed: %.*s", (int) reply->len, reply->str);
+        replyError(req->ctx, "ERR RAFT.IMPORT failed: %.*s", (int) reply->len, reply->str);
         RaftReqFree(req);
     } else if (reply->type != REDIS_REPLY_STATUS || reply->len != 2 || strncmp(reply->str, "OK", 2) != 0) {
         ConnAsyncTerminate(conn);
