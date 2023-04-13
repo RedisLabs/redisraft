@@ -42,13 +42,13 @@ static void replySortedArray(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
     switch (reply_type) {
         case REDISMODULE_REPLY_ARRAY:
             if (RedisModule_ReplyWithArray(ctx, len) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+                RedisModule_ReplyWithError(ctx, "ERR failed to generate sorted reply");
                 goto early_exit;
             }
             break;
         case REDISMODULE_REPLY_SET:
             if (RedisModule_ReplyWithSet(ctx, len) != REDISMODULE_OK) {
-                RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+                RedisModule_ReplyWithError(ctx, "ERR failed to generate sorted reply");
                 goto early_exit;
             }
             break;
@@ -87,13 +87,13 @@ static void replySortedMap(RedisModuleCtx *ctx, RedisModuleCallReply *reply)
         const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
 
         if (RedisModule_DictSetC(dict, (char *) key_str, key_len, value) != REDISMODULE_OK) {
-            RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+            RedisModule_ReplyWithError(ctx, "ERR failed to generate sorted reply");
             goto early_exit;
         }
     }
 
     if (RedisModule_ReplyWithMap(ctx, len) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "Failed to generate sorted reply");
+        RedisModule_ReplyWithError(ctx, "ERR failed to generate sorted reply");
         goto early_exit;
     }
 
