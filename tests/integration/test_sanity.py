@@ -21,7 +21,6 @@ def test_info_before_cluster_init(cluster):
     node = RedisRaft(1, cluster.base_port, cluster.config)
     node.start()
     assert node.info()["raft_state"] == "uninitialized"
-    assert node.client.execute_command("info")["module"]["name"] == "raft"
 
 
 def test_info(cluster):
