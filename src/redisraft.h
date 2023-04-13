@@ -371,12 +371,6 @@ typedef struct RedisRaftConfig {
 
 } RedisRaftConfig;
 
-typedef struct SnapshotLoad {
-    bool pending;
-    raft_term_t term;
-    raft_index_t index;
-} SnapshotLoad;
-
 /* Global Raft context */
 typedef struct RedisRaftCtx {
     void *raft;                    /* Raft library context */
@@ -396,7 +390,6 @@ typedef struct RedisRaftCtx {
                                                     belong to the same snapshot */
     char incoming_snapshot_file[256];    /* File name for incoming snapshots. When received fully,
                                                     it will be renamed to the original rdb file */
-    SnapshotLoad snapshot_load;          /* Indicates we've received a snapshot waiting to be loaded */
     bool snapshot_in_progress;           /* Indicates we're creating a snapshot in the background */
     raft_index_t curr_snapshot_last_idx; /* Last included idx of the snapshot operation currently in progress */
     raft_term_t curr_snapshot_last_term; /* Last included term of the snapshot operation currently in progress */
@@ -794,11 +787,11 @@ typedef struct ClientSession {
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
 const char *getStateStr(RedisRaftCtx *rr);
-raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
-Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftNotLoading(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftUninitialized(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkLeaderExists(RedisRaftCtx *rr, RedisModuleCtx *ctx);
+RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommandArray *cmds);
 bool parseMovedReply(const char *str, NodeAddr *addr);
 void raftNodeToString(char *output, const char *dbid, raft_node_t *raft_node);
 void raftNodeIdToString(char *output, const char *dbid, raft_node_id_t raft_id);
@@ -904,7 +897,6 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx);
 RRStatus initiateSnapshot(RedisRaftCtx *rr);
 RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
 void cancelSnapshot(RedisRaftCtx *rr, SnapshotResult *sr);
-void loadPendingSnapshot(RedisRaftCtx *rr);
 int pollSnapshotStatus(RedisRaftCtx *rr, SnapshotResult *sr);
 void configRaftFromSnapshotInfo(RedisRaftCtx *rr);
 int raftLoadSnapshot(raft_server_t *raft, void *udata, raft_term_t term, raft_index_t idx);

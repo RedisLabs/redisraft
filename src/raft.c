@@ -1415,11 +1415,6 @@ static bool checkRedisLoading(RedisRaftCtx *rr)
 
 static void handleLoadingState(RedisRaftCtx *rr)
 {
-    if (rr->snapshot_load.pending) {
-        loadPendingSnapshot(rr);
-        return;
-    }
-
     if (!checkRedisLoading(rr)) {
         /* If Redis loaded a snapshot (RDB), log some information and configure the
          * raft library as necessary.
