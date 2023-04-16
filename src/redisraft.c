@@ -1563,18 +1563,12 @@ static int cmdRaftRejectSubscribe(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     RedisRaftCtx *rr = &redis_raft;
 
-    if (checkRaftState(rr, ctx) != RR_OK) {
+    if (checkRaftState(rr, ctx) != RR_OK ||
+        checkLeader(rr, ctx, NULL) != RR_OK) {
         return REDISMODULE_OK;
     }
 
-    if (!raft_is_leader(rr->raft)) {
-        Node *leader = getLeaderNodeOrReply(rr, ctx);
-        if (leader) {
-            redirectCommand(rr, ctx, leader);
-        }
-        return REDISMODULE_OK;
-    }
-
+    /* If we reach here, it means log replay isn't completed yet. */
     replyClusterDown(ctx);
     return REDISMODULE_OK;
 }
