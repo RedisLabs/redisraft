@@ -83,7 +83,7 @@ class RawConnection(object):
         self._conn.disconnect()
         self.release()
 
-    def getClientId(self):
+    def get_client_id(self):
         return self.execute("CLIENT", "ID")
 
 
@@ -293,13 +293,27 @@ class RedisRaft(object):
 
     def verify_up(self):
         retries = self.up_timeout
+
+        # Give instance more time in case it is loading RDB
+        busy_retries = self.up_timeout
+
         if retries is not None:
             retries *= 10
+            busy_retries *= 400
+
         while True:
             try:
                 self.client.ping()
                 return
-            except (redis.exceptions.ConnectionError, redis.TimeoutError):
+            except (redis.TimeoutError, redis.exceptions.BusyLoadingError):
+                busy_retries -= 1
+                if busy_retries % 100 == 0:
+                    LOG.warning('RedisRaft<%s> failed to start, retrying',
+                                self.id)
+                if not busy_retries:
+                    raise RedisRaftFailedToStart(
+                        'RedisRaft<%s> failed to start' % self.id)
+            except redis.exceptions.ConnectionError:
                 if retries is not None:
                     retries -= 1
                     if not retries:
@@ -730,7 +744,14 @@ class Cluster(object):
         self.raft_retry(_func)
 
     def wait_for_unanimity(self, exclude=None, timeout=20):
-        commit_idx = self.node(self.leader).commit_index()
+        # Find the largest commit index in the cluster.
+        commit_idx = 0
+        for _id, node in self.nodes.items():
+            if exclude is not None and int(_id) in exclude:
+                continue
+            node.verify_up()
+            commit_idx = max(node.commit_index(), commit_idx)
+
         for _id, node in self.nodes.items():
             if exclude is not None and int(_id) in exclude:
                 continue
@@ -1120,7 +1141,7 @@ def key_hash_slot(key: str) -> int:
     return crc16(key.encode()) % 16384
 
 
-class SlotRangeType():
+class SlotRangeType:
     UNDEF = '0'
     STABLE = '1'
     IMPORTING = '2'

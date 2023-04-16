@@ -325,11 +325,11 @@ def test_blocking_with_unblock(cluster):
 
     c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
     c1.send_command("client", "id")
-    id = c1.read_response()
+    client_id = c1.read_response()
 
     c1.send_command("brpop", "x", 0)
 
-    cluster.execute("client", "unblock", id)
+    cluster.execute("client", "unblock", client_id)
 
     assert c1.read_response() is None
 
@@ -339,11 +339,11 @@ def test_blocking_with_unblock_error(cluster):
 
     c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
     c1.send_command("client", "id")
-    id = c1.read_response()
+    client_id = c1.read_response()
 
     c1.send_command("brpop", "x", 0)
 
-    cluster.execute("client", "unblock", id, "error")
+    cluster.execute("client", "unblock", client_id, "error")
 
     with raises(ResponseError,
                 match="UNBLOCKED client unblocked via CLIENT UNBLOCK"):
@@ -391,7 +391,7 @@ def test_blocking_with_timeout_after_unblock(cluster):
     c3 = cluster.leader_node().client.connection_pool.get_connection('c3')
 
     c1.send_command("client", "id")
-    id = c1.read_response()
+    client_id = c1.read_response()
 
     c1.send_command("brpop", "x", 0)
 
@@ -401,7 +401,7 @@ def test_blocking_with_timeout_after_unblock(cluster):
     cluster.config_set("raft.log-disable-apply", "yes")
 
     c2.send_command("lpush", "x", 1)
-    c3.send_command("client", "unblock", id)
+    c3.send_command("client", "unblock", client_id)
 
     cluster.config_set("raft.log-disable-apply", "no")
 
