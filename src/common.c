@@ -77,7 +77,7 @@ void replyClusterDown(RedisModuleCtx *ctx)
     RedisModule_ReplyWithError(ctx, "CLUSTERDOWN No raft leader");
 }
 
-void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...)
+void replyError(RedisModuleCtx *ctx, const char *fmt, ...)
 {
     char buf[512];
     va_list ap;
@@ -87,43 +87,6 @@ void replyWithFormatErrorString(RedisModuleCtx *ctx, const char *fmt, ...)
     va_end(ap);
 
     RedisModule_ReplyWithError(ctx, buf);
-}
-
-/* Returns the leader node (raft_node_t), or reply a -CLUSTERDOWN error
- * and return NULL.
- *
- * Note: it's possible to have an elected but unknown leader node, in which
- * case NULL will also be returned.
- */
-raft_node_t *getLeaderRaftNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    raft_node_t *node = raft_get_leader_node(rr->raft);
-    if (!node) {
-        replyClusterDown(ctx);
-    }
-
-    return node;
-}
-
-/* Returns the leader node (Node), or reply a -CLUSTERDOWN error
- * and return NULL.
- *
- * Note: it's possible to have an elected but unknown leader node, in which
- * case NULL will also be returned.
- */
-Node *getLeaderNodeOrReply(RedisRaftCtx *rr, RedisModuleCtx *ctx)
-{
-    raft_node_t *raft_node = getLeaderRaftNodeOrReply(rr, ctx);
-    if (!raft_node) {
-        return NULL;
-    }
-
-    Node *node = raft_node_get_udata(raft_node);
-    if (!node) {
-        replyClusterDown(ctx);
-    }
-
-    return node;
 }
 
 /* Check that we're not in REDIS_RAFT_LOADING state.  If not, reply with -LOADING
@@ -166,6 +129,71 @@ RRStatus checkRaftState(RedisRaftCtx *rr, RedisModuleCtx *ctx)
             break;
     }
     return RR_OK;
+}
+
+RRStatus checkLeaderExists(RedisRaftCtx *rr, RedisModuleCtx *ctx)
+{
+    if (raft_get_leader_node(rr->raft) == NULL) {
+        replyClusterDown(ctx);
+        return RR_ERROR;
+    }
+
+    return RR_OK;
+}
+
+/* Check if this node is leader, if not, redirect or proxy the request. */
+RRStatus checkLeader(RedisRaftCtx *rr, RedisModuleCtx *ctx,
+                     RaftRedisCommandArray *cmds)
+{
+    raft_node_t *n = NULL;
+    Node *leader = NULL;
+
+    if (raft_is_leader(rr->raft)) {
+        return RR_OK;
+    }
+
+    n = raft_get_leader_node(rr->raft);
+    if (n) {
+        leader = raft_node_get_udata(n);
+    }
+
+    if (!leader) {
+        replyClusterDown(ctx);
+        return RR_ERROR;
+    }
+
+    /* reply ASK for ASKING state commands */
+    if (cmds && cmds->asking) {
+        int slot;
+        if (HashSlotCompute(rr, cmds, &slot) != RR_OK) {
+            replyCrossSlot(ctx);
+            return RR_ERROR;
+        }
+
+        if (slot == -1) {
+            /* ASKING mode requests should always have keys */
+            RedisModule_ReplyWithError(ctx, "ERR cmd without keys in asking mode");
+            return RR_ERROR;
+        }
+
+        replyAsk(ctx, (unsigned int) slot, &leader->addr);
+        return RR_ERROR;
+    }
+
+    /* forward commands to the leader in follower_proxy state */
+    if (cmds && rr->config.follower_proxy) {
+        if (ProxyCommand(rr, ctx, cmds, leader) != RR_OK) {
+            RedisModule_ReplyWithError(ctx, "NOTLEADER Failed to proxy command");
+        }
+        return RR_ERROR;
+    }
+
+    /* One anomaly here is that may redirect a client to the leader even for
+     * commands have no keys, which is something Redis Cluster never does. We
+     * still need to consider how this impacts clients which may not expect it.
+     */
+    replyRedirect(ctx, 0, &leader->addr);
+    return RR_ERROR;
 }
 
 /* Parse a -MOVED reply and update the returned address in addr.

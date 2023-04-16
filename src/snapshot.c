@@ -14,15 +14,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-/* These are ugly hacks to work around missing Redis Module API calls!
- *
- * For rdbSave() we could use SAVE, but we'd anyway stay with rdbLoad() so
- * we have both.
- */
-
-int rdbLoad(const char *filename, void *info, int flags);
-int rdbSave(int flags, const char *filename, void *info);
-
 /* ------------------------------------ Snapshot metadata ------------------------------------ */
 
 static void releaseSnapshotMmap(RedisRaftCtx *ctx)
@@ -407,11 +398,15 @@ RRStatus initiateSnapshot(RedisRaftCtx *rr)
             goto exit;
         }
 
-        if (rdbSave(0, sr.rdb_filename, NULL) != 0) {
-            snprintf(sr.err, sizeof(sr.err) - 1, "%s", "rdbSave() failed");
+        RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile(sr.rdb_filename);
+
+        if (RedisModule_RdbSave(rr->ctx, s, 0) != REDISMODULE_OK) {
+            RedisModule_RdbStreamFree(s);
+            snprintf(sr.err, sizeof(sr.err), "rdbSave(): %s", strerror(errno));
             goto exit;
         }
 
+        RedisModule_RdbStreamFree(s);
         sr.success = 1;
 
 exit:
@@ -475,58 +470,6 @@ void configRaftFromSnapshotInfo(RedisRaftCtx *rr)
     RedisModule_Assert(raft_get_num_nodes(rr->raft) == added + 1);
 }
 
-/* After a snapshot is received, load it into the Raft library:
- * 1. Load rdb file.
- * 2. Configure index/term/etc.
- * 3. Reconfigure nodes based on the snapshot metadata configuration.
- * 4. Create a new snapshot memory map.
- */
-void loadPendingSnapshot(RedisRaftCtx *rr)
-{
-    RedisModule_Assert(rr->state == REDIS_RAFT_LOADING);
-
-    if (rr->config.snapshot_disable_load) {
-        return;
-    }
-
-    SnapshotLoad *sl = &rr->snapshot_load;
-
-    LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu",
-              sl->term, sl->index);
-
-    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
-
-    int ret = raft_begin_load_snapshot(rr->raft, sl->term, sl->index);
-    if (ret != 0) {
-        PANIC("Cannot load snapshot: %lu, %lu", sl->term, sl->index);
-    }
-
-    RedisModule_ResetDataset(0, 0);
-    rr->snapshot_info.loaded = false;
-
-    if (rdbLoad(rr->config.rdb_filename, NULL, 0) != 0 ||
-        !rr->snapshot_info.loaded) {
-        PANIC("Failed to load snapshot");
-    }
-
-    configRaftFromSnapshotInfo(rr);
-    raft_end_load_snapshot(rr->raft);
-
-    EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
-    createOutgoingSnapshotMmap(rr);
-
-    rr->snapshots_received++;
-    rr->state = REDIS_RAFT_UP;
-
-    rr->snapshot_load = (SnapshotLoad){
-        .pending = false,
-        .term = -1,
-        .index = -1,
-    };
-}
-
-/* After a snapshot is received, replace it with the existing snapshot file
- * and trigger the load operation which will be done inside periodic timer. */
 int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
                      raft_index_t index)
 {
@@ -554,20 +497,37 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
         return -1;
     }
 
-    /* This function will be called inside a command callback. It is dangerous
-     * to load the snapshot by calling `rdbLoad()` here. `rdbLoad()` goes back
-     * to networking occasionally and tries to process network events. If the
-     * current client that triggers this command callback gets disconnected,
-     * client object might be freed. Then, when this callback returns, it will
-     * cause a use-after-free bug. To avoid this issue, we skip loading the
-     * snapshot inside this command callback. It will be loaded inside the timer
-     * callback. */
+    LOG_DEBUG("Beginning snapshot load, term=%lu, index=%lu", term, index);
+
+    fsyncThreadWaitUntilCompleted(&rr->fsyncThread);
+
     rr->state = REDIS_RAFT_LOADING;
-    rr->snapshot_load = (SnapshotLoad){
-        .pending = true,
-        .term = term,
-        .index = index,
-    };
+    rr->snapshot_info.loaded = false;
+
+    if (rr->config.snapshot_disable_load) {
+        return -1;
+    }
+
+    int ret = raft_begin_load_snapshot(rr->raft, term, index);
+    if (ret != 0) {
+        PANIC("Cannot load snapshot: %lu, %lu", term, index);
+    }
+
+    RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile(rr->config.rdb_filename);
+    if (RedisModule_RdbLoad(rr->ctx, s, 0) != REDISMODULE_OK ||
+        !rr->snapshot_info.loaded) {
+        PANIC("Failed to load snapshot, RM_RdbLoad(): %s", strerror(errno));
+    }
+    RedisModule_RdbStreamFree(s);
+
+    configRaftFromSnapshotInfo(rr);
+    raft_end_load_snapshot(rr->raft);
+
+    EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
+    createOutgoingSnapshotMmap(rr);
+
+    rr->snapshots_received++;
+    rr->state = REDIS_RAFT_UP;
 
     return 0;
 }

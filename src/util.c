@@ -46,6 +46,7 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
 
     va_start(ap, fmt);
     len = vsnprintf(strbuf + used, avail, fmt, ap);
+    va_end(ap);
 
     if (len >= avail) {
         if (len - avail > 4096) {
@@ -54,14 +55,15 @@ char *catsnprintf(char *strbuf, size_t *strbuf_len, const char *fmt, ...)
             *strbuf_len += 4096;
         }
 
-        /* "Rewind" va_arg(); Apparently this is required by older versions (rhel6) */
-        va_end(ap);
-        va_start(ap, fmt);
-
         strbuf = RedisModule_Realloc(strbuf, *strbuf_len);
-        len = vsnprintf(strbuf + used, *strbuf_len - used, fmt, ap);
+        avail = *strbuf_len - used;
+
+        va_start(ap, fmt);
+        len = vsnprintf(strbuf + used, avail, fmt, ap);
+        va_end(ap);
+
+        RedisModule_Assert(len < avail);
     }
-    va_end(ap);
 
     return strbuf;
 }
