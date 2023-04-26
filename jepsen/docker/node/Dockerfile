@@ -1,4 +1,4 @@
-FROM debian:stretch
+FROM debian:buster
 
 # Install packages
 RUN apt-get update && \
@@ -19,7 +19,7 @@ RUN apt-get update && \
         bzip2 \
         curl \
         faketime \
-        iproute \
+        iproute2 \
         iptables \
         iputils-ping \
         libzip4 \
