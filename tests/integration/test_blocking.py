@@ -268,9 +268,9 @@ def test_blocking_with_term_change(cluster):
 
     cluster.node(1).restart()
 
-    with raises(ConnectionError, match="Connection closed by server"):
+    with raises(ConnectionError, match="Connection (closed|reset)"):
         c1.read_response()
-    with raises(ConnectionError, match="Connection closed by server"):
+    with raises(ConnectionError, match="Connection (closed|reset)"):
         c2.read_response()
 
     cluster.node(1).wait_for_info_param('raft_state', 'up')
