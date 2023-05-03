@@ -3,7 +3,7 @@
 This is a Terraform script to launch a Jepsen test environment on AWS.
 It launches and configures 5 cluster test nodes and one control node.
 
-All nodes run Debian stretch.
+All nodes run Debian.
 
 ## Getting started
 

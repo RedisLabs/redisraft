@@ -4,7 +4,7 @@ This is a `docker-compose` setup for running a RedisRaft/Jepsen test on a docker
 environment.
 
 The environment consists of a single control container and 5 cluster containers
-running RedisRaft. All containers are based on Debian stretch.
+running RedisRaft. All containers are based on Debian.
 
 ## Getting started
 
