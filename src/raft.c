@@ -1121,7 +1121,7 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     Node *node = raft_node_get_udata(raft_node);
     RedisModule_Assert(node != NULL);
 
-    LOG_DEBUG("node:%d has sufficient logs, adding as voting node.", node->id);
+    LOG_NOTICE("node:%d has sufficient logs, adding as voting node.", node->id);
 
     raft_entry_req_t *entry = raft_entry_new(sizeof(RaftCfgChange));
     entry->id = rand();
@@ -1135,6 +1135,37 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     raft_entry_release(entry);
 
     return e;
+}
+
+static char *raftMembershipInfoString(raft_server_t *raft)
+{
+    size_t buflen = 1024;
+    char *buf = RedisModule_Calloc(1, buflen);
+    int i;
+
+    buf = catsnprintf(buf, &buflen, "term:%ld index:%ld nodes:",
+                      raft_get_current_term(raft),
+                      raft_get_current_idx(raft));
+    for (i = 0; i < raft_get_num_nodes(raft); i++) {
+        raft_node_t *rn = raft_get_node_from_idx(raft, i);
+        Node *n = raft_node_get_udata(rn);
+        char addr[512];
+
+        if (n) {
+            snprintf(addr, sizeof(addr) - 1, "%s:%u", n->addr.host, n->addr.port);
+        } else {
+            addr[0] = '-';
+            addr[1] = '\0';
+        }
+
+        buf = catsnprintf(buf, &buflen, " id=%d,voting=%d,active=%d,addr=%s",
+                          raft_node_get_id(rn),
+                          raft_node_is_voting(rn),
+                          raft_node_is_active(rn),
+                          addr);
+    }
+
+    return buf;
 }
 
 void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
@@ -1185,37 +1216,10 @@ void raftNotifyMembershipEvent(raft_server_t *raft, void *user_data,
         default:
             RedisModule_Assert(0);
     }
-}
 
-static char *raftMembershipInfoString(raft_server_t *raft)
-{
-    size_t buflen = 1024;
-    char *buf = RedisModule_Calloc(1, buflen);
-    int i;
-
-    buf = catsnprintf(buf, &buflen, "term:%ld index:%ld nodes:",
-                      raft_get_current_term(raft),
-                      raft_get_current_idx(raft));
-    for (i = 0; i < raft_get_num_nodes(raft); i++) {
-        raft_node_t *rn = raft_get_node_from_idx(raft, i);
-        Node *n = raft_node_get_udata(rn);
-        char addr[512];
-
-        if (n) {
-            snprintf(addr, sizeof(addr) - 1, "%s:%u", n->addr.host, n->addr.port);
-        } else {
-            addr[0] = '-';
-            addr[1] = '\0';
-        }
-
-        buf = catsnprintf(buf, &buflen, " id=%d,voting=%d,active=%d,addr=%s",
-                          raft_node_get_id(rn),
-                          raft_node_is_voting(rn),
-                          raft_node_is_active(rn),
-                          addr);
-    }
-
-    return buf;
+    char *s = raftMembershipInfoString(raft);
+    LOG_NOTICE("Cluster Membership: %s", s);
+    RedisModule_Free(s);
 }
 
 static void handleTransferLeaderComplete(raft_server_t *raft, raft_leader_transfer_e result);
