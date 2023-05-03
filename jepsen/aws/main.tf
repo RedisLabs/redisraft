@@ -65,7 +65,7 @@ data "aws_ami" "debian" {
 
   filter {
     name    = "name"
-    values  = ["debian-stretch-hvm-x86_64-*"]
+    values  = ["debian-10-amd64-*"]
   }
 
   owners = ["379101102735"]

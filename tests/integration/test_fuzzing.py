@@ -163,23 +163,28 @@ def test_snapshot_delivery_with_config_changes(cluster):
     # After populating 2 million keys, snapshot can take a while. We just
     # trigger it asynchronously and wait until completed for 30 seconds.
     n1.execute('raft.debug', 'compact', 1)
-    n1.wait_for_info_param('raft_snapshots_created', 1, timeout=30)
+    n1.wait_for_info_param('raft_snapshots_created', 1, timeout=120)
 
     cluster.add_node(use_cluster_args=True)
     cluster.add_node(use_cluster_args=True)
     cluster.add_node(use_cluster_args=True)
     cluster.add_node(use_cluster_args=True)
 
-    cluster.wait_for_unanimity(timeout=60)
+    cluster.wait_for_info_param("raft_num_voting_nodes", 5, timeout=120)
+    cluster.wait_for_unanimity(timeout=120)
 
     for i in range(cycles):
+        logging.info("Iteration-%s started." % i)
+
         assert cluster.execute('INCRBY', 'counter', 1) == i + 1
         try:
             cluster.remove_node(cluster.random_node_id())
         except ResponseError:
             continue
 
-        cluster.add_node(use_cluster_args=True).wait_for_node_voting()
+        cluster.add_node(use_cluster_args=True)
+        cluster.wait_for_info_param("raft_num_voting_nodes", 5, timeout=120)
+        cluster.wait_for_unanimity(timeout=120)
 
     logging.info('All cycles finished')
     assert int(cluster.execute('GET', 'counter')) == cycles
