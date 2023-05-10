@@ -288,3 +288,7 @@ raft_node_id_t raft_get_transfer_leader(raft_server_t *me)
     return me->node_transferring_leader_to;
 }
 
+void raft_get_server_stats(raft_server_t *me, raft_server_stats_t *stats)
+{
+    *stats = me->stats;
+}
