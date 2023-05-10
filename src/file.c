@@ -242,7 +242,7 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
 
 /* Similar to fwrite(), write data from `buf` into the file.
  * Return the number of written bytes, -1 on error. */
-raft_size_t FileWrite(File *file, void *buf, size_t len)
+ssize_t FileWrite(File *file, void *buf, size_t len)
 {
     /* Clear read buffer positions as we are in write mode now. */
     file->rpos = file->rend = NULL;

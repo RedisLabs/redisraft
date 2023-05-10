@@ -53,7 +53,7 @@ static int pageWriteHeader(LogPage *p)
     unsigned char buf[1024];
     unsigned char *pos;
     unsigned char *end = buf + sizeof(buf);
-    raft_size_t len = pageGenerateHeader(p, buf, sizeof(buf));
+    ssize_t len = (ssize_t) pageGenerateHeader(p, buf, sizeof(buf));
     pos = buf + len;
 
     /* add crc to header */
@@ -148,20 +148,20 @@ static int pageWriteEntry(LogPage *p, raft_entry_t *ety)
 {
     int rc;
     unsigned char buf[1024];
-    raft_size_t len;
+    ssize_t len;
 
     size_t offset = FileSize(&p->file);
     size_t idxoffset = FileSize(&p->idxfile);
 
     /* header */
-    len = generateEntryHeader(ety, buf, sizeof(buf));
+    len = (ssize_t) generateEntryHeader(ety, buf, sizeof(buf));
     if (FileWrite(&p->file, buf, len) != len) {
         LOG_WARNING("FileWrite() failed for the file: %s", p->filename);
         goto error;
     }
 
     /* data */
-    if (FileWrite(&p->file, ety->data, ety->data_len) != ety->data_len ||
+    if (FileWrite(&p->file, ety->data, ety->data_len) != (ssize_t) ety->data_len ||
         FileWrite(&p->file, "\r\n", 2) != 2) {
         LOG_WARNING("FileWrite() failed for the file: %s", p->filename);
         goto error;
@@ -353,7 +353,7 @@ static LogPage *pageOpen(const char *filename)
 
     /* validate log header crc */
     unsigned char buf[1024];
-    ssize_t len = pageGenerateHeader(p, buf, sizeof(buf));
+    size_t len = pageGenerateHeader(p, buf, sizeof(buf));
     if (sc_crc32(0, buf, len) != read_crc) {
         LOG_WARNING("logfile fails crc check, starting from scratch");
         pageFree(p, false);

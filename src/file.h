@@ -7,8 +7,6 @@
 #ifndef REDISRAFT_FILE_H
 #define REDISRAFT_FILE_H
 
-#include "raft.h"
-
 #include <stdlib.h>
 #include <sys/types.h>
 
@@ -49,7 +47,7 @@ size_t FileGetReadOffset(File *file);
 
 ssize_t FileGets(File *file, void *buf, size_t cap);
 ssize_t FileRead(File *file, void *buf, size_t cap);
-raft_size_t FileWrite(File *file, void *buf, size_t len);
+ssize_t FileWrite(File *file, void *buf, size_t len);
 size_t FileSize(File *file);
 int FileTruncate(File *file, size_t len);
 

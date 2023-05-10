@@ -65,7 +65,7 @@ void MetadataArchiveFile(Metadata *m)
 int MetadataWrite(Metadata *m, raft_term_t term, raft_node_id_t vote)
 {
     char buf[2048], tmp[PATH_MAX];
-    raft_size_t len;
+    ssize_t len;
     char *pos = buf;
     char *end = buf + sizeof(buf);
     File f;
