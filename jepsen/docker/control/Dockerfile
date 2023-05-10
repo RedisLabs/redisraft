@@ -1,11 +1,11 @@
-FROM debian:stretch
+FROM debian:buster
 
 #
 # Jepsen dependencies
 #
 RUN apt-get -y -q update && \
     apt-get install -qqy \
-        openjdk-8-jre \
+        openjdk-11-jdk \
         libjna-java \
         git \
         gnuplot \

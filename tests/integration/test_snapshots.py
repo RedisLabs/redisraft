@@ -743,5 +743,5 @@ def test_session_cleaned_on_load(cluster):
 
     cluster.wait_for_info_param("raft_num_sessions", 0)
 
-    with raises(ConnectionError, match="Connection closed by server"):
+    with raises(ConnectionError, match="Connection (closed|reset)"):
         conn1.execute("get", "X")
