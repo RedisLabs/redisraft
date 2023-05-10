@@ -916,7 +916,7 @@ class RaftServer(object):
         #     ))
 
     def periodic(self, msec):
-        if self.network.random.randint(1, 100000) < self.network.compaction_rate:
+        if self.network.random.randint(1, 100) < self.network.compaction_rate:
             self.do_compaction()
 
         e = lib.raft_periodic_internal(self.raft, msec)
@@ -1087,6 +1087,13 @@ class RaftServer(object):
         if not leader:
             return 0
 
+        # In case leader has a more recent snapshot, skip loading. Later in this
+        # function, we use leader's configuration to reconfigure nodes from the
+        # snapshot. If leader has taken another snapshot, we cannot use that
+        # configuration for the current snapshot load operation.
+        if leader.snapshot.last_idx != index:
+            return -1
+
         leader_snapshot = leader.snapshot_buf
 
         # Copy received snapshot as our snapshot and clear the temp buf
@@ -1171,30 +1178,37 @@ class RaftServer(object):
         This is a virtraft specific check to make sure entry passing is
         working correctly.
         """
+        def get_last_user_entry(idx):
+            while True:
+                if idx == lib.raft_get_snapshot_last_idx(self.raft):
+                    return None
+
+                prev_ety = lib.raft_get_entry_from_idx(self.raft, idx)
+                assert prev_ety
+
+                if prev_ety.type == lib.RAFT_LOGTYPE_NO_OP:
+                    lib.raft_entry_release(prev_ety)
+                    idx = idx - 1
+                    continue
+
+                return prev_ety
+
         if ety.type == lib.RAFT_LOGTYPE_NO_OP:
             return
 
-        ci = lib.raft_get_current_idx(self.raft)
-        if 0 < ci and not lib.raft_get_snapshot_last_idx(self.raft) == ci:
-            other_id = None
-            try:
-                prev_ety = lib.raft_get_entry_from_idx(self.raft, ci)
-                assert prev_ety
-                if prev_ety.type == lib.RAFT_LOGTYPE_NO_OP:
-                    if lib.raft_get_snapshot_last_idx(self.raft) != ci - 1:
-                        lib.raft_entry_release(prev_ety)
-                        prev_ety = lib.raft_get_entry_from_idx(self.raft, ci - 1)
-                        assert prev_ety
-                    else:
-                        lib.raft_entry_release(prev_ety)
-                        return
-                other_id = prev_ety.id
-                assert other_id < ety.id
-                lib.raft_entry_release(prev_ety)
-            except Exception as e:
-                logger.error(other_id, ety.id)
-                self.abort_exception = e
-                raise
+        last_ety = None
+
+        try:
+            ci = lib.raft_get_current_idx(self.raft)
+            last_ety = get_last_user_entry(ci)
+            if not last_ety:
+                return
+
+            assert ety.id > last_ety.id
+        except Exception as e:
+            logger.error("ids", last_ety.id, ety.id)
+            self.abort_exception = e
+            raise
 
     def entry_append(self, ety, ety_idx):
         try:
