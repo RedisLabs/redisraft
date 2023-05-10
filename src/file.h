@@ -7,9 +7,10 @@
 #ifndef REDISRAFT_FILE_H
 #define REDISRAFT_FILE_H
 
+#include "raft.h"
+
 #include <stdlib.h>
 #include <sys/types.h>
-#include "raft.h"
 
 /* File implementation with a userspace buffer.
  *

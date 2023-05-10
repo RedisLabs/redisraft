@@ -408,11 +408,11 @@ typedef struct RedisRaftCtx {
     RedisModuleDict *subcommand_spec_tables; /* a dict that maps aggregate commands to its subcommand table */
 
     /* General stats */
-    unsigned long client_attached_entries;       /* Number of log entries attached to user connections */
-    unsigned long long proxy_reqs;               /* Number of proxied requests */
-    unsigned long long proxy_failed_reqs;        /* Number of failed proxy requests, i.e. did not send */
-    unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
-    unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
+    unsigned long client_attached_entries;     /* Number of log entries attached to user connections */
+    unsigned long long proxy_reqs;             /* Number of proxied requests */
+    unsigned long long proxy_failed_reqs;      /* Number of failed proxy requests, i.e. did not send */
+    unsigned long long proxy_failed_responses; /* Number of failed proxy responses, i.e. did not complete */
+    unsigned long proxy_outstanding_reqs;      /* Number of proxied requests pending */
 
     int entered_eval;                     /* handling a lua script */
     RedisModuleDict *locked_keys;         /* keys that have been locked for migration */

@@ -1838,8 +1838,10 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_term", rr->raft ? raft_get_snapshot_last_term(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_size", rr->outgoing_snapshot_file.len);
 
-    raft_server_stats_t raft_stats;
-    raft_get_server_stats(rr->raft, &raft_stats);
+    raft_server_stats_t raft_stats = {0};
+    if (rr->raft) {
+        raft_get_server_stats(rr->raft, &raft_stats);
+    }
 
     long long snapshot_time = -1;
     if (raft_stats.snapshots_created != 0) {
