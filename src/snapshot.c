@@ -58,10 +58,9 @@ void createOutgoingSnapshotMmap(RedisRaftCtx *ctx)
 }
 
 int raftGetSnapshotChunk(raft_server_t *raft, void *user_data,
-                         raft_node_t *raft_node, unsigned long long offset,
+                         raft_node_t *raft_node, raft_size_t offset,
                          raft_snapshot_chunk_t *chunk)
 {
-
     RedisRaftCtx *rr = user_data;
     Node *node = raft_node_get_udata(raft_node);
 
@@ -70,6 +69,8 @@ int raftGetSnapshotChunk(raft_server_t *raft, void *user_data,
         node->pending_raft_response_num >= rr->config.snapshot_req_max_count) {
         return RAFT_ERR_DONE;
     }
+
+    RedisModule_Assert(offset <= rr->outgoing_snapshot_file.len);
 
     const raft_size_t max_chunk_size = rr->config.snapshot_req_max_size;
     const raft_size_t remaining_bytes = rr->outgoing_snapshot_file.len - offset;
