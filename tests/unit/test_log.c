@@ -4,11 +4,14 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "test.h"
+
 #include "../src/entrycache.h"
 #include "../src/log.h"
 #include "../src/redisraft.h"
 #include "common/sc_crc32.h"
 
+#include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stddef.h>
@@ -17,30 +20,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "cmocka.h"
-
 #define LOGNAME "test.log.db"
 #define DBID    "01234567890123456789012345678901"
-
-static int setup_create_log(void **state)
-{
-    *state = malloc(sizeof(Log));
-
-    LogInit(*state);
-    int rc = LogCreate(*state, LOGNAME, DBID, 1, 1, 0);
-    assert_int_equal(rc, RR_OK);
-    return 0;
-}
-
-static int teardown_log(void **state)
-{
-    Log *log = (Log *) *state;
-    LogTerm(log);
-    free(log);
-    unlink(LOGNAME);
-    unlink(LOGNAME ".idx");
-    return 0;
-}
 
 static raft_entry_t *make_entry(int id, const char *value)
 {
@@ -61,169 +42,198 @@ static void append_entry(Log *log, int id, const char *value)
 {
     raft_entry_t *e = make_entry(id, value);
 
-    assert_int_equal(LogAppend(log, e), RR_OK);
+    assert(LogAppend(log, e) == RR_OK);
     raft_entry_release(e);
 }
 
-static void test_log_random_access(void **state)
+static void test_log_random_access()
 {
-    Log *log = (Log *) *state;
+    Log log;
 
-    append_entry(log, 3, NULL);
-    append_entry(log, 30, NULL);
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+
+    append_entry(&log, 3, NULL);
+    append_entry(&log, 30, NULL);
 
     /* Invalid out of bound reads */
-    assert_null(LogGet(log, 0));
-    assert_null(LogGet(log, 3));
+    assert(LogGet(&log, 0) == NULL);
+    assert(LogGet(&log, 3) == NULL);
 
-    raft_entry_t *e = LogGet(log, 1);
-    assert_int_equal(e->id, 3);
+    raft_entry_t *e = LogGet(&log, 1);
+    assert(e->id == 3);
     raft_entry_release(e);
 
-    e = LogGet(log, 2);
-    assert_int_equal(e->id, 30);
+    e = LogGet(&log, 2);
+    assert(e->id == 30);
     raft_entry_release(e);
+
+    LogTerm(&log);
 }
 
-static void test_log_random_access_with_snapshot(void **state)
+static void test_log_random_access_with_snapshot()
 {
-    Log *log = (Log *) *state;
+    Log log;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
 
     /* Reset log assuming last snapshot is 100 */
-    LogReset(log, 100, 1);
+    LogReset(&log, 100, 1);
 
     /* Write entries */
-    append_entry(log, 3, NULL);
-    append_entry(log, 30, NULL);
+    append_entry(&log, 3, NULL);
+    append_entry(&log, 30, NULL);
 
-    assert_int_equal(LogFirstIdx(log), 101);
+    assert(LogFirstIdx(&log) == 101);
 
     /* Invalid out of bound reads */
-    assert_null(LogGet(log, 99));
-    assert_null(LogGet(log, 100));
-    assert_null(LogGet(log, 103));
+    assert(LogGet(&log, 99) == NULL);
+    assert(LogGet(&log, 100) == NULL);
+    assert(LogGet(&log, 103) == NULL);
 
-    raft_entry_t *e = LogGet(log, 101);
-    assert_non_null(e);
-    assert_int_equal(e->id, 3);
+    raft_entry_t *e = LogGet(&log, 101);
+    assert(e != NULL);
+    assert(e->id == 3);
     raft_entry_release(e);
 
-    e = LogGet(log, 102);
-    assert_int_equal(e->id, 30);
+    e = LogGet(&log, 102);
+    assert(e->id == 30);
     raft_entry_release(e);
+
+    LogTerm(&log);
 }
 
-static void test_log_load_entries(void **state)
+static void test_log_load_entries()
 {
     raft_entry_t *ety;
-    Log *log = *state;
+    Log log, log2;
 
-    append_entry(log, 3, NULL);
-    append_entry(log, 30, NULL);
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
 
-    assert_int_equal(LogLoadEntries(log), RR_OK);
-    assert_int_equal(LogCount(log), 2);
+    append_entry(&log, 3, NULL);
+    append_entry(&log, 30, NULL);
 
-    ety = LogGet(log, 1);
-    assert_int_equal(ety->id, 3);
-    assert_memory_equal(ety->data, "value3", strlen("value3"));
-    raft_entry_release(ety);
+    LogTerm(&log);
 
-    ety = LogGet(log, 2);
-    assert_int_equal(ety->id, 30);
-    assert_memory_equal(ety->data, "value30", strlen("value30"));
-    raft_entry_release(ety);
-}
-
-static void test_log_index_rebuild(void **state)
-{
-    Log *log = (Log *) *state;
-    LogReset(log, 100, 1);
-
-    append_entry(log, 3, NULL);
-    append_entry(log, 30, NULL);
-
-    /* Delete index file */
-    unlink(LOGNAME ".idx");
-
-    /* Reopen the log */
-    Log log2;
     LogInit(&log2);
-    LogOpen(&log2, LOGNAME);
-    LogLoadEntries(&log2);
+    assert(LogOpen(&log2, LOGNAME) == RR_OK);
 
-    /* Invalid out of bound reads */
-    assert_null(LogGet(log, 99));
-    assert_null(LogGet(log, 100));
-    assert_null(LogGet(log, 103));
+    assert(LogLoadEntries(&log2) == RR_OK);
+    assert(LogCount(&log2) == 2);
 
-    raft_entry_t *e = LogGet(log, 101);
-    assert_int_equal(e->id, 3);
-    raft_entry_release(e);
+    ety = LogGet(&log2, 1);
+    assert(ety->id == 3);
+    assert(memcmp(ety->data, "value3", strlen("value3")) == 0);
+    raft_entry_release(ety);
 
-    e = LogGet(log, 102);
-    assert_int_equal(e->id, 30);
-    raft_entry_release(e);
+    ety = LogGet(&log2, 2);
+    assert(ety->id == 30);
+    assert(memcmp(ety->data, "value30", strlen("value30")) == 0);
+    raft_entry_release(ety);
 
-    /* Close the log */
     LogTerm(&log2);
 }
 
-static void test_log_write_after_read(void **state)
+static void test_log_index_rebuild()
 {
-    Log *log = (Log *) *state;
+    Log log;
 
-    append_entry(log, 1, NULL);
-    append_entry(log, 2, NULL);
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+    LogReset(&log, 100, 1);
 
-    raft_entry_t *e = LogGet(log, 1);
-    assert_int_equal(e->id, 1);
+    append_entry(&log, 3, NULL);
+    append_entry(&log, 30, NULL);
+
+    /* Delete index file */
+    unlink(LOGNAME ".idx");
+    LogTerm(&log);
+
+    /* Reopen the log */
+    LogInit(&log);
+    LogOpen(&log, LOGNAME);
+    LogLoadEntries(&log);
+
+    /* Invalid out of bound reads */
+    assert(LogGet(&log, 99) == NULL);
+    assert(LogGet(&log, 100) == NULL);
+    assert(LogGet(&log, 103) == NULL);
+
+    raft_entry_t *e = LogGet(&log, 101);
+    assert(e->id == 3);
     raft_entry_release(e);
 
-    append_entry(log, 3, NULL);
-    e = LogGet(log, 3);
-    assert_int_equal(e->id, 3);
+    e = LogGet(&log, 102);
+    assert(e->id == 30);
     raft_entry_release(e);
+
+    /* Close the log */
+    LogTerm(&log);
 }
 
-static void test_log_fuzzer(void **state)
+static void test_log_write_after_read()
 {
-    Log *log = (Log *) *state;
+    Log log;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
+
+    append_entry(&log, 1, NULL);
+    append_entry(&log, 2, NULL);
+
+    raft_entry_t *e = LogGet(&log, 1);
+    assert(e->id == 1);
+    raft_entry_release(e);
+
+    append_entry(&log, 3, NULL);
+    e = LogGet(&log, 3);
+    assert(e->id == 3);
+    raft_entry_release(e);
+
+    LogTerm(&log);
+}
+
+static void test_log_fuzzer()
+{
+    Log log;
+
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
     int idx = 0, i;
 
     for (i = 0; i < 10000; i++) {
         int new_entries = random() % 10;
         int j;
         for (j = 0; j < new_entries; j++) {
-            append_entry(log, ++idx, NULL);
+            append_entry(&log, ++idx, NULL);
         }
 
         if (idx > 10) {
             int del_entries = (random() % 5) + 1;
             idx = idx - del_entries;
-            assert_int_equal(LogDelete(log, idx + 1), RR_OK);
+            assert(LogDelete(&log, idx + 1) == RR_OK);
         }
 
         for (j = 0; j < 20; j++) {
             int get_idx = (random() % (idx - 1)) + 1;
-            raft_entry_t *e = LogGet(log, get_idx);
-            assert_non_null(e);
-            assert_int_equal(e->id, get_idx);
+            raft_entry_t *e = LogGet(&log, get_idx);
+            assert(e != NULL);
+            assert(e->id == get_idx);
             raft_entry_release(e);
         }
     }
+
+    LogTerm(&log);
 }
 
-static void mock_notify_func(void *arg, raft_entry_t *ety, raft_index_t idx)
+static void test_log_delete()
 {
-    int ety_id = ety->id;
-    check_expected(ety_id);
-    check_expected(idx);
-}
+    Log log;
 
-static void test_log_delete(void **state)
-{
-    Log *log = (Log *) *state;
+    LogInit(&log);
+    LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
 
     char value1[] = "value1";
     raft_entry_t *entry1 = make_entry(3, value1);
@@ -233,58 +243,60 @@ static void test_log_delete(void **state)
     raft_entry_t *entry3 = make_entry(30, value3);
 
     /* Simulate post snapshot log */
-    LogReset(log, 50, 1);
+    LogReset(&log, 50, 1);
 
     /* Write entries */
-    assert_int_equal(LogAppend(log, entry1), RR_OK);
-    assert_int_equal(LogAppend(log, entry2), RR_OK);
-    assert_int_equal(LogAppend(log, entry3), RR_OK);
+    assert(LogAppend(&log, entry1) == RR_OK);
+    assert(LogAppend(&log, entry2) == RR_OK);
+    assert(LogAppend(&log, entry3) == RR_OK);
 
-    raft_entry_t *e = LogGet(log, 51);
-    assert_non_null(e);
-    assert_int_equal(e->id, 3);
+    raft_entry_t *e = LogGet(&log, 51);
+    assert(e != NULL);
+    assert(e->id == 3);
     raft_entry_release(e);
 
-    /* Try delete with improper values */
-    assert_int_equal(LogDelete(log, 0), RR_ERROR);
+    /* Try to delete with improper values */
+    assert(LogDelete(&log, 0) == RR_ERROR);
 
     /* Delete last two elements */
-    assert_int_equal(LogDelete(log, 52), RR_OK);
+    assert(LogDelete(&log, 52) == RR_OK);
 
     /* Assert deleting a non-existing entry doesn't cause a problem. */
-    assert_int_equal(LogDelete(log, 52), RR_ERROR);
+    assert(LogDelete(&log, 52) == RR_ERROR);
 
     /* Check log sanity after delete */
-    assert_int_equal(LogCount(log), 1);
-    assert_int_equal(LogCurrentIdx(log), 51);
-    assert_null(LogGet(log, 52));
-    e = LogGet(log, 51);
-    assert_non_null(e);
-    assert_int_equal(e->id, 3);
+    assert(LogCount(&log) == 1);
+    assert(LogCurrentIdx(&log) == 51);
+    assert(LogGet(&log, 52) == NULL);
+    e = LogGet(&log, 51);
+    assert(e != NULL);
+    assert(e->id == 3);
     raft_entry_release(e);
 
     /* Re-add entries in reverse order, validate indexes are handled
      * properly.
      */
 
-    assert_int_equal(LogAppend(log, entry3), RR_OK);
-    e = LogGet(log, 52);
-    assert_non_null(e);
-    assert_int_equal(e->id, 30);
+    assert(LogAppend(&log, entry3) == RR_OK);
+    e = LogGet(&log, 52);
+    assert(e != NULL);
+    assert(e->id == 30);
     raft_entry_release(e);
 
-    assert_int_equal(LogAppend(log, entry2), RR_OK);
-    e = LogGet(log, 53);
-    assert_non_null(e);
-    assert_int_equal(e->id, 20);
+    assert(LogAppend(&log, entry2) == RR_OK);
+    e = LogGet(&log, 53);
+    assert(e != NULL);
+    assert(e->id == 20);
     raft_entry_release(e);
 
     raft_entry_release(entry1);
     raft_entry_release(entry2);
     raft_entry_release(entry3);
+
+    LogTerm(&log);
 }
 
-static void test_entry_cache_sanity(void **state)
+static void test_entry_cache_sanity()
 {
     EntryCache *cache = EntryCacheNew(8);
     raft_entry_t *ety;
@@ -298,21 +310,21 @@ static void test_entry_cache_sanity(void **state)
         raft_entry_release(ety);
     }
 
-    assert_int_equal(cache->size, 64);
-    assert_int_equal(cache->len, 64);
+    assert(cache->size == 64);
+    assert(cache->len == 64);
 
     /* Get 64 entries */
     for (i = 1; i <= 64; i++) {
         ety = EntryCacheGet(cache, i);
-        assert_non_null(ety);
-        assert_int_equal(ety->id, i);
+        assert(ety != NULL);
+        assert(ety->id == i);
         raft_entry_release(ety);
     }
 
     EntryCacheFree(cache);
 }
 
-static void test_entry_cache_start_index_change(void **state)
+static void test_entry_cache_start_index_change()
 {
     EntryCache *cache = EntryCacheNew(8);
     raft_entry_t *ety;
@@ -323,21 +335,21 @@ static void test_entry_cache_start_index_change(void **state)
     EntryCacheAppend(cache, ety, 1);
     raft_entry_release(ety);
 
-    assert_int_equal(cache->start_idx, 1);
+    assert(cache->start_idx == 1);
     EntryCacheDeleteTail(cache, 1);
-    assert_int_equal(cache->start_idx, 0);
+    assert(cache->start_idx == 0);
 
     ety = raft_entry_new(0);
     ety->id = 10;
     EntryCacheAppend(cache, ety, 10);
     raft_entry_release(ety);
 
-    assert_int_equal(cache->start_idx, 10);
+    assert(cache->start_idx == 10);
 
     EntryCacheFree(cache);
 }
 
-static void test_entry_cache_delete_head(void **state)
+static void test_entry_cache_delete_head()
 {
     EntryCache *cache = EntryCacheNew(4);
     raft_entry_t *ety;
@@ -351,37 +363,37 @@ static void test_entry_cache_delete_head(void **state)
         raft_entry_release(ety);
     }
 
-    assert_int_equal(cache->size, 8);
-    assert_int_equal(cache->start, 0);
-    assert_int_equal(cache->start_idx, 1);
+    assert(cache->size == 8);
+    assert(cache->start == 0);
+    assert(cache->start_idx == 1);
 
     /* Test invalid deletes */
-    assert_int_equal(EntryCacheDeleteHead(cache, 0), -1);
+    assert(EntryCacheDeleteHead(cache, 0) == -1);
 
     /* Delete first entry */
-    assert_int_equal(EntryCacheDeleteHead(cache, 2), 1);
-    assert_null(EntryCacheGet(cache, 1));
+    assert(EntryCacheDeleteHead(cache, 2) == 1);
+    assert(EntryCacheGet(cache, 1) == NULL);
     ety = EntryCacheGet(cache, 2);
-    assert_int_equal(ety->id, 2);
+    assert(ety->id == 2);
     raft_entry_release(ety);
 
-    assert_int_equal(cache->start, 1);
-    assert_int_equal(cache->len, 4);
-    assert_int_equal(cache->start_idx, 2);
+    assert(cache->start == 1);
+    assert(cache->len == 4);
+    assert(cache->start_idx == 2);
 
     /* Delete and add 5 entries (6, 7, 8, 9, 10)*/
     for (i = 0; i < 5; i++) {
-        assert_int_equal(EntryCacheDeleteHead(cache, 3 + i), 1);
+        assert(EntryCacheDeleteHead(cache, 3 + i) == 1);
         ety = raft_entry_new(0);
         ety->id = 6 + i;
         EntryCacheAppend(cache, ety, ety->id);
         raft_entry_release(ety);
     }
 
-    assert_int_equal(cache->start_idx, 7);
-    assert_int_equal(cache->start, 6);
-    assert_int_equal(cache->size, 8);
-    assert_int_equal(cache->len, 4);
+    assert(cache->start_idx == 7);
+    assert(cache->start == 6);
+    assert(cache->size == 8);
+    assert(cache->len == 4);
 
     /* Add another 3 (11, 12, 13) */
     for (i = 11; i <= 13; i++) {
@@ -391,35 +403,35 @@ static void test_entry_cache_delete_head(void **state)
         raft_entry_release(ety);
     }
 
-    assert_int_equal(cache->start, 6);
-    assert_int_equal(cache->size, 8);
-    assert_int_equal(cache->len, 7);
+    assert(cache->start == 6);
+    assert(cache->size == 8);
+    assert(cache->len == 7);
 
     /* Validate contents */
     for (i = 7; i <= 13; i++) {
         ety = EntryCacheGet(cache, i);
-        assert_non_null(ety);
-        assert_int_equal(ety->id, i);
+        assert(ety != NULL);
+        assert(ety->id == i);
         raft_entry_release(ety);
     }
 
     /* Delete multiple with an overlap */
-    assert_int_equal(EntryCacheDeleteHead(cache, 10), 3);
-    assert_int_equal(cache->len, 4);
-    assert_int_equal(cache->start, 1);
+    assert(EntryCacheDeleteHead(cache, 10) == 3);
+    assert(cache->len == 4);
+    assert(cache->start == 1);
 
     /* Validate contents after deletion */
     for (i = 10; i <= 13; i++) {
         ety = EntryCacheGet(cache, i);
-        assert_non_null(ety);
-        assert_int_equal(ety->id, i);
+        assert(ety != NULL);
+        assert(ety->id == i);
         raft_entry_release(ety);
     }
 
     EntryCacheFree(cache);
 }
 
-static void test_entry_cache_delete_tail(void **state)
+static void test_entry_cache_delete_tail()
 {
     EntryCache *cache = EntryCacheNew(4);
     raft_entry_t *ety;
@@ -432,36 +444,36 @@ static void test_entry_cache_delete_tail(void **state)
         raft_entry_release(ety);
     }
 
-    assert_int_equal(cache->size, 4);
-    assert_int_equal(cache->len, 4);
+    assert(cache->size == 4);
+    assert(cache->len == 4);
 
     /* Try invalid indexes */
-    assert_int_equal(EntryCacheDeleteTail(cache, 104), -1);
+    assert(EntryCacheDeleteTail(cache, 104) == -1);
 
     /* Delete last entry */
-    assert_int_equal(EntryCacheDeleteTail(cache, 103), 1);
-    assert_int_equal(cache->len, 3);
-    assert_null(EntryCacheGet(cache, 103));
+    assert(EntryCacheDeleteTail(cache, 103) == 1);
+    assert(cache->len == 3);
+    assert(EntryCacheGet(cache, 103) == NULL);
     ety = EntryCacheGet(cache, 102);
-    assert_int_equal(ety->id, 102);
+    assert(ety->id == 102);
     raft_entry_release(ety);
 
     /* Delete all entries */
-    assert_int_equal(EntryCacheDeleteTail(cache, 100), 3);
-    assert_int_equal(cache->len, 0);
+    assert(EntryCacheDeleteTail(cache, 100) == 3);
+    assert(cache->len == 0);
 
     /* Delete an index that precedes start_idx */
     ety = raft_entry_new(0);
     EntryCacheAppend(cache, ety, 100);
     raft_entry_release(ety);
 
-    assert_int_equal(EntryCacheDeleteTail(cache, 1), 1);
-    assert_int_equal(cache->len, 0);
+    assert(EntryCacheDeleteTail(cache, 1) == 1);
+    assert(cache->len == 0);
 
     EntryCacheFree(cache);
 }
 
-static void test_entry_cache_fuzzer(void **state)
+static void test_entry_cache_fuzzer()
 {
     EntryCache *cache = EntryCacheNew(4);
     raft_entry_t *ety;
@@ -492,7 +504,7 @@ static void test_entry_cache_fuzzer(void **state)
             int del_tail = random() % ((index - first_index) / 10);
             if (del_tail) {
                 int removed = EntryCacheDeleteTail(cache, index - del_tail + 1);
-                assert_int_equal(removed, del_tail);
+                assert(removed == del_tail);
                 index -= removed;
             }
         }
@@ -500,70 +512,66 @@ static void test_entry_cache_fuzzer(void **state)
 
     /* verify */
     for (i = 1; i < first_index; i++) {
-        assert_null(EntryCacheGet(cache, i));
+        assert(EntryCacheGet(cache, i) == NULL);
     }
     for (i = first_index; i <= index; i++) {
         ety = EntryCacheGet(cache, i);
-        assert_non_null(ety);
-        assert_int_equal(i, ety->id);
+        assert(ety != NULL);
+        assert(i == ety->id);
         raft_entry_release(ety);
     }
 
     EntryCacheFree(cache);
 }
 
-static int cleanup_meta(void **state)
-{
-    unlink(LOGNAME ".meta");
-    return 0;
-}
-
-static void test_meta_persistence(void **state)
+static void test_meta_persistence()
 {
     Metadata m;
+
+    unlink(LOGNAME ".meta");
 
     MetadataInit(&m);
     MetadataSetClusterConfig(&m, LOGNAME, DBID, 1002);
 
-    assert_int_equal(MetadataRead(&m, LOGNAME), RR_ERROR);
-    assert_int_equal(MetadataWrite(&m, 0xffffffff, INT32_MAX), RR_OK);
-    assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
-    assert_string_equal(m.dbid, DBID);
-    assert_int_equal(m.node_id, 1002);
-    assert_int_equal(m.term, 0xffffffff);
-    assert_int_equal(m.vote, INT32_MAX);
+    assert(MetadataRead(&m, LOGNAME) == RR_ERROR);
+    assert(MetadataWrite(&m, 0xffffffff, INT32_MAX) == RR_OK);
+    assert(MetadataRead(&m, LOGNAME) == RR_OK);
+    assert(strcmp(m.dbid, DBID) == 0);
+    assert(m.node_id == 1002);
+    assert(m.term == 0xffffffff);
+    assert(m.vote == INT32_MAX);
 
-    assert_int_equal(MetadataWrite(&m, LONG_MAX, (int) -1), RR_OK);
-    assert_int_equal(MetadataRead(&m, LOGNAME), RR_OK);
-    assert_string_equal(m.dbid, DBID);
-    assert_int_equal(m.node_id, 1002);
-    assert_int_equal(m.term, LONG_MAX);
-    assert_int_equal(m.vote, -1);
+    assert(MetadataWrite(&m, LONG_MAX, (int) -1) == RR_OK);
+    assert(MetadataRead(&m, LOGNAME) == RR_OK);
+    assert(strcmp(m.dbid, DBID) == 0);
+    assert(m.node_id == 1002);
+    assert(m.term == LONG_MAX);
+    assert(m.vote == -1);
 
     /* Test overwrite */
-    assert_int_equal(MetadataWrite(&m, 5, 5), RR_OK);
-    assert_int_equal(MetadataWrite(&m, 6, 6), RR_OK);
-    assert_string_equal(m.dbid, DBID);
-    assert_int_equal(m.node_id, 1002);
-    assert_int_equal(m.term, 6);
-    assert_int_equal(m.vote, 6);
+    assert(MetadataWrite(&m, 5, 5) == RR_OK);
+    assert(MetadataWrite(&m, 6, 6) == RR_OK);
+    assert(strcmp(m.dbid, DBID) == 0);
+    assert(m.node_id == 1002);
+    assert(m.term == 6);
+    assert(m.vote == 6);
 
     MetadataTerm(&m);
 }
 
 /* Sanity check for CRC32c implementation. */
-static void test_crc32c(void **state)
+static void test_crc32c()
 {
     sc_crc32_init();
 
     /* CRC values are pre-computed. */
-    assert_int_equal(sc_crc32(0, (uint8_t *) "", 1), 1383945041);
-    assert_int_equal(sc_crc32(0, (uint8_t *) "1", 2), 2727214374);
+    assert(sc_crc32(0, (uint8_t *) "", 1) == 1383945041);
+    assert(sc_crc32(0, (uint8_t *) "1", 2) == 2727214374);
 }
 
 /* Loop over log file header bytes and change one byte at a time.
  * Verify we detect the corruption when we try to read the file. */
-static void test_corruption_header(void **state)
+static void test_corruption_header()
 {
     Log log;
 
@@ -578,7 +586,7 @@ static void test_corruption_header(void **state)
     /* Loop over the bytes and corrupt one byte each time. */
     for (int i = 0; i < st.st_size; i++) {
         int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
-        assert_true(fd > 0);
+        assert(fd > 0);
 
         lseek(fd, i, SEEK_SET);
         ssize_t rc = write(fd, "^", 1); /* Alter the byte */
@@ -587,7 +595,7 @@ static void test_corruption_header(void **state)
 
         LogInit(&log);
         int ret = LogOpen(&log, LOGNAME);
-        assert_int_equal(ret, RR_ERROR);
+        assert(ret == RR_ERROR);
 
         /* Create file again. */
         unlink(LOGNAME);
@@ -599,7 +607,7 @@ static void test_corruption_header(void **state)
 
 /* Loop over an entry's bytes and change one byte at a time.
  * Verify we detect the corruption when we try to read the file. */
-static void test_corruption_entry(void **state)
+static void test_corruption_entry()
 {
     raft_entry_t *e;
     struct stat st;
@@ -640,30 +648,30 @@ static void test_corruption_entry(void **state)
         LogTerm(&log);
 
         int fd = open(LOGNAME, O_RDWR, S_IWUSR | S_IRUSR);
-        assert_true(fd > 0);
+        assert(fd > 0);
 
         lseek(fd, (off_t) i, SEEK_SET);
         ssize_t rc = write(fd, "^", 1); /* Alter the byte */
-        assert_int_equal(rc, 1);
+        assert(rc == 1);
         close(fd);
 
         LogInit(&log);
         LogOpen(&log, LOGNAME);
         LogLoadEntries(&log);
 
-        assert_int_equal(LogCount(&log), 1);
+        assert(LogCount(&log) == 1);
         /* Verify entry with id 7000 does not exist. */
         e = LogGet(&log, 3);
-        assert_null(e);
+        assert(e == NULL);
 
         /* Verify entry with id 6000 does not exist. */
         e = LogGet(&log, 2);
-        assert_null(e);
+        assert(e == NULL);
 
         /* Verify entry with id 5000 exists. */
         e = LogGet(&log, 1);
-        assert_int_equal(e->id, 5000);
-        assert_memory_equal(e->data, "test5000", 8);
+        assert(e->id == 5000);
+        assert(memcmp(e->data, "test5000", 8) == 0);
         raft_entry_release(e);
         LogTerm(&log);
     }
@@ -671,9 +679,8 @@ static void test_corruption_entry(void **state)
 
 /* Simulate log compaction. Log moves to second page and then the second page
  * will be deleted when compaction ends. */
-static void test_log_compaction(void **state)
+static void test_log_compaction()
 {
-    (void) state;
     int idx = 0;
     Log log;
 
@@ -681,12 +688,12 @@ static void test_log_compaction(void **state)
     LogCreate(&log, LOGNAME, DBID, 1, 1, 0);
 
     /* If there is no entry, it should fail. */
-    assert_int_equal(LogCompactionBegin(&log), RR_ERROR);
+    assert(LogCompactionBegin(&log) == RR_ERROR);
 
     append_entry(&log, ++idx, NULL);
 
     /* If there is one entry, it should fail. */
-    assert_int_equal(LogCompactionBegin(&log), RR_ERROR);
+    assert(LogCompactionBegin(&log) == RR_ERROR);
 
     append_entry(&log, ++idx, NULL);
     append_entry(&log, ++idx, NULL);
@@ -705,27 +712,26 @@ static void test_log_compaction(void **state)
     raft_entry_t *e;
 
     e = LogGet(&log, 3);
-    assert_null(e);
+    assert(e == NULL);
 
     e = LogGet(&log, 4);
-    assert_int_equal(e->id, 4);
+    assert(e->id == 4);
     raft_entry_release(e);
 
     e = LogGet(&log, 5);
-    assert_int_equal(e->id, 5);
+    assert(e->id == 5);
     raft_entry_release(e);
 
     e = LogGet(&log, 6);
-    assert_int_equal(e->id, 6);
+    assert(e->id == 6);
     raft_entry_release(e);
 
     LogTerm(&log);
 }
 
 /* Verify that on pop, we delete second page if necessary */
-static void test_log_delete_second_page(void **state)
+static void test_log_delete_second_page()
 {
-    (void) state;
     int idx = 0;
     Log log;
     raft_entry_t *e;
@@ -743,28 +749,28 @@ static void test_log_delete_second_page(void **state)
     append_entry(&log, ++idx, NULL);
 
     /* Sanity check */
-    assert_int_equal(LogCount(&log), 5);
-    assert_int_equal(LogFirstIdx(&log), 1);
-    assert_int_equal(LogCurrentIdx(&log), 5);
+    assert(LogCount(&log) == 5);
+    assert(LogFirstIdx(&log) == 1);
+    assert(LogCurrentIdx(&log) == 5);
 
     e = LogGet(&log, 1);
-    assert_int_equal(e->id, 1);
+    assert(e->id == 1);
     raft_entry_release(e);
 
     e = LogGet(&log, 4);
-    assert_int_equal(e->id, 4);
+    assert(e->id == 4);
     raft_entry_release(e);
 
     /* Delete from index 4 and verify second page is not deleted. */
     LogDelete(&log, 4);
-    assert_non_null(log.pages[1]);
+    assert(&log.pages[1] != NULL);
 
     append_entry(&log, ++idx, NULL);
     append_entry(&log, ++idx, NULL);
 
     /* Delete from index 3 and verify second page is deleted. */
     LogDelete(&log, 3);
-    assert_null(log.pages[1]);
+    assert(log.pages[1] == NULL);
     LogTerm(&log);
 
     LogInit(&log);
@@ -772,14 +778,14 @@ static void test_log_delete_second_page(void **state)
     LogLoadEntries(&log);
 
     e = LogGet(&log, 3);
-    assert_null(e);
+    assert(e == NULL);
 
     e = LogGet(&log, 1);
-    assert_int_equal(e->id, 1);
+    assert(e->id == 1);
     raft_entry_release(e);
 
     e = LogGet(&log, 2);
-    assert_int_equal(e->id, 2);
+    assert(e->id == 2);
     raft_entry_release(e);
 
     LogTerm(&log);
@@ -787,9 +793,8 @@ static void test_log_delete_second_page(void **state)
 
 /* Simulate shutdown/crash in the middle of compaction process. Try to read log
  * from multiple pages. */
-static void test_log_start_with_two_pages(void **state)
+static void test_log_start_with_two_pages()
 {
-    (void) state;
     int idx = 0;
     Log log;
 
@@ -812,59 +817,40 @@ static void test_log_start_with_two_pages(void **state)
 
     raft_entry_t *e;
 
-    assert_int_equal(LogCount(&log), 5);
-    assert_int_equal(LogCompactionIdx(&log), 3);
-    assert_int_equal(LogCurrentIdx(&log), 5);
+    assert(LogCount(&log) == 5);
+    assert(LogCompactionIdx(&log) == 3);
+    assert(LogCurrentIdx(&log) == 5);
 
     e = LogGet(&log, 5);
-    assert_int_equal(e->id, 5);
+    assert(e->id == 5);
     raft_entry_release(e);
 
     e = LogGet(&log, 1);
-    assert_int_equal(e->id, 1);
+    assert(e->id == 1);
     raft_entry_release(e);
 
     LogTerm(&log);
 }
 
-const struct CMUnitTest log_tests[] = {
-    cmocka_unit_test_setup_teardown(
-        test_log_load_entries, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_random_access, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_random_access_with_snapshot, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_write_after_read, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_index_rebuild, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_delete, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_log_fuzzer, setup_create_log, teardown_log),
-    cmocka_unit_test_setup_teardown(
-        test_entry_cache_sanity, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_entry_cache_start_index_change, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_entry_cache_delete_head, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_entry_cache_delete_tail, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_entry_cache_fuzzer, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_meta_persistence, cleanup_meta, cleanup_meta),
-    cmocka_unit_test_setup_teardown(
-        test_crc32c, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_corruption_header, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_corruption_entry, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_log_compaction, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_log_delete_second_page, NULL, NULL),
-    cmocka_unit_test_setup_teardown(
-        test_log_start_with_two_pages, NULL, NULL),
-    {.test_func = NULL},
-};
+void test_log()
+{
+    test_run(test_log_load_entries);
+    test_run(test_log_random_access);
+    test_run(test_log_random_access_with_snapshot);
+    test_run(test_log_write_after_read);
+    test_run(test_log_index_rebuild);
+    test_run(test_log_delete);
+    test_run(test_log_fuzzer);
+    test_run(test_entry_cache_sanity);
+    test_run(test_entry_cache_start_index_change);
+    test_run(test_entry_cache_delete_head);
+    test_run(test_entry_cache_delete_tail);
+    test_run(test_entry_cache_fuzzer);
+    test_run(test_meta_persistence);
+    test_run(test_crc32c);
+    test_run(test_corruption_header);
+    test_run(test_corruption_entry);
+    test_run(test_log_compaction);
+    test_run(test_log_delete_second_page);
+    test_run(test_log_start_with_two_pages);
+}

@@ -79,6 +79,14 @@ endif ()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_POSIX_C_SOURCE=200112L -D_GNU_SOURCE")
 
+# Do not strip assert()'s from the code.
+foreach (compile_flag
+        CMAKE_C_FLAGS_RELEASE
+        CMAKE_C_FLAGS_RELWITHDEBINFO
+        CMAKE_C_FLAGS_MINSIZEREL)
+    string(REPLACE "-DNDEBUG" "" "${compile_flag}" "${${compile_flag}}")
+endforeach ()
+
 if (BUILD_TLS)
     if (NOT OPENSSL_ROOT_DIR)
         if (APPLE)
@@ -130,14 +138,6 @@ endif ()
 add_subdirectory(deps/raft)
 set_property(TARGET raft PROPERTY POSITION_INDEPENDENT_CODE ON)
 # ------------------------------- raft-end------------------------------------ #
-
-# ------------------------------- cmocka ------------------------------------- #
-option(UNIT_TESTING "Disable cmocka tests" OFF)
-option(WITH_EXAMPLES "Disable cmocka examples" OFF)
-add_subdirectory(deps/cmocka)
-# Disable warnings
-set_target_properties(cmocka PROPERTIES COMPILE_FLAGS "-w")
-# ----------------------------- cmocka-end ----------------------------------- #
 
 # ------------------------------ hiredis ------------------------------------- #
 if (BUILD_TLS)
@@ -306,7 +306,7 @@ add_executable(main
         tests/unit/test_util.c)
 
 target_compile_options(main PUBLIC -include unit/dut_premble.h)
-target_link_libraries(main PRIVATE cmocka raft hiredis_static Threads::Threads dl m)
+target_link_libraries(main PRIVATE raft hiredis_static Threads::Threads dl m)
 if (BUILD_TLS)
     target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
 endif ()
