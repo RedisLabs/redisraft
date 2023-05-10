@@ -53,7 +53,7 @@ static int pageWriteHeader(LogPage *p)
     unsigned char buf[1024];
     unsigned char *pos;
     unsigned char *end = buf + sizeof(buf);
-    ssize_t len = pageGenerateHeader(p, buf, sizeof(buf));
+    raft_size_t len = pageGenerateHeader(p, buf, sizeof(buf));
     pos = buf + len;
 
     /* add crc to header */
@@ -148,7 +148,7 @@ static int pageWriteEntry(LogPage *p, raft_entry_t *ety)
 {
     int rc;
     unsigned char buf[1024];
-    ssize_t len;
+    raft_size_t len;
 
     size_t offset = FileSize(&p->file);
     size_t idxoffset = FileSize(&p->idxfile);

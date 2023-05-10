@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
+#include "raft.h"
 
 /* File implementation with a userspace buffer.
  *
@@ -47,7 +48,7 @@ size_t FileGetReadOffset(File *file);
 
 ssize_t FileGets(File *file, void *buf, size_t cap);
 ssize_t FileRead(File *file, void *buf, size_t cap);
-ssize_t FileWrite(File *file, void *buf, size_t len);
+raft_size_t FileWrite(File *file, void *buf, size_t len);
 size_t FileSize(File *file);
 int FileTruncate(File *file, size_t len);
 

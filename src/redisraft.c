@@ -993,9 +993,6 @@ static int cmdRaftAppendEntries(RedisModuleCtx *ctx, RedisModuleString **argv, i
         msg.entries[i] = e;
     }
 
-    rr->appendreq_received++;
-    rr->appendreq_with_entry_received += (msg.n_entries > 0) ? 1 : 0;
-
     raft_appendentries_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, src_node_id);
 
@@ -1089,8 +1086,6 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     raft_snapshot_resp_t resp = {0};
     raft_node_t *node = raft_get_node(rr->raft, (raft_node_id_t) src_node_id);
-
-    rr->snapshotreq_received++;
 
     if (raft_recv_snapshot(rr->raft, node, &req, &resp) != 0) {
         RedisModule_ReplyWithError(ctx, "ERR operation failed");
@@ -1843,14 +1838,17 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_last_term", rr->raft ? raft_get_snapshot_last_term(rr->raft) : 0);
     RedisModule_InfoAddFieldULongLong(ctx, "snapshot_size", rr->outgoing_snapshot_file.len);
 
+    raft_server_stats_t raft_stats;
+    raft_get_server_stats(rr->raft, &raft_stats);
+
     long long snapshot_time = -1;
-    if (rr->snapshots_created != 0) {
+    if (raft_stats.snapshots_created != 0) {
         snapshot_time = (long long) rr->last_snapshot_time;
     }
     RedisModule_InfoAddFieldLongLong(ctx, "snapshot_time_secs", snapshot_time);
 
-    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", rr->snapshots_created);
-    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_received", rr->snapshots_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_created", raft_stats.snapshots_created);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshots_received", raft_stats.snapshots_received);
     RedisModule_InfoAddFieldCString(ctx, "snapshot_in_progress", rr->snapshot_in_progress ? "yes" : "no");
     RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_idx", rr->curr_snapshot_last_idx);
     RedisModule_InfoAddFieldLongLong(ctx, "snapshot_in_progress_last_term", rr->curr_snapshot_last_term);
@@ -1862,10 +1860,10 @@ static void handleInfo(RedisModuleInfoCtx *ctx, int for_crash_report)
     RedisModule_InfoAddFieldULongLong(ctx, "proxy_outstanding_reqs", rr->proxy_outstanding_reqs);
 
     RedisModule_InfoAddSection(ctx, "stats");
-    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", rr->appendreq_received);
-    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", rr->appendreq_with_entry_received);
-    RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", rr->snapshotreq_received);
-    RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", rr->exec_throttled);
+    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_received", raft_stats.appendentries_req_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "appendreq_with_entry_received", raft_stats.appendentries_req_with_entry);
+    RedisModule_InfoAddFieldULongLong(ctx, "snapshotreq_received", raft_stats.snapshot_req_received);
+    RedisModule_InfoAddFieldULongLong(ctx, "exec_throttled", raft_stats.exec_throttled);
     RedisModule_InfoAddFieldULongLong(ctx, "num_sessions", RedisModule_DictSize(rr->client_session_dict));
 }
 

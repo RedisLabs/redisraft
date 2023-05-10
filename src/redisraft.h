@@ -413,12 +413,6 @@ typedef struct RedisRaftCtx {
     unsigned long long proxy_failed_reqs;        /* Number of failed proxy requests, i.e. did not send */
     unsigned long long proxy_failed_responses;   /* Number of failed proxy responses, i.e. did not complete */
     unsigned long proxy_outstanding_reqs;        /* Number of proxied requests pending */
-    unsigned long snapshots_received;            /* Number of received snapshots */
-    unsigned long snapshots_created;             /* Number of snapshots created */
-    unsigned long appendreq_received;            /* Number of received appendreq messages */
-    unsigned long appendreq_with_entry_received; /* Number of received appendreq messages with at least one entry in them */
-    unsigned long snapshotreq_received;          /* Number of received snapshotreq messages */
-    unsigned long exec_throttled;                /* Number of command executions throttled due to slow execution */
 
     int entered_eval;                     /* handling a lua script */
     RedisModuleDict *locked_keys;         /* keys that have been locked for migration */
