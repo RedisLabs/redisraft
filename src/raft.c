@@ -298,7 +298,7 @@ static RRStatus handleSharding(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisC
 /* returns the client session object for this CommandArray if applicable
  * starts/creates it if necessary
  */
-static void *getClientSession(RedisRaftCtx *rr, RedisModuleUser *user, RaftRedisCommandArray *cmds, bool local)
+static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, bool local)
 {
     unsigned long long id = cmds->client_id;
     int nokey;
@@ -314,7 +314,7 @@ static void *getClientSession(RedisRaftCtx *rr, RedisModuleUser *user, RaftRedis
             client_session = RedisModule_Alloc(sizeof(ClientSession));
             client_session->client_id = id;
             client_session->local = local;
-            client_session->client = RedisModule_CreateModuleClient(rr->ctx, user);
+            client_session->client = RedisModule_CreateModuleClient(rr->ctx);
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
@@ -408,8 +408,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         return NULL; /* sharding error, so even if blocking command, don't */
     }
 
-    ClientSession *client_session = getClientSession(rr, user, cmds, req != NULL);
-    (void) client_session; /* unused for now */
+    ClientSession *client_session = getClientSession(rr, cmds, req != NULL);
 
     if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
         replaceBlockingTimeout(cmds);
@@ -470,13 +469,18 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        RedisModule_SetContextUser(ctx, user);
         if (client_session) {
-            RedisModule_SetContextClient(ctx, client_session->client);
+            RedisModule_SetClientUser(client_session->client, user);
+        } else {
+            RedisModule_SetContextUser(ctx, user);
         }
         reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
+        if (client_session) {
+            RedisModule_SetClientUser(client_session->client, NULL);
+        } else {
+            RedisModule_SetContextUser(ctx, NULL);
+        }
         RedisModule_SetContextClient(ctx, NULL);
-        RedisModule_SetContextUser(ctx, NULL);
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 

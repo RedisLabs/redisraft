@@ -588,6 +588,7 @@ static void clientSessionRDBLoad(RedisModuleIO *rdb)
         unsigned long long id = RedisModule_LoadUnsigned(rdb);
         client_session->client_id = id;
         client_session->local = false;
+        client_session->client = RedisModule_CreateModuleClient(rr->ctx);
         RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
     }
 }
