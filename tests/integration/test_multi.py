@@ -241,6 +241,7 @@ def test_watch_within_multi(cluster):
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('exec') == [b'1', b'1']
 
+
 def test_multi_watch_without_modification(cluster):
     cluster.create(3)
     node = cluster.leader_node()
@@ -253,6 +254,7 @@ def test_multi_watch_without_modification(cluster):
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('exec') == [b'1', b'1']
+
 
 def test_multi_watch_with_modification(cluster):
     cluster.create(3)
@@ -267,6 +269,7 @@ def test_multi_watch_with_modification(cluster):
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert cluster.execute('set', 'key1', 2)
     assert conn.execute('exec') is None
+
 
 def test_multi_watch_cleared_after_exec(cluster):
     cluster.create(3)
