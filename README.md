@@ -8,7 +8,7 @@ RedisRaft is a Redis module that implements the [Raft Consensus
 Algorithm](https://raft.github.io/), making it possible to create strongly-consistent clusters of Redis servers.
 
 The Raft algorithm is provided by a [standalone Raft
-library](https://github.com/willemt/raft) by Willem-Hendrik Thiart.
+library](https://github.com/redislabs/raft). This is a fork of the original library created by Willem-Hendrik Thiart, which is now actively maintained by Redis Ltd.
 
 ## Main Features
 
