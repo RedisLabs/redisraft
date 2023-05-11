@@ -471,12 +471,14 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         enterRedisModuleCall();
         if (client_session) {
             RedisModule_SetClientUser(client_session->client, user);
+            RedisModule_SetContextClient(ctx, client_session->client);
         } else {
             RedisModule_SetContextUser(ctx, user);
         }
         reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
         if (client_session) {
             RedisModule_SetClientUser(client_session->client, NULL);
+            RedisModule_SetContextClient(ctx, NULL);
         } else {
             RedisModule_SetContextUser(ctx, NULL);
         }
