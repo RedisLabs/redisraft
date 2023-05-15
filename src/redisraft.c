@@ -1092,9 +1092,10 @@ static int cmdRaftSnapshot(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return REDISMODULE_OK;
     }
 
-    RedisModule_ReplyWithArray(ctx, 5);
-    RedisModule_ReplyWithLongLong(ctx, resp.term);
+    RedisModule_ReplyWithArray(ctx, 6);
     RedisModule_ReplyWithLongLong(ctx, resp.msg_id);
+    RedisModule_ReplyWithLongLong(ctx, resp.snapshot_index);
+    RedisModule_ReplyWithLongLong(ctx, resp.term);
     RedisModule_ReplyWithLongLong(ctx, resp.offset);
     RedisModule_ReplyWithLongLong(ctx, resp.success);
     RedisModule_ReplyWithLongLong(ctx, resp.last_chunk);
