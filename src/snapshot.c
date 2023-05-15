@@ -508,6 +508,15 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
         return -1;
     }
 
+    /* Destroy Node objects and connections to other nodes. */
+    for (int i = 0; i < raft_get_num_nodes(rr->raft); i++) {
+        raft_node_t *rn = raft_get_node_from_idx(rr->raft, i);
+        Node *n = raft_node_get_udata(rn);
+        if (n) {
+            ConnAsyncTerminate(n->conn);
+        }
+    }
+
     int ret = raft_begin_load_snapshot(rr->raft, term, index);
     if (ret != 0) {
         PANIC("Cannot load snapshot: %lu, %lu", term, index);
