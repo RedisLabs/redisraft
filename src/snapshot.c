@@ -266,7 +266,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     took = RedisModule_MonotonicMicroseconds() - rr->curr_snapshot_start_time;
     rr->last_snapshot_time = took / 1000 / 1000;
-    rr->snapshots_created++;
 
     resetSnapshotState(rr);
 
@@ -527,7 +526,6 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
     EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     createOutgoingSnapshotMmap(rr);
 
-    rr->snapshots_received++;
     rr->state = REDIS_RAFT_UP;
 
     return 0;
@@ -778,22 +776,24 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
         return;
     }
 
-    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 5 ||
+    if (reply->type != REDIS_REPLY_ARRAY || reply->elements != 6 ||
         reply->element[0]->type != REDIS_REPLY_INTEGER ||
         reply->element[1]->type != REDIS_REPLY_INTEGER ||
         reply->element[2]->type != REDIS_REPLY_INTEGER ||
         reply->element[3]->type != REDIS_REPLY_INTEGER ||
-        reply->element[4]->type != REDIS_REPLY_INTEGER) {
+        reply->element[4]->type != REDIS_REPLY_INTEGER ||
+        reply->element[5]->type != REDIS_REPLY_INTEGER) {
         NODE_LOG_WARNING(node, "invalid RAFT.LOADSNAPSHOT reply");
         return;
     }
 
     raft_snapshot_resp_t response = {
-        .term = reply->element[0]->integer,
-        .msg_id = reply->element[1]->integer,
-        .offset = reply->element[2]->integer,
-        .success = reply->element[3]->integer,
-        .last_chunk = reply->element[4]->integer,
+        .msg_id = reply->element[0]->integer,
+        .snapshot_index = reply->element[1]->integer,
+        .term = reply->element[2]->integer,
+        .offset = reply->element[3]->integer,
+        .success = reply->element[4]->integer,
+        .last_chunk = reply->element[5]->integer,
     };
 
     raft_node_t *raft_node = raft_get_node(rr->raft, node->id);
