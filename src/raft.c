@@ -1904,7 +1904,7 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
     if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
         LOG_WARNING("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
-                    entry->data_len, entry->data);
+                    (int) entry->data_len, entry->data);
         return;
     }
 
