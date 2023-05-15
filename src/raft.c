@@ -2053,7 +2053,6 @@ void handleBeforeSleep(RedisRaftCtx *rr)
          * We'll do it in the next iteration as we want to process messages
          * from the network first. Here, we just wake up the event loop. In the
          * next iteration, beforeSleep() callback will be called again. */
-        rr->exec_throttled++;
         RedisModule_EventLoopAddOneShot(noopCallback, NULL);
     }
 }

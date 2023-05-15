@@ -266,7 +266,6 @@ RRStatus finalizeSnapshot(RedisRaftCtx *rr, SnapshotResult *sr)
 
     took = RedisModule_MonotonicMicroseconds() - rr->curr_snapshot_start_time;
     rr->last_snapshot_time = took / 1000 / 1000;
-    rr->snapshots_created++;
 
     resetSnapshotState(rr);
 
@@ -527,7 +526,6 @@ int raftLoadSnapshot(raft_server_t *raft, void *user_data, raft_term_t term,
     EntryCacheDeleteHead(rr->logcache, raft_get_snapshot_last_idx(rr->raft) + 1);
     createOutgoingSnapshotMmap(rr);
 
-    rr->snapshots_received++;
     rr->state = REDIS_RAFT_UP;
 
     return 0;
