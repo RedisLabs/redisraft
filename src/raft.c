@@ -1904,7 +1904,7 @@ void applyShardGroupChange(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 
     if ((sg = ShardGroupDeserialize(entry->data, entry->data_len)) == NULL) {
         LOG_WARNING("Failed to deserialize ADD_SHARDGROUP payload: [%.*s]",
-                    entry->data_len, entry->data);
+                    (int) entry->data_len, entry->data);
         return;
     }
 
@@ -2053,7 +2053,6 @@ void handleBeforeSleep(RedisRaftCtx *rr)
          * We'll do it in the next iteration as we want to process messages
          * from the network first. Here, we just wake up the event loop. In the
          * next iteration, beforeSleep() callback will be called again. */
-        rr->exec_throttled++;
         RedisModule_EventLoopAddOneShot(noopCallback, NULL);
     }
 }
