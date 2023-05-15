@@ -12,8 +12,15 @@
  * contains a serialized list of commands in Redis multi-bulk compatible encoding (using \n
  * rather than \r\n termination).
  * For example:
- * *1\n*3\n$3\nSET\n$3\nkey\n$5\nvalue
+ *
+ * *2\n*3\n:0\n:0\n$-1\n*1\n*3\n$3\nSET\n$3\nkey\n$5\nvalue\n
+ *     |--------------| | -----------------------------------|
+ *           |                           |
+ * Metadata(asking, flags, acl)    Redis Command (set key value)
  */
+
+#define MULTIBULK_ARRAY_COUNT 2
+#define METADATA_ELEM_COUNT   3
 
 RaftRedisCommand *RaftRedisCommandArrayExtend(RaftRedisCommandArray *target)
 {
@@ -115,11 +122,13 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    size_t len;
     int n, i, j;
     char *p;
+    size_t len, sz = 0;
 
-    size_t sz = calcIntSerializedLen(source->asking);
+    sz += calcIntSerializedLen(MULTIBULK_ARRAY_COUNT);
+    sz += calcIntSerializedLen(METADATA_ELEM_COUNT);
+    sz += calcIntSerializedLen(source->asking);
     sz += calcIntSerializedLen(source->cmd_flags);
     sz += calcIntSerializedLen(source->len);
 
@@ -133,14 +142,26 @@ raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source
     raft_entry_t *ety = raft_entry_new(sz);
     p = ety->data;
 
+    /* Encode array count */
+    n = encodeInteger('*', p, sz, MULTIBULK_ARRAY_COUNT);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
+    /* Encode metadata element count */
+    n = encodeInteger('*', p, sz, METADATA_ELEM_COUNT);
+    RedisModule_Assert(n != -1);
+    p += n;
+    sz -= n;
+
     /* Encode Asking */
-    n = encodeInteger('*', p, sz, source->asking);
+    n = encodeInteger(':', p, sz, source->asking);
     RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
 
     /* Encode cmd_flags */
-    n = encodeInteger('*', p, sz, source->cmd_flags);
+    n = encodeInteger(':', p, sz, source->cmd_flags);
     RedisModule_Assert(n != -1);
     p += n;
     sz -= n;
@@ -226,16 +247,30 @@ error:
 RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const void *buf, size_t buf_size)
 {
     const char *p = buf;
-    size_t commands_num;
+    size_t commands_num, val;
     int n;
 
     if (target->len) {
         RaftRedisCommandArrayFree(target);
     }
 
+    n = decodeInteger(p, buf_size, '*', &val);
+    if (n < 0 || val != MULTIBULK_ARRAY_COUNT) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+
+    n = decodeInteger(p, buf_size, '*', &val);
+    if (n < 0 || val != METADATA_ELEM_COUNT) {
+        return RR_ERROR;
+    }
+    p += n;
+    buf_size -= n;
+
     /* Read asking */
     size_t asking;
-    if ((n = decodeInteger(p, buf_size, '*', &asking)) < 0) {
+    if ((n = decodeInteger(p, buf_size, ':', &asking)) < 0) {
         return RR_ERROR;
     }
     p += n;
@@ -244,7 +279,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 
     /* Read cmd_flags */
     size_t cmd_flags;
-    if ((n = decodeInteger(p, buf_size, '*', &cmd_flags)) < 0) {
+    if ((n = decodeInteger(p, buf_size, ':', &cmd_flags)) < 0) {
         return RR_ERROR;
     }
     p += n;
