@@ -85,6 +85,37 @@ typedef enum {
     RAFT_LOGTYPE_NUM = 100,
 } raft_logtype_e;
 
+typedef struct raft_server_stats {
+    /** Miscellaneous */
+    unsigned long long appendentries_req_with_entry;
+    unsigned long long snapshots_created;
+    unsigned long long snapshots_received;
+    unsigned long long exec_throttled;
+
+    /** Message types */
+    unsigned long long appendentries_req_sent;
+    unsigned long long appendentries_req_received;
+    unsigned long long appendentries_req_failed;
+    unsigned long long appendentries_resp_received;
+
+    unsigned long long snapshot_req_sent;
+    unsigned long long snapshot_req_received;
+    unsigned long long snapshot_req_failed;
+    unsigned long long snapshot_resp_received;
+
+    unsigned long long requestvote_prevote_req_sent;
+    unsigned long long requestvote_prevote_req_received;
+    unsigned long long requestvote_prevote_req_failed;
+    unsigned long long requestvote_prevote_req_granted;
+    unsigned long long requestvote_prevote_resp_received;
+
+    unsigned long long requestvote_req_sent;
+    unsigned long long requestvote_req_received;
+    unsigned long long requestvote_req_failed;
+    unsigned long long requestvote_req_granted;
+    unsigned long long requestvote_resp_received;
+} raft_server_stats_t;
+
 /** Entry that is stored in the server's entry log. */
 typedef struct raft_entry
 {
@@ -110,7 +141,7 @@ typedef struct raft_entry
     void (*free_func) (struct raft_entry *entry);
 
     /** data length */
-    unsigned int data_len;
+    raft_size_t data_len;
 
     /** data */
     char data[];
@@ -215,6 +246,9 @@ typedef struct
 {
     /** the msg_id this response refers to */
     raft_msg_id_t msg_id;
+
+    /** last included index of the snapshot this response refers to */
+    raft_index_t snapshot_index;
 
     /** currentTerm, to force other leader to step down */
     raft_term_t term;
@@ -907,7 +941,7 @@ typedef struct raft_log_impl
  * Election timeout defaults to 1000 milliseconds
  *
  * @return newly initialised Raft server */
-raft_server_t* raft_new();
+raft_server_t* raft_new(void);
 
 /** Initializes a new Raft server with a custom Raft Log implementation.
  *
@@ -1401,7 +1435,7 @@ void *raft_get_log(raft_server_t* me);
  *  initial refcount value of 1.  Calling raft_entry_release() immediately would
  *  therefore result with deallocation.
  */
-raft_entry_t *raft_entry_new(unsigned int data_len);
+raft_entry_t *raft_entry_new(raft_size_t data_len);
 
 /** Hold the raft_entry_t, i.e. increment refcount by one.
  */
@@ -1458,6 +1492,13 @@ int raft_transfer_leader(raft_server_t* me, raft_node_id_t node_id, long timeout
  *         RAFT_NODE_ID_NONE otherwise
  */
 raft_node_id_t raft_get_transfer_leader(raft_server_t *me);
+
+/** Retrieves collected raft stats
+ *
+ * @param[in] me The Raft raft_server_t
+ * @param[out] stats a pointer to a client allocated buffer to fill collected stats
+ */
+void raft_get_server_stats(raft_server_t *me, raft_server_stats_t *stats);
 
 /** Force this server to start an election
  *

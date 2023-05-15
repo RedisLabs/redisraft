@@ -103,11 +103,18 @@ static int __raft_clear_snapshot(raft_server_t* raft,
 
 struct test_data
 {
+    /* Config */
+    bool fail_load;
+    bool fail_store_chunk;
+
+    /* Stats */
     int send;
     int get_chunk;
     int store_chunk;
+    int store_chunk_fails;
     int clear;
     int load;
+    int load_fails;
 };
 
 static int test_send_snapshot_increment(raft_server_t* raft,
@@ -150,6 +157,11 @@ static int test_store_snapshot_chunk(raft_server_t* raft,
 {
     struct test_data *t = user_data;
 
+    if (t->fail_store_chunk) {
+        t->store_chunk_fails++;
+        return -1;
+    }
+
     t->store_chunk++;
     return 0;
 }
@@ -164,11 +176,17 @@ static int test_clear_snapshot(raft_server_t* raft,
 }
 
 static int test_load_snapshot(raft_server_t* raft,
-                               void *user_data,
+                              void *user_data,
                               raft_term_t snapshot_term,
                               raft_index_t snapshot_index)
 {
     struct test_data *t = user_data;
+
+    if (t->fail_load) {
+        t->load_fails++;
+        return -1;
+    }
+
     t->load++;
 
     raft_begin_load_snapshot(raft, snapshot_term, snapshot_index);
@@ -1043,6 +1061,94 @@ void TestRaft_set_last_chunk_if_log_is_more_advanced(CuTest * tc)
     CuAssertIntEquals(tc, 1, resp.last_chunk);
 }
 
+void TestRaft_report_fail_on_load_snapshot_error(CuTest * tc)
+{
+    /**
+     *  If load_snapshot() or store_snapshot_chunk() callback fails, node should
+     *  return response as if like it didn't receive the current chunk. Leader
+     *  will send the same chunk again and operation can be retried.
+     */
+    raft_cbs_t funcs = {
+            .send_snapshot = test_send_snapshot_increment,
+            .send_appendentries = __raft_send_appendentries,
+            .clear_snapshot = test_clear_snapshot,
+            .load_snapshot = test_load_snapshot,
+            .store_snapshot_chunk = test_store_snapshot_chunk,
+            .get_snapshot_chunk = test_get_snapshot_chunk
+    };
+
+    struct test_data data = {0};
+
+    void *r = raft_new();
+    raft_set_current_term(r, 1);
+    raft_set_callbacks(r, &funcs, &data);
+    raft_add_node(r, NULL, 1, 1);
+    raft_become_leader(r);
+
+    __RAFT_APPEND_ENTRY(r, 1, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 2, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 4, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 5, 1, "entry");
+    __RAFT_APPEND_ENTRY(r, 6, 1, "entry");
+
+    raft_snapshot_req_t msg = {
+            .term = 1,
+            .leader_id = 2,
+            .snapshot_index = 7,
+            .snapshot_term = 1,
+            .msg_id = 1,
+            .chunk.data = "tmp",
+            .chunk.offset = 0,
+            .chunk.len = 50,
+            .chunk.last_chunk = 0,
+    };
+
+    raft_snapshot_resp_t resp = {0};
+    raft_recv_snapshot(r, NULL, &msg, &resp);
+
+    /* Inject failure to load_snapshot() callback. */
+    data.fail_load = 1;
+
+    raft_snapshot_req_t msg2 = {
+            .term = 1,
+            .leader_id = 2,
+            .snapshot_index = 7,
+            .snapshot_term = 1,
+            .msg_id = 1,
+            .chunk.data = "tmp",
+            .chunk.offset = 50,
+            .chunk.len = 30,
+            .chunk.last_chunk = 1,
+    };
+
+    raft_recv_snapshot(r, NULL, &msg2, &resp);
+
+    CuAssertIntEquals(tc, 0, data.load);
+    CuAssertIntEquals(tc, 1, data.load_fails);
+    CuAssertIntEquals(tc, 0, resp.success);
+    CuAssertIntEquals(tc, 50, resp.offset);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+
+    /* Inject failure to store_chunk() callback. */
+    data.fail_load = 0;
+    data.fail_store_chunk = 1;
+    raft_recv_snapshot(r, NULL, &msg2, &resp);
+
+    CuAssertIntEquals(tc, 0, data.load);
+    CuAssertIntEquals(tc, 1, data.load_fails);
+    CuAssertIntEquals(tc, 0, resp.success);
+    CuAssertIntEquals(tc, 50, resp.offset);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+
+    /* Disable injected failures and verify operation is successful. */
+    data.fail_store_chunk = 0;
+    raft_recv_snapshot(r, NULL, &msg2, &resp);
+    CuAssertIntEquals(tc, 1, data.load);
+    CuAssertIntEquals(tc, 1, resp.success);
+    CuAssertIntEquals(tc, 80, resp.offset);
+    CuAssertIntEquals(tc, 1, resp.last_chunk);
+}
+
 void TestRaft_restore_after_restart(CuTest * tc)
 {
     raft_server_t *r = raft_new();
@@ -1088,6 +1194,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_reject_wrong_offset);
     SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_on_duplicate);
     SUITE_ADD_TEST(suite, TestRaft_set_last_chunk_if_log_is_more_advanced);
+    SUITE_ADD_TEST(suite, TestRaft_report_fail_on_load_snapshot_error);
     SUITE_ADD_TEST(suite, TestRaft_restore_after_restart);
 
     CuSuiteRun(suite);
