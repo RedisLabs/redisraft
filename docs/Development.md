@@ -4,6 +4,12 @@ RedisRaft Development
 This chapter discusses topics relevant to the development of the RedisRaft
 module itself.
 
+Updating LibRaft
+----------------
+The LibRaft subtree is updated via
+
+git subtree pull --squash --prefix=deps/raft https://github.com/redislabs/raft <commit sha>
+
 Testing
 -------
 
