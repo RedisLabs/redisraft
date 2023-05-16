@@ -1528,7 +1528,11 @@ void callRaftPeriodic(RedisModuleCtx *ctx, void *arg)
 
     /* Compact cache */
     if (rr->config.log_max_cache_size) {
-        EntryCacheCompact(rr->logcache, rr->config.log_max_cache_size);
+        /* Compact applied entries only. Otherwise, deleting entries from the
+         * cache will result in replying -TIMEOUT to the user in the entry
+         * destroy callback. */
+        EntryCacheCompact(rr->logcache, rr->config.log_max_cache_size,
+                          raft_get_last_applied_idx(rr->raft));
     }
 
     /* Initiate snapshot if log size exceeds raft-log-file-max

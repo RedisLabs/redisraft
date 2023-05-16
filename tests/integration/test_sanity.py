@@ -902,3 +902,21 @@ def test_session_same_id_clients_persisting(cluster):
     with raises(ConnectionError, match="Connection (closed|reset)"):
         conn1.execute("get", "X")
     conn2.execute("get", "X")
+
+
+def test_entry_cache_compaction(cluster):
+    """
+    Verify entry cache compaction wouldn't free entries that are waiting to be
+    applied. If an entry is freed from the cache before apply, user might
+    get -TIMEOUT response.
+    """
+    cluster.create(3)
+
+    # Compaction happens in periodic callback, make it more frequent.
+    cluster.config_set("raft.periodic-interval", 1)
+    cluster.config_set("raft.log-max-cache-size", "1kb")
+
+    # Replicating a large entry will take longer, and it gives more chances for
+    # entry cache compaction to kick in.
+    val = "a" * (1024 * 1024 * 64)
+    assert cluster.execute("set", "x", val)

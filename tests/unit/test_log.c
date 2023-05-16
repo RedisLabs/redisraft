@@ -524,6 +524,47 @@ static void test_entry_cache_fuzzer()
     EntryCacheFree(cache);
 }
 
+static void test_entry_cache_compact()
+{
+    EntryCache *cache = EntryCacheNew(4);
+
+    for (int i = 1; i < 1000; i++) {
+        raft_entry_t *ety = raft_entry_new(100);
+        ety->id = i;
+        EntryCacheAppend(cache, ety, i);
+        raft_entry_release(ety);
+    }
+
+    /* Test index limit */
+    assert(EntryCacheCompact(cache, 10, 5) == 5);
+    assert(cache->len == 994);
+    assert(cache->start_idx == 6);
+
+    /* Test index limit with no deletion. */
+    assert(EntryCacheCompact(cache, 10, 5) == 0);
+
+    assert(EntryCacheCompact(cache, 10, 6) == 1);
+    assert(EntryCacheCompact(cache, 10, 998) == 992);
+    assert(cache->len == 1);
+    assert(cache->start_idx == 999);
+
+    /* Test smaller index than cache start index. */
+    assert(EntryCacheCompact(cache, 10, 998) == 0);
+    assert(EntryCacheCompact(cache, 10, 999) == 1);
+
+    for (int i = 1000; i < 2000; i++) {
+        raft_entry_t *ety = raft_entry_new(100);
+        ety->id = i;
+        EntryCacheAppend(cache, ety, i);
+        raft_entry_release(ety);
+    }
+
+    /* Test memory limit, single entry uses 156 bytes of memory. */
+    assert(EntryCacheCompact(cache, 156 * 2, 100000) == 998);
+
+    EntryCacheFree(cache);
+}
+
 static void test_meta_persistence()
 {
     Metadata m;
@@ -846,6 +887,7 @@ void test_log()
     test_run(test_entry_cache_delete_head);
     test_run(test_entry_cache_delete_tail);
     test_run(test_entry_cache_fuzzer);
+    test_run(test_entry_cache_compact);
     test_run(test_meta_persistence);
     test_run(test_crc32c);
     test_run(test_corruption_header);

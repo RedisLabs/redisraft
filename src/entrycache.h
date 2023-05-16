@@ -26,6 +26,6 @@ void EntryCacheAppend(EntryCache *cache, raft_entry_t *ety, raft_index_t idx);
 raft_entry_t *EntryCacheGet(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteHead(EntryCache *cache, raft_index_t idx);
 long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index);
-long EntryCacheCompact(EntryCache *cache, size_t max_memory);
+long EntryCacheCompact(EntryCache *cache, size_t max_memory, raft_index_t limit);
 
 #endif
