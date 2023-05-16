@@ -314,6 +314,7 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, boo
             client_session = RedisModule_Alloc(sizeof(ClientSession));
             client_session->client_id = id;
             client_session->local = local;
+            client_session->dirty = false;
             client_session->client = RedisModule_CreateModuleClient(rr->ctx);
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
@@ -375,6 +376,16 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
     freeBlockedCommand(bc);
 }
 
+static bool isClientSessionDirty(ClientSession *client_session)
+{
+    uint64_t flags = RedisModule_GetClientFlags(client_session->client);
+    if (client_session->dirty || flags) {
+        return true;
+    }
+
+    return false;
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -429,8 +440,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         */
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
             if (client_session) {
-                uint64_t flags = RedisModule_GetClientFlags(client_session->client);
-                if (flags) {
+                if (isClientSessionDirty(client_session)) {
                     if (req) {
                         RedisModule_ReplyWithNull(req->ctx);
                     }

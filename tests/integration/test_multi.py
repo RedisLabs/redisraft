@@ -253,7 +253,14 @@ def test_multi_watch_without_modification(cluster):
     assert conn.execute('multi') == b'OK'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
-    assert conn.execute('exec') == [b'1', b'1']
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+    assert conn.execute('exec') == [b'1', b'1', b'OK']
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val == b'1'
 
 
 def test_multi_watch_with_modification(cluster):
@@ -267,8 +274,15 @@ def test_multi_watch_with_modification(cluster):
     assert conn.execute('multi') == b'OK'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
     assert cluster.execute('set', 'key1', 2)
     assert conn.execute('exec') is None
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val is None
 
 
 def test_multi_watch_cleared_after_exec(cluster):
@@ -282,10 +296,105 @@ def test_multi_watch_cleared_after_exec(cluster):
     assert conn.execute('multi') == b'OK'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
-    assert conn.execute('exec') == [b'1', b'1']
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+    assert conn.execute('exec') == [b'1', b'1', b'OK']
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val == b'1'
 
     assert conn.execute('multi') == b'OK'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
+    assert conn.execute('set', 'key2', 2) == b'QUEUED'
     assert cluster.execute('set', 'key1', 2)
-    assert conn.execute('exec') == [b'2', b'2']
+    assert conn.execute('exec') == [b'2', b'2', b'OK']
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val == b'2'
+
+
+def test_multi_watch_with_restart_clean(cluster):
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('watch', 'key1') == b'OK'
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_election()
+    cluster.node(3).restart()
+    cluster.node(3).wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert conn.execute('exec') == [b'OK']
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val == b'1'
+
+
+def test_multi_watch_with_restart_dirty(cluster):
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('watch', 'key1') == b'OK'
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+    assert cluster.execute('set', 'key1', 2)
+
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_election()
+    cluster.node(3).restart()
+    cluster.node(3).wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert conn.execute('exec') is None
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val is None
+
+
+def test_multi_watch_with_dirty_after_restart(cluster):
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('watch', 'key1') == b'OK'
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('set', 'key2', 1) == b'QUEUED'
+
+    cluster.node(2).restart()
+    cluster.node(2).wait_for_election()
+    cluster.node(3).restart()
+    cluster.node(3).wait_for_election()
+    cluster.wait_for_unanimity()
+
+    assert cluster.execute('set', 'key1', 2)
+
+    assert conn.execute('exec') is None
+
+    cluster.wait_for_unanimity()
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("get", "key2")
+        assert val is None

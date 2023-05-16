@@ -776,6 +776,7 @@ typedef struct ClientSession {
     raft_session_t client_id;
     RedisModuleClient *client;
     bool local;
+    bool dirty;
 } ClientSession;
 
 /* common.c */
