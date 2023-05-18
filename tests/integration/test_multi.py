@@ -398,3 +398,28 @@ def test_multi_watch_with_dirty_after_restart(cluster):
     for i in range(1, 3):
         val = cluster.node(i).raft_debug_exec("get", "key2")
         assert val is None
+
+
+def test_multi_with_blocking_commands(cluster):
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('blpop', 'key2', 0) == b'QUEUED'
+    assert conn.execute('exec') == [None]
+
+
+def test_multi_with_blocking_command_and_watch(cluster):
+    cluster.create(3)
+    node = cluster.leader_node()
+    node.execute('set', 'key1', 1)
+
+    conn = RawConnection(cluster.node(1).client)
+
+    assert conn.execute('watch', 'key1') == b'OK'
+    assert conn.execute('multi') == b'OK'
+    assert conn.execute('blpop', 'key2', 0) == b'QUEUED'
+    assert conn.execute('exec') == [None]
