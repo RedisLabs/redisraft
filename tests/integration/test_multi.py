@@ -3,7 +3,7 @@ Copyright Redis Ltd. 2020 - present
 Licensed under your choice of the Redis Source Available License 2.0 (RSALv2)
 or the Server Side Public License v1 (SSPLv1).
 """
-
+import pytest
 from pytest import raises
 from redis.exceptions import ExecAbortError, ResponseError
 
@@ -400,26 +400,16 @@ def test_multi_watch_with_dirty_after_restart(cluster):
         assert val is None
 
 
-def test_multi_with_blocking_commands(cluster):
+@pytest.mark.parametrize("with_watch", [False, True])
+def test_multi_with_blocking_commands(cluster, with_watch):
     cluster.create(3)
     node = cluster.leader_node()
     node.execute('set', 'key1', 1)
 
     conn = RawConnection(cluster.node(1).client)
 
-    assert conn.execute('multi') == b'OK'
-    assert conn.execute('blpop', 'key2', 0) == b'QUEUED'
-    assert conn.execute('exec') == [None]
-
-
-def test_multi_with_blocking_command_and_watch(cluster):
-    cluster.create(3)
-    node = cluster.leader_node()
-    node.execute('set', 'key1', 1)
-
-    conn = RawConnection(cluster.node(1).client)
-
-    assert conn.execute('watch', 'key1') == b'OK'
+    if with_watch:
+        assert conn.execute('watch', 'key1') == b'OK'
     assert conn.execute('multi') == b'OK'
     assert conn.execute('blpop', 'key2', 0) == b'QUEUED'
     assert conn.execute('exec') == [None]
