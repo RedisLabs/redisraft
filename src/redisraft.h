@@ -738,6 +738,7 @@ typedef struct MultiState {
 } MultiState;
 
 typedef struct ClientState {
+    unsigned long long client_id;
     MultiState multi_state;
     bool asking;
     /* we record "watched" at append time, for 2 reasons
@@ -832,6 +833,7 @@ RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_inde
 /* redisraft.c */
 RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx);
 void RedisRaftCtxClear(RedisRaftCtx *rr);
+void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason);
 
 /* raft.c */
 void RaftReqFree(RaftReq *req);

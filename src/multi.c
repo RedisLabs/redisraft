@@ -96,7 +96,8 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         }
 
         MultiStateReset(multiState);
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
+        RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+        appendEndClientSession(rr, req, clientState->client_id, "UNWATCH");
 
         return true;
     }

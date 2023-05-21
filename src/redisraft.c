@@ -587,7 +587,7 @@ static void handleClientCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     RedisModule_ReplyWithError(ctx, "ERR RedisRaft should only handle CLIENT UNBLOCK commands");
 }
 
-static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
+void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
 {
     raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
     entry->type = RAFT_LOGTYPE_END_SESSION;
