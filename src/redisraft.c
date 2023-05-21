@@ -677,7 +677,7 @@ static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisComman
             if (cmd_len == 7 && strncasecmp(cmd, "UNWATCH", 7) == 0) {
                 RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
                 unsigned long long id = RedisModule_GetClientId(ctx);
-                appendEndClientSession(rr, req, id, "UNWATCH");
+                appendEndClientSession(rr, req, id, SESSION_END_UNWATCH);
 
                 return true;
             }

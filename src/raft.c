@@ -514,7 +514,6 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 
     if (is_multi_session) {
-        LOG_WARNING("ending session");
         endClientSession(rr, client_session->client_id);
     }
 
@@ -652,7 +651,11 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry, RaftRe
     endClientSession(rr, id);
 
     if (req) {
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        if (strncmp(entry->data, SESSION_END_EXECABORT, entry->data_len) == 0) {
+            RedisModule_ReplyWithError(req->ctx, EXECABORT_ERR);
+        } else {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
         RaftReqFree(req);
     }
 }

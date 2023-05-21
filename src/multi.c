@@ -75,7 +75,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
 
         if (multiState->error) {
             MultiStateReset(multiState);
-            RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
+            if (clientState->watched) {
+                RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+                appendEndClientSession(rr, req, clientState->client_id, SESSION_END_EXECABORT);
+            } else {
+                RedisModule_ReplyWithError(ctx, EXECABORT_ERR);
+            }
             return true;
         }
 
@@ -96,8 +101,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         }
 
         MultiStateReset(multiState);
-        RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
-        appendEndClientSession(rr, req, clientState->client_id, "UNWATCH");
+        if (clientState->watched) {
+            RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+            appendEndClientSession(rr, req, clientState->client_id, SESSION_END_DISCARD);
+        } else {
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
+        }
 
         return true;
     }

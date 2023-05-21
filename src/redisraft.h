@@ -780,6 +780,12 @@ typedef struct ClientSession {
     bool dirty;
 } ClientSession;
 
+#define SESSION_END_DISCONNECT "DISCONNECT"
+#define SESSION_END_UNWATCH "UNWATCH"
+#define SESSION_END_DISCARD "DISCARD"
+#define SESSION_END_EXECABORT "EXECABORT"
+#define EXECABORT_ERR "EXECABORT Transaction discarded because of previous errors."
+
 /* common.c */
 void joinLinkIdleCallback(Connection *conn);
 void joinLinkFreeCallback(void *privdata);
