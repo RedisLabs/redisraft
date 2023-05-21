@@ -1124,7 +1124,6 @@ static int raftNodeHasSufficientLogs(raft_server_t *raft, void *user_data, raft_
     LOG_NOTICE("node:%d has sufficient logs, adding as voting node.", node->id);
 
     raft_entry_req_t *entry = raft_entry_new(sizeof(RaftCfgChange));
-    entry->id = rand();
     entry->type = RAFT_LOGTYPE_ADD_NODE;
 
     RaftCfgChange *cfgchange = (RaftCfgChange *) entry->data;

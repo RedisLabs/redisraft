@@ -369,7 +369,6 @@ RRStatus ShardGroupAppendLogEntry(RedisRaftCtx *rr, ShardGroup *sg, int type, vo
 
     raft_entry_t *entry = raft_entry_new(strlen(payload));
     entry->type = type;
-    entry->id = rand();
     entry->user_data = user_data;
     memcpy(entry->data, payload, strlen(payload));
     RedisModule_Free(payload);
@@ -404,7 +403,6 @@ RRStatus ShardGroupsAppendLogEntry(RedisRaftCtx *rr, int num_sg, ShardGroup **sg
     size_t payload_len = strlen(buf);
     raft_entry_t *entry = raft_entry_new(payload_len);
     entry->type = type;
-    entry->id = rand();
     entry->user_data = user_data;
     memcpy(entry->data, buf, payload_len);
     RedisModule_Free(buf);
