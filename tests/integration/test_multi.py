@@ -309,7 +309,8 @@ def test_multi_watch_cleared_after_exec(cluster):
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('set', 'key2', 2) == b'QUEUED'
-    # "dirty" the key that was formerly watched, but previous exec should have cleare dit
+    # "dirty" the key that was formerly watched,
+    # but previous exec should have cleared it
     assert cluster.execute('set', 'key1', 2)
     assert conn.execute('exec') == [b'2', b'2', b'OK']
 
@@ -344,7 +345,8 @@ def test_multi_watch_cleared_after_discard(cluster):
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('set', 'key2', 2) == b'QUEUED'
-    # "dirty" the key that was formerly watched, but previous exec should have cleare dit
+    # "dirty" the key that was formerly watched,
+    # but previous exec should have cleared it
     assert cluster.execute('set', 'key1', 2)
     assert conn.execute('exec') == [b'2', b'2', b'OK']
 
