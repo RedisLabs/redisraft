@@ -144,11 +144,13 @@ long EntryCacheDeleteTail(EntryCache *cache, raft_index_t index)
     return deleted;
 }
 
-long EntryCacheCompact(EntryCache *cache, size_t max_memory)
+/* Delete entries up to index `limit` to take memory usage under `max_memory`. */
+long EntryCacheCompact(EntryCache *cache, size_t max_memory, raft_index_t limit)
 {
     long deleted = 0;
 
-    while (cache->len > 0 && cache->entries_memsize > max_memory) {
+    while (cache->len > 0 && cache->start_idx <= limit &&
+           cache->entries_memsize > max_memory) {
         raft_entry_t *ety = cache->ptrs[cache->start];
         cache->entries_memsize -= sizeof(raft_entry_t) + ety->data_len;
         raft_entry_release(ety);
