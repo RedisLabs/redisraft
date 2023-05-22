@@ -709,7 +709,8 @@ static void clientSessionRDBSave(RedisModuleIO *rdb)
     ClientSession *client_session;
     while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
         RedisModule_SaveUnsigned(rdb, client_session->client_id);
-        if (RedisModule_GetClientFlags(client_session->client)) {
+        uint64_t flags = RedisModule_GetClientFlags(client_session->client);
+        if (flags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
             RedisModule_SaveUnsigned(rdb, 1);
         } else {
             RedisModule_SaveUnsigned(rdb, 0);

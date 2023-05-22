@@ -379,7 +379,7 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
 static bool isClientSessionDirty(ClientSession *client_session)
 {
     uint64_t flags = RedisModule_GetClientFlags(client_session->client);
-    if (client_session->dirty || flags) {
+    if (client_session->dirty || flags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
         return true;
     }
 
