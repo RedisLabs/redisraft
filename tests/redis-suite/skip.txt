@@ -1,5 +1,6 @@
--- doesn't work, as command appears as "raft", not "blpop"
+-- doesn't work, as command appears as "raft", not the comand
 Blocking command accounted only once in commandstats after timeout
+command stats for MULTI
 
 -- Streams not supported
 -- See: https://github.com/RedisLabs/redisraft/issues/59
@@ -22,6 +23,7 @@ Timedout script link is still usable after Lua returns
 /function kill
 /script kill
 /test wrong subcommand
+/.*script timeout.*
 
 -- RAFT command prefix shows up in SLOWLOG.
 SLOWLOG - Rewritten commands are logged as their original command
@@ -39,18 +41,21 @@ UNLINK can reclaim memory in background
 -- ACL test fails because we prepend "raft" string to the command
 Script ACL check
 
--- WATCH (multi/exec) not supported
-/.*MULTI.*
-/.*EXEC.*
-/.*WATCH.*
-SMOVE only notify dstset when the addition is successful
-FLUSHALL is able to touch the watched keys
-FLUSHDB is able to touch the watched keys
-client evicted due to watched key list
-FLUSHALL does not touch non affected keys
-FLUSHDB does not touch non affected keys
-SWAPDB is able to touch the watched keys that exist
-SWAPDB is able to touch the watched keys that do not exist
+
+-- MULTI/EXEC is currently read-write in RedisRaft 
+EXEC with only read commands should not be rejected when OOM
+
+-- RedisRaft can't intercept differently when inside a multi, so these are broken for now
+-- in general, we'd not want to intercept them, but they need to be intercepted within a multi
+-- where they will error out in a specific way
+-- https://github.com/redis/redis/issues/12210
+MULTI with SAVE
+MULTI with SHUTDOWN
+MULTI with config error
+
+-- pubsub can't allow ping to be intercepted, but needs to be intercepted for multi tests
+-- where part of the multi response
+/.*Sub PING on.*
 
 -- After fixing this: https://github.com/RedisLabs/redisraft/issues/367
 -- We don't need to skip this test as it doesn't actually configure a replica.
