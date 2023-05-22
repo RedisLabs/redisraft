@@ -132,7 +132,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_ADDNODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
-        entry->id = rand();
         entry->type = RAFT_LOGTYPE_ADD_NONVOTING_NODE;
         memcpy(entry->data, &cfg, sizeof(cfg));
 
@@ -168,7 +167,6 @@ static int cmdRaftNode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RaftReq *req = RaftReqInit(ctx, RR_CFGCHANGE_REMOVENODE);
 
         raft_entry_req_t *entry = raft_entry_new(sizeof(cfg));
-        entry->id = rand();
         entry->type = RAFT_LOGTYPE_REMOVE_NODE;
         memcpy(entry->data, &cfg, sizeof(cfg));
 
@@ -502,7 +500,6 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
     }
 
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
-    entry->id = rand();
     entry->type = RAFT_LOGTYPE_LOCK_KEYS;
     entryAttachRaftReq(rr, entry, req);
 
@@ -593,7 +590,6 @@ static void handleClientCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
 static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
 {
     raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
-    entry->id = rand();
     entry->type = RAFT_LOGTYPE_END_SESSION;
     entry->session = id;
     strncpy(entry->data, reason, entry->data_len);
@@ -804,7 +800,6 @@ static void handleRedisCommandAppend(RedisRaftCtx *rr,
     RaftRedisCommandArrayMove(&req->r.redis.cmds, cmds);
 
     raft_entry_t *entry = RaftRedisCommandArraySerialize(&req->r.redis.cmds);
-    entry->id = rand();
     entry->session = RedisModule_GetClientId(ctx);
     entry->type = RAFT_LOGTYPE_NORMAL;
 

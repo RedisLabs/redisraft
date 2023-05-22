@@ -177,7 +177,6 @@ int cmdRaftImport(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     raft_entry_t *entry = RaftRedisSerializeImport(&req->r.import_keys);
-    entry->id = rand();
     entry->type = RAFT_LOGTYPE_IMPORT_KEYS;
 
     int e = RedisRaftRecvEntry(rr, entry, req);
@@ -202,7 +201,6 @@ static void raftAppendRaftUnlockDeleteEntry(RedisRaftCtx *rr, RaftReq *req)
     }
 
     raft_entry_t *entry = RaftRedisLockKeysSerialize(req->r.migrate_keys.keys, req->r.migrate_keys.num_keys);
-    entry->id = rand();
     entry->type = RAFT_LOGTYPE_DELETE_UNLOCK_KEYS;
 
     int e = RedisRaftRecvEntry(rr, entry, req);
