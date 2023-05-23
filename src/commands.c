@@ -72,14 +72,13 @@ static const CommandSpec commands[] = {
 
  /* Admin commands - bypassed */
     {"auth",                        CMD_SPEC_DONT_INTERCEPT                      },
-    /* queued by multi, need to intercept in multi, but can't do that right now with redis */
-    {"ping",                        CMD_SPEC_DONT_INTERCEPT                      },
+    {"ping",                        CMD_SPEC_INTERCEPT_IN_MULTI                  },
     {"hello",                       CMD_SPEC_DONT_INTERCEPT                      },
     {"module",                      CMD_SPEC_DONT_INTERCEPT                      },
-    {"config",                      CMD_SPEC_DONT_INTERCEPT                      },
+    {"config",                      CMD_SPEC_INTERCEPT_IN_MULTI                  },
     {"monitor",                     CMD_SPEC_DONT_INTERCEPT                      },
     {"command",                     CMD_SPEC_DONT_INTERCEPT                      },
-    {"shutdown",                    CMD_SPEC_DONT_INTERCEPT                      },
+    {"shutdown",                    CMD_SPEC_INTERCEPT_IN_MULTI                  },
     {"quit",                        CMD_SPEC_DONT_INTERCEPT                      },
     {"slowlog",                     CMD_SPEC_DONT_INTERCEPT                      },
     {"acl",                         CMD_SPEC_DONT_INTERCEPT                      },

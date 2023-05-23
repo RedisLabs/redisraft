@@ -130,10 +130,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
             return true;
         }
 
-        if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
-            RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
-            multiState->error = true;
-            return true;
+        if (cmd_flags & CMD_SPEC_INTERCEPT_IN_MULTI) {
+            if (cmd_len == 8 && !strncasecmp(cmd_str, "SHUTDOWN", 8)) {
+                RedisModule_ReplyWithError(ctx, "ERR Command not allowed inside a transaction");
+                multiState->error = true;
+                return true;
+            }
         }
 
         if (RedisModule_GetUsedMemoryRatio() > 1.0) {

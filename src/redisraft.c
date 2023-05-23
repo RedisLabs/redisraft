@@ -1725,6 +1725,15 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
     if (flags != -1 && (flags & CMD_SPEC_DONT_INTERCEPT))
         return;
 
+    if (flags != -1 && (flags & CMD_SPEC_INTERCEPT_IN_MULTI)) {
+        unsigned long long id = RedisModule_CommandFilterGetClientId(filter);
+        ClientState *clientState = ClientStateGetById(rr, id);
+
+        if (clientState == NULL || !clientState->multi_state.active) {
+            return;
+        }
+    }
+
     size_t len;
     const char *str = RedisModule_StringPtrLen(cmd, &len);
 

@@ -44,21 +44,8 @@ Script ACL check
 -- MULTI/EXEC is currently read-write in RedisRaft 
 EXEC with only read commands should not be rejected when OOM
 
--- RedisRaft can't intercept differently when inside a multi, so these are broken for now
--- in general, we'd not want to intercept them, but they need to be intercepted within a multi
--- where they will error out in a specific way
--- https://github.com/redis/redis/issues/12210
+-- SAVE is in general unsupported in RedisRaft so can ignore it in multi as well
 MULTI with SAVE
-MULTI with SHUTDOWN
-MULTI with config error
--- same as above, but these all relate to PING usage inside of MULTI
-MULTI / EXEC basics
-EXEC works on WATCHed key not modified
-After successful EXEC key is no longer watched
-After failed EXEC key is no longer watched
-It is possible to UNWATCH
-FLUSHALL does not touch non affected keys
-FLUSHDB does not touch non affected keys
 
 -- After fixing this: https://github.com/RedisLabs/redisraft/issues/367
 -- We don't need to skip this test as it doesn't actually configure a replica.
