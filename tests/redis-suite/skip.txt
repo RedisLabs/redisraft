@@ -34,6 +34,7 @@ MONITOR can log executed commands
 MONITOR can log commands issued by the scripting engine
 MONITOR can log commands issued by functions
 MONITOR correctly handles multi-exec cases
+MONITOR log blocked command only once
 
 -- TODO: check what's wrong
 UNLINK can reclaim memory in background
