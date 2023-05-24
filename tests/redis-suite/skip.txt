@@ -1,4 +1,4 @@
--- doesn't work, as command appears as "raft", not the comand
+-- doesn't work, as command appears as "raft", not the command
 Blocking command accounted only once in commandstats after timeout
 command stats for MULTI
 
