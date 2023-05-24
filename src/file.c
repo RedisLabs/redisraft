@@ -235,7 +235,7 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
         }
 
         remaining -= rd;
-        dest += count;
+        dest += rd;
         file->roffset += rd;
     }
 }

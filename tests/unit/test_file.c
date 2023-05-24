@@ -231,6 +231,69 @@ static void test_file_boundaries()
     FileTerm(&file);
 }
 
+static void test_file_big()
+{
+    /* Test writing/reading big chunks in a single call. Especially, big buffer
+     * reads may cause readv() call return partial reads, so this test is useful
+     * for testing it. */
+    ssize_t ret;
+    File file;
+
+    unlink(FILENAME);
+
+    const size_t PARTIAL_READ_LEN = 518;
+    const size_t LEN = 2UL * 1024 * 1024 * 1100;
+    char *copy = malloc(LEN);
+
+    char *orig = calloc(1, LEN);
+    /* Set some random bytes. */
+    for (size_t i = 0; i < 4096; i ++) {
+        orig[rand() % (LEN - 1)] = rand();
+    }
+
+    FileInit(&file);
+    FileOpen(&file, FILENAME, O_CREAT | O_RDWR | O_APPEND);
+
+    /* Test write */
+    ret = FileWrite(&file, orig, LEN);
+    assert(ret == LEN);
+    assert(FileSize(&file) == LEN);
+
+    /* Test read */
+    FileSetReadOffset(&file, 0);
+
+    /* Read partial first. */
+    ret = FileRead(&file, copy, PARTIAL_READ_LEN);
+    assert(ret == PARTIAL_READ_LEN);
+    assert(FileGetReadOffset(&file) == PARTIAL_READ_LEN);
+
+    /* Read rest of the data */
+    ret = FileRead(&file, copy + PARTIAL_READ_LEN, LEN - PARTIAL_READ_LEN);
+    assert(ret == LEN - PARTIAL_READ_LEN);
+    assert(FileGetReadOffset(&file) == LEN);
+    assert(memcmp(copy, orig, LEN) == 0);
+    FileTerm(&file);
+
+    /* Test read by opening file again. */
+    FileInit(&file);
+    FileOpen(&file, FILENAME, O_RDONLY);
+
+    /* Read partial first. */
+    ret = FileRead(&file, copy, PARTIAL_READ_LEN);
+    assert(ret == PARTIAL_READ_LEN);
+    assert(FileGetReadOffset(&file) == PARTIAL_READ_LEN);
+
+    /* Read rest of the data */
+    ret = FileRead(&file, copy + PARTIAL_READ_LEN, LEN - PARTIAL_READ_LEN);
+    assert(ret == LEN - PARTIAL_READ_LEN);
+    assert(FileGetReadOffset(&file) == LEN);
+    assert(memcmp(copy, orig, LEN) == 0);
+
+    FileTerm(&file);
+    free(orig);
+    free(copy);
+}
+
 void test_file()
 {
     test_run(test_file_write_pos);
@@ -238,4 +301,5 @@ void test_file()
     test_run(test_file_fgets);
     test_run(test_file_persistence);
     test_run(test_file_boundaries);
+    test_run(test_file_big);
 }
