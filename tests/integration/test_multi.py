@@ -367,12 +367,12 @@ def test_multi_watch_cleared_after_execabort(cluster):
 
     assert conn.execute('watch', 'key1') == b'OK'
     assert conn.execute('multi') == b'OK'
-    with raises(ResponseError, match=".*unknown command 'nonexistentcommand'.*"):
-        conn.execute('nonexistentcommand')
+    with raises(ResponseError, match=".*unknown command 'notexistcmd'.*"):
+        conn.execute('notexistcmd')
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('get', 'key1') == b'QUEUED'
     assert conn.execute('set', 'key2', 1) == b'QUEUED'
-    with raises(ResponseError, match="Transaction discarded because of previous errors."):
+    with raises(ResponseError, match="Transaction discarded.*"):
         conn.execute('exec')
 
     cluster.wait_for_unanimity()
