@@ -492,7 +492,6 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         } else {
             RedisModule_SetContextUser(ctx, NULL);
         }
-        RedisModule_SetContextClient(ctx, NULL);
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 
