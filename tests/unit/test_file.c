@@ -247,7 +247,7 @@ static void test_file_big()
 
     char *orig = calloc(1, LEN);
     /* Set some random bytes. */
-    for (size_t i = 0; i < 4096; i ++) {
+    for (size_t i = 0; i < 4096; i++) {
         orig[rand() % (LEN - 1)] = rand();
     }
 

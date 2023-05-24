@@ -14,11 +14,16 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#define FILE_BUFSIZE 4096
+
 void FileInit(File *file)
 {
+    char *buf = RedisModule_Alloc(FILE_BUFSIZE);
+
     *file = (File){
         .fd = -1,
-        .wpos = file->buf,
+        .buf = buf,
+        .wpos = buf,
     };
 }
 
@@ -28,16 +33,24 @@ int FileTerm(File *file)
     int fd = file->fd;
 
     if (fd == -1) {
-        return RR_OK;
+        rc = RR_OK;
+        goto out;
     }
 
     rc = FileFlush(file);
-    file->fd = -1;
 
     if (close(fd) != 0) {
         LOG_WARNING("error, fd: %d, close(): %s", file->fd, strerror(errno));
-        return RR_ERROR;
+        rc = RR_ERROR;
+        goto out;
     }
+
+out:
+    RedisModule_Free(file->buf);
+    *file = (File){
+        .fd = -1,
+        .buf = NULL,
+    };
 
     return rc;
 }
@@ -175,7 +188,7 @@ ssize_t FileGets(File *file, void *buf, size_t cap)
             }
         }
 
-        ssize_t bytes = read(file->fd, file->buf, sizeof(file->buf));
+        ssize_t bytes = read(file->fd, file->buf, FILE_BUFSIZE);
         if (bytes <= 0) {
             return -1;
         }
@@ -215,8 +228,8 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
     /* Try to fill user buffer and file buffer in a single readv() call. */
     while (true) {
         struct iovec iov[2] = {
-            {.iov_base = dest,      .iov_len = remaining        },
-            {.iov_base = file->buf, .iov_len = sizeof(file->buf)},
+            {.iov_base = dest,      .iov_len = remaining   },
+            {.iov_base = file->buf, .iov_len = FILE_BUFSIZE},
         };
 
         ssize_t rd = readv(file->fd, iov, 2);
@@ -247,7 +260,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* Clear read buffer positions as we are in write mode now. */
     file->rpos = file->rend = NULL;
 
-    size_t cap = file->buf + sizeof(file->buf) - file->wpos;
+    size_t cap = file->buf + FILE_BUFSIZE - file->wpos;
     if (cap >= len) {
         /* Data can fit into the file buffer. */
         memcpy(file->wpos, buf, len);
@@ -276,6 +289,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
             /* Adjust userspace buffer if there was a partial write. */
             memmove(file->buf, iov[0].iov_base, iov[0].iov_len);
             file->wpos = file->buf + iov[0].iov_len;
+
             /* Adjust write offset if there was a partial write. */
             file->woffset += len - iov[1].iov_len;
             LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
