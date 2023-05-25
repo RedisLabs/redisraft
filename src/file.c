@@ -232,7 +232,14 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
             {.iov_base = file->buf, .iov_len = FILE_BUFSIZE},
         };
 
+        /* readv() with iov buffers larger than INT_MAX does not work on macOS.
+         * Falling back to read() on macOS to support large read operations. */
+#if defined(__APPLE__)
+        ssize_t n = MIN(INT_MAX, iov[0].iov_len);
+        ssize_t rd = read(file->fd, iov[0].iov_base, n);
+#else
         ssize_t rd = readv(file->fd, iov, 2);
+#endif
         if (rd < 0) {
             return -1;
         } else if (rd == 0) {
@@ -273,18 +280,27 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* We have some data in the file buffer and need to write it first before
      * the user buffer. We'll write both buffers with a single writev() call.
      * We'll loop until all data is written in case of a partial write. */
-    struct iovec iov[2] = {
+
+#define IOV_COUNT 2
+
+    struct iovec iov[IOV_COUNT] = {
         {.iov_base = file->buf, .iov_len = file->wpos - file->buf},
         {.iov_base = buf,       .iov_len = len                   }
     };
 
     size_t remaining = iov[0].iov_len + iov[1].iov_len;
-    const int IOV_COUNT = 2;
     int current_iov = 0;
     ssize_t count;
 
     while (true) {
+        /* writev() with iov buffers larger than INT_MAX does not work on macOS.
+         * Falling back to write() on macOS to support large write operations.*/
+#if defined(__APPLE__)
+        ssize_t n = MIN(INT_MAX, iov[current_iov].iov_len);
+        count = write(file->fd, iov[current_iov].iov_base, n);
+#else
         count = writev(file->fd, &iov[current_iov], IOV_COUNT - current_iov);
+#endif
         if (count < 0) {
             /* Adjust userspace buffer if there was a partial write. */
             memmove(file->buf, iov[0].iov_base, iov[0].iov_len);
@@ -303,7 +319,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
         }
 
         remaining -= count;
-        if ((size_t) count > iov[current_iov].iov_len) {
+        if ((size_t) count >= iov[current_iov].iov_len) {
             count -= (ssize_t) iov[current_iov].iov_len;
             iov[current_iov].iov_len = 0;
             current_iov++;
