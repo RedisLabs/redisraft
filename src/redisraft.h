@@ -864,12 +864,12 @@ RRStatus parseHashSlots(char *slots, char *string);
 bool parseLongLong(const char *str, char **end, long long *val);
 bool parseLong(const char *str, char **end, long *val);
 bool parseInt(const char *str, char **end, int *val);
-bool multibulkReadLen(File *fp, char type, int *length);
+bool multibulkReadLen(File *fp, char type, size_t *length);
 bool multibulkReadInt(File *fp, int *value);
 bool multibulkReadLong(File *fp, long *value);
 bool multibulkReadUInt64(File *fp, unsigned long long *value);
 bool multibulkReadStr(File *fp, char *buf, size_t size);
-int multibulkWriteLen(void *buf, size_t cap, char prefix, int len);
+int multibulkWriteLen(void *buf, size_t cap, char prefix, size_t len);
 int multibulkWriteInt(void *buf, size_t cap, int val);
 int multibulkWriteLong(void *buf, size_t cap, long val);
 int multibulkWriteUInt64(void *buf, size_t cap, unsigned long long val);
@@ -979,8 +979,8 @@ int calcIntSerializedLen(size_t val);
 int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val);
 int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val);
 size_t calcSerializeStringSize(RedisModuleString *str);
-int decodeString(const char *p, size_t sz, RedisModuleString **str);
-int encodeString(char *p, size_t sz, RedisModuleString *str);
+ssize_t decodeString(const char *p, size_t sz, RedisModuleString **str);
+ssize_t encodeString(char *p, size_t sz, RedisModuleString *str);
 
 /* clientstate.c */
 ClientState *ClientStateGetById(RedisRaftCtx *rr, unsigned long long client_id);

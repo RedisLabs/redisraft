@@ -92,10 +92,10 @@ int decodeInteger(const char *ptr, size_t sz, char expect_prefix, size_t *val)
 int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
 {
     int n = snprintf(ptr, sz, "%c%lu\n", prefix, val);
-
-    if (n >= (int) sz) {
+    if (n < 0 || (size_t) n >= sz) {
         return -1;
     }
+
     return n;
 }
 
@@ -105,10 +105,9 @@ int encodeInteger(char prefix, char *ptr, size_t sz, unsigned long val)
  *
  * returns the number of bytes consumed from the buffer or -1 upon error.
  */
-int decodeString(const char *p, size_t sz, RedisModuleString **str)
+ssize_t decodeString(const char *p, size_t sz, RedisModuleString **str)
 {
     int n;
-
     size_t len;
 
     n = decodeInteger(p, sz, '$', &len);
@@ -122,7 +121,7 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str)
     }
     *str = RedisModule_CreateString(NULL, p, len);
 
-    return (int) (n + len + 1);
+    return (ssize_t) (n + len + 1);
 }
 
 /* encodes a RedisModuleString str into the serialization buffer p
@@ -130,7 +129,7 @@ int decodeString(const char *p, size_t sz, RedisModuleString **str)
  *
  * returns the number of bytes consumed from the buffer or -1 upon error
  */
-int encodeString(char *p, size_t sz, RedisModuleString *str)
+ssize_t encodeString(char *p, size_t sz, RedisModuleString *str)
 {
     size_t len;
     const char *e = NULL;
@@ -158,5 +157,5 @@ int encodeString(char *p, size_t sz, RedisModuleString *str)
     p += len;
     *p = '\n';
 
-    return (int) (n + len + 1);
+    return (ssize_t) (n + len + 1);
 }
