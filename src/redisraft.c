@@ -371,69 +371,47 @@ static void handleInfoCommand(RedisRaftCtx *rr,
 
 #define MIGRATE_CMD_OPTIONAL_ARG_IDX 6
 
-typedef struct MigrationInfo {
-    char username[MAX_AUTH_STRING_ARG_LENGTH + 1];
-    char password[MAX_AUTH_STRING_ARG_LENGTH + 1];
-} MigrationInfo;
-
-static MigrationInfo *extractMigrationInfo(RaftRedisCommand *cmd)
+static RaftReq *cmdToMigrate(RedisModuleCtx *ctx, RaftRedisCommand *cmd)
 {
-    MigrationInfo *ret = RedisModule_Calloc(1, sizeof(MigrationInfo));
-
-    /* default values if auth isn't specified */
-    strncpy(ret->username, "default", sizeof(ret->username));
-
-    int idx;
-    for (idx = MIGRATE_CMD_OPTIONAL_ARG_IDX; idx < cmd->argc; idx++) {
-        size_t auth_str_len;
-        const char *auth_str = RedisModule_StringPtrLen(cmd->argv[idx], &auth_str_len);
-        if (auth_str_len == 5 && !strncasecmp("AUTH2", auth_str, 5)) {
-            if (idx + 2 > cmd->argc) {
-                LOG_WARNING("couldn't parse username/password");
-                goto fail;
-            }
-
-            size_t username_len;
-            const char *username = RedisModule_StringPtrLen(cmd->argv[idx + 1], &username_len);
-            if (username_len > MAX_AUTH_STRING_ARG_LENGTH) {
-                LOG_WARNING("username is too long: limited to 255 characters");
-                goto fail;
-            }
-            strncpy(ret->username, username, username_len);
-
-            size_t password_len;
-            const char *password = RedisModule_StringPtrLen(cmd->argv[idx + 2], &password_len);
-            if (password_len > MAX_AUTH_STRING_ARG_LENGTH) {
-                LOG_WARNING("password is too long: limited to 255 characters");
-                goto fail;
-            }
-            strncpy(ret->password, password, password_len);
-            break;
-        }
-    }
-
-    return ret;
-
-fail:
-    RedisModule_Free(ret);
-    return NULL;
-}
-
-static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCommand *cmd)
-{
-    RaftReq *req = NULL;
+    /* Default values if auth isn't specified */
+    char username[MAX_AUTH_STRING_ARG_LENGTH + 1] = "default";
+    char password[MAX_AUTH_STRING_ARG_LENGTH + 1] = "";
 
     /* 0. assert minimum size here */
     if (cmd->argc < 8) {
         RedisModule_WrongArity(ctx);
-        return req;
+        return NULL;
     }
 
-    /* 1. Extract migration info and store it in a dict rr->migrate_info */
-    MigrationInfo *migrationInfo = extractMigrationInfo(cmd);
-    if (migrationInfo == NULL) {
-        RedisModule_ReplyWithError(ctx, "ERR check logs");
-        goto exit;
+    /* 1. Extract username and password */
+    for (int idx = MIGRATE_CMD_OPTIONAL_ARG_IDX; idx < cmd->argc; idx++) {
+        size_t len;
+        const char *str;
+
+        str = RedisModule_StringPtrLen(cmd->argv[idx], &len);
+        if (len == 5 && !strncasecmp("AUTH2", str, 5)) {
+            if (idx + 2 > cmd->argc) {
+                RedisModule_ReplyWithError(ctx, "ERR couldn't parse username/password");
+                return NULL;
+            }
+
+            str = RedisModule_StringPtrLen(cmd->argv[idx + 1], &len);
+            if (len > MAX_AUTH_STRING_ARG_LENGTH) {
+                RedisModule_ReplyWithError(ctx, "ERR username is too long: limited to 255 characters");
+                return NULL;
+            }
+            memcpy(username, str, len);
+            username[len] = '\0';
+
+            str = RedisModule_StringPtrLen(cmd->argv[idx + 2], &len);
+            if (len > MAX_AUTH_STRING_ARG_LENGTH) {
+                RedisModule_ReplyWithError(ctx, "ERR password is too long: limited to 255 characters");
+                return NULL;
+            }
+            memcpy(password, str, len);
+            password[len] = '\0';
+            break;
+        }
     }
 
     /* 2. assert single key is empty */
@@ -441,7 +419,7 @@ static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCom
     RedisModule_StringPtrLen(cmd->argv[3], &key_len);
     if (key_len != 0) {
         RedisModule_ReplyWithError(ctx, "ERR RedisRaft doesn't support old style single key migration");
-        goto exit;
+        return NULL;
     }
 
     /* find "keys" for parsing out keys */
@@ -459,7 +437,7 @@ static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCom
 
     if (idx >= cmd->argc) {
         RedisModule_ReplyWithError(ctx, "ERR Didn't provide any keys to migrate");
-        goto exit;
+        return NULL;
     }
 
     RedisModuleString **keys = RedisModule_Alloc(sizeof(RedisModuleString *) * (cmd->argc - idx));
@@ -468,17 +446,15 @@ static RaftReq *cmdToMigrate(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisCom
         keys[i] = RedisModule_HoldString(ctx, cmd->argv[idx + i]);
     }
 
-    req = RaftReqInit(ctx, RR_MIGRATE_KEYS);
+    RaftReq *req = RaftReqInit(ctx, RR_MIGRATE_KEYS);
 
     /* Overwrite with new data */
     req->r.migrate_keys.num_keys = num_keys;
     req->r.migrate_keys.keys = keys;
     req->r.migrate_keys.keys_serialized = RedisModule_Calloc(num_keys, sizeof(RedisModuleString *));
-    memcpy(req->r.migrate_keys.auth_username, migrationInfo->username, MAX_AUTH_STRING_ARG_LENGTH);
-    memcpy(req->r.migrate_keys.auth_password, migrationInfo->password, MAX_AUTH_STRING_ARG_LENGTH);
+    memcpy(req->r.migrate_keys.auth_username, username, sizeof(username));
+    memcpy(req->r.migrate_keys.auth_password, password, sizeof(password));
 
-exit:
-    RedisModule_Free(migrationInfo);
     return req;
 }
 
@@ -494,7 +470,7 @@ static void handleMigrateCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedi
         return;
     }
 
-    RaftReq *req = cmdToMigrate(rr, ctx, cmd);
+    RaftReq *req = cmdToMigrate(ctx, cmd);
     if (req == NULL) {
         return;
     }
@@ -1198,8 +1174,7 @@ static int cmdRaftCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
             size_t len;
             const char *reqId = RedisModule_StringPtrLen(argv[2], &len);
             if (len != RAFT_DBID_LEN) {
-                LOG_WARNING("RAFT.CLUSTER failed; argv[2] cluster id is wrong (%ld instead of %d)", len, RAFT_DBID_LEN);
-                RedisModule_ReplyWithError(ctx, "ERR invalid cluster message (cluster id length)");
+                replyError(ctx, "ERR cluster id must be %d characters", RAFT_DBID_LEN);
                 return REDISMODULE_OK;
             }
             memcpy(cluster_id, reqId, RAFT_DBID_LEN);

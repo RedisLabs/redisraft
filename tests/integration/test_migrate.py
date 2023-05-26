@@ -684,3 +684,65 @@ def test_migrate_fail_if_not_ready(cluster):
             cluster1.kill()
         if cluster2 is not None:
             cluster2.kill()
+
+
+def test_migrate_auth(cluster_factory):
+    """
+    Test AUTH2 parameter of MIGRATE command
+    """
+
+    cluster1 = cluster_factory().create(1, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+    cluster2 = cluster_factory().create(1, raft_args={
+        'sharding': 'yes',
+        'external-sharding': 'yes'})
+
+    cluster1_dbid = cluster1.leader_node().info()["raft_dbid"]
+    cluster2_dbid = cluster2.leader_node().info()["raft_dbid"]
+
+    assert cluster1.execute('set', 'key', 'value')
+    assert cluster1.execute('set', '{key}key1', 'value1')
+
+    assert cluster1.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster2_dbid,
+        '1', '1',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        cluster1_dbid,
+        '1', '1',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        ) == b'OK'
+
+    assert cluster2.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '2',
+        cluster2_dbid,
+        '1', '1',
+        '0', '16383', SlotRangeType.IMPORTING, '123',
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        cluster1_dbid,
+        '1', '1',
+        '0', '16383', SlotRangeType.MIGRATING, '123',
+        '%s00000001' % cluster1_dbid, 'localhost:%s' % cluster1.node(1).port,
+        ) == b'OK'
+
+    cluster2.execute("ACL", "SETUSER", "user", "on", ">pass", "allcommands")
+    assert cluster1.execute("migrate", "", "", "", "", "",
+                            "AUTH2", "user", "pass",
+                            "keys", "key", "{key}key1") == b'OK'
+
+    assert cluster2.execute(
+        'RAFT.SHARDGROUP', 'REPLACE',
+        '1',
+        cluster2_dbid,
+        '1', '1',
+        '0', '16383', SlotRangeType.STABLE, "123",
+        '%s00000001' % cluster2_dbid, 'localhost:%s' % cluster2.node(1).port,
+        ) == b'OK'
+
+    assert cluster2.execute("get", "key") == b'value'
+    assert cluster2.execute("get", "{key}key1") == b'value1'
