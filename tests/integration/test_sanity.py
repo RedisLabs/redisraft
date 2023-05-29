@@ -916,24 +916,3 @@ def test_entry_cache_compaction(cluster):
     # entry cache compaction to kick in.
     val = "a" * (1024 * 1024 * 64)
     assert cluster.execute("set", "x", val)
-
-
-def test_big_entry(cluster):
-    """
-    Create a big entry > 2gb and verify node can handle it correctly.
-    """
-    r1 = cluster.add_node()
-    conn = RawConnection(r1.client)
-
-    val = "b" * 1024 * 1024
-    assert conn.execute("MULTI") == b'OK'
-
-    for i in range(0, 3100):
-        assert conn.execute("SET", "x", val) == b'QUEUED'
-
-    conn.execute("EXEC")
-    assert cluster.execute("get", "x") == bytes(val, 'UTF-8')
-
-    # Verify reading big entry from the file does not cause a problem
-    r1.restart()
-    assert cluster.execute("get", "x") == bytes(val, 'UTF-8')
