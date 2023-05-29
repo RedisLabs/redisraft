@@ -15,7 +15,7 @@
 
 static const char *METADATA_STR = "METADATA";
 static const int METADATA_VERSION = 1;
-static const int METADATA_ELEM_COUNT = 6;
+static const size_t METADATA_ELEM_COUNT = 6;
 
 static char *metadataFilename(char *buf, size_t size, const char *filename)
 {
