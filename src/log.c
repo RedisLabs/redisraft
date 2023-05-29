@@ -19,11 +19,11 @@
 #include <unistd.h>
 
 static const int ENTRY_CACHE_INIT_SIZE = 512;
-static const int ENTRY_ELEM_COUNT = 7;
+static const size_t ENTRY_ELEM_COUNT = 7;
 static const char *ENTRY_STR = "ENTRY";
 
 static const int RAFTLOG_VERSION = 1;
-static const int RAFTLOG_ELEM_COUNT = 7;
+static const size_t RAFTLOG_ELEM_COUNT = 7;
 static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
