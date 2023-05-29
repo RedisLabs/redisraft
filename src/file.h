@@ -32,7 +32,7 @@ typedef struct File {
     size_t roffset; /* Read offset relative to the head of the file. */
     char *wpos;     /* In write mode, current write position of the buffer. */
     size_t woffset; /* Write offset relative to the head of the file. */
-    char buf[4096]; /* Userspace buffer. */
+    char *buf;      /* Userspace buffer. */
 } File;
 
 void FileInit(File *file);

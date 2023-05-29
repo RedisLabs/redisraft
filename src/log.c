@@ -170,8 +170,8 @@ static int pageWriteEntry(LogPage *p, raft_entry_t *ety)
     /* crc */
     /* accumulating crc, so start with current crc */
     long crc = sc_crc32(p->current_crc, buf, len);
-    crc = sc_crc32(crc, (unsigned char *) ety->data, ety->data_len);
-    crc = sc_crc32(crc, (unsigned char *) "\r\n", 2);
+    crc = sc_crc32(crc, ety->data, ety->data_len);
+    crc = sc_crc32(crc, "\r\n", 2);
 
     /* write crc as added element */
     len = multibulkWriteLong(buf, sizeof(buf), crc);
@@ -382,8 +382,8 @@ static bool validateEntryCRC(raft_entry_t *e, long read_crc, long current_crc, l
     /* generate the entry as it should be on disk, and calculate crc */
     off = generateEntryHeader(e, buf, sizeof(buf));
     *calc_crc = sc_crc32(current_crc, buf, off);
-    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) e->data, e->data_len);
-    *calc_crc = sc_crc32(*calc_crc, (unsigned char *) "\r\n", 2);
+    *calc_crc = sc_crc32(*calc_crc, e->data, e->data_len);
+    *calc_crc = sc_crc32(*calc_crc, "\r\n", 2);
 
     if (*calc_crc != read_crc) {
         return true;

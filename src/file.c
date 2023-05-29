@@ -14,11 +14,16 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#define FILE_BUFSIZE 4096
+
 void FileInit(File *file)
 {
+    char *buf = RedisModule_Alloc(FILE_BUFSIZE);
+
     *file = (File){
         .fd = -1,
-        .wpos = file->buf,
+        .buf = buf,
+        .wpos = buf,
     };
 }
 
@@ -28,16 +33,24 @@ int FileTerm(File *file)
     int fd = file->fd;
 
     if (fd == -1) {
-        return RR_OK;
+        rc = RR_OK;
+        goto out;
     }
 
     rc = FileFlush(file);
-    file->fd = -1;
 
     if (close(fd) != 0) {
         LOG_WARNING("error, fd: %d, close(): %s", file->fd, strerror(errno));
-        return RR_ERROR;
+        rc = RR_ERROR;
+        goto out;
     }
+
+out:
+    RedisModule_Free(file->buf);
+    *file = (File){
+        .fd = -1,
+        .buf = NULL,
+    };
 
     return rc;
 }
@@ -175,7 +188,7 @@ ssize_t FileGets(File *file, void *buf, size_t cap)
             }
         }
 
-        ssize_t bytes = read(file->fd, file->buf, sizeof(file->buf));
+        ssize_t bytes = read(file->fd, file->buf, FILE_BUFSIZE);
         if (bytes <= 0) {
             return -1;
         }
@@ -215,11 +228,18 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
     /* Try to fill user buffer and file buffer in a single readv() call. */
     while (true) {
         struct iovec iov[2] = {
-            {.iov_base = dest,      .iov_len = remaining        },
-            {.iov_base = file->buf, .iov_len = sizeof(file->buf)},
+            {.iov_base = dest,      .iov_len = remaining   },
+            {.iov_base = file->buf, .iov_len = FILE_BUFSIZE},
         };
 
+        /* readv() with iov buffers larger than INT_MAX does not work on macOS.
+         * Falling back to read() on macOS to support large read operations. */
+#if defined(__APPLE__)
+        ssize_t n = MIN(INT_MAX, iov[0].iov_len);
+        ssize_t rd = read(file->fd, iov[0].iov_base, n);
+#else
         ssize_t rd = readv(file->fd, iov, 2);
+#endif
         if (rd < 0) {
             return -1;
         } else if (rd == 0) {
@@ -235,7 +255,7 @@ ssize_t FileRead(File *file, void *buf, size_t cap)
         }
 
         remaining -= rd;
-        dest += count;
+        dest += rd;
         file->roffset += rd;
     }
 }
@@ -247,7 +267,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* Clear read buffer positions as we are in write mode now. */
     file->rpos = file->rend = NULL;
 
-    size_t cap = file->buf + sizeof(file->buf) - file->wpos;
+    size_t cap = file->buf + FILE_BUFSIZE - file->wpos;
     if (cap >= len) {
         /* Data can fit into the file buffer. */
         memcpy(file->wpos, buf, len);
@@ -260,22 +280,32 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
     /* We have some data in the file buffer and need to write it first before
      * the user buffer. We'll write both buffers with a single writev() call.
      * We'll loop until all data is written in case of a partial write. */
-    struct iovec iov[2] = {
+
+#define IOV_COUNT 2
+
+    struct iovec iov[IOV_COUNT] = {
         {.iov_base = file->buf, .iov_len = file->wpos - file->buf},
         {.iov_base = buf,       .iov_len = len                   }
     };
 
     size_t remaining = iov[0].iov_len + iov[1].iov_len;
-    const int IOV_COUNT = 2;
     int current_iov = 0;
     ssize_t count;
 
     while (true) {
+        /* writev() with iov buffers larger than INT_MAX does not work on macOS.
+         * Falling back to write() on macOS to support large write operations.*/
+#if defined(__APPLE__)
+        ssize_t n = MIN(INT_MAX, iov[current_iov].iov_len);
+        count = write(file->fd, iov[current_iov].iov_base, n);
+#else
         count = writev(file->fd, &iov[current_iov], IOV_COUNT - current_iov);
+#endif
         if (count < 0) {
             /* Adjust userspace buffer if there was a partial write. */
             memmove(file->buf, iov[0].iov_base, iov[0].iov_len);
             file->wpos = file->buf + iov[0].iov_len;
+
             /* Adjust write offset if there was a partial write. */
             file->woffset += len - iov[1].iov_len;
             LOG_WARNING("error, fd:%d, writev():%s", file->fd, strerror(errno));
@@ -289,7 +319,7 @@ ssize_t FileWrite(File *file, void *buf, size_t len)
         }
 
         remaining -= count;
-        if ((size_t) count > iov[current_iov].iov_len) {
+        if ((size_t) count >= iov[current_iov].iov_len) {
             count -= (ssize_t) iov[current_iov].iov_len;
             iov[current_iov].iov_len = 0;
             current_iov++;
