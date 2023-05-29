@@ -606,8 +606,8 @@ static void test_crc32c()
     sc_crc32_init();
 
     /* CRC values are pre-computed. */
-    assert(sc_crc32(0, (uint8_t *) "", 1) == 1383945041);
-    assert(sc_crc32(0, (uint8_t *) "1", 2) == 2727214374);
+    assert(sc_crc32(0, "", 1) == 1383945041);
+    assert(sc_crc32(0, "1", 2) == 2727214374);
 }
 
 /* Loop over log file header bytes and change one byte at a time.
