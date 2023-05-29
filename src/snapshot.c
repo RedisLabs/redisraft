@@ -799,7 +799,7 @@ static void handleSnapshotResponse(redisAsyncContext *c, void *r, void *privdata
         reply->element[3]->type != REDIS_REPLY_INTEGER ||
         reply->element[4]->type != REDIS_REPLY_INTEGER ||
         reply->element[5]->type != REDIS_REPLY_INTEGER) {
-        NODE_LOG_WARNING(node, "invalid RAFT.LOADSNAPSHOT reply");
+        NODE_LOG_WARNING(node, "invalid RAFT.SNAPSHOT reply");
         return;
     }
 

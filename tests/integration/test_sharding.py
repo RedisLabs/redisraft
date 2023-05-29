@@ -219,7 +219,7 @@ def test_shard_group_validation(cluster):
     c = cluster.node(1).client
 
     # Invalid range
-    with raises(ResponseError, match='invalid'):
+    with raises(ResponseError, match='failed to parse slot range'):
         c.execute_command(
             'RAFT.SHARDGROUP', 'ADD',
             '12345678901234567890123456789012',
