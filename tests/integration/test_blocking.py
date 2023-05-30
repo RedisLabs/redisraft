@@ -414,3 +414,29 @@ def test_blocking_with_timeout_after_unblock(cluster):
         val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
         assert type(val) == list
         assert len(val) == 0
+
+
+def test_blocking_with_watch(cluster):
+    cluster.create(3)
+
+    c1 = cluster.leader_node().client.connection_pool.get_connection('c1')
+    c1.send_command('watch', 'x')
+    assert c1.read_response() == b'OK'
+    c1.send_command('blpop', 'x', 0)
+    c2 = cluster.leader_node().client.connection_pool.get_connection('c2')
+    c2.send_command('watch', 'x')
+    assert c2.read_response() == b'OK'
+    c2.send_command('blpop', 'x', 0)
+
+    cluster.leader_node().execute("lpush", "x", 1)
+    cluster.leader_node().execute("lpush", "x", 2)
+    cluster.leader_node().execute("lpush", "x", 3)
+
+    cluster.wait_for_unanimity()
+
+    assert c1.read_response() == [b'x', b'1']
+    assert c2.read_response() == [b'x', b'2']
+
+    for i in range(1, 3):
+        val = cluster.node(i).raft_debug_exec("lrange", "x", 0, -1)
+        assert val == [b'3']

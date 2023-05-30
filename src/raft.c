@@ -471,7 +471,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
          * When we have an ACL, we will have a user set on the context, so need "C"
          */
         char *resp_call_fmt;
-        if (cmds->cmd_flags & CMD_SPEC_MULTI || client_session) {
+        if (cmds->cmd_flags & CMD_SPEC_MULTI) {
             /* don't block inside a MULTI */
             resp_call_fmt = cmds->acl ? "CE0v" : "E0v";
         } else {
