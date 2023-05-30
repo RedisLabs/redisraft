@@ -331,20 +331,23 @@ bool parseInt(const char *str, char **end, int *val)
     return true;
 }
 
-bool multibulkReadLen(File *fp, char type, int *length)
+bool multibulkReadLen(File *fp, char type, size_t *length)
 {
     char *end;
     char buf[64] = {0};
+    unsigned long long n = 0;
 
     ssize_t ret = FileGets(fp, buf, sizeof(buf) - strlen("\r\n"));
     if (ret <= 0 || buf[0] != type) {
         return false;
     }
 
-    if (!parseInt(buf + 1, &end, length) ||
+    if (!parseULongLong(buf + 1, &end, &n) ||
         *end != '\r' || *(end + 1) != '\n') {
         return false;
     }
+
+    *length = (size_t) n;
 
     return true;
 }
@@ -387,15 +390,14 @@ bool multibulkReadUInt64(File *fp, unsigned long long *value)
 
 bool multibulkReadStr(File *fp, char *buf, size_t size)
 {
-    int len;
+    size_t len;
     char crlf[2];
 
-    if (!multibulkReadLen(fp, '$', &len) ||
-        len > (int) size) {
+    if (!multibulkReadLen(fp, '$', &len) || len > size) {
         return false;
     }
 
-    if (FileRead(fp, buf, len) != len ||
+    if (FileRead(fp, buf, len) != (ssize_t) len ||
         FileRead(fp, crlf, 2) != 2 ||
         crlf[0] != '\r' || crlf[1] != '\n') {
         return false;
@@ -405,9 +407,9 @@ bool multibulkReadStr(File *fp, char *buf, size_t size)
     return true;
 }
 
-int multibulkWriteLen(void *buf, size_t cap, char prefix, int len)
+int multibulkWriteLen(void *buf, size_t cap, char prefix, size_t len)
 {
-    return safesnprintf(buf, cap, "%c%d\r\n", prefix, len);
+    return safesnprintf(buf, cap, "%c%zu\r\n", prefix, len);
 }
 
 int multibulkWriteInt(void *buf, size_t cap, int val)

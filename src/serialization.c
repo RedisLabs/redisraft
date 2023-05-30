@@ -122,7 +122,8 @@ static size_t calcSerializedSize(RaftRedisCommand *cmd)
 /* Serialize a number of RaftRedisCommand into a Raft entry */
 raft_entry_t *RaftRedisCommandArraySerialize(const RaftRedisCommandArray *source)
 {
-    int n, i, j;
+    int i, j;
+    ssize_t n;
     char *p;
     size_t len, sz = 0;
 
@@ -248,7 +249,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 {
     const char *p = buf;
     size_t commands_num, val;
-    int n;
+    ssize_t n;
 
     if (target->len) {
         RaftRedisCommandArrayFree(target);
@@ -332,7 +333,7 @@ RRStatus RaftRedisCommandArrayDeserialize(RaftRedisCommandArray *target, const v
 RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t buf_size)
 {
     const char *p = buf;
-    int n;
+    ssize_t n;
 
     FreeImportKeys(target);
 
@@ -386,7 +387,7 @@ RRStatus RaftRedisDeserializeImport(ImportKeys *target, const void *buf, size_t 
 
 raft_entry_t *RaftRedisSerializeImport(const ImportKeys *import_keys)
 {
-    int n;
+    ssize_t n;
 
     size_t sz = calcIntSerializedLen(import_keys->term);
     sz += calcIntSerializedLen(import_keys->migration_session_key);
@@ -483,7 +484,7 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
     RedisModuleString **ret;
 
     const char *p = buf;
-    int n;
+    ssize_t n;
     /* Read number of keys */
     n = decodeInteger(p, buf_size, '*', num_keys);
     if (n < 0 || num_keys == 0) {
@@ -503,7 +504,7 @@ RedisModuleString **RaftRedisLockKeysDeserialize(const void *buf, size_t buf_siz
 
 raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
 {
-    int n;
+    ssize_t n;
     int err_val = error ? 1 : 0;
 
     size_t sz = calcIntSerializedLen(idx); /* idx we are timing out */
@@ -533,7 +534,7 @@ raft_entry_t *RaftRedisSerializeTimeout(raft_index_t idx, bool error)
 RRStatus RaftRedisDeserializeTimeout(const void *buf, size_t buf_size, raft_index_t *idx, bool *error)
 {
     const char *p = buf;
-    int n;
+    ssize_t n;
 
     size_t tmp;
 

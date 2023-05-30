@@ -19,11 +19,11 @@
 #include <unistd.h>
 
 static const int ENTRY_CACHE_INIT_SIZE = 512;
-static const int ENTRY_ELEM_COUNT = 7;
+static const size_t ENTRY_ELEM_COUNT = 7;
 static const char *ENTRY_STR = "ENTRY";
 
 static const int RAFTLOG_VERSION = 1;
-static const int RAFTLOG_ELEM_COUNT = 7;
+static const size_t RAFTLOG_ELEM_COUNT = 7;
 static const char *RAFTLOG_STR = "RAFTLOG";
 
 #define RAFTLOG_TRACE(fmt, ...) TRACE_MODULE(RAFTLOG, "<raftlog> " fmt, ##__VA_ARGS__)
@@ -78,7 +78,7 @@ static int pageReadHeader(LogPage *p, long *read_crc)
 {
     char str[64] = {0};
     char dbid[64] = {0};
-    int num_elements;
+    size_t num_elements;
     long version;
 
     if (FileSetReadOffset(&p->file, 0) != RR_OK) {
@@ -139,7 +139,7 @@ static size_t generateEntryHeader(raft_entry_t *ety, unsigned char *buf, size_t 
     pos += multibulkWriteUInt64(pos, end - pos, ety->session);
     pos += multibulkWriteInt(pos, end - pos, ety->type);
 
-    pos += multibulkWriteLen(pos, end - pos, '$', (int) ety->data_len);
+    pos += multibulkWriteLen(pos, end - pos, '$', ety->data_len);
 
     return pos - buf;
 }
@@ -202,7 +202,7 @@ error:
 static raft_entry_t *pageReadEntry(LogPage *p, long *read_crc)
 {
     char str[64] = {0};
-    int num_elements;
+    size_t num_elements;
 
     if (!multibulkReadLen(&p->file, '*', &num_elements) ||
         !multibulkReadStr(&p->file, str, sizeof(str))) {
@@ -217,7 +217,8 @@ static raft_entry_t *pageReadEntry(LogPage *p, long *read_crc)
     raft_term_t term;
     raft_entry_id_t id;
     raft_session_t session_id;
-    int type, length;
+    int type;
+    size_t length;
 
     /* header */
     if (!multibulkReadLong(&p->file, &term) ||
@@ -232,7 +233,7 @@ static raft_entry_t *pageReadEntry(LogPage *p, long *read_crc)
     raft_entry_t *e = raft_entry_new(length);
 
     /* data */
-    if (FileRead(&p->file, e->data, length) != length ||
+    if (FileRead(&p->file, e->data, length) != (ssize_t) length ||
         FileRead(&p->file, crlf, 2) != 2 ||
         crlf[0] != '\r' || crlf[1] != '\n') {
         goto error;
