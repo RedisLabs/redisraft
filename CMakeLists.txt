@@ -249,7 +249,7 @@ set_property(TARGET redisraft APPEND PROPERTY
 target_compile_options(redisraft PRIVATE -Wall -Werror -Wextra -Wno-unused-parameter)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(LINKER_FLAGS "-Wl,-Bsymbolic-functions")
+    set(LINKER_FLAGS "-Wl,-Bsymbolic")
 else ()
     set(LINKER_FLAGS "-Wl,-undefined -Wl,dynamic_lookup")
 endif ()
