@@ -1152,10 +1152,22 @@ int raft_recv_entry(raft_server_t *me,
                     raft_entry_req_t *ety,
                     raft_entry_resp_t *r)
 {
+    if (!raft_is_leader(me)) {
+        return RAFT_ERR_NOT_LEADER;
+    }
+
     if (raft_entry_is_voting_cfg_change(ety)) {
         /* Only one voting cfg change at a time */
         if (raft_voting_change_is_in_progress(me)) {
-            return RAFT_ERR_ONE_VOTING_CHANGE_ONLY;
+            /* On restart, if logs are not replayed yet, we don't know whether
+             * cfg change entry was applied in the previous run. Returning
+             * ONE_VOTING_CHANGE_ONLY might be confusing if there is no ongoing
+             * config change. So, we check if we've applied an entry from the
+             * current term which implicitly means we replayed previous logs.
+             * Then, returning TRYAGAIN if log replay is not completed yet. */
+            int log_replayed = (me->current_term == me->last_applied_term);
+            return log_replayed ? RAFT_ERR_ONE_VOTING_CHANGE_ONLY:
+                                  RAFT_ERR_TRYAGAIN;
         }
 
         /* Multi-threading: need to fail here because user might be
@@ -1163,10 +1175,6 @@ int raft_recv_entry(raft_server_t *me,
         if (!raft_is_apply_allowed(me)) {
             return RAFT_ERR_SNAPSHOT_IN_PROGRESS;
         }
-    }
-
-    if (!raft_is_leader(me)) {
-        return RAFT_ERR_NOT_LEADER;
     }
 
     if (raft_get_transfer_leader(me) != RAFT_NODE_ID_NONE) {

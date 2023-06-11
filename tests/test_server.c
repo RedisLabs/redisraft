@@ -5070,14 +5070,15 @@ void TestRaft_delete_configuration_change_entries(CuTest *tc)
 
     void *r = raft_new();
     raft_add_node(r, NULL, 1, 1);
-    raft_add_node(r, NULL, 2, 0);
-
     raft_set_callbacks(r, &funcs, NULL);
     raft_set_current_term(r, 1);
-    raft_set_state(r, RAFT_STATE_LEADER);
+    raft_become_leader(r);
+    raft_apply_all(r);
+
+    raft_add_node(r, NULL, 2, 0);
 
     /* If there is no entry, delete should return immediately. */
-    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 3));
 
     /* Add the non-voting node. */
     raft_entry_t *ety = __MAKE_ENTRY(1, 1, "3");
@@ -5085,7 +5086,7 @@ void TestRaft_delete_configuration_change_entries(CuTest *tc)
     CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, NULL));
 
     /* If there idx is out of bounds, delete should return immediately. */
-    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 3));
 
     /* Append a removal log entry for the non-voting node we just added. */
     ety = __MAKE_ENTRY(1, 1, "3");
@@ -5100,12 +5101,12 @@ void TestRaft_delete_configuration_change_entries(CuTest *tc)
 
     /* Add some random entries. */
     __RAFT_APPEND_ENTRIES_SEQ_ID(r, 10, 1, 1, "data");
-    CuAssertIntEquals(tc, 12, raft_get_log_count(r));
+    CuAssertIntEquals(tc, 13, raft_get_log_count(r));
 
     /* Delete the removal log entry and others after it. */
-    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 2));
+    CuAssertIntEquals(tc, 0, raft_delete_entry_from_idx(r, 3));
 
-    CuAssertIntEquals(tc, 1, raft_get_log_count(r));
+    CuAssertIntEquals(tc, 2, raft_get_log_count(r));
     CuAssertIntEquals(tc, 1, raft_node_is_active(raft_get_node(r, 3)));
     CuAssertIntEquals(tc, 0, raft_node_is_voting(raft_get_node(r, 3)));
 
@@ -5150,6 +5151,55 @@ void TestRaft_propagate_persist_metadata_failure(CuTest *tc)
     fail_sequence = 0;
     e = raft_begin_load_snapshot(r, 2, 10);
     CuAssertIntEquals(tc, e, -1);
+}
+
+void TestRaft_reject_config_change_before_log_replay(CuTest *tc)
+{
+    raft_cbs_t funcs = {
+            .get_node_id = __raft_get_node_id
+    };
+
+    raft_server_t *r = raft_new();
+    raft_set_callbacks(r, &funcs, NULL);
+    raft_add_non_voting_node(r, NULL, 1, 1);
+
+    raft_become_leader(r);
+
+    raft_entry_req_t *ety = __MAKE_ENTRY(1, 1, "1");
+    ety->type = RAFT_LOGTYPE_ADD_NODE;
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r, ety, NULL));
+    raft_periodic_internal(r, 2000);
+
+    /* To simulate restart, restore log with the first node's data.*/
+    raft_server_t *r2 = raft_new();
+    r2->log = raft_get_log(r);
+
+    raft_set_callbacks(r2, &funcs, NULL);
+    raft_add_non_voting_node(r2, NULL, 1, 1);
+
+    raft_restore_metadata(r2, 1, 0);
+    raft_restore_log(r2);
+    raft_become_leader(r2);
+
+    ety = __MAKE_ENTRY(2, 2, "2");
+    ety->type = RAFT_LOGTYPE_ADD_NODE;
+
+    /* Node has cfg change entry in the log, but it doesn't know the commit idx.
+     * As server does not know whether cfg change entry in the log was applied
+     * in the previous run, it should reply with TRYAGAIN instead of
+     * ONE_VOTING_CHANGE_ONLY which might be confusing if there is no ongoing
+     * cfg change. */
+    CuAssertIntEquals(tc, RAFT_ERR_TRYAGAIN, raft_recv_entry(r2, ety, NULL));
+
+    raft_set_commit_idx(r2, raft_get_current_idx(r2));
+    raft_apply_all(r2);
+
+    /* After log replay is completed (server applied NOOP entry of the term),
+     * multiple config change requests should be rejected with
+     * ONE_VOTING_CHANGE_ONLY. */
+    CuAssertIntEquals(tc, 0, raft_recv_entry(r2, ety, NULL));
+    CuAssertIntEquals(tc, RAFT_ERR_ONE_VOTING_CHANGE_ONLY,
+                      raft_recv_entry(r2, ety, NULL));
 }
 
 int main(void)
@@ -5309,7 +5359,7 @@ int main(void)
     SUITE_ADD_TEST(suite, TestRaft_test_metadata_on_restart);
     SUITE_ADD_TEST(suite, TestRaft_rebuild_config_after_restart);
     SUITE_ADD_TEST(suite, TestRaft_delete_configuration_change_entries);
-    SUITE_ADD_TEST(suite, TestRaft_propagate_persist_metadata_failure);
+    SUITE_ADD_TEST(suite, TestRaft_reject_config_change_before_log_replay);
     CuSuiteRun(suite);
     CuSuiteDetails(suite, output);
     printf("%s\n", output->buffer);
