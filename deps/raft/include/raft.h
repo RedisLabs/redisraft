@@ -26,6 +26,7 @@ typedef enum {
     RAFT_ERR_DONE                        = -10,
     RAFT_ERR_NOTFOUND                    = -11,
     RAFT_ERR_MISUSE                      = -12,
+    RAFT_ERR_TRYAGAIN                    = -13,
 } raft_error_e;
 
 typedef enum {
