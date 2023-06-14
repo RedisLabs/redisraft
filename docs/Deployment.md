@@ -29,13 +29,6 @@ By default, RedisRaft opts for the highest level of durability. This means calli
 
 With `fsync()` disabled, nodes can still survive a restart or a crash, but there's a greater likelihood of corruption, which would require a node to be re-added. More specifically, disabling `fsync()` limits corruption or data loss to kernel-level crash or a full system/VM crash. Data is still safe in the event of a restart or crash at the process level.
 
-### Dataset Size
-
-RedisRaft is not currently optimized for very large datasets.
-
-The process of distributing snapshots between RedisRaft nodes relies on a store-and-forward delivery of the entire dataset as a single blob, and this requires significant memory overhead.
-
-As a rule of thumb, make sure the amount of memory available for Redis is at least 3 times larger than the expected dataset size.
 
 Building
 --------
@@ -43,10 +36,11 @@ Building
 To compile the module you will need:
 * Build essentials (a compiler, GNU make, etc.)
 * CMake
-* GNU autotools (autoconf, automake, libtool).
 
 To build, simply run:
 
+    mkdir build && cd build
+    cmake ..
     make
 
 If successful, this should result in the creation of the `redisraft.so` shared library.
@@ -56,7 +50,7 @@ Cluster Setup
 
 ### Supported Redis Versions
 
-RedisRaft works only on Redis 7.0 and above.
+RedisRaft requires Redis build from 'unstable' branch. 
 
 ### Starting RedisRaft
 
@@ -91,7 +85,6 @@ RedisRaft is indirectly affected by Redis's own configuration, and there are sev
 | save                   | ""             | RedisRaft uses the RDB file as its own snapshot and manages the BGSAVE operation, so Redis needs to be configured in a way that does not interfere. |
 | dbfilename             | user defined   | You are free to configure the filename as desired. |
 | replicaof              | <none>         | RedisRaft implements its own replication mechanism; traditional Redis replication may not be enabled. |
-| requirepass            | <none>         | RedisRaft cluster nodes exchange messages on the same Redis port that the client uses; however, RedisRaft does not implement authentication. |
 | maxmemory-policy       | noeviction     | Eviction must be disabled, as it is not compatible with RedisRaft's consistency guarantees. |
 | appendonly             | no             | Append-only file should not be used. |
 | cluster-enabled        | no             | RedisRaft is not compatible with Redis Cluster. |
@@ -240,7 +233,7 @@ The address and port on which the node will be advertised. Other nodes must be a
 
 The name of the Raft log file.
 
-RedisRaft uses this as the base name of the Raft log files, and creates additional files including `<filename>.idx`, `<filename>.tmp.idx` and `<filename>.tmp`.
+RedisRaft uses this as the base name of the Raft log files, and creates additional files including `<filename>.idx`, `<filename>.tmp.idx`, `<filename>.tmp`, `<filename>.meta` and `<filename>.meta.tmp`.
 
 *Default*: `redisraft.db.`
 
@@ -248,7 +241,7 @@ RedisRaft uses this as the base name of the Raft log files, and creates addition
 
 The number of milliseconds between internal RedisRaft cluster events such as heartbeats, message retransmissions, and re-election announcements.
 
-If the `request-timeout` or `election-timeout` values must be reduced for faster failure detection, you'll also want to reduce this value as well. However, reducing this value will result with more network traffic.
+If the `request-timeout` or `election-timeout` values must be reduced for faster failure detection, you'll also want to reduce this value as well.
 
 *Default*: 100
 
@@ -313,7 +306,7 @@ If disabled, commands issued against a follower node will reply with a redirect 
 
 The maximum desired Raft log file size (in bytes). Once the file has grown beyond this size, the cluster will initiate local compaction.
 
-*Default*: 64000000 (64MB)
+*Default*: 128000000 (128MB)
 
 ### `log-max-cache-size`
 
@@ -321,7 +314,7 @@ The memory limit for the in-memory Raft log cache.
 
 RedisRaft keeps an in-memory cache of the most recent Raft log entries. Once the in-memory log cache reaches the specified limit, the cluster evicts older entries from the in-memory log (since these entries also exist in the Raft log file).
 
-*Default*: 8000000 (8MB)
+*Default*: 64000000 (64MB)
 
 ### `log-fsync`
 
@@ -379,3 +372,97 @@ In general this is useful when used with other modules that don't want some or a
 *Example*: command1,command2
 
 By default, this configuration option will be empty and no additional commands will be ignored beyond those RedisRaft is hard coded to ignore.
+
+### `loglevel`
+
+Valid values are `DEBUG`, `VERBOSE`, `NOTICE`, `WARNING`. 
+This config will set RedisRaft's loglevel only. If Redis' log level is higher 
+than RedisRaft's, then you won't see RedisRaft logs in the log output. 
+
+A good practice is setting both of them to the same value:
+
+    config set loglevel debug
+    config set raft.loglevel debug
+
+
+*Default: NOTICE*
+
+### `trace`
+
+You can get debug level logs from specific components in RedisRaft. 
+Valid values are `all`, `off`, `node`, `conn`, `raftlib`, `raftlog`, `generic`, `migration`.
+
+Trace level logs are only enabled when `loglevel` is `DEBUG`.
+For example, this is how you configure to get logs from raft library:
+
+    config set loglevel debug
+    config set raft.loglevel debug
+    config set raft.trace raftlib
+    
+
+*Default: off*
+
+### `append-req-max-count`
+
+Maximum number of append-req messages in flight between two nodes. 
+
+The leader sends entries in chunks to the followers. Followers persist entries 
+to the disk and send the response. If you increase this config, it means smaller
+chunks will be delivered with more messages. Lowering the config means larger 
+chunks will be delivered with a relatively small number of messages.
+
+This config has a great impact on the performance. You may want to experiment 
+with this on your system.
+
+*Default: 2*
+
+### `append-req-max-size`
+
+Maximum size of a single append-req message. 
+Complementary config for `append-req-max-count`, see the above documentation for it. 
+
+
+*Default: 2097152 (2MB)*
+
+
+### `snapshot-req-max-count`
+
+Maximum number of snapshot-req messages in flight between two nodes. 
+If you want to fine-tune snapshot delivery speed, you may experiment with this config.
+
+*Default: 32*
+
+### `snapshot-req-max-size`
+
+Maximum size of a single snapshot-req message. 
+If you want to fine-tune snapshot delivery speed, you may experiment with this config.
+
+*Default: 65536 (64KB)*
+
+### `scan-size`
+
+`SCAN` command is used as part of migration to fetch the key names that belong 
+to a slot. Currently, this operation might take a long time. If you are scanning 
+for thousands of keys, it might block other operations on the server. 
+This config brings a limit to this potentially time-consuming operation. 
+
+*Default: 1000*
+
+
+### `tls-enabled`
+
+See [TLS](TLS.md) for more details.
+
+*Default: no*
+
+### `cluster-user`
+
+ACL username for internode communication. 
+
+*Default: "default"*
+
+### `cluster-password`
+
+Password for internode communication. 
+
+*Default: ""*
