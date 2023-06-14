@@ -682,18 +682,27 @@ class Cluster(object):
         def _func():
             self.node(self.leader).client.execute_command(
                 'RAFT.NODE', 'REMOVE', _id)
-        try:
-            self.raft_retry(_func)
-        except redis.ResponseError as err:
-            # If we are removing the leader, leader will shut down before
-            # sending the reply. On retry, we should get
-            # "node id does not exist" reply. If we get this reply and still
-            # have '_id' in our local list, we know removal was successful.
-            # For other cases, we just propagate the exception.
-            missing_node_id = str(err).startswith("node id does not exist")
-            was_retry = missing_node_id and _id in self.nodes
-            if not was_retry:
-                raise err
+
+        while True:
+            try:
+                self.raft_retry(_func)
+            except redis.ResponseError as err:
+                # If we are removing the leader, leader will shut down before
+                # sending the reply. On retry, we might get "one voting change"
+                # reply. In that case, we should retry the operation. If we get
+                # "node id does not exist" reply and still have '_id' in our
+                # local list, we know removal was successful.
+                # For other cases, we just propagate the exception.
+                if str(err).startswith("one voting change only") or \
+                        str(err).startswith("try again"):
+                    continue
+
+                missing_node_id = str(err).startswith("node id does not exist")
+                was_retry = missing_node_id and _id in self.nodes
+                if was_retry:
+                    break
+                else:
+                    raise err
 
         self.nodes[_id].destroy()
         del self.nodes[_id]
