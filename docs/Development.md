@@ -41,18 +41,10 @@ To see a full list of custom test configuration options, use:
 
     pytest tests/integration --help
 
-### Unit Test Coverage
 
-To run unit tests and see a detailed coverage report:
+### Tests Coverage
 
-    $ make clean
-    $ make COVERAGE=1 unit-tests
-    $ make unit-lcov-report
-
-### Integration Tests Coverage
-
-To see coverage reports for the entire set of integration tests, you'll first
-need to build Redis with gcov support:
+To see coverage reports for the tests, you'll first need to build Redis with gcov support:
 
     $ cd <redis dir>
     $ make clean
@@ -61,10 +53,10 @@ need to build Redis with gcov support:
 Then execute:
 
     $ cd <redisraft dir>
-    $ make clean
-    $ COVERAGE=1 make
-    $ make integration-tests
-    $ make integration-lcov-report
+    $ mkdir build && cd build
+    $ cmake .. -DCMAKE_BUILD_TYPE=Coverage
+    $ make -j
+    $ make coverage-report
 
 ### Jepsen
 
@@ -91,16 +83,6 @@ This triggers the following series of events:
 Raft communication between cluster members is handled by `RAFT.AE` and
 `RAFT.REQUESTVOTE` commands, which are also implemented by the RedisRaft module.
 
-The module starts a background thread which handles all Raft-related tasks, such
-as:
-* Maintaining connections with all cluster members
-* Periodically sending heartbeats (leader) or initiating an election if
-  heartbeats are not seen (follower/candidate).
-* Processing committed entries (delivering to Redis in a thread-safe context)
-
-All received Raft commands are placed on a queue and handled by the Raft thread
-itself, using the blocking API and a thread-safe context.
-
 ### Node Membership
 
 When a new node starts up, it can follow one of the these flows:
@@ -108,7 +90,7 @@ When a new node starts up, it can follow one of the these flows:
 1. Start as the first node of a new cluster.
 2. Start as a new node of an existing cluster (with a new unique ID). Initially
    it will be a non-voting node, only receiving logs (or a snapshot).
-3. Start as an existing cluster node which recovers from a crash. Typically this
+3. Start as an existing cluster node which recovers from a crash. Typically, this
    is done by loading persistent data from disk.
 
 Configuration changes are propagated as special Raft log entries, as described
@@ -154,18 +136,15 @@ include information that was removed from the log during compaction.
 When the Raft modules determines it needs to perform log compaction, it does the
 following:
 
-First, a child process is forked and:
-1. Performs a Redis `SAVE` operation after modifying the `dbfilename`
-   configuration, so a temporary file is created.
-2. Iterates the Raft log and creates a new temporary Raft log with only the
-   entries that follow the snapshot.
-3. Exits and reports success to the parent.
+1. Creates another log file and from now on, starts writing new entries to this file.
+2. When all the entries in the first log file is committed, triggers the snapshot operation.
+3. Calls fork() and creates a child process. Child process calls `RedisModule_RdbSave()` 
+   to save database into a temporary RDB file.
 
 The parent detects that the child has completed and:
-1. Renames the temporary snapshot (rdb) file so it overwrites the existing one.
-2. Appends all Raft log entries that have been received since the child was
-   forked to the temporary Raft log file.
-3. Renames the temporary Raft log so it overwrites the existing one.
+1. Renames the temporary snapshot (rdb) file, so it overwrites the existing one.
+2. Deletes the first log file. 
+3. Renames the second log file as the first log file.
 
 Note that while the above is not atomic, operations are ordered such that a
 failure at any given time would not result with data loss.
@@ -173,20 +152,9 @@ failure at any given time would not result with data loss.
 #### Snapshot Delivery
 
 When a Raft follower node lags behind and requires log entries that have been
-compacted, a snapshot needs to be delivered instead:
-
-1. Leader decides it needs to send a snapshot to a remote node.
-2. Leader sends a `RAFT.LOADSNAPSHOT` command, which includes the snapshot (RDB
-   file) as well as *last-included-term* and *last-included-index*.
-3. Follower may respond in different ways:
-   * `1` indicates snapshot was successfully loaded.
-   * `0` indicates the local index already matches the required snapshot index
-     so nothing needs to be done.
-   * `-LOADING` indicates snapshot loading is already in progress.
-
-*NOTE: Because of the store-and-forward implementation in Redis, this is not
-very efficient and will fail on very large datasets. In the future this should
-be optimized*.
+compacted, a snapshot needs to be delivered instead. Leader starts sending
+`RAFT.SNAPSHOT` commands that contain a snapshot chunk. Follower persist each 
+chunk and after receiving the last part, it loads the RDB file. 
 
 
 MULTI/EXEC Support
@@ -274,15 +242,3 @@ For example:
 This sends the `SET mykey myvalue` Redis command to RedisRaft, causing it
 to execute with the strongly-consistent guarantees.
 
-TODO/Wish List
---------------
-
-- [ ] Add NO-OP log entry when starting up, to force commit index computing.
-- [ ] Latency optimizations through better concurrency (batch operations,
-      distribute entries while syncing to disk, etc.).
-- [ ] Improve debug logging (pending Redis Module API support).
-- [ ] Batch log operations (pending Raft lib support).
-- [ ] Cleaner snapshot RDB loading (pending Redis Module API support).
-- [ ] Stream snapshot data on LOAD.SNAPSHOT (pending hiredis support/RESP3 or
-  a dedicated side channel implementation).
-- [ ] Improve follower proxy performance.

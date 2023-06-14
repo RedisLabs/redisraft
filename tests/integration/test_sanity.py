@@ -906,7 +906,7 @@ def test_entry_cache_compaction(cluster):
     applied. If an entry is freed from the cache before apply, user might
     get -TIMEOUT response.
     """
-    cluster.create(3)
+    cluster.create(2)
 
     # Compaction happens in periodic callback, make it more frequent.
     cluster.config_set("raft.periodic-interval", 1)
