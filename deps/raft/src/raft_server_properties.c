@@ -161,6 +161,8 @@ const char *raft_get_error_str(int err)
             return "not found";
         case RAFT_ERR_MISUSE:
             return "misuse";
+        case RAFT_ERR_TRYAGAIN:
+            return "try again";
         default:
             return "unknown error";
     }
