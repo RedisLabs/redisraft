@@ -42,5 +42,12 @@ To run a test:
             --raft-repo https://github.com/redislabs/redisraft \
             --raft-version master
 
+## Test results
+
 The `jepsen-control` container runs a built-in web server which is exposed on
 http://localhost:8080 and can be used to look at test results.
+
+<br/><br/>
+<br/><br/>
+
+
