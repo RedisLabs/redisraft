@@ -1987,7 +1987,8 @@ void replaceShardGroups(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
             sg->local = true;
         }
 
-        RedisModule_Assert(ShardingInfoAddShardGroup(rr, sg) == RR_OK);
+        RRStatus res = ShardingInfoAddShardGroup(rr, sg);
+        RedisModule_Assert(res == RR_OK);
         payload += payload_len + 1;
     }
 
