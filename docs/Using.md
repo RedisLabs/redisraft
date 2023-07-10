@@ -63,8 +63,8 @@ The following table summarizes the supported commands along with any caveats:
 | DECRBY            | Yes       |          |
 | DEL               | Yes       |          |
 | DISCARD           | Yes       | See [2]  |
-| EVAL              | Yes       | See [2]  |
-| EVALSHA           | Yes       | See [2]  |
+| EVAL              | Yes       | See [3]  |
+| EVALSHA           | Yes       | See [3]  |
 | EXEC              | Yes       | See [2]  |
 | EXISTS            | Yes       |          |
 | EXPIRE            | Yes       | See [1]  |
