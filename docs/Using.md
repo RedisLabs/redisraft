@@ -42,8 +42,7 @@ Most Redis commands that manipulate the dataset are supported, with the
 following general exceptions:
 
 * Multiple databases (i.e. `SELECT`) are not supported.
-* Blocking commands (e.g. `BLPOP`) are not supported.
-* Publish/Subscribe and Streams are not yet supported.
+* Streams are not yet supported.
 * WATCH and UNWATCH are not currently supported.
 
 The following table summarizes the supported commands along with any caveats:
@@ -55,18 +54,18 @@ The following table summarizes the supported commands along with any caveats:
 | BITFIELD          | Yes       |          |
 | BITOP             | Yes       |          |
 | BITOPS            | Yes       |          |
-| BLPOP             | No        | See [2]  |
-| BRPOP             | No        | See [2]  |
-| BRPOPLPUSH        | No        | See [2]  |
-| BZPOPMAX          | No        | See [2]  |
-| BZPOPMIN          | No        | See [2]  |
+| BLPOP             | Yes       |          |
+| BRPOP             | Yes       |          |
+| BRPOPLPUSH        | Yes       |          |
+| BZPOPMAX          | Yes       |          |
+| BZPOPMIN          | Yes       |          |
 | DECR              | Yes       |          |
 | DECRBY            | Yes       |          |
 | DEL               | Yes       |          |
-| DISCARD           | Yes       | See [3]  |
-| EVAL              | Yes       | See [4]  |
-| EVALSHA           | Yes       | See [4]  |
-| EXEC              | Yes       | See [3]  |
+| DISCARD           | Yes       | See [2]  |
+| EVAL              | Yes       | See [3]  |
+| EVALSHA           | Yes       | See [3]  |
+| EXEC              | Yes       | See [2]  |
 | EXISTS            | Yes       |          |
 | EXPIRE            | Yes       | See [1]  |
 | EXPIREAT          | Yes       | See [1]  |
@@ -112,7 +111,7 @@ The following table summarizes the supported commands along with any caveats:
 | MGET              | Yes       |          |
 | MSET              | Yes       |          |
 | MSETNX            | Yes       |          |
-| MULTI             | Yes       | See [3]  |
+| MULTI             | Yes       | See [2]  |
 | PERSIST           | Yes       | See [1]  |
 | PEXPIRE           | Yes       | See [1]  |
 | PEXPIREAT         | Yes       | See [1]  |
@@ -131,7 +130,7 @@ The following table summarizes the supported commands along with any caveats:
 | SADD              | Yes       |          |
 | SCAN              | Yes       |          |
 | SCARD             | Yes       |          |
-| SCRIPT            | Yes       | See [4]  |
+| SCRIPT            | Yes       | See [3]  |
 | SDIFF             | Yes       |          |
 | SDIFFSTORE        | Yes       |          |
 | SET               | Yes       |          |
@@ -185,11 +184,9 @@ Notes:
 
 1. Key expiration is performed as a local operation on each cluster node. The reason for this is that expiration depends on a local clock as well as on active expiry logic; thus, volatile keys may violate consistency.
 
-2. Blocking operations are not supported.
+2. `WATCH` and `UNWATCH` are not currently supported.
 
-3. `WATCH` and `UNWATCH` are not currently supported.
-
-4. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the Lua script itself to each node, not the raw Redis commands that result from running the script.
+3. Lua scripts are supported but should be written as pure functions (i.e., as required when script replication rather than command replication is in use). This is because a RedisRaft cluster replicates the Lua script itself to each node, not the raw Redis commands that result from running the script.
 
    For example, avoid using non-deterministic commands such as `RANDOMKEY`, `SRANDMEMBER`, and `TIME`, as these will produce different values when executed on follower nodes.
 
