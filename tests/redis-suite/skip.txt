@@ -59,3 +59,11 @@ not enough good replicas
 
 -- We can't handle normal plain eval (without flags) the same way as redis aborting oom on demand
 Consistent eval error reporting
+
+
+-- These three tests were introduced by https://github.com/redis/redis/pull/12326
+-- Probably, it needs a fix to make them work when commands are executed via RM_Call()
+-- See related ticket: https://redislabs.atlassian.net/browse/RR-323
+publish to self inside multi
+publish to self inside script
+unsubscribe inside multi, and publish to self
