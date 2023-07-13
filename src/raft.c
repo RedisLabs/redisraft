@@ -448,6 +448,18 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 
+        /* Process blocked clients immediately after an RM_Call().
+         *
+         * e.g. If above RM_Call() does LPUSH to a list, normally, we can reply
+         * to a blocked client waiting on that list. Though, Redis will not
+         * serve blocked clients until the end of its event loop iteration. This
+         * is not deterministic and RedisRaft nodes might diverge. For this
+         * reason, we enforce blocking client handling after each RM_Call() to
+         * make it deterministic in the cluster.
+         */
+        int ret = RedisModule_FlushExecutionUnit(ctx, REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT);
+        RedisModule_Assert(ret == 0);
+
         if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_PROMISE) {
             /* reply to client if we didn't block */
             if (req) {
