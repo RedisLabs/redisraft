@@ -8,7 +8,15 @@ Updating LibRaft
 ----------------
 The LibRaft subtree is updated via
 
-git subtree pull --squash --prefix=deps/raft https://github.com/redislabs/raft <commit sha>
+```git subtree pull --squash --prefix=deps/raft https://github.com/redislabs/raft <commit-sha>```
+
+This operation essentially creates two commits: one commit with the new changes, and a merge commit.
+
+Updating workflow:
+- No direct changes to subtrees
+- PRs with subtree changes should be rebased and not squash merged
+- If possible, use a dedicated PR for subtree changes
+- If not possible (due to dependencies/breaking changes), make sure the non-subtree commit(s) follow the squash-merge convention and directly reference the PR in the commit message. Because the PR is not squash merged, not doing this will make it hard to track commits to PRs.
 
 Testing
 -------
