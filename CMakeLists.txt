@@ -264,6 +264,8 @@ endif ()
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
 target_include_directories(redisraft PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/common>)
+target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/>)
 # ------------------------- Library build end  ------------------------------- #
 
@@ -311,7 +313,7 @@ if (BUILD_TLS)
     target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
 endif ()
 
-target_include_directories(main PUBLIC tests deps/raft/include deps/)
+target_include_directories(main PUBLIC tests deps/raft/include deps/common deps/)
 
 add_dependencies(main info)
 add_test(NAME main COMMAND $<TARGET_FILE:main>)

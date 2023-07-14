@@ -10,6 +10,7 @@
 #include "log.h"
 
 #include "common/sc_crc32.h"
+#include "hiredis/adapters/redismoduleapi.h"
 
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -2126,7 +2127,9 @@ __attribute__((__unused__)) int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisMod
     const int MIN_SUPPORTED_REDIS_VERSION = 0x00070000;
     if (!RMAPI_FUNC_SUPPORTED(RedisModule_CallReplyPromiseAbort) ||
         !RMAPI_FUNC_SUPPORTED(RedisModule_GetServerVersion) ||
-        RedisModule_GetServerVersion() < MIN_SUPPORTED_REDIS_VERSION) {
+        RedisModule_GetServerVersion() < MIN_SUPPORTED_REDIS_VERSION ||
+        redisModuleCompatibilityCheck() != REDIS_OK) {
+
         RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
                         "RedisRaft requires Redis build from 'unstable' branch");
         return REDISMODULE_ERR;
