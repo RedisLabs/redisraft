@@ -144,6 +144,7 @@ if (BUILD_TLS)
     option(ENABLE_SSL "Building with TLS" ON)
 endif ()
 option(DISABLE_TESTS "Disable hiredis tests" ON)
+option(BUILD_SHARED_LIBS "Link hiredis static lib" OFF)
 
 # Silence hiredis warnings on MacOS
 if (APPLE)
@@ -152,15 +153,14 @@ if (APPLE)
 endif()
 
 add_subdirectory(deps/hiredis)
-set_property(TARGET hiredis_static PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET hiredis PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 if (BUILD_TLS)
-    set_property(TARGET hiredis_ssl_static PROPERTY POSITION_INDEPENDENT_CODE ON)
+    set_property(TARGET hiredis_ssl PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif ()
 
 # Disable warnings for dependencies
 set_target_properties(hiredis PROPERTIES COMPILE_FLAGS "-w")
-set_target_properties(hiredis_static PROPERTIES COMPILE_FLAGS "-w")
 # ---------------------------- hiredis-end ----------------------------------- #
 
 # ---------------------------- Dependencies End ------------------------------ #
@@ -256,13 +256,15 @@ endif ()
 
 set_property(TARGET redisraft PROPERTY LINK_FLAGS ${LINKER_FLAGS})
 
-target_link_libraries(redisraft PUBLIC raft hiredis_static m)
+target_link_libraries(redisraft PUBLIC raft hiredis m)
 if (BUILD_TLS)
-    target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
+    target_link_libraries(redisraft PUBLIC OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
 endif ()
 
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/raft/include>)
+target_include_directories(redisraft PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/common>)
 target_include_directories(redisraft PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/>)
 # ------------------------- Library build end  ------------------------------- #
@@ -306,12 +308,12 @@ add_executable(main
         tests/unit/test_util.c)
 
 target_compile_options(main PUBLIC -include unit/dut_premble.h)
-target_link_libraries(main PRIVATE raft hiredis_static Threads::Threads dl m)
+target_link_libraries(main PRIVATE raft hiredis Threads::Threads dl m)
 if (BUILD_TLS)
-    target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl_static)
+    target_link_libraries(main PRIVATE OpenSSL::SSL OpenSSL::Crypto hiredis_ssl)
 endif ()
 
-target_include_directories(main PUBLIC tests deps/raft/include deps/)
+target_include_directories(main PUBLIC tests deps/raft/include deps/common deps/)
 
 add_dependencies(main info)
 add_test(NAME main COMMAND $<TARGET_FILE:main>)

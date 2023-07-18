@@ -4,8 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "hiredis_redismodule.h"
 #include "redisraft.h"
+
+#include "hiredis/adapters/redismoduleapi.h"
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -344,7 +345,7 @@ static void handleResolved(void *arg)
     conn->state = CONN_CONNECTING;
     conn->flags &= ~CONN_TERMINATING;
 
-    redisModuleAttach(conn->rc);
+    redisModuleAttach(conn->rc, conn->rr->ctx);
     redisAsyncSetConnectCallback(conn->rc, handleConnected);
     redisAsyncSetDisconnectCallback(conn->rc, handleDisconnected);
 
