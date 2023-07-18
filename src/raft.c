@@ -314,11 +314,28 @@ static void *getClientSession(RedisRaftCtx *rr, RaftRedisCommandArray *cmds, boo
             client_session = RedisModule_Alloc(sizeof(ClientSession));
             client_session->client_id = id;
             client_session->local = local;
+            client_session->dirty = false;
+            client_session->client = RedisModule_CreateModuleClient(rr->ctx);
             RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
         }
     }
 
     return client_session;
+}
+
+static void freeClientSession(RedisRaftCtx *rr, ClientSession *client_session)
+{
+    RedisModule_FreeModuleClient(rr->ctx, client_session->client);
+    RedisModule_Free(client_session);
+}
+
+static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
+{
+    ClientSession *client_session = NULL;
+    RedisModule_DictDelC(rr->client_session_dict, &id, sizeof(id), &client_session);
+    if (client_session) {
+        freeClientSession(rr, client_session);
+    }
 }
 
 RedisModuleUser *RaftGetACLUser(RedisModuleCtx *ctx, RedisRaftCtx *rr, RaftRedisCommandArray *cmds)
@@ -359,6 +376,16 @@ void handleUnblock(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *priva
     freeBlockedCommand(bc);
 }
 
+static bool isClientSessionDirty(ClientSession *client_session)
+{
+    uint64_t flags = RedisModule_GetClientFlags(client_session->client);
+    if (client_session->dirty || flags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
+        return true;
+    }
+
+    return false;
+}
+
 /* Execute all commands in a specified RaftRedisCommandArray.
  *
  * If reply_ctx is non-NULL, replies are delivered to it.
@@ -376,6 +403,7 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     RedisModuleCallReply *reply = NULL;
     RedisModuleUser *user = NULL;
     RedisModuleCtx *ctx = req ? req->ctx : rr->ctx;
+    bool is_multi_session = false;
 
     if (cmds->acl) {
         user = RaftGetACLUser(rr->ctx, rr, cmds);
@@ -392,7 +420,6 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
     }
 
     ClientSession *client_session = getClientSession(rr, cmds, req != NULL);
-    (void) client_session; /* unused for now */
 
     if (cmds->cmd_flags & CMD_SPEC_BLOCKING) {
         replaceBlockingTimeout(cmds);
@@ -412,6 +439,16 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         *    (although no harm is done).
         */
         if (i == 0 && cmdlen == 5 && !strncasecmp(cmd, "MULTI", 5)) {
+            if (client_session) {
+                if (isClientSessionDirty(client_session)) {
+                    if (req) {
+                        RedisModule_ReplyWithNull(req->ctx);
+                    }
+                    endClientSession(rr, client_session->client_id);
+                    return NULL;
+                }
+                is_multi_session = true;
+            }
             if (req) {
                 RedisModule_ReplyWithArray(req->ctx, cmds->len - 1);
             }
@@ -442,9 +479,19 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
         }
 
         enterRedisModuleCall();
-        RedisModule_SetContextUser(ctx, user);
+        if (client_session) {
+            RedisModule_SetClientUser(client_session->client, user);
+            RedisModule_SetContextClient(ctx, client_session->client);
+        } else {
+            RedisModule_SetContextUser(ctx, user);
+        }
         reply = RedisModule_Call(ctx, cmd, resp_call_fmt, &c->argv[1], c->argc - 1);
-        RedisModule_SetContextUser(ctx, NULL);
+        if (client_session) {
+            RedisModule_SetClientUser(client_session->client, NULL);
+            RedisModule_SetContextClient(ctx, NULL);
+        } else {
+            RedisModule_SetContextUser(ctx, NULL);
+        }
         exitRedisModuleCall();
         rr->entered_eval = old_entered_eval;
 
@@ -463,6 +510,10 @@ RedisModuleCallReply *RaftExecuteCommandArray(RedisRaftCtx *rr,
             /* if we're blocking, there should only have been one command */
             RedisModule_Assert(cmds->len == 1); /* should only block when there's a single command */
         }
+    }
+
+    if (is_multi_session) {
+        endClientSession(rr, client_session->client_id);
     }
 
     /* if blocking (this won't be NULL), return it to the caller, to setup callback / saving state */
@@ -591,20 +642,6 @@ static void unlockDeleteKeys(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req
     }
 }
 
-static void freeClientSession(void *client_session)
-{
-    RedisModule_Free(client_session);
-}
-
-static void endClientSession(RedisRaftCtx *rr, unsigned long long id)
-{
-    void *client_session = NULL;
-    RedisModule_DictDelC(rr->client_session_dict, &id, sizeof(id), &client_session);
-    if (client_session) {
-        freeClientSession(client_session);
-    }
-}
-
 static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry, RaftReq *req)
 {
     RedisModule_Assert(entry->type == RAFT_LOGTYPE_END_SESSION);
@@ -613,7 +650,11 @@ static void handleEndClientSession(RedisRaftCtx *rr, raft_entry_t *entry, RaftRe
     endClientSession(rr, id);
 
     if (req) {
-        RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        if (strncmp(entry->data, SESSION_END_EXECABORT, entry->data_len) == 0) {
+            RedisModule_ReplyWithError(req->ctx, EXECABORT_ERR);
+        } else {
+            RedisModule_ReplyWithSimpleString(req->ctx, "OK");
+        }
         RaftReqFree(req);
     }
 }
@@ -626,7 +667,7 @@ void clearClientSessions(RedisRaftCtx *rr)
         if (client_session->local) {
             RedisModule_DeauthenticateAndCloseClient(rr->ctx, client_session->client_id);
         }
-        freeClientSession(client_session);
+        freeClientSession(rr, client_session);
     }
     RedisModule_DictIteratorStop(iter);
     RedisModule_FreeDict(rr->ctx, rr->client_session_dict);

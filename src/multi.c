@@ -75,7 +75,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
 
         if (multiState->error) {
             MultiStateReset(multiState);
-            RedisModule_ReplyWithError(ctx, "EXECABORT Transaction discarded because of previous errors.");
+            if (clientState->watched) {
+                RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+                appendEndClientSession(rr, req, clientState->client_id, SESSION_END_EXECABORT);
+            } else {
+                RedisModule_ReplyWithError(ctx, EXECABORT_ERR);
+            }
             return true;
         }
 
@@ -96,7 +101,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
         }
 
         MultiStateReset(multiState);
-        RedisModule_ReplyWithSimpleString(ctx, "OK");
+        if (clientState->watched) {
+            RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
+            appendEndClientSession(rr, req, clientState->client_id, SESSION_END_DISCARD);
+        } else {
+            RedisModule_ReplyWithSimpleString(ctx, "OK");
+        }
 
         return true;
     }
@@ -120,10 +130,12 @@ bool MultiHandleCommand(RedisRaftCtx *rr,
             return true;
         }
 
-        if (cmd_flags & CMD_SPEC_DONT_INTERCEPT) {
-            RedisModule_ReplyWithError(ctx, "ERR not supported by RedisRaft inside MULTI/EXEC");
-            multiState->error = true;
-            return true;
+        if (cmd_flags & CMD_SPEC_INTERCEPT_IN_MULTI) {
+            if (cmd_len == 8 && !strncasecmp(cmd_str, "SHUTDOWN", 8)) {
+                RedisModule_ReplyWithError(ctx, "ERR Command not allowed inside a transaction");
+                multiState->error = true;
+                return true;
+            }
         }
 
         if (RedisModule_GetUsedMemoryRatio() > 1.0) {

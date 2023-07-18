@@ -20,6 +20,7 @@ ClientState *ClientStateGet(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 void ClientStateAlloc(RedisRaftCtx *rr, unsigned long long client_id)
 {
     ClientState *clientState = RedisModule_Calloc(sizeof(ClientState), 1);
+    clientState->client_id = client_id;
     int ret = RedisModule_DictSetC(rr->client_state, &client_id, sizeof(client_id), clientState);
     RedisModule_Assert(ret == REDISMODULE_OK);
 }

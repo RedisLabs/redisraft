@@ -587,7 +587,9 @@ static void clientSessionRDBLoad(RedisModuleIO *rdb)
         ClientSession *client_session = RedisModule_Alloc(sizeof(ClientSession));
         unsigned long long id = RedisModule_LoadUnsigned(rdb);
         client_session->client_id = id;
+        client_session->dirty = RedisModule_LoadUnsigned(rdb);
         client_session->local = false;
+        client_session->client = RedisModule_CreateModuleClient(rr->ctx);
         RedisModule_DictSetC(rr->client_session_dict, &id, sizeof(id), client_session);
     }
 }
@@ -707,6 +709,12 @@ static void clientSessionRDBSave(RedisModuleIO *rdb)
     ClientSession *client_session;
     while (RedisModule_DictNextC(iter, NULL, (void **) &client_session) != NULL) {
         RedisModule_SaveUnsigned(rdb, client_session->client_id);
+        uint64_t flags = RedisModule_GetClientFlags(client_session->client);
+        if (flags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
+            RedisModule_SaveUnsigned(rdb, 1);
+        } else {
+            RedisModule_SaveUnsigned(rdb, 0);
+        }
     }
     RedisModule_DictIteratorStop(iter);
 }

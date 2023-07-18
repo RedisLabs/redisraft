@@ -564,7 +564,7 @@ static void handleClientCommand(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedis
     RedisModule_ReplyWithError(ctx, "ERR RedisRaft should only handle CLIENT UNBLOCK commands");
 }
 
-static void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
+void appendEndClientSession(RedisRaftCtx *rr, RaftReq *req, unsigned long long id, char *reason)
 {
     raft_entry_t *entry = raft_entry_new(strlen(reason) + 1);
     entry->type = RAFT_LOGTYPE_END_SESSION;
@@ -654,7 +654,7 @@ static bool handleUnwatch(RedisRaftCtx *rr, RedisModuleCtx *ctx, RaftRedisComman
             if (cmd_len == 7 && strncasecmp(cmd, "UNWATCH", 7) == 0) {
                 RaftReq *req = RaftReqInit(ctx, RR_END_SESSION);
                 unsigned long long id = RedisModule_GetClientId(ctx);
-                appendEndClientSession(rr, req, id, "UNWATCH");
+                appendEndClientSession(rr, req, id, SESSION_END_UNWATCH);
 
                 return true;
             }
@@ -1700,6 +1700,15 @@ static void interceptRedisCommands(RedisModuleCommandFilterCtx *filter)
     int flags = CommandSpecTableGetFlags(rr->commands_spec_table, rr->subcommand_spec_tables, cmd, subcmd);
     if (flags != -1 && (flags & CMD_SPEC_DONT_INTERCEPT))
         return;
+
+    if (flags != -1 && (flags & CMD_SPEC_INTERCEPT_IN_MULTI)) {
+        unsigned long long id = RedisModule_CommandFilterGetClientId(filter);
+        ClientState *clientState = ClientStateGetById(rr, id);
+
+        if (clientState == NULL || !clientState->multi_state.active) {
+            return;
+        }
+    }
 
     size_t len;
     const char *str = RedisModule_StringPtrLen(cmd, &len);
