@@ -61,6 +61,16 @@ static const int migration_debug_enums[] = {
 
 #define MIGRATION_CONF_COUNT (sizeof(migration_debug_enums) / sizeof(int))
 
+/* Redis 8.4's setModuleEnumConfig passes the prefixed "raft.<name>" to the
+ * callback while the bool/string/numeric setters pass the unprefixed "<name>".
+ * Normalize both forms by stripping a leading "raft." so the strcasecmp chains
+ * below work regardless. */
+static const char *stripConfPrefix(const char *name)
+{
+    const char *dot = strchr(name, '.');
+    return dot ? dot + 1 : name;
+}
+
 static const char *conf_id = "id";
 static const char *conf_addr = "addr";
 static const char *conf_periodic_interval = "periodic-interval";
@@ -326,6 +336,8 @@ static RedisModuleString *getString(const char *name, void *privdata)
     RedisRaftConfig *c = privdata;
     RedisModuleString *ret = NULL;
 
+    name = stripConfPrefix(name);
+
     if (strcasecmp(name, conf_log_filename) == 0) {
         ret = RedisModule_CreateStringPrintf(NULL, "%s", c->log_filename);
     } else if (strcasecmp(name, conf_addr) == 0) {
@@ -367,6 +379,8 @@ static int setString(const char *name,
 {
     RedisRaftCtx *rr = &redis_raft;
     RedisRaftConfig *c = privdata;
+
+    name = stripConfPrefix(name);
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
         if (!strcasecmp(name, conf_addr) ||
@@ -419,6 +433,8 @@ static int getEnum(const char *name, void *privdata)
     (void) privdata;
     RedisRaftCtx *rr = &redis_raft;
 
+    name = stripConfPrefix(name);
+
     if (strcasecmp(name, conf_loglevel) == 0) {
         return redisraft_loglevel;
     } else if (strcasecmp(name, conf_trace) == 0) {
@@ -435,6 +451,8 @@ static int setEnum(const char *name, int val, void *privdata, RedisModuleString 
     (void) err;
     (void) privdata;
     RedisRaftCtx *rr = &redis_raft;
+
+    name = stripConfPrefix(name);
 
     if (strcasecmp(name, conf_loglevel) == 0) {
         redisraft_loglevel = val;
@@ -461,6 +479,8 @@ static int setEnum(const char *name, int val, void *privdata, RedisModuleString 
 static int getBool(const char *name, void *privdata)
 {
     RedisRaftConfig *c = privdata;
+
+    name = stripConfPrefix(name);
 
     if (strcasecmp(name, conf_log_fsync) == 0) {
         return c->log_fsync;
@@ -519,6 +539,8 @@ static int setBool(const char *name, int val, void *pr, RedisModuleString **err)
     RedisRaftCtx *rr = &redis_raft;
     RedisRaftConfig *c = pr;
 
+    name = stripConfPrefix(name);
+
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
         if (!strcasecmp(name, conf_external_sharding)) {
             *err = RedisModule_CreateString(NULL, err_init, strlen(err_init));
@@ -568,6 +590,8 @@ static long long getNumeric(const char *name, void *privdata)
 {
     RedisRaftConfig *c = privdata;
 
+    name = stripConfPrefix(name);
+
     if (strcasecmp(name, conf_id) == 0) {
         return c->id;
     } else if (strcasecmp(name, conf_periodic_interval) == 0) {
@@ -616,6 +640,8 @@ static int setNumeric(const char *name, long long val, void *priv,
 {
     RedisRaftCtx *rr = &redis_raft;
     RedisRaftConfig *c = priv;
+
+    name = stripConfPrefix(name);
 
     if (rr->state != REDIS_RAFT_UNINITIALIZED) {
         if (!strcasecmp(name, conf_id)) {

@@ -1965,6 +1965,7 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
     sc_crc32_init();
     sc_list_init(&rr->nodes);
     sc_list_init(&rr->connections);
+    sc_list_init(&rr->blocked_command_list);
 
     CommandSpecTableInit(rr->ctx, &rr->commands_spec_table);
     SubCommandsSpecTableInit(rr->ctx, &rr->subcommand_spec_tables);
@@ -1980,7 +1981,6 @@ RRStatus RedisRaftCtxInit(RedisRaftCtx *rr, RedisModuleCtx *ctx)
 
     /* setup blocked command state */
     rr->blocked_command_dict = RedisModule_CreateDict(rr->ctx);
-    sc_list_init(&rr->blocked_command_list);
 
     /* acl -> user dictionary */
     rr->acl_dict = RedisModule_CreateDict(rr->ctx);
