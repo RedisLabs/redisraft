@@ -5,4 +5,6 @@ Table Of Contents
 * [Using RedisRaft](Using.md): A developer's guide to RedisRaft.
 * [Deployment Guide](Deployment.md): How to plan, deploy, configure, and manage a RedisRaft cluster.
 * [Sharding](Sharding.md): Sharding support for RedisRaft.
+* [Roadmap](Roadmap.md): Prioritized missing and incomplete features by user impact.
+* [WATCH / UNWATCH Design](Watch.md): Design for optimistic transaction support.
 * [Developing RedisRaft](Development.md): More information about the design and implementation of the RedisRaft module.
